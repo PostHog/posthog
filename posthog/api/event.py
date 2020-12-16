@@ -261,7 +261,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if filter.distinct_id:
             result = self._filter_sessions_by_distinct_id(filter.distinct_id, result)
 
-        if filter.session_type is None:
+        if filter.session is None:
             offset = filter.offset + limit - 1
             if len(result["result"]) > SESSIONS_LIST_DEFAULT_LIMIT:
                 result["result"].pop()

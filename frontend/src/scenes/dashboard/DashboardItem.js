@@ -1,7 +1,7 @@
 import './DashboardItems.scss'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
-import { Dropdown, Menu, Tooltip, Alert, Button } from 'antd'
+import { Dropdown, Menu, Tooltip, Alert, Button, Skeleton } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
@@ -26,6 +26,7 @@ import {
     DeliveredProcedureOutlined,
     ReloadOutlined,
     BarChartOutlined,
+    SaveOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
@@ -34,9 +35,12 @@ import moment from 'moment'
 import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { dashboardsModel } from '~/models'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
+import SaveModal from 'scenes/insights/SaveModal'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
-const typeMap = {
+export const displayMap = {
     ActionsLineGraph: {
         className: 'graph',
         element: ActionsLineGraph,
@@ -118,29 +122,48 @@ const typeMap = {
     },
 }
 
+export const logicFromInsight = (insight, logicProps) => {
+    if (insight === ViewType.FUNNELS) {
+        return funnelVizLogic(logicProps)
+    } else if (insight === ViewType.RETENTION) {
+        return retentionTableLogic(logicProps)
+    } else if (insight === ViewType.PATHS) {
+        return pathsLogic(logicProps)
+    } else {
+        return trendsLogic(logicProps)
+    }
+}
+
 export function DashboardItem({
     item,
     dashboardId,
     updateItemColor,
     loadDashboardItems,
-    renameDashboardItem,
-    duplicateDashboardItem,
     isDraggingRef,
-    dashboards,
     inSharedMode,
     enableWobblyDragging,
     index,
     layout,
     onRefresh,
+    footer,
+    onClick,
+    preventLoading,
+    moveDashboardItem,
+    saveDashboardItem,
+    duplicateDashboardItem,
 }) {
     const [initialLoaded, setInitialLoaded] = useState(false)
+    const [showSaveModal, setShowSaveModal] = useState(false)
+
     const _type = item.filters.insight === ViewType.RETENTION ? 'RetentionContainer' : item.filters.display
-    const className = typeMap[_type].className
-    const Element = typeMap[_type].element
-    const Icon = typeMap[_type].icon
-    const viewText = typeMap[_type].viewText
-    const link = typeMap[_type].link(item)
+    const className = displayMap[_type].className
+    const Element = displayMap[_type].element
+    const Icon = displayMap[_type].icon
+    const viewText = displayMap[_type].viewText
+    const link = displayMap[_type].link(item)
     const color = item.color || 'white'
+    const { dashboards } = useValues(dashboardsModel)
+    const { renameDashboardItem } = useActions(dashboardItemsModel)
     const otherDashboards = dashboards.filter((d) => d.id !== dashboardId)
 
     const longPressProps = useLongPress(enableWobblyDragging, {
@@ -155,23 +178,11 @@ export function DashboardItem({
         dashboardItemId: item.id,
         filters: filters,
         cachedResults: item.result,
-        funnelId: item.funnel || item.filters.funnel_id,
+        preventLoading,
     }
 
-    const determineLogic = () => {
-        if (className === 'funnel') {
-            return funnelVizLogic(logicProps)
-        } else if (className === 'retention') {
-            return retentionTableLogic(logicProps)
-        } else if (className === 'paths') {
-            return pathsLogic(logicProps)
-        } else {
-            return trendsLogic(logicProps)
-        }
-    }
-
-    const { loadResults } = useActions(determineLogic())
-    const { resultsLoading } = useValues(determineLogic())
+    const { loadResults } = useActions(logicFromInsight(item.filters.insight, logicProps))
+    const { results, resultsLoading } = useValues(logicFromInsight(item.filters.insight, logicProps))
     const previousLoading = usePrevious(resultsLoading)
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
@@ -179,14 +190,16 @@ export function DashboardItem({
         if (previousLoading && !resultsLoading && !initialLoaded) {
             setInitialLoaded(true)
         } else if (previousLoading && !resultsLoading && initialLoaded) {
-            onRefresh()
+            onRefresh && onRefresh()
         }
     }, [resultsLoading])
 
     return (
         <div
             key={item.id}
-            className={`dashboard-item ${item.color || 'white'} di-width-${layout?.w || 0} di-height-${layout?.h || 0}`}
+            className={`dashboard-item ${item.color || 'white'} di-width-${layout?.w || 0} di-height-${
+                layout?.h || 0
+            } ph-no-capture`}
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
         >
@@ -196,7 +209,7 @@ export function DashboardItem({
                 </div>
             )}
             <div className={`dashboard-item-container ${className}`}>
-                <div className="dashboard-item-header" style={{ cursor: inSharedMode ? 'auto' : 'move' }}>
+                <div className="dashboard-item-header" style={{ cursor: inSharedMode ? 'inherit' : 'move' }}>
                     <div className="dashboard-item-title" data-attr="dashboard-item-title">
                         {inSharedMode ? (
                             item.name
@@ -207,18 +220,49 @@ export function DashboardItem({
                                 title={item.name}
                                 preventClick
                                 onClick={() => {
-                                    if (!isDraggingRef.current) {
+                                    if (!isDraggingRef?.current) {
                                         router.actions.push(link)
                                     }
                                 }}
                                 style={{ fontSize: 16, fontWeight: '500' }}
                             >
-                                {item.name}
+                                {item.name || 'Unsaved query'}
                             </Link>
                         )}
                     </div>
                     {!inSharedMode && (
                         <div className="dashboard-item-settings">
+                            {saveDashboardItem &&
+                                (!item.saved && item.dashboard ? (
+                                    <Link to={'/dashboard/' + item.dashboard}>
+                                        <small>dashboard</small>
+                                    </Link>
+                                ) : (
+                                    <Tooltip title="Save insight">
+                                        <SaveOutlined
+                                            style={{
+                                                cursor: 'pointer',
+                                                marginTop: -3,
+                                                ...(item.saved
+                                                    ? {
+                                                          background: 'var(--primary)',
+                                                          color: 'white',
+                                                      }
+                                                    : {}),
+                                            }}
+                                            onClick={() => {
+                                                if (item.saved) {
+                                                    return saveDashboardItem({ ...item, saved: false })
+                                                }
+                                                if (item.name) {
+                                                    // If item already has a name we don't have to ask for it again
+                                                    return saveDashboardItem({ ...item, saved: true })
+                                                }
+                                                setShowSaveModal(true)
+                                            }}
+                                        />
+                                    </Tooltip>
+                                ))}
                             <Tooltip
                                 title={
                                     <i>
@@ -247,43 +291,48 @@ export function DashboardItem({
                                         <Menu.Item
                                             data-attr={'dashboard-item-' + index + '-dropdown-rename'}
                                             icon={<EditOutlined />}
-                                            onClick={() => renameDashboardItem(item.id)}
+                                            onClick={() => renameDashboardItem(item)}
                                         >
                                             Rename
                                         </Menu.Item>
-                                        <Menu.SubMenu
-                                            data-attr={'dashboard-item-' + index + '-dropdown-color'}
-                                            key="colors"
-                                            icon={<BgColorsOutlined />}
-                                            title="Set Color"
-                                        >
-                                            {Object.entries(dashboardColorNames).map(
-                                                ([className, color], colorIndex) => (
-                                                    <Menu.Item
-                                                        key={className}
-                                                        onClick={() => updateItemColor(item.id, className)}
-                                                        data-attr={
-                                                            'dashboard-item-' + index + '-dropdown-color-' + colorIndex
-                                                        }
-                                                    >
-                                                        <span
-                                                            style={{
-                                                                background: dashboardColors[className],
-                                                                border: '1px solid #eee',
-                                                                display: 'inline-block',
-                                                                width: 13,
-                                                                height: 13,
-                                                                verticalAlign: 'middle',
-                                                                marginRight: 5,
-                                                                marginBottom: 1,
-                                                            }}
-                                                        />
-                                                        {color}
-                                                    </Menu.Item>
-                                                )
-                                            )}
-                                        </Menu.SubMenu>
-                                        {otherDashboards.length > 0 ? (
+                                        {updateItemColor && (
+                                            <Menu.SubMenu
+                                                data-attr={'dashboard-item-' + index + '-dropdown-color'}
+                                                key="colors"
+                                                icon={<BgColorsOutlined />}
+                                                title="Set Color"
+                                            >
+                                                {Object.entries(dashboardColorNames).map(
+                                                    ([className, color], colorIndex) => (
+                                                        <Menu.Item
+                                                            key={className}
+                                                            onClick={() => updateItemColor(item.id, className)}
+                                                            data-attr={
+                                                                'dashboard-item-' +
+                                                                index +
+                                                                '-dropdown-color-' +
+                                                                colorIndex
+                                                            }
+                                                        >
+                                                            <span
+                                                                style={{
+                                                                    background: dashboardColors[className],
+                                                                    border: '1px solid #eee',
+                                                                    display: 'inline-block',
+                                                                    width: 13,
+                                                                    height: 13,
+                                                                    verticalAlign: 'middle',
+                                                                    marginRight: 5,
+                                                                    marginBottom: 1,
+                                                                }}
+                                                            />
+                                                            {color}
+                                                        </Menu.Item>
+                                                    )
+                                                )}
+                                            </Menu.SubMenu>
+                                        )}
+                                        {duplicateDashboardItem && otherDashboards.length > 0 && (
                                             <Menu.SubMenu
                                                 data-attr={'dashboard-item-' + index + '-dropdown-copy'}
                                                 key="copy"
@@ -296,7 +345,7 @@ export function DashboardItem({
                                                             'dashboard-item-' + index + '-dropdown-copy-' + copyIndex
                                                         }
                                                         key={dashboard.id}
-                                                        onClick={() => duplicateDashboardItem(item.id, dashboard.id)}
+                                                        onClick={() => duplicateDashboardItem(item, dashboard.id)}
                                                     >
                                                         <span
                                                             style={{
@@ -314,43 +363,47 @@ export function DashboardItem({
                                                     </Menu.Item>
                                                 ))}
                                             </Menu.SubMenu>
-                                        ) : null}
-                                        {otherDashboards.length > 0 ? (
-                                            <Menu.SubMenu
-                                                data-attr={'dashboard-item-' + index + '-dropdown-move'}
-                                                key="move"
-                                                icon={<DeliveredProcedureOutlined />}
-                                                title="Move to..."
+                                        )}
+                                        {moveDashboardItem &&
+                                            (otherDashboards.length > 0 ? (
+                                                <Menu.SubMenu
+                                                    data-attr={'dashboard-item-' + index + '-dropdown-move'}
+                                                    key="move"
+                                                    icon={<DeliveredProcedureOutlined />}
+                                                    title="Move to..."
+                                                >
+                                                    {otherDashboards.map((dashboard, moveIndex) => (
+                                                        <Menu.Item
+                                                            data-attr={
+                                                                'dashboard-item-' +
+                                                                index +
+                                                                '-dropdown-move-' +
+                                                                moveIndex
+                                                            }
+                                                            key={dashboard.id}
+                                                            onClick={() => moveDashboardItem(item, dashboard.id)}
+                                                        >
+                                                            {dashboard.name}
+                                                        </Menu.Item>
+                                                    ))}
+                                                </Menu.SubMenu>
+                                            ) : null)}
+                                        {duplicateDashboardItem && (
+                                            <Menu.Item
+                                                data-attr={'dashboard-item-' + index + '-dropdown-duplicate'}
+                                                icon={<BlockOutlined />}
+                                                onClick={() => duplicateDashboardItem(item)}
                                             >
-                                                {otherDashboards.map((dashboard, moveIndex) => (
-                                                    <Menu.Item
-                                                        data-attr={
-                                                            'dashboard-item-' + index + '-dropdown-move-' + moveIndex
-                                                        }
-                                                        key={dashboard.id}
-                                                        onClick={() =>
-                                                            duplicateDashboardItem(item.id, dashboard.id, true)
-                                                        }
-                                                    >
-                                                        {dashboard.name}
-                                                    </Menu.Item>
-                                                ))}
-                                            </Menu.SubMenu>
-                                        ) : null}
-                                        <Menu.Item
-                                            data-attr={'dashboard-item-' + index + '-dropdown-duplicate'}
-                                            icon={<BlockOutlined />}
-                                            onClick={() => duplicateDashboardItem(item.id)}
-                                        >
-                                            Duplicate
-                                        </Menu.Item>
+                                                Duplicate
+                                            </Menu.Item>
+                                        )}
                                         <Menu.Item
                                             data-attr={'dashboard-item-' + index + '-dropdown-delete'}
                                             icon={<DeleteOutlined />}
                                             onClick={() =>
                                                 deleteWithUndo({
                                                     object: item,
-                                                    endpoint: 'dashboard_item',
+                                                    endpoint: 'insight',
                                                     callback: loadDashboardItems,
                                                 })
                                             }
@@ -375,23 +428,43 @@ export function DashboardItem({
                     <div style={{ padding: '0 16px', marginBottom: 16, fontSize: 12 }}>{item.description}</div>
                 )}
 
-                <div className="dashboard-item-content">
+                <div className="dashboard-item-content" onClickCapture={onClick}>
                     {Element ? (
                         <Alert.ErrorBoundary message="Error rendering graph!">
-                            <Element
-                                dashboardItemId={item.id}
-                                filters={filters}
-                                color={color}
-                                theme={color === 'white' ? 'light' : 'dark'}
-                                inSharedMode={inSharedMode}
-                                funnelId={item.funnel}
-                            />
+                            {(inSharedMode || preventLoading) && !results && !item.result ? (
+                                <Skeleton />
+                            ) : (
+                                <Element
+                                    dashboardItemId={item.id}
+                                    filters={filters}
+                                    color={color}
+                                    theme={color === 'white' ? 'light' : 'dark'}
+                                    inSharedMode={inSharedMode}
+                                />
+                            )}
                         </Alert.ErrorBoundary>
                     ) : (
                         <Loading />
                     )}
                 </div>
+                {footer}
             </div>
+            {showSaveModal && (
+                <SaveModal
+                    title="Save Chart"
+                    prompt="Name of Chart"
+                    textLabel="Name"
+                    textPlaceholder="DAUs Last 14 days"
+                    visible={true}
+                    onCancel={() => {
+                        setShowSaveModal(false)
+                    }}
+                    onSubmit={(text) => {
+                        saveDashboardItem({ ...item, name: text, saved: true })
+                        setShowSaveModal(false)
+                    }}
+                />
+            )}
         </div>
     )
 }

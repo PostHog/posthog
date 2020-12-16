@@ -138,7 +138,7 @@ export const trendsLogic = kea({
         results: {
             __default: [],
             loadResults: async (refresh = false, breakpoint) => {
-                if (values.results.length === 0 && props.cachedResults) {
+                if (props.cachedResults && !refresh) {
                     return props.cachedResults
                 }
                 let response
@@ -223,7 +223,7 @@ export const trendsLogic = kea({
         peopleDay: [() => [selectors.filters], (filters) => filters.people_day],
     }),
 
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions, values, props }) => ({
         [actions.setDisplay]: async ({ display }) => {
             actions.setFilters({ display })
         },
@@ -276,10 +276,12 @@ export const trendsLogic = kea({
             actions.setAllFilters(values.filters)
         },
         loadResultsSuccess: () => {
-            actions.createInsight({
-                ...values.filters,
-                insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
-            })
+            if (!props.dashboardItemId) {
+                actions.createInsight({
+                    ...values.filters,
+                    insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
+                })
+            }
         },
     }),
 

@@ -52,9 +52,7 @@ export function RetentionTab(): JSX.Element {
                 <Tooltip
                     key="2"
                     placement="right"
-                    title={`Event that determines which users are considered to form each cohort (i.e. performed event in ${
-                        dateOptions[filters.period]
-                    } 0)`}
+                    title={`Event that determines which users are considered to form each cohort (i.e. performed event in ${filters.period} 0)`}
                 >
                     <InfoCircleOutlined className="info-indicator" />
                 </Tooltip>
@@ -142,12 +140,12 @@ export function RetentionTab(): JSX.Element {
                 <h4 className="secondary">Current Date</h4>
                 <div>
                     <DatePicker
-                        showTime={filters.period === 'h'}
+                        showTime={filters.period === 'Hour'}
                         use12Hours
-                        format={filters.period === 'h' ? 'YYYY-MM-DD, h a' : 'YYYY-MM-DD'}
+                        format={filters.period === 'Hour' ? 'YYYY-MM-DD, h a' : 'YYYY-MM-DD'}
                         className="mb-05"
                         value={filters.date_to && moment(filters.date_to)}
-                        onChange={(date_to): void => setFilters({ date_to: moment(date_to).toISOString() })}
+                        onChange={(date_to): void => setFilters({ date_to: date_to && moment(date_to).toISOString() })}
                         allowClear={false}
                     />
                     {filters.date_to && (
@@ -163,13 +161,13 @@ export function RetentionTab(): JSX.Element {
                 <h4 className="secondary">Period</h4>
                 <div>
                     <Select
-                        value={dateOptions[period]}
+                        value={period}
                         onChange={(value): void => setFilters({ period: value })}
                         dropdownMatchSelectWidth={false}
                     >
-                        {Object.entries(dateOptions).map(([key, value]) => (
-                            <Select.Option key={key} value={key}>
-                                {value}
+                        {dateOptions.map((period) => (
+                            <Select.Option key={period} value={period}>
+                                {period}
                             </Select.Option>
                         ))}
                     </Select>

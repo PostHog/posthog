@@ -7,22 +7,19 @@ import { toast } from 'react-toastify'
 import { Link } from 'lib/components/Link'
 import React from 'react'
 import { isAndroidOrIOS, clearDOMTextSelection } from 'lib/utils'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { ViewType } from 'scenes/insights/insightLogic'
 
 export const dashboardLogic = kea({
-    connect: [dashboardsModel],
+    connect: [dashboardsModel, dashboardItemsModel],
 
     key: (props) => props.id,
 
     actions: () => ({
         addNewDashboard: true,
         renameDashboard: true,
-        renameDashboardItem: (id) => ({ id }),
-        renameDashboardItemSuccess: (item) => ({ item }),
         setIsSharedDashboard: (id, isShared) => ({ id, isShared }),
-        duplicateDashboardItem: (id, dashboardId, move = false) => ({ id, dashboardId, move }),
-        duplicateDashboardItemSuccess: (item) => ({ item }),
         updateLayouts: (layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth, columns) => ({ containerWidth, columns }),
         saveLayouts: true,
@@ -57,7 +54,7 @@ export const dashboardLogic = kea({
 
     reducers: ({ props }) => ({
         allItems: {
-            renameDashboardItemSuccess: (state, { item }) => {
+            [dashboardItemsModel.actions.renameDashboardItemSuccess]: (state, { item }) => {
                 return { ...state, items: state.items.map((i) => (i.id === item.id ? item : i)) }
             },
             updateLayouts: (state, { layouts }) => {
@@ -83,7 +80,7 @@ export const dashboardLogic = kea({
             updateItemColor: (state, { id, color }) => {
                 return { ...state, items: state.items.map((i) => (i.id === id ? { ...i, color } : i)) }
             },
-            duplicateDashboardItemSuccess: (state, { item }) => {
+            [dashboardItemsModel.actions.duplicateDashboardItemSuccess]: (state, { item }) => {
                 return { ...state, items: item.dashboard === parseInt(props.id) ? [...state.items, item] : state.items }
             },
         },
@@ -259,19 +256,6 @@ export const dashboardLogic = kea({
             })
         },
 
-        renameDashboardItem: async ({ id }) => {
-            prompt({ key: `rename-dashboard-item-${id}` }).actions.prompt({
-                title: 'Rename panel',
-                placeholder: 'Please enter the new name',
-                value: values.items.find((item) => item.id === id)?.name,
-                error: 'You must enter name',
-                success: async (name) => {
-                    const item = await api.update(`api/dashboard_item/${id}`, { name })
-                    actions.renameDashboardItemSuccess(item)
-                },
-            })
-        },
-
         updateLayouts: () => {
             actions.saveLayouts()
         },
@@ -291,71 +275,7 @@ export const dashboardLogic = kea({
         },
 
         updateItemColor: ({ id, color }) => {
-            api.update(`api/dashboard_item/${id}`, { color })
-        },
-
-        duplicateDashboardItem: async ({ id, dashboardId, move }) => {
-            const item = values.items.find((item) => item.id === id)
-            if (!item) {
-                return
-            }
-
-            const layouts = {}
-            Object.entries(item.layouts || {}).forEach(([size, { w, h }]) => {
-                layouts[size] = { w, h }
-            })
-
-            const { id: _discard, ...rest } = item // eslint-disable-line
-            const newItem = dashboardId ? { ...rest, dashboard: dashboardId, layouts } : { ...rest, layouts }
-            const addedItem = await api.create('api/dashboard_item', newItem)
-
-            const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
-
-            if (move) {
-                const deletedItem = await api.update(`api/dashboard_item/${item.id}`, {
-                    deleted: true,
-                })
-                dashboardsModel.actions.updateDashboardItem(deletedItem)
-
-                const toastId = toast(
-                    <div data-attr="success-toast">
-                        Panel moved to{' '}
-                        <Link to={`/dashboard/${dashboard.id}`} onClick={() => toast.dismiss(toastId)}>
-                            {dashboard.name || 'Untitled'}
-                        </Link>
-                        .&nbsp;
-                        <Link
-                            onClick={async () => {
-                                toast.dismiss(toastId)
-                                const [restoredItem, deletedItem] = await Promise.all([
-                                    api.update(`api/dashboard_item/${item.id}`, { deleted: false }),
-                                    api.update(`api/dashboard_item/${addedItem.id}`, {
-                                        deleted: true,
-                                    }),
-                                ])
-                                toast(<div>Panel move reverted!</div>)
-                                dashboardsModel.actions.updateDashboardItem(restoredItem)
-                                dashboardsModel.actions.updateDashboardItem(deletedItem)
-                            }}
-                        >
-                            Undo
-                        </Link>
-                    </div>
-                )
-            } else if (!move && dashboardId) {
-                // copy
-                const toastId = toast(
-                    <div data-attr="success-toast">
-                        Panel copied to{' '}
-                        <Link to={`/dashboard/${dashboard.id}`} onClick={() => toast.dismiss(toastId)}>
-                            {dashboard.name || 'Untitled'}
-                        </Link>
-                    </div>
-                )
-            } else {
-                actions.duplicateDashboardItemSuccess(addedItem)
-                toast(<div data-attr="success-toast">Panel duplicated!</div>)
-            }
+            api.update(`api/insight/${id}`, { color })
         },
 
         enableWobblyDragging: () => {
@@ -393,7 +313,7 @@ export const dashboardLogic = kea({
             }
         },
         refreshDashboardItem: async ({ id }) => {
-            const dashboardItem = await api.get(`api/dashboard_item/${id}`)
+            const dashboardItem = await api.get(`api/insight/${id}`)
             dashboardsModel.actions.updateDashboardItem(dashboardItem)
             if (dashboardItem.refreshing) {
                 setTimeout(() => actions.refreshDashboardItem(id), 1000)

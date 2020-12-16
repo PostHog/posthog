@@ -30,6 +30,7 @@ class RetentionFilter(Filter):
     total_increment: Union[timedelta, relativedelta] = timedelta(days=total_intervals)
     selected_interval: int = 0
     date_from: datetime.datetime
+    _date_to_is_default: bool = True
 
     def __init__(self, data: Dict[str, Any] = {}, request: Optional[HttpRequest] = None, **kwargs) -> None:
         data["insight"] = INSIGHT_RETENTION
@@ -49,6 +50,9 @@ class RetentionFilter(Filter):
         if not self.date_from:
             self._date_from = "-11d"
 
+        if self._date_to:
+            self._date_to_is_default = False
+
         tdelta, t1 = RetentionFilter.determine_time_delta(self.total_intervals, self.period)
         self._date_to = (self.date_to + t1).isoformat()
 
@@ -66,6 +70,13 @@ class RetentionFilter(Filter):
         self._date_from = date_from.isoformat()
         self._date_to = date_to.isoformat()
         self.period_increment = t1
+
+    def to_dict(self) -> Dict[str, Any]:
+        dict = super().to_dict()
+        dict.pop("date_from", None)
+        if self._date_to_is_default:
+            dict.pop("date_to", None)
+        return dict
 
     @property
     def returning_entity(self) -> Entity:

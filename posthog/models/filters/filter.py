@@ -1,7 +1,7 @@
 import datetime
 import json
 from distutils.util import strtobool
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q
@@ -20,6 +20,8 @@ from posthog.constants import (
     ENTITIES,
     EVENTS,
     INSIGHT,
+    INSIGHT_RETENTION,
+    INSIGHT_SESSIONS,
     INSIGHT_TO_DISPLAY,
     INSIGHT_TRENDS,
     INTERVAL,
@@ -59,7 +61,7 @@ class Filter(PropertyMixin):
     _compare: Optional[Union[bool, str]] = None
     funnel_id: Optional[int] = None
     insight: str
-    session_type: Optional[str] = None
+    session: Optional[str] = None
     path_type: Optional[str] = None
     start_point: Optional[str] = None
     _offset: Optional[str] = None
@@ -88,7 +90,7 @@ class Filter(PropertyMixin):
         self.breakdown_value = data.get(BREAKDOWN_VALUE)
         self._compare = data.get(COMPARE, "false")
         self.insight = data.get(INSIGHT, INSIGHT_TRENDS)
-        self.session_type = data.get(SESSION)
+        self.session = data.get(SESSION)
         self.path_type = data.get(PATH_TYPE)
         self.start_point = data.get(START_POINT)
         self._offset = data.get(OFFSET)
@@ -115,32 +117,50 @@ class Filter(PropertyMixin):
 
     def _parse_target_entity(self, target_entity_data) -> Optional[Entity]:
         if target_entity_data:
-            data = json.loads(target_entity_data)
+            data = target_entity_data if isinstance(target_entity_data, dict) else json.loads(target_entity_data)
             return Entity({"id": data["id"], "type": data["type"]})
         return None
 
     def to_dict(self) -> Dict[str, Any]:
-        full_dict = {
-            DATE_FROM: self._date_from,
-            DATE_TO: self._date_to,
-            PROPERTIES: [prop.to_dict() for prop in self.properties],
-            INTERVAL: self.interval,
-            EVENTS: [entity.to_dict() for entity in self.events],
-            ACTIONS: [entity.to_dict() for entity in self.actions],
-            DISPLAY: self.display,
-            SELECTOR: self.selector,
-            SHOWN_AS: self.shown_as,
-            BREAKDOWN: self.breakdown,
-            BREAKDOWN_TYPE: self.breakdown_type,
-            COMPARE: self.compare,
-            INSIGHT: self.insight,
-            SESSION: self.session_type,
-        }
-        return {
-            key: value
-            for key, value in full_dict.items()
-            if (isinstance(value, list) and len(value) > 0) or (not isinstance(value, list) and value)
-        }
+        ret = {}
+
+        for key in dir(self):
+            value = getattr(self, key)
+            if key in [
+                "entities",
+                "determine_time_delta",
+                "date_filter_Q",
+                "custom_date_filter_Q",
+                "properties_to_Q",
+                "toJSON",
+                "to_dict",
+            ] or key.startswith("_"):
+                continue
+            if isinstance(value, list) and len(value) == 0:
+                continue
+            if not isinstance(value, list) and not value:
+                continue
+            if key == "date_from" and not self._date_from:
+                continue
+            if key == "date_to" and not self._date_to:
+                continue
+            if isinstance(value, datetime.datetime):
+                value = value.isoformat()
+            if not isinstance(value, (list, bool, int, float, str)):
+                # Try to see if this object is json serializable
+                try:
+                    json.dumps(value)
+                except:
+                    continue
+            if isinstance(value, Entity):
+                value = value.to_dict()
+            if key == "properties" and isinstance(value[0], Property):
+                value = [prop.to_dict() for prop in value]
+            if isinstance(value, list) and isinstance(value[0], Entity):
+                value = [entity.to_dict() for entity in value]
+            ret[key] = value
+
+        return ret
 
     @property
     def compare(self) -> bool:
@@ -208,3 +228,20 @@ class Filter(PropertyMixin):
 
     def toJSON(self):
         return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)
+
+
+def get_filter(team, data: dict = {}, request: Optional[HttpRequest] = None) -> Filter:
+    from posthog.models.filters.retention_filter import RetentionFilter
+    from posthog.models.filters.sessions_filter import SessionsFilter
+    from posthog.models.filters.stickiness_filter import StickinessFilter
+
+    insight = data.get("insight")
+    if not insight and request:
+        insight = request.GET.get("insight")
+    if insight == INSIGHT_RETENTION:
+        return RetentionFilter(data={**data, "insight": INSIGHT_RETENTION}, request=request)
+    elif insight == INSIGHT_SESSIONS:
+        return SessionsFilter(data={**data, "insight": INSIGHT_SESSIONS}, request=request)
+    elif insight == INSIGHT_TRENDS and data.get("shown_as") == "Stickiness":
+        return StickinessFilter(data=data, request=request, team=team)
+    return Filter(data=data, request=request)
