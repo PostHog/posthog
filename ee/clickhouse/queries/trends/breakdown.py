@@ -51,7 +51,7 @@ class ClickhouseTrendsBreakdown:
         return result
 
     def _format_breakdown_query(
-        self, entity: Entity, filter: Filter, breakdown: Union[str, List], team_id: int
+        self, entity: Entity, filter: Filter, breakdown: List, team_id: int
     ) -> List[Dict[str, Any]]:
         # process params
         params: Dict[str, Any] = {"team_id": team_id}
@@ -165,7 +165,7 @@ class ClickhouseTrendsBreakdown:
 
             return parsed_results
 
-    def _get_breakdown_query(self, filter: Filter, breakdown: Union[str, List[Union[str, int]], None]):
+    def _get_breakdown_query(self, filter: Filter, breakdown: List):
 
         if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
             return BREAKDOWN_AGGREGATE_DEFAULT_SQL if "all" in breakdown else BREAKDOWN_AGGREGATE_QUERY_SQL
