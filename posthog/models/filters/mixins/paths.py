@@ -2,7 +2,7 @@ from typing import Dict, Optional, Tuple
 
 from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, PAGEVIEW_EVENT, PATH_TYPE, SCREEN_EVENT, START_POINT
 from posthog.models.filters.mixins.common import BaseParamMixin
-from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.filters.mixins.utils import cached_property, include_dict
 
 
 class PathTypeMixin(BaseParamMixin):
@@ -10,11 +10,19 @@ class PathTypeMixin(BaseParamMixin):
     def path_type(self) -> Optional[str]:
         return self._data.get(PATH_TYPE, None)
 
+    @include_dict
+    def path_type_to_dict(self):
+        return {"path_type": self.path_type} if self.path_type else {}
+
 
 class StartPointMixin(BaseParamMixin):
     @cached_property
     def start_point(self) -> Optional[str]:
         return self._data.get(START_POINT, None)
+
+    @include_dict
+    def start_point_to_dict(self):
+        return {"start_point": self.start_point} if self.start_point else {}
 
 
 class PropTypeDerivedMixin(PathTypeMixin):
