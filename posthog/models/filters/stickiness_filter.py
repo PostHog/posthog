@@ -20,10 +20,8 @@ class StickinessFilter(
     SelectedIntervalMixin,
     PropertyMixin,
     OffsetMixin,
-    IntervalMixin,
     CompareMixin,
     ShownAsMixin,
-    DateMixin,
     BaseFilter,
 ):
     get_earliest_timestamp: Callable

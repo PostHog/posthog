@@ -91,4 +91,4 @@ class PropertyMixin(BaseParamMixin):
 
     @include_dict
     def properties_to_dict(self):
-        return {"properties": [prop.to_dict() for prop in self.properties]}
+        return {"properties": [prop.to_dict() for prop in self.properties]} if self.properties else {}
