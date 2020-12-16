@@ -258,6 +258,7 @@ def aggregate_cohort_filter(
             breakdown=filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else [],
         )
     )
+    breakdown_filter: Dict[str, Union[bool, str, int]] = {}
     if filter.breakdown_type == "cohort":
         breakdown_filter = {"cohort_{}".format(breakdown_value): True}
     else:
