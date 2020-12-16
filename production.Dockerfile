@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl git build-
     && yarn --frozen-lockfile \
     && cd .. \
     && yarn cache clean \
-    && apt-get purge -y curl \
+    && apt-get purge -y curl build-essential \
     && rm -rf node_modules \
 	&& rm -rf /var/lib/apt/lists/* \
     && rm -rf frontend/dist/*.map
