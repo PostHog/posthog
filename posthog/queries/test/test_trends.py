@@ -219,6 +219,143 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
             self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
+        def test_trends_breakdown_single_aggregate_cohorts(self):
+            person_1 = person_factory(team_id=self.team.pk, distinct_ids=["Jane"], properties={"name": "Jane"})
+            person_2 = person_factory(team_id=self.team.pk, distinct_ids=["John"], properties={"name": "John"})
+            person_3 = person_factory(team_id=self.team.pk, distinct_ids=["Jill"], properties={"name": "Jill"})
+            cohort1 = cohort_factory(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
+            cohort2 = cohort_factory(team=self.team, name="cohort2", groups=[{"properties": {"name": "John"}}])
+            cohort3 = cohort_factory(team=self.team, name="cohort3", groups=[{"properties": {"name": "Jill"}}])
+            with freeze_time("2020-01-01 00:06:34"):
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="John",
+                    properties={"$some_property": "value", "$browser": "Chrome"},
+                )
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="John",
+                    properties={"$some_property": "value", "$browser": "Chrome"},
+                )
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="Jill",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                )
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="Jill",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                )
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="Jill",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                )
+
+            with freeze_time("2020-01-02 00:06:34"):
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="Jane",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                )
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="Jane",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                )
+            with freeze_time("2020-01-04T13:00:01Z"):
+                event_response = trends().run(
+                    Filter(
+                        data={
+                            "display": TRENDS_TABLE,
+                            "breakdown": json.dumps([cohort1.pk, cohort2.pk, cohort3.pk, "all"]),
+                            "breakdown_type": "cohort",
+                            "events": [{"id": "sign up"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            for result in event_response:
+                if result["label"] == "sign up - cohort1":
+                    self.assertEqual(result["aggregated_value"], 2)
+                elif result["label"] == "sign up - cohort2":
+                    self.assertEqual(result["aggregated_value"], 2)
+                elif result["label"] == "sign up - cohort3":
+                    self.assertEqual(result["aggregated_value"], 3)
+                else:
+                    self.assertEqual(result["aggregated_value"], 7)
+
+        def test_trends_breakdown_single_aggregate(self):
+            person = person_factory(
+                team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+            )
+            with freeze_time("2020-01-01 00:06:34"):
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$browser": "Chrome"},
+                )
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$browser": "Chrome"},
+                )
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                )
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                )
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                )
+
+            with freeze_time("2020-01-02 00:06:34"):
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                )
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                )
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                daily_response = trends().run(
+                    Filter(data={"display": TRENDS_TABLE, "breakdown": "$browser", "events": [{"id": "sign up"}],}),
+                    self.team,
+                )
+
+            for result in daily_response:
+                if result["breakdown_value"] == "Chrome":
+                    self.assertEqual(result["aggregated_value"], 2)
+                else:
+                    self.assertEqual(result["aggregated_value"], 5)
+
         def test_trends_breakdown_single_aggregate_math(self):
             person = person_factory(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
