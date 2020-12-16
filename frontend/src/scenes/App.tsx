@@ -22,6 +22,7 @@ import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { Link } from 'lib/components/Link'
 import { BackTo } from 'lib/components/BackTo'
+import { Papercups } from 'lib/components/Papercups'
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
@@ -82,10 +83,19 @@ function _App(): JSX.Element | null {
 
     const SceneComponent = loadedScenes[scene]?.component || (() => <SceneLoading />)
 
+    const basicComponents = (
+        // Components that should always be mounted
+        <>
+            {featureFlags['papercups-enabled'] && <Papercups />}
+            <Toast />
+        </>
+    )
+
     if (!user) {
         return sceneConfig.unauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <SceneComponent {...params} /> <Toast />
+                <SceneComponent {...params} />
+                {basicComponents}
             </Layout>
         ) : null
     }
@@ -95,7 +105,7 @@ function _App(): JSX.Element | null {
             <Layout style={{ minHeight: '100vh' }}>
                 {featureFlags['navigation-1775'] ? <TopNavigation /> : null}
                 <SceneComponent user={user} {...params} />
-                <Toast />
+                {basicComponents}
             </Layout>
         )
     }
@@ -141,9 +151,9 @@ function _App(): JSX.Element | null {
                             />
                         )}
                         <SceneComponent user={user} {...params} />
-                        <Toast />
                     </Layout.Content>
                 </Layout>
+                {basicComponents}
             </Layout>
             <CommandPalette />
         </>
