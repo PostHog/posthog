@@ -29,6 +29,7 @@ from posthog.constants import (
     SHOWN_AS,
 )
 from posthog.models.entity import Entity
+from posthog.models.filters.base_filter import BaseFilter, SerializerWithDateMixin
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
     BreakdownTypeMixin,
@@ -62,6 +63,8 @@ class Filter(
     InsightMixin,
     SessionMixin,
     OffsetMixin,
+    SerializerWithDateMixin,
+    BaseFilter,
 ):
     """
     Filters allow us to describe what events to show/use in various places in the system, for example Trends or Funnels.
@@ -89,47 +92,6 @@ class Filter(
         self._data = data
         self._date_from = data.get(DATE_FROM)
         self._date_to = data.get(DATE_TO)
-
-    def to_dict(self) -> Dict[str, Any]:
-        ret = {}
-
-        for key in dir(self):
-            value = getattr(self, key)
-            if key in [
-                "entities",
-                "determine_time_delta",
-                "date_filter_Q",
-                "custom_date_filter_Q",
-                "properties_to_Q",
-                "toJSON",
-                "to_dict",
-            ] or key.startswith("_"):
-                continue
-            if isinstance(value, list) and len(value) == 0:
-                continue
-            if not isinstance(value, list) and not value:
-                continue
-            if key == "date_from" and not self._date_from:
-                continue
-            if key == "date_to" and not self._date_to:
-                continue
-            if isinstance(value, datetime.datetime):
-                value = value.isoformat()
-            if not isinstance(value, (list, bool, int, float, str)):
-                # Try to see if this object is json serializable
-                try:
-                    json.dumps(value)
-                except:
-                    continue
-            if isinstance(value, Entity):
-                value = value.to_dict()
-            if key == "properties" and isinstance(value, list) and isinstance(value[0], Property):
-                value = [prop.to_dict() for prop in value]
-            if isinstance(value, list) and isinstance(value[0], Entity):
-                value = [entity.to_dict() for entity in value]
-            ret[key] = value
-
-        return ret
 
     @property
     def date_from(self) -> Optional[datetime.datetime]:
@@ -173,6 +135,3 @@ class Filter(
         if self.date_to:
             filter &= Q(**{"{}__lte".format(field): self.date_to})
         return filter
-
-    def toJSON(self):
-        return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)
