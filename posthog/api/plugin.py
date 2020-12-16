@@ -122,7 +122,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         if self.action == "get" or self.action == "list":
-            if can_install_plugins_via_api(self.organization) or can_configure_plugins_via_api():
+            if can_install_plugins_via_api(self.organization) or can_configure_plugins_via_api(self.organization):
                 return queryset
         else:
             if can_install_plugins_via_api(self.organization):
@@ -181,7 +181,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         return new_plugin_config
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
-        if not can_configure_plugins_via_api():
+        if not can_configure_plugins_via_api(Team.objects.get(self.context["team_id"]).organization_id):
             raise ValidationError("Plugin configuration via the web is disabled!")
         request = self.context["request"]
         validated_data["team"] = Team.objects.get(id=self.context["team_id"])
@@ -249,13 +249,13 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = PluginConfigSerializer
 
     def get_queryset(self):
-        if not can_configure_plugins_via_api():
+        if not can_configure_plugins_via_api(self.team.organization_id):
             return self.queryset.none()
         return super().get_queryset()
 
     # we don't really use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:  # type: ignore
-        if not can_configure_plugins_via_api():
+        if not can_configure_plugins_via_api(self.team.organization_id):
             return Response(status=404)
         plugin_config = PluginConfig.objects.get(team_id=self.team_id, pk=pk)
         plugin_config.enabled = False
@@ -264,7 +264,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def global_plugins(self, request: request.Request, **kwargs):
-        if not can_configure_plugins_via_api():
+        if not can_configure_plugins_via_api(self.team.organization_id):
             return Response([])
 
         response = []
