@@ -133,7 +133,8 @@ export const propertyFilterLogic = kea({
         afterMount: () => {
             actions.newFilter()
             actions.loadPersonProperties()
-            if (props.endpoint !== 'person') {
+            // TODO: Supporting event properties in sessions is temporarily unsupported (context https://github.com/PostHog/posthog/issues/2735)
+            if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
                 actions.setProperties(userLogic.values.eventProperties)
             }
         },
