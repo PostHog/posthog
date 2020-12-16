@@ -180,7 +180,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         return new_plugin_config
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
-        if not can_configure_plugins_via_api(Team.objects.get(self.context["team_id"]).organization_id):
+        if not can_configure_plugins_via_api(Team.objects.get(id=self.context["team_id"]).organization_id):
             raise ValidationError("Plugin configuration via the web is disabled!")
         request = self.context["request"]
         validated_data["team"] = Team.objects.get(id=self.context["team_id"])
