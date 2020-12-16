@@ -131,7 +131,7 @@ export const trendsLogic = kea({
 
     connect: {
         values: [userLogic, ['eventNames'], actionsModel, ['actions']],
-        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
+        actions: [insightLogic, ['setAllFilters', 'reportUsage'], insightHistoryLogic, ['createInsight']],
     },
 
     loaders: ({ values, props }) => ({
@@ -334,7 +334,12 @@ export const trendsLogic = kea({
                 }
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)
+                } else {
+                    /* Edge case when opening a trends graph from a dashboard or sometimes when it's loaded
+                     already set, `setAllFilters` action is not triggered, and therefore usage is not reported */
+                    actions.reportUsage(values.filters)
                 }
+
                 handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))
             }
         },
