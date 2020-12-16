@@ -9,7 +9,7 @@ from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import parse_response, process_math
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
-from ee.clickhouse.sql.events import NULL_BREAKDOWN_SQL, NULL_SQL
+from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL, NULL_BREAKDOWN_SQL, NULL_SQL
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL
 from ee.clickhouse.sql.trends.breakdown import (
     BREAKDOWN_AGGREGATE_DEFAULT_SQL,
@@ -62,7 +62,12 @@ class ClickhouseTrendsBreakdown:
 
         props_to_filter = [*filter.properties, *entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id, table_name="e")
-        aggregate_operation, join_condition, math_params = process_math(entity)
+        aggregate_operation, _, math_params = process_math(entity)
+
+        if entity.math == "dau" or filter.breakdown_type == "person":
+            join_condition = EVENT_JOIN_PERSON_SQL
+        else:
+            join_condition = ""
 
         action_query = ""
         action_params: Dict = {}
