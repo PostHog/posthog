@@ -18,7 +18,7 @@ def guard_cloud(organization_or_id: Optional[Union[Organization, UUID]]):
     return (
         settings.TEST
         or not getattr(settings, "MULTI_TENANCY", False)
-        or (organization_id and organization_id in settings.PLUGINS_CLOUD_WHITELISTED_ORG_IDS)
+        or (organization_id and organization_id in getattr(settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", []))
     )
 
 
