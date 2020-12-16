@@ -275,6 +275,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 event_response = trends().run(
                     Filter(
                         data={
+                            "display": TRENDS_TABLE,
                             "breakdown": json.dumps([cohort1.pk, cohort2.pk, cohort3.pk, "all"]),
                             "breakdown_type": "cohort",
                             "events": [{"id": "sign up"}],
@@ -348,8 +349,12 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     Filter(data={"display": TRENDS_TABLE, "breakdown": "$browser", "events": [{"id": "sign up"}],}),
                     self.team,
                 )
-            self.assertEqual(daily_response[0]["aggregated_value"], 5.0)
-            self.assertEqual(daily_response[1]["aggregated_value"], 2.0)
+
+            for result in daily_response:
+                if result["breakdown_value"] == "Chrome":
+                    self.assertEqual(result["aggregated_value"], 2)
+                else:
+                    self.assertEqual(result["aggregated_value"], 5)
 
         def test_trends_breakdown_single_aggregate_math(self):
             person = person_factory(
