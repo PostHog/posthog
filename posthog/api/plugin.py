@@ -104,23 +104,23 @@ class PluginSerializer(serializers.ModelSerializer):
         return validated_data
 
 
-class PluginViewSet(viewsets.ModelViewSet):
+class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
 
     def get_queryset(self):
         queryset = super().get_queryset()
         if self.action == "get" or self.action == "list":  # type: ignore
-            if can_install_plugins_via_api() or can_configure_plugins_via_api():
+            if can_install_plugins_via_api(self.organization) or can_configure_plugins_via_api():
                 return queryset
         else:
-            if can_install_plugins_via_api():
+            if can_install_plugins_via_api(self.organization):
                 return queryset
         return queryset.none()
 
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request, **kwargs):
-        if not can_install_plugins_via_api():
+        if not can_install_plugins_via_api(self.organization):
             raise ValidationError("Plugin installation via the web is disabled!")
         url = "https://raw.githubusercontent.com/PostHog/plugins/main/repository.json"
         plugins = requests.get(url)
@@ -128,7 +128,7 @@ class PluginViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def status(self, request: request.Request, **kwargs):
-        if not can_install_plugins_via_api():
+        if not can_install_plugins_via_api(self.organization):
             raise ValidationError("Plugin installation via the web is disabled!")
 
         ping = get_client().get("@posthog-plugin-server/ping")

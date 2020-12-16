@@ -9,6 +9,9 @@ class Plugin(models.Model):
         REPOSITORY = "repository", "repository"  # same, but originating from our plugins.json repository
         SOURCE = "source", "source"  # coded inside the browser (versioned via plugin_source_version)
 
+    organization: models.ForeignKey = models.ForeignKey(
+        "posthog.Organization", on_delete=models.CASCADE, related_name="plugins", related_query_name="plugin"
+    )
     plugin_type: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=PluginType.choices, default=None
     )
