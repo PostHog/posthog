@@ -6,7 +6,8 @@ from unittest import mock
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils.timezone import now
 
-from posthog.models import Plugin, PluginAttachment, PluginConfig
+from posthog.models import Plugin, PluginAttachment, PluginConfig, organization
+from posthog.models.organization import Organization
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP, HELLO_WORLD_PLUGIN_GITHUB_ZIP
 from posthog.redis import get_client
@@ -236,6 +237,16 @@ class TestPluginAPI(APIBaseTest):
         with self.settings(PLUGINS_INSTALL_VIA_API=False, PLUGINS_CONFIGURE_VIA_API=False):
             response = self.client.get("/api/organizations/@current/plugins/status/")
             self.assertEqual(response.status_code, 400)
+
+    def test_cannot_access_others_orgs_plugins(self, mock_get, mock_reload):
+        with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
+            other_org = Organization.objects.create(name="Foo")
+            other_orgs_plugin = Plugin.objects.create(organization=other_org)
+            this_orgs_plugin = Plugin.objects.create(organization=self.organization)
+            response_other = self.client.get(f"/api/organizations/@current/plugins/{other_orgs_plugin.id}/")
+            self.assertEqual(response_other.status_code, 404)
+            response_this = self.client.get(f"/api/organizations/@current/plugins/{this_orgs_plugin.id}/")
+            self.assertEqual(response_this.status_code, 200)
 
     def test_create_plugin_config(self, mock_get, mock_reload):
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
