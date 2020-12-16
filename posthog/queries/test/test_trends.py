@@ -1064,6 +1064,34 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             self.assertTrue(self._compare_entity_response(event_response, action_response,))
 
+        def test_breakdown_by_person_property_pie(self):
+            self._create_multiple_people()
+
+            with freeze_time("2020-01-04T13:01:01Z"):
+                event_response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-14d",
+                            "breakdown": "name",
+                            "breakdown_type": "person",
+                            "display": "ActionsPie",
+                            "events": [
+                                {
+                                    "id": "watched movie",
+                                    "name": "watched movie",
+                                    "type": "events",
+                                    "order": 0,
+                                    "math": "dau",
+                                }
+                            ],
+                        }
+                    ),
+                    self.team,
+                )
+                self.assertDictContainsSubset({"breakdown_value": "person1", "aggregated_value": 1}, event_response[0])
+                self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
+                self.assertDictContainsSubset({"breakdown_value": "person3", "aggregated_value": 1}, event_response[2])
+
         def test_lifecycle_trend(self):
 
             p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
