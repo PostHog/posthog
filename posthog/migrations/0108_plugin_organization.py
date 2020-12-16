@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 def set_plugin_organization(apps, schema_editor):
     Plugin = apps.get_model("posthog", "Plugin")
-    Organization = apps.get_model("posthog", "User")
+    Organization = apps.get_model("posthog", "Organization")
     Plugin.objects.update(organization=Organization.objects.first())
 
 
