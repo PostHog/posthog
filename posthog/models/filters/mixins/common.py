@@ -31,8 +31,6 @@ from posthog.constants import (
 from posthog.models.entity import Entity
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
-from posthog.models.person import Person
-from posthog.models.property import Property
 from posthog.utils import relative_date_parse
 
 
