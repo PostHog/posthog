@@ -200,7 +200,6 @@ export function DashboardItem({
             className={`dashboard-item ${item.color || 'white'} di-width-${layout?.w || 0} di-height-${
                 layout?.h || 0
             } ph-no-capture`}
-            onClick={onClick}
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
         >
@@ -365,26 +364,30 @@ export function DashboardItem({
                                                 ))}
                                             </Menu.SubMenu>
                                         )}
-                                        {otherDashboards.length > 0 ? (
-                                            <Menu.SubMenu
-                                                data-attr={'dashboard-item-' + index + '-dropdown-move'}
-                                                key="move"
-                                                icon={<DeliveredProcedureOutlined />}
-                                                title="Move to..."
-                                            >
-                                                {otherDashboards.map((dashboard, moveIndex) => (
-                                                    <Menu.Item
-                                                        data-attr={
-                                                            'dashboard-item-' + index + '-dropdown-move-' + moveIndex
-                                                        }
-                                                        key={dashboard.id}
-                                                        onClick={() => moveDashboardItem(item, dashboard.id)}
-                                                    >
-                                                        {dashboard.name}
-                                                    </Menu.Item>
-                                                ))}
-                                            </Menu.SubMenu>
-                                        ) : null}
+                                        {moveDashboardItem &&
+                                            (otherDashboards.length > 0 ? (
+                                                <Menu.SubMenu
+                                                    data-attr={'dashboard-item-' + index + '-dropdown-move'}
+                                                    key="move"
+                                                    icon={<DeliveredProcedureOutlined />}
+                                                    title="Move to..."
+                                                >
+                                                    {otherDashboards.map((dashboard, moveIndex) => (
+                                                        <Menu.Item
+                                                            data-attr={
+                                                                'dashboard-item-' +
+                                                                index +
+                                                                '-dropdown-move-' +
+                                                                moveIndex
+                                                            }
+                                                            key={dashboard.id}
+                                                            onClick={() => moveDashboardItem(item, dashboard.id)}
+                                                        >
+                                                            {dashboard.name}
+                                                        </Menu.Item>
+                                                    ))}
+                                                </Menu.SubMenu>
+                                            ) : null)}
                                         {duplicateDashboardItem && (
                                             <Menu.Item
                                                 data-attr={'dashboard-item-' + index + '-dropdown-duplicate'}
@@ -425,7 +428,7 @@ export function DashboardItem({
                     <div style={{ padding: '0 16px', marginBottom: 16, fontSize: 12 }}>{item.description}</div>
                 )}
 
-                <div className="dashboard-item-content">
+                <div className="dashboard-item-content" onClickCapture={onClick}>
                     {Element ? (
                         <Alert.ErrorBoundary message="Error rendering graph!">
                             {(inSharedMode || preventLoading) && !results && !item.result ? (

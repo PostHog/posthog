@@ -42,7 +42,7 @@ function cleanFilters(filters): any {
             events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
         },
         retentionType: filters.retentionType || RETENTION_FIRST_TIME,
-        date_to: filters.date_to,
+        date_to: filters.date_to !== 'undefined' && filters.date_to,
         period: filters.period || 'Day',
         display: filters.display || 'ActionsTable',
     }

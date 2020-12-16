@@ -4,10 +4,12 @@ import { Loading } from 'lib/utils'
 import { useValues, useActions } from 'kea'
 import { insightHistoryLogic } from './insightHistoryLogic'
 import { DashboardItemType } from '~/types'
-import { DashboardItem } from 'scenes/dashboard/DashboardItem'
+import { DashboardItem, displayMap } from 'scenes/dashboard/DashboardItem'
 import './InsightHistoryPanel.scss'
 import moment from 'moment'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { router } from 'kea-router'
+import { ViewType } from '../insightLogic'
 
 const InsightHistoryType = {
     SAVED: 'SAVED',
@@ -59,8 +61,19 @@ function InsightPane({
                             }}
                             saveDashboardItem={updateInsight}
                             renameDashboardItem={renameDashboardItem}
-                            moveDashboardItem={(item: DashboardItemType, dashboardId: number) =>
-                                duplicateDashboardItem(item, dashboardId)
+                            onClick={() => {
+                                const _type =
+                                    insight.filters.insight === ViewType.RETENTION
+                                        ? 'RetentionContainer'
+                                        : insight.filters.display
+                                router.actions.push(displayMap[_type].link(insight))
+                            }}
+                            moveDashboardItem={
+                                insight.saved
+                                    ? (item: DashboardItemType, dashboardId: number) => {
+                                          duplicateDashboardItem(item, dashboardId)
+                                      }
+                                    : null
                             }
                             preventLoading={true}
                             footer={<div className="dashboard-item-footer">{footer(insight)}</div>}
@@ -100,7 +113,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
     } = useValues(insightHistoryLogic)
     const { loadNextInsights, loadNextSavedInsights, loadNextTeamInsights } = useActions(insightHistoryLogic)
 
-    const [activeTab, setActiveTab] = useState(InsightHistoryType.SAVED)
+    const [activeTab, setActiveTab] = useState(InsightHistoryType.RECENT)
 
     return (
         <div data-attr="insight-history-panel" className="insight-history-panel">

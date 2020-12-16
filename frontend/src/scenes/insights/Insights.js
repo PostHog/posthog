@@ -13,7 +13,7 @@ import { PersonModal } from './PersonModal'
 import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Tooltip, Card } from 'antd'
+import { Tabs, Row, Col, Tooltip, Card, Button } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -117,11 +117,13 @@ function _Insights() {
                         animated={false}
                         tabBarExtraContent={{
                             right: (
-                                <TabPane
-                                    className="pull-right"
-                                    tab={<span data-attr="insight-history-button">Historyyy</span>}
-                                    key="history"
-                                />
+                                <Button
+                                    type={activeView === 'history' && 'primary'}
+                                    data-attr="insight-history-button"
+                                    onClick={() => setActiveView('history')}
+                                >
+                                    History
+                                </Button>
                             ),
                         }}
                     >
@@ -133,12 +135,6 @@ function _Insights() {
                             key={ViewType.RETENTION}
                         />
                         <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS} />
-                        <TabPane className="spacer" />
-                        <TabPane
-                            className="pull-right"
-                            tab={<span data-attr="insight-history-button">History</span>}
-                            key="history"
-                        />
                     </Tabs>
                 </Row>
                 <Row gutter={16}>

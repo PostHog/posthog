@@ -145,7 +145,7 @@ export function RetentionTab(): JSX.Element {
                         format={filters.period === 'Hour' ? 'YYYY-MM-DD, h a' : 'YYYY-MM-DD'}
                         className="mb-05"
                         value={filters.date_to && moment(filters.date_to)}
-                        onChange={(date_to): void => setFilters({ date_to: moment(date_to).toISOString() })}
+                        onChange={(date_to): void => setFilters({ date_to: date_to && moment(date_to).toISOString() })}
                         allowClear={false}
                     />
                     {filters.date_to && (
