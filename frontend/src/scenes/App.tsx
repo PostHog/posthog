@@ -83,8 +83,8 @@ function _App(): JSX.Element | null {
 
     const SceneComponent = loadedScenes[scene]?.component || (() => <SceneLoading />)
 
-    const basicComponents = (
-        // Components that should always be mounted
+    const commonComponents = (
+        // Components that should always be mounted inside Layout
         <>
             {featureFlags['papercups-enabled'] && <Papercups user={user} />}
             <Toast />
@@ -95,7 +95,7 @@ function _App(): JSX.Element | null {
         return sceneConfig.unauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
                 <SceneComponent {...params} />
-                {basicComponents}
+                {commonComponents}
             </Layout>
         ) : null
     }
@@ -105,7 +105,7 @@ function _App(): JSX.Element | null {
             <Layout style={{ minHeight: '100vh' }}>
                 {featureFlags['navigation-1775'] ? <TopNavigation /> : null}
                 <SceneComponent user={user} {...params} />
-                {basicComponents}
+                {commonComponents}
             </Layout>
         )
     }
@@ -153,7 +153,7 @@ function _App(): JSX.Element | null {
                         <SceneComponent user={user} {...params} />
                     </Layout.Content>
                 </Layout>
-                {basicComponents}
+                {commonComponents}
             </Layout>
             <CommandPalette />
         </>
