@@ -4,7 +4,8 @@ from django.db.models.signals import pre_save
 from django.dispatch import receiver
 from django_deprecate_fields import deprecate_field
 
-from posthog.models.filters import Filter
+from posthog.constants import INSIGHT_RETENTION, INSIGHT_SESSIONS, INSIGHT_TRENDS
+from posthog.models.filters.filter import get_filter
 from posthog.utils import generate_cache_key
 
 
@@ -40,6 +41,7 @@ class DashboardItem(models.Model):
 @receiver(pre_save, sender=DashboardItem)
 def dashboard_item_saved(sender, instance: DashboardItem, **kwargs):
     if instance.filters and instance.filters != {}:
-        filter = Filter(data=instance.filters)
+        filter = get_filter(data=instance.filters, team=instance.team)
+
         instance.filters = filter.to_dict()
         instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))

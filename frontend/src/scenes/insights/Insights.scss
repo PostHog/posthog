@@ -5,6 +5,15 @@
 }
 
 .actions-graph {
+    .top-bar {
+        .ant-tabs,
+        .ant-tabs-nav-list {
+            width: 100%;
+        }
+        .ant-btn-loading-icon {
+            display: none;
+        }
+    }
     hr {
         margin: 1rem 0;
     }

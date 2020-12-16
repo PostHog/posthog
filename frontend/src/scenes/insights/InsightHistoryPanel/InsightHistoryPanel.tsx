@@ -1,17 +1,15 @@
-import React, { useState } from 'react'
-import { Tabs, Button, List, Col, Spin, Table, Row, Tooltip } from 'antd'
-import { toParams, dateFilterToText } from 'lib/utils'
-import { Link } from 'lib/components/Link'
-import { PushpinOutlined, PushpinFilled, DeleteOutlined } from '@ant-design/icons'
+import React, { useEffect, useState } from 'react'
+import { Tabs, Col, Row, Button, Spin } from 'antd'
+import { Loading } from 'lib/utils'
 import { useValues, useActions } from 'kea'
 import { insightHistoryLogic } from './insightHistoryLogic'
+import { DashboardItemType } from '~/types'
+import { DashboardItem, displayMap } from 'scenes/dashboard/DashboardItem'
+import './InsightHistoryPanel.scss'
+import moment from 'moment'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { router } from 'kea-router'
 import { ViewType } from '../insightLogic'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { formatPropertyLabel } from 'lib/utils'
-import { cohortsModel } from '~/models'
-import { PropertyFilter, Entity, CohortType, InsightHistory } from '~/types'
-import SaveModal from '../SaveModal'
-import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 
 const InsightHistoryType = {
     SAVED: 'SAVED',
@@ -21,208 +19,104 @@ const InsightHistoryType = {
 
 const { TabPane } = Tabs
 
-const columns = [
-    {
-        render: function renderKey(item) {
-            return <b style={{ marginLeft: -8 }}>{item.key}</b>
-        },
-        width: 110,
-    },
-    {
-        render: function renderValue(item) {
-            return <span>{item.value}</span>
-        },
-    },
-]
-
-export const determineFilters = (
-    viewType: string,
-    filters: Record<string, any>,
-    cohorts: CohortType[]
-): JSX.Element => {
-    const result = []
-    if (viewType === ViewType.TRENDS) {
-        let count = 0
-        if (filters.events) {
-            count += filters.events.length
-        }
-        if (filters.actions) {
-            count += filters.actions.length
-        }
-        if (count > 0) {
-            const entity: string[] = []
-            if (filters.events) {
-                filters.events.forEach((event: Entity) => entity.push(`- ${event.name}\n`))
-            }
-            if (filters.actions) {
-                filters.actions.forEach((action: Entity) => entity.push(`- ${action.name}\n`))
-            }
-            result.push({ key: 'Entities', value: entity })
-        }
-        if (filters.interval) {
-            result.push({ key: 'Interval', value: `${filters.interval}` })
-        }
-        if (filters.shown_as) {
-            result.push({ key: 'Shown As', value: `${filters.shown_as}` })
-        }
-        if (filters.breakdown) {
-            result.push({ key: 'Breakdown', value: `${filters.breakdown}` })
-        }
-        if (filters.compare) {
-            result.push({ key: 'Compare', value: `${filters.compare}` })
-        }
-    } else if (viewType === ViewType.SESSIONS) {
-        if (filters.session) {
-            result.push({ key: 'Session', value: `${filters.session}` })
-        }
-        if (filters.interval) {
-            result.push({ key: 'Interval', value: `${filters.interval}` })
-        }
-        if (filters.compare) {
-            result.push({ key: 'Compare', value: `${filters.compare}` })
-        }
-    } else if (viewType === ViewType.RETENTION) {
-        if (filters.display) {
-            result.push({
-                key: 'Display',
-                value: `${filters.display === ACTIONS_LINE_GRAPH_LINEAR ? 'Graph' : 'Table'}`,
-            })
-        }
-        if (filters.startEntity) {
-            if (filters.startEntity.events) {
-                result.push({ key: 'Target', value: `${filters.startEntity.events[0].name}` })
-            } else if (filters.startEntity.actions) {
-                result.push({ key: 'Target', value: `${filters.startEntity.actions[0].name}` })
-            }
-        }
-        if (filters.returningEntity) {
-            if (filters.returningEntity.events) {
-                result.push({ key: 'Returning Event', value: `${filters.returningEntity.events[0].name}` })
-            } else if (filters.returningEntity.actions) {
-                result.push({ key: 'Returning Event', value: `${filters.returningEntity.actions[0].name}` })
-            }
-        }
-        if (filters.selectedDate) {
-            result.push({ key: 'Current Date', value: `${filters.selectedDate}\n` })
-        }
-    } else if (viewType === ViewType.PATHS) {
-        if (filters.type) {
-            result.push({ key: 'Path Type', value: `${filters.type || filters.path_type}` })
-        }
-        if (filters.start) {
-            result.push({ key: 'Start Point', value: `Specified` })
-        }
-    } else if (viewType === ViewType.FUNNELS) {
-        let count = 0
-        if (filters.events) {
-            count += filters.events.length
-        }
-        if (filters.actions) {
-            count += filters.actions.length
-        }
-        if (count > 0) {
-            const entity: string[] = []
-            if (filters.events) {
-                filters.events.forEach((event: Entity) => entity.push(`- ${event.name || event.id}\n`))
-            }
-            if (filters.actions) {
-                filters.actions.forEach((action: Entity) =>
-                    entity.push(`- ${action.name || '(action: ' + action.id + ')'}\n`)
-                )
-            }
-            result.push({ key: 'Entities', value: entity })
-        }
-    }
-    if (filters.properties && filters.properties.length > 0) {
-        const properties: string[] = []
-        filters.properties.forEach((prop: PropertyFilter) =>
-            properties.push(`${formatPropertyLabel(prop, cohorts, keyMapping)}\n`)
-        )
-        result.push({ key: 'Properties', value: properties })
-    }
-    if (filters.date_from || filters.date_to) {
-        result.push({ key: 'Date Range', value: `${dateFilterToText(filters.date_from, filters.date_to)}\n` })
-    }
-    return (
-        <Table
-            showHeader={false}
-            size={'small'}
-            dataSource={result}
-            columns={columns}
-            pagination={{ pageSize: 100, hideOnSinglePage: true }}
-        />
-    )
-}
-
 interface InsightHistoryPanelProps {
     onChange: () => void
 }
 
-export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChange }: InsightHistoryPanelProps) => {
+function InsightPane({
+    data,
+    loading,
+    loadMore,
+    loadingMore,
+    footer,
+}: {
+    data: DashboardItemType[]
+    loading: boolean
+    loadMore?: CallableFunction
+    loadingMore: boolean
+    footer: (item: DashboardItemType) => JSX.Element
+}): JSX.Element {
+    const { loadTeamInsights, loadSavedInsights, loadInsights, updateInsight } = useActions(insightHistoryLogic)
+    const { renameDashboardItem, duplicateDashboardItem } = useActions(dashboardItemsModel)
+
+    useEffect(() => {
+        loadInsights()
+        loadSavedInsights()
+        loadTeamInsights()
+    }, [])
+
+    return (
+        <Row gutter={[16, 16]}>
+            {loading && <Loading />}
+            {data &&
+                data.map((insight: DashboardItemType) => (
+                    <Col xs={8} key={insight.id} style={{ height: 270 }}>
+                        <DashboardItem
+                            item={{ ...insight, color: undefined }}
+                            key={insight.id + '_user'}
+                            loadDashboardItems={() => {
+                                loadInsights()
+                                loadSavedInsights()
+                                loadTeamInsights()
+                            }}
+                            saveDashboardItem={updateInsight}
+                            renameDashboardItem={renameDashboardItem}
+                            onClick={() => {
+                                const _type =
+                                    insight.filters.insight === ViewType.RETENTION
+                                        ? 'RetentionContainer'
+                                        : insight.filters.display
+                                router.actions.push(displayMap[_type].link(insight))
+                            }}
+                            moveDashboardItem={
+                                insight.saved
+                                    ? (item: DashboardItemType, dashboardId: number) => {
+                                          duplicateDashboardItem(item, dashboardId)
+                                      }
+                                    : null
+                            }
+                            preventLoading={true}
+                            footer={<div className="dashboard-item-footer">{footer(insight)}</div>}
+                        />
+                    </Col>
+                ))}
+            {loadMore && (
+                <div
+                    style={{
+                        textAlign: 'center',
+                        margin: '12px auto',
+                        height: 32,
+                        lineHeight: '32px',
+                    }}
+                >
+                    {loadingMore ? <Spin /> : <Button onClick={loadMore}>Load more</Button>}
+                </div>
+            )}
+        </Row>
+    )
+}
+
+export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
     const {
         insights,
         insightsLoading,
+        loadingMoreInsights,
+        insightsNext,
         savedInsights,
         savedInsightsLoading,
+        loadingMoreSavedInsights,
+        savedInsightsNext,
         teamInsights,
         teamInsightsLoading,
-        insightsNext,
-        savedInsightsNext,
-        teamInsightsNext,
-        loadingMoreInsights,
-        loadingMoreSavedInsights,
         loadingMoreTeamInsights,
+        teamInsightsNext,
     } = useValues(insightHistoryLogic)
-    const { saveInsight, deleteInsight, loadNextInsights, loadNextSavedInsights, loadNextTeamInsights } = useActions(
-        insightHistoryLogic
-    )
-    const { cohorts } = useValues(cohortsModel)
+    const { loadNextInsights, loadNextSavedInsights, loadNextTeamInsights } = useActions(insightHistoryLogic)
 
-    const [visible, setVisible] = useState(false)
     const [activeTab, setActiveTab] = useState(InsightHistoryType.RECENT)
-    const [selectedInsight, setSelectedInsight] = useState<InsightHistory | null>(null)
-
-    const loadMoreInsights = insightsNext ? (
-        <div
-            style={{
-                textAlign: 'center',
-                marginTop: 12,
-                height: 32,
-                lineHeight: '32px',
-            }}
-        >
-            {loadingMoreInsights ? <Spin /> : <Button onClick={loadNextInsights}>Load more</Button>}
-        </div>
-    ) : null
-
-    const loadMoreSavedInsights = savedInsightsNext ? (
-        <div
-            style={{
-                textAlign: 'center',
-                marginTop: 12,
-                height: 32,
-                lineHeight: '32px',
-            }}
-        >
-            {loadingMoreSavedInsights ? <Spin /> : <Button onClick={loadNextSavedInsights}>Load more</Button>}
-        </div>
-    ) : null
-
-    const loadMoreTeamInsights = teamInsightsNext ? (
-        <div
-            style={{
-                textAlign: 'center',
-                marginTop: 12,
-                height: 32,
-                lineHeight: '32px',
-            }}
-        >
-            {loadingMoreTeamInsights ? <Spin /> : <Button onClick={loadNextTeamInsights}>Load more</Button>}
-        </div>
-    ) : null
 
     return (
-        <div data-attr="insight-history-panel">
+        <div data-attr="insight-history-panel" className="insight-history-panel">
             <Tabs
                 style={{
                     overflow: 'visible',
@@ -236,48 +130,12 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                     key={InsightHistoryType.RECENT}
                     data-attr="insight-history-pane"
                 >
-                    <List
+                    <InsightPane
+                        data={insights.map((insight) => ({ ...insight }))}
+                        loadMore={insightsNext && loadNextInsights}
+                        loadingMore={loadingMoreInsights}
+                        footer={(item) => <>Ran query {moment(item.created_at).fromNow()}</>}
                         loading={insightsLoading}
-                        dataSource={insights}
-                        loadMore={loadMoreInsights}
-                        renderItem={(insight: InsightHistory) => {
-                            return (
-                                <List.Item>
-                                    <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
-                                        <Row justify="space-between" align="middle">
-                                            {insight.filters.insight && (
-                                                <Link onClick={onChange} to={'/insights?' + toParams(insight.filters)}>
-                                                    {insight.filters.insight.charAt(0).toUpperCase() +
-                                                        insight.filters.insight.slice(1).toLowerCase()}
-                                                </Link>
-                                            )}
-                                            {insight.saved ? (
-                                                <Tooltip
-                                                    title="This configuration has already been saved"
-                                                    placement="left"
-                                                >
-                                                    <PushpinFilled className="button-border" />
-                                                </Tooltip>
-                                            ) : (
-                                                <Tooltip title="Save insight configuration" placement="left">
-                                                    <PushpinOutlined
-                                                        className="clickable button-border"
-                                                        onClick={() => {
-                                                            setVisible(true)
-                                                            setSelectedInsight(insight)
-                                                        }}
-                                                        style={{ cursor: 'pointer' }}
-                                                    />
-                                                </Tooltip>
-                                            )}
-                                        </Row>
-                                        <span>
-                                            {determineFilters(insight.filters.insight, insight.filters, cohorts)}
-                                        </span>
-                                    </Col>
-                                </List.Item>
-                            )
-                        }}
                     />
                 </TabPane>
                 <TabPane
@@ -285,86 +143,33 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                     key={InsightHistoryType.SAVED}
                     data-attr="insight-saved-pane"
                 >
-                    <List
+                    <InsightPane
+                        data={savedInsights}
+                        loadMore={savedInsightsNext && loadNextSavedInsights}
+                        loadingMore={loadingMoreSavedInsights}
+                        footer={(item) => <>Saved {moment(item.created_at).fromNow()}</>}
                         loading={savedInsightsLoading}
-                        dataSource={savedInsights}
-                        loadMore={loadMoreSavedInsights}
-                        renderItem={(insight: InsightHistory) => {
-                            return (
-                                <List.Item key={insight.id}>
-                                    <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
-                                        <Row justify="space-between" align="middle">
-                                            {insight.filters.insight && (
-                                                <Link onClick={onChange} to={'/insights?' + toParams(insight.filters)}>
-                                                    {insight.name}
-                                                </Link>
-                                            )}
-                                            <DeleteOutlined
-                                                className="clickable button-border"
-                                                key="insight-action-delete"
-                                                onClick={() => {
-                                                    deleteInsight(insight)
-                                                }}
-                                                style={{ cursor: 'pointer' }}
-                                            />
-                                        </Row>
-                                        <span>
-                                            {determineFilters(insight.filters.insight, insight.filters, cohorts)}
-                                        </span>
-                                    </Col>
-                                </List.Item>
-                            )
-                        }}
                     />
                 </TabPane>
                 <TabPane
                     tab={<span data-attr="insight-saved-tab">Team</span>}
                     key={InsightHistoryType.TEAM}
-                    data-attr="insight-team-pane"
+                    data-attr="insight-team-panel"
                 >
-                    <List
+                    <InsightPane
+                        data={teamInsights}
+                        loadMore={teamInsightsNext && loadNextTeamInsights}
+                        loadingMore={loadingMoreTeamInsights}
+                        footer={(item) => (
+                            <>
+                                Saved {moment(item.created_at).fromNow()} by{' '}
+                                {item.created_by?.first_name || item.created_by?.email || 'unknown'}
+                            </>
+                        )}
                         loading={teamInsightsLoading}
-                        dataSource={teamInsights}
-                        loadMore={loadMoreTeamInsights}
-                        renderItem={(insight: InsightHistory) => {
-                            return (
-                                <List.Item key={insight.id}>
-                                    <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
-                                        <Row justify="space-between" align="middle">
-                                            {insight.filters.insight && (
-                                                <Link onClick={onChange} to={'/insights?' + toParams(insight.filters)}>
-                                                    {insight.name}
-                                                </Link>
-                                            )}
-                                        </Row>
-                                        <span>
-                                            {determineFilters(insight.filters.insight, insight.filters, cohorts)}
-                                        </span>
-                                    </Col>
-                                </List.Item>
-                            )
-                        }}
                     />
                 </TabPane>
             </Tabs>
-            <SaveModal
-                title="Save Chart"
-                prompt="Name of Chart"
-                textLabel="Name"
-                textPlaceholder="DAUs Last 14 days"
-                visible={visible}
-                onCancel={(): void => {
-                    setVisible(false)
-                    setSelectedInsight(null)
-                }}
-                onSubmit={(text): void => {
-                    if (selectedInsight) {
-                        saveInsight(selectedInsight, text)
-                    }
-                    setVisible(false)
-                    setSelectedInsight(null)
-                }}
-            />
         </div>
     )
 }

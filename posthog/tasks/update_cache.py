@@ -11,6 +11,7 @@ from django.utils import timezone
 from posthog.celery import update_cache_item_task
 from posthog.decorators import CacheType
 from posthog.models import Action, ActionStep, DashboardItem, Filter, Team
+from posthog.models.filters.filter import get_filter
 from posthog.queries.funnel import Funnel
 from posthog.queries.trends import Trends
 from posthog.settings import CACHED_RESULTS_TTL
@@ -23,7 +24,7 @@ def update_cache_item(key: str, cache_type: str, payload: dict) -> None:
 
     result: Optional[Union[List, Dict]] = None
     filter_dict = json.loads(payload["filter"])
-    filter = Filter(data=filter_dict)
+    filter = get_filter(data=filter_dict, team=Team(pk=payload["team_id"]))
     if cache_type == CacheType.TRENDS:
         result = _calculate_trends(filter, key, int(payload["team_id"]))
     elif cache_type == CacheType.FUNNEL:
@@ -47,7 +48,7 @@ def update_cached_items() -> None:
     )
 
     for item in items.filter(filters__isnull=False).exclude(filters={}).distinct("filters"):
-        filter = Filter(data=item.filters)
+        filter = get_filter(data=item.filters, team=item.team)
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
         curr_data = cache.get(cache_key)
 
