@@ -69,7 +69,7 @@ test('test vm memory usage', async () => {
     const vms: PluginConfigVMReponse[] = []
 
     for (let i = 0; i < numVMs; i++) {
-        const vm = createPluginConfigVM(server, mockConfig, indexJs)
+        const vm = await createPluginConfigVM(server, mockConfig, indexJs)
         vms.push(vm)
 
         const nowUsed = getUsed()

@@ -3,24 +3,30 @@ import fetch from 'node-fetch'
 import { createConsole } from './extensions/console'
 import { createCache } from './extensions/cache'
 import { createPosthog } from './extensions/posthog'
+import { createGoogle } from './extensions/google'
 import { PluginsServer, PluginConfig, PluginConfigVMReponse } from './types'
 
 function areWeTestingWithJest() {
     return process.env.JEST_WORKER_ID !== undefined
 }
 
-export function createPluginConfigVM(
+export async function createPluginConfigVM(
     server: PluginsServer,
     pluginConfig: PluginConfig, // NB! might have team_id = 0
     indexJs: string,
     libJs = ''
-): PluginConfigVMReponse {
+): Promise<PluginConfigVMReponse> {
     const vm = new VM({
         sandbox: {},
     })
+
+    // our own stuff
     vm.freeze(createConsole(), 'console')
-    vm.freeze(fetch, 'fetch')
     vm.freeze(createPosthog(server, pluginConfig), 'posthog')
+
+    // exported node packages
+    vm.freeze(fetch, 'fetch')
+    vm.freeze(createGoogle(), 'google')
 
     if (areWeTestingWithJest()) {
         vm.freeze(setTimeout, '__jestSetTimeout')
@@ -65,9 +71,6 @@ export function createPluginConfigVM(
             if (func) return func(...args); 
         }
         
-        // run the plugin setup script, if present
-        __callWithMeta('setupPlugin');
-        
         // we have processEvent, but not processEventBatch
         if (!__getExported('processEventBatch') && __getExported('processEvent')) {
             exports.processEventBatch = async function processEventBatch (batch, meta) {
@@ -109,8 +112,13 @@ export function createPluginConfigVM(
                 }
             }
         }
+        
+        // run the plugin setup script, if present
+        const __setupPlugin = async () => __callWithMeta('setupPlugin');
         `
     )
+
+    await vm.run('__setupPlugin')()
 
     return {
         vm,
