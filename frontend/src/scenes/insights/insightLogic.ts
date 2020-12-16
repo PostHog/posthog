@@ -72,8 +72,11 @@ export const insightLogic = kea<insightLogicType>({
                 date_from,
                 date_to,
                 filters_count: filters.properties ? filters.properties.length : 0, // Only counts general filters (i.e. not per-event filters)
-                events_count: filters.events ? filters.events.length : undefined, // Number of lines in insights graph; number of steps in funnel
+                events_count: filters.events ? filters.events.length : undefined, // Number of event lines in insights graph; number of steps in funnel
+                actions_count: filters.actions ? filters.actions.length : undefined, // Number of action lines in insights graph; number of steps in funnel
             }
+
+            properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
 
             await breakpoint(5000)
 
