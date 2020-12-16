@@ -1,7 +1,6 @@
 {
     "family": "posthog-production-plugins",
     "networkMode": "awsvpc",
-    "name": "postiong-plugins",
     "executionRoleArn": "posthog-production-ecs-task",
     "taskRoleArn": "posthog-production-ecs-task",
     "containerDefinitions": [
@@ -161,6 +160,6 @@
         }
     ],
     "requiresCompatibilities": ["FARGATE"],
-    "cpu": 4096,
-    "memory": 8192
+    "cpu": "4096",
+    "memory": "8192"
 }
