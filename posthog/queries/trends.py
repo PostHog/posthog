@@ -25,6 +25,7 @@ from django.db.models import (
 from django.db.models.expressions import F, RawSQL, Subquery
 from django.db.models.functions import Cast
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
+from django.db.models.sql.query import Query
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE
 from posthog.models import (
@@ -181,7 +182,7 @@ def add_person_properties_annotations(team_id: int, breakdown: str) -> Dict[str,
 
 def aggregate_by_interval(
     filtered_events: QuerySet, team_id: int, entity: Entity, filter: Filter, breakdown: Optional[str] = None,
-) -> Tuple[Dict[str, Any], int]:
+) -> Tuple[Dict[str, Any], QuerySet]:
     interval = filter.interval if filter.interval else "day"
     interval_annotation = get_interval_annotation(interval)
     values = [interval]
@@ -206,7 +207,6 @@ def aggregate_by_interval(
     if breakdown:
         aggregates = aggregates.order_by("-count")
 
-    entity_total = get_aggregate_total(filtered_events, entity)
     aggregates = process_math(aggregates, entity)
 
     dates_filled = group_events_to_date(
@@ -217,7 +217,7 @@ def aggregate_by_interval(
         breakdown=breakdown,
     )
 
-    return dates_filled, entity_total
+    return dates_filled, filtered_events
 
 
 def get_aggregate_total(query: QuerySet, entity: Entity) -> int:
@@ -244,6 +244,22 @@ def get_aggregate_total(query: QuerySet, entity: Entity) -> int:
     else:
         entity_total = len(query)
     return entity_total
+
+
+def get_aggregate_breakdown_total(
+    filtered_events: QuerySet, filter: Filter, entity: Entity, team_id: int, breakdown_value: Union[str, int]
+) -> int:
+    if len(filtered_events) == 0:
+        return 0
+
+    breakdown_filter: Dict[str, Union[bool, str, int]] = {}
+    if filter.breakdown_type == "cohort":
+        breakdown_filter = {"cohort_{}".format(breakdown_value): True}
+    else:
+        breakdown_filter = {"properties__{}".format(filter.breakdown): breakdown_value}
+    filtered_events = filtered_events.filter(**breakdown_filter)
+
+    return get_aggregate_total(filtered_events, entity)
 
 
 def process_math(query: QuerySet, entity: Entity) -> QuerySet:
@@ -314,20 +330,20 @@ class Trends(LifecycleTrend, BaseQuery):
     def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
         events = events.filter(filter_events(team_id, filter, entity))
-        items, entity_total = aggregate_by_interval(
+        items, filtered_events = aggregate_by_interval(
             filtered_events=events, team_id=team_id, entity=entity, filter=filter,
         )
         formatted_entities: List[Dict[str, Any]] = []
         for _, item in items.items():
             formatted_data = append_data(dates_filled=list(item.items()), interval=filter.interval)
-            formatted_data.update({"aggregated_value": entity_total})
+            formatted_data.update({"aggregated_value": get_aggregate_total(filtered_events, entity)})
             formatted_entities.append(formatted_data)
         return formatted_entities
 
     def _serialize_breakdown(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
         events = events.filter(filter_events(team_id, filter, entity))
-        items, entity_total = aggregate_by_interval(
+        items, filtered_events = aggregate_by_interval(
             filtered_events=events,
             team_id=team_id,
             entity=entity,
@@ -337,10 +353,17 @@ class Trends(LifecycleTrend, BaseQuery):
         formatted_entities: List[Dict[str, Any]] = []
         for value, item in items.items():
             new_dict = append_data(dates_filled=list(item.items()), interval=filter.interval)
-            new_dict.update({"aggregated_value": entity_total})
             if value != "Total":
                 new_dict.update(breakdown_label(entity, value))
+            new_dict.update(
+                {
+                    "aggregated_value": get_aggregate_breakdown_total(
+                        filtered_events, filter, entity, team_id, new_dict["breakdown_value"]
+                    )
+                }
+            )
             formatted_entities.append(new_dict)
+
         return formatted_entities
 
     def _format_serialized(self, entity: Entity, result: List[Dict[str, Any]]):
