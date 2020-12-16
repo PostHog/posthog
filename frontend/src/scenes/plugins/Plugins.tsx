@@ -52,7 +52,7 @@ function _Plugins(): JSX.Element {
             {user.team?.plugins_opt_in ? (
                 <>
                     <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey)}>
-                        <TabPane tab={user.is_multi_tenancy ? 'Available' : 'Installed'} key="installed">
+                        <TabPane tab="Installed" key="installed">
                             <InstalledPlugins />
                         </TabPane>
                         {user.plugin_access.install && (
