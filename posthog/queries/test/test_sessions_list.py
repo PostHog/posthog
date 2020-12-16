@@ -28,17 +28,14 @@ def sessions_list_test_factory(sessions, event_factory):
             # Test team leakage
             Person.objects.create(team=team_2, distinct_ids=["1", "3", "4"], properties={"email": "bla"})
             with freeze_time("2012-01-15T04:01:34.000Z"):
-                response = sessions().run(SessionsFilter(data={"events": [], "session": None}), self.team)
+                response = sessions().run(SessionsFilter(data={"properties": []}), self.team)
 
             self.assertEqual(len(response), 2)
             self.assertEqual(response[0]["global_session_id"], 1)
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = sessions().run(
-                    SessionsFilter(
-                        data={"events": [], "properties": [{"key": "$os", "value": "Mac OS X"}], "session": None}
-                    ),
-                    self.team,
+                    SessionsFilter(data={"properties": [{"key": "$os", "value": "Mac OS X"}]}), self.team,
                 )
             self.assertEqual(len(response), 1)
 
@@ -64,13 +61,7 @@ def sessions_list_test_factory(sessions, event_factory):
             cohort.calculate_people()
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = sessions().run(
-                    SessionsFilter(
-                        data={
-                            "events": [],
-                            "session": None,
-                            "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
-                        }
-                    ),
+                    SessionsFilter(data={"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}),
                     self.team,
                 )
             self.assertEqual(len(response), 1)

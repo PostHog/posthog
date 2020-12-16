@@ -1,7 +1,6 @@
 from freezegun import freeze_time
 
-from posthog.models import Event, Person, Team
-from posthog.models.cohort import Cohort
+from posthog.models import Event
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.sessions import Sessions
 from posthog.test.base import BaseTest
