@@ -144,3 +144,121 @@ test('process multiple tasks', async () => {
 
     await queue.stop()
 })
+
+test('pause and resume queue', async () => {
+    // Nothing in the redis queue
+    const queue1 = await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE)
+    expect(queue1).toBe(null)
+
+    const kwargs = {
+        distinct_id: 'my-id',
+        ip: '127.0.0.1',
+        site_url: 'http://localhost',
+        data: {
+            event: '$pageview',
+            properties: {},
+        },
+        team_id: 2,
+        now: new Date().toISOString(),
+        sent_at: new Date().toISOString(),
+    }
+    const args = Object.values(kwargs)
+
+    // Tricky: make a client to the PLUGINS_CELERY_QUEUE queue (not CELERY_DEFAULT_QUEUE as normally)
+    // This is so that the worker can directly read from it. Basically we will simulate a event sent from posthog.
+    const client = new Client(mockServer.redis, mockServer.PLUGINS_CELERY_QUEUE)
+    client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
+    client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
+    client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
+    client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
+    client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
+    client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
+
+    // There'll be a "tick lag" with the events moving from one queue to the next. :this_is_fine:
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(6)
+    expect(await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE)).toBe(null)
+
+    const queue = startQueue(mockServer, (event) => runPlugins(mockServer, event))
+    await advanceOneTick()
+
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(5)
+    expect(await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE)).toBe(null)
+
+    await queue.pause()
+
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(5)
+    expect((await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE))!.length).toBe(1)
+
+    await advanceOneTick()
+
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(5)
+    expect((await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE))!.length).toBe(1)
+
+    await advanceOneTick()
+
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(5)
+    expect((await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE))!.length).toBe(1)
+
+    await queue.resume()
+
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(5)
+    expect((await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE))!.length).toBe(1)
+
+    await advanceOneTick()
+
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(4)
+    expect((await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE))!.length).toBe(1)
+
+    await advanceOneTick()
+
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(3)
+    expect((await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE))!.length).toBe(2)
+
+    await queue.pause()
+    await advanceOneTick()
+
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(3)
+    expect((await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE))!.length).toBe(3)
+
+    await queue.pause()
+    await advanceOneTick()
+
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(3)
+    expect((await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE))!.length).toBe(3)
+
+    await advanceOneTick()
+
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(3)
+    expect((await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE))!.length).toBe(3)
+
+    await queue.resume()
+
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(3)
+    expect((await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE))!.length).toBe(3)
+
+    await advanceOneTick()
+
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(2)
+    expect((await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE))!.length).toBe(3)
+
+    await advanceOneTick()
+
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(1)
+    expect((await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE))!.length).toBe(4)
+
+    await advanceOneTick()
+
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(0)
+    expect((await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE))!.length).toBe(5)
+
+    await advanceOneTick()
+
+    expect((await mockServer.redis.get(mockServer.PLUGINS_CELERY_QUEUE))!.length).toBe(0)
+    expect((await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE))!.length).toBe(6)
+
+    const defaultQueue = ((await mockServer.redis.get(mockServer.CELERY_DEFAULT_QUEUE)) as any) as string[]
+
+    expect(defaultQueue.map((q) => JSON.parse(q)['headers']['lang']).join('-o-')).toBe('js-o-js-o-js-o-js-o-js-o-js')
+
+    await queue.stop()
+})

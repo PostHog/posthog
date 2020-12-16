@@ -1,9 +1,10 @@
 import Base from './base'
 import { Message } from './message'
+import { Pausable } from './pausable'
 
 type Handler = (...args: any[]) => Promise<void>
 
-export class Worker extends Base {
+export class Worker extends Base implements Pausable {
     handlers: Record<string, Handler> = {}
     activeTasks: Set<Promise<any>> = new Set()
 
@@ -44,6 +45,32 @@ export class Worker extends Base {
     public start(): Promise<any> {
         console.info('🍆 Starting Celery worker...')
         return this.run().catch((err) => console.error(err))
+    }
+
+    /**
+     * Pause the worker. await the response to be sure all pending `processNextTick` events have finished.
+     * @method Worker#pause
+     */
+    public pause(): Promise<void> {
+        return this.broker.pause()
+    }
+
+    /**
+     * Resume the worker
+     * @method Worker#pause
+     */
+    public resume(): void {
+        this.broker.resume()
+    }
+
+    /**
+     * Is the worker paused
+     * @method Worker#isPaused
+     *
+     * @returns {boolean}
+     */
+    public isPaused(): boolean {
+        return this.broker.paused
     }
 
     /**
