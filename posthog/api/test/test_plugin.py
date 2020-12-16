@@ -8,6 +8,7 @@ from django.utils.timezone import now
 
 from posthog.models import Plugin, PluginAttachment, PluginConfig, organization
 from posthog.models.organization import Organization
+from posthog.plugins.access import can_configure_plugins_via_api, can_install_plugins_via_api
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP, HELLO_WORLD_PLUGIN_GITHUB_ZIP
 from posthog.redis import get_client
@@ -453,3 +454,11 @@ class TestPluginAPI(APIBaseTest):
             )
             self.assertEqual(response.data["config"], {"bar": "moop"})  # type: ignore
             self.assertEqual(PluginAttachment.objects.count(), 0)
+
+    def test_cloud_plugin_whitelisting(self, mock_get, mock_reload):
+        with self.settings(MULTI_TENANCY=True, TEST=False):
+            self.assertFalse(can_install_plugins_via_api(self.organization))
+            self.assertFalse(can_configure_plugins_via_api(self.organization))
+            with self.settings(PLUGINS_CLOUD_WHITELISTED_ORG_IDS=f"{self.organization.id},"):
+                self.assertTrue(can_install_plugins_via_api(self.organization))
+                self.assertTrue(can_configure_plugins_via_api(self.organization))
