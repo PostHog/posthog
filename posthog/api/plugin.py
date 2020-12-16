@@ -110,7 +110,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if self.action == "get" or self.action == "list":  # type: ignore
+        if self.action == "get" or self.action == "list":
             if can_install_plugins_via_api(self.organization) or can_configure_plugins_via_api():
                 return queryset
         else:
