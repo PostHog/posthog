@@ -22,6 +22,7 @@ export const insightLogic = kea<insightLogicType>({
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         setNotFirstLoad: () => {},
+        reportUsage: (filters) => filters, // Reports usage via `posthog.capture`
     }),
     reducers: () => ({
         cachedUrls: [
@@ -56,36 +57,42 @@ export const insightLogic = kea<insightLogicType>({
         ],
     }),
     listeners: ({ values, actions }) => ({
-        setAllFilters: (payload) => {
+        setAllFilters: (filters) => {
+            actions.reportUsage(filters.filters)
+            actions.setNotFirstLoad()
+        },
+        reportUsage: async (filters: Record<string, any>, breakpoint) => {
             // Reports `insight viewed` event
-            const { insight, display, interval, date_from, date_to } = payload.filters
+            const { insight, display, interval, date_from, date_to } = filters
             const properties: Record<string, any> = {
-                is_first_load: values.isFirstLoad,
+                is_first_component_load: values.isFirstLoad,
                 insight,
                 display,
                 interval,
                 date_from,
                 date_to,
-                filters_count: payload.filters.properties.length, // Only counts general filters (i.e. not per-event filters)
-                events_count: payload.filters.events ? payload.filters.events.length : undefined, // Number of lines in insights graph; number of steps in funnel
+                filters_count: filters.properties ? filters.properties.length : 0, // Only counts general filters (i.e. not per-event filters)
+                events_count: filters.events ? filters.events.length : undefined, // Number of lines in insights graph; number of steps in funnel
             }
+
+            await breakpoint(5000)
 
             // Custom properties for each insight
             if (insight === 'TRENDS') {
-                properties.breakdown_type = payload.filters.breakdown_type
-                properties.shown_as = payload.filters.shown_as
+                properties.breakdown_type = filters.breakdown_type
+                properties.shown_as = filters.shown_as
             } else if (insight === 'SESSIONS') {
-                properties.session_distribution = payload.filters.session
+                properties.session_distribution = filters.session
             } else if (insight === 'FUNNELS') {
-                properties.session_distribution = payload.filters.session
+                properties.session_distribution = filters.session
             } else if (insight === 'RETENTION') {
-                properties.period = payload.filters.period
-                properties.date_to = payload.filters.date_to
-                properties.retention_type = payload.filters.retentionType
+                properties.period = filters.period
+                properties.date_to = filters.date_to
+                properties.retention_type = filters.retentionType
                 properties.same_retention_and_cohortizing_event =
-                    payload.filters.returningEntity.events[0].id === payload.filters.startEntity.events[0].id
+                    filters.returningEntity.events[0].id === filters.startEntity.events[0].id
             } else if (insight === 'PATHS') {
-                properties.path_type = payload.filters.path_type
+                properties.path_type = filters.path_type
             }
 
             const sanitizedProperties: Record<string, any> = {}
@@ -95,7 +102,6 @@ export const insightLogic = kea<insightLogicType>({
                 }
             })
             posthog.capture('insight viewed', sanitizedProperties)
-            actions.setNotFirstLoad()
         },
     }),
     actionToUrl: ({ actions, values }) => ({
