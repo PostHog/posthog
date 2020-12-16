@@ -246,7 +246,7 @@ def get_aggregate_total(query: QuerySet, entity: Entity) -> int:
     return entity_total
 
 
-def aggregate_cohort_filter(
+def get_aggregate_breakdown_total(
     filtered_events: QuerySet, filter: Filter, entity: Entity, team_id: int, breakdown_value: Union[str, int]
 ) -> int:
     if len(filtered_events) == 0:
@@ -357,7 +357,7 @@ class Trends(LifecycleTrend, BaseQuery):
                 new_dict.update(breakdown_label(entity, value))
             new_dict.update(
                 {
-                    "aggregated_value": aggregate_cohort_filter(
+                    "aggregated_value": get_aggregate_breakdown_total(
                         filtered_events, filter, entity, team_id, new_dict["breakdown_value"]
                     )
                 }
