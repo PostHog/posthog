@@ -47,8 +47,9 @@ function _Setup(): JSX.Element {
                 <a href="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</a>.
                 <JSSnippet />
                 <br />
-                It's possible to test out Posthog on a live site without changing any code. Just drag this bookmarklet
-                to your bookmarks bar, open your site and click the bookmarklet: <JSBookmarklet />
+                It's possible to test out Posthog on a live site without changing any code. <br />
+                Just drag this bookmarklet to your bookmarks bar, open the website you want to track and click it:{' '}
+                <JSBookmarklet />
                 <Divider />
                 <h2 id="custom-events" className="subtitle">
                     Send Custom Events
