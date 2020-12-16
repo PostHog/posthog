@@ -12,6 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
 from posthog.models import Team, User
+from posthog.models.utils import UUIDT
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
@@ -186,6 +187,8 @@ def get_event(request):
                 ),
             )
 
+        event_uuid = UUIDT()
+
         if is_ee_enabled():
             process_event_ee(
                 distinct_id=distinct_id,
@@ -195,6 +198,7 @@ def get_event(request):
                 team_id=team.id,
                 now=now,
                 sent_at=sent_at,
+                event_uuid=event_uuid,
             )
         else:
             task_name = "posthog.tasks.process_event.process_event"
@@ -227,6 +231,7 @@ def get_event(request):
                 team_id=team.id,
                 now=now,
                 sent_at=sent_at,
+                event_uuid=event_uuid,
             )
     timer.stop("event_endpoint")
     return cors_response(request, JsonResponse({"status": 1}))
