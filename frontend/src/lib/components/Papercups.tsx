@@ -21,6 +21,7 @@ export function Papercups({ user }: { user: UserType | null }): JSX.Element {
                         organization_id: user.organization?.id,
                         organization_plan: user.organization?.billing_plan,
                         posthog_version: user.posthog_version,
+                        posthog_domain: location.hostname,
                     },
                 }
             }
