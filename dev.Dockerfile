@@ -4,7 +4,7 @@ RUN mkdir /code
 WORKDIR /code
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl git make \
+    && apt-get install -y --no-install-recommends curl git build-essential \
     && curl -sL https://deb.nodesource.com/setup_14.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g yarn@1 \
