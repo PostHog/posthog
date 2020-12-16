@@ -34,8 +34,18 @@ from posthog.redis import get_client
 class PluginSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plugin
-        fields = ["id", "plugin_type", "name", "description", "url", "config_schema", "tag", "source"]
-        read_only_fields = ["id"]
+        fields = [
+            "id",
+            "organization_id",
+            "plugin_type",
+            "name",
+            "description",
+            "url",
+            "config_schema",
+            "tag",
+            "source",
+        ]
+        read_only_fields = ["id", "organization_id"]
 
     def get_error(self, plugin: Plugin) -> Optional[JSONField]:
         if plugin.error and can_install_plugins_via_api(self.context["organization_id"]):
@@ -49,6 +59,7 @@ class PluginSerializer(serializers.ModelSerializer):
             self._update_validated_data_from_url(validated_data, validated_data["url"])
         if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
             raise ValidationError('Plugin with name "{}" already installed!'.format(validated_data["name"]))
+        validated_data["organization_id"] = self.context["organization_id"]
         plugin = super().create(validated_data)
         reload_plugins_on_workers()
         return plugin
