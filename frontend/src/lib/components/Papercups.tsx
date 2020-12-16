@@ -1,36 +1,30 @@
-import React, { useEffect } from 'react'
+import React from 'react'
+import { ChatWidget } from '@papercups-io/chat-widget'
+import { UserType } from '~/types'
 
-export function Papercups(): JSX.Element {
-    useEffect(() => {
-        window.Papercups = {
-            config: {
-                accountId: '873f5102-d267-4b09-9de0-d6e741e0e076',
-                title: 'Welcome to PostHog',
-                subtitle: 'Ask us anything in the chat window below 😊',
-                primaryColor: '#5375ff',
-                greeting: "Hi! Send us a message and we'll respond as soon as we can.",
-                customer: {
-                    email: '{{ request.user.email }}',
-                    name: '{{ request.user.first_name }}',
-                },
-                newMessagePlaceholder: 'Start typing…',
-                baseUrl: 'https://app.papercups.io',
-            },
-        }
-
-        const script = document.createElement('script')
-
-        script.src = 'https://app.papercups.io/widget.js'
-        script.async = true
-        script.defer = true
-
-        document.body.appendChild(script)
-
-        return () => {
-            document.body.removeChild(script)
-            window.Papercups = undefined
-        }
-    }, [])
-
-    return <></>
+export function Papercups({ user }: { user: UserType | null }): JSX.Element {
+    return (
+        <ChatWidget
+            accountId="873f5102-d267-4b09-9de0-d6e741e0e076"
+            title="Welcome to PostHog"
+            subtitle="Ask us anything in the chat window below 😊"
+            newMessagePlaceholder="Start typing…"
+            primaryColor="#5375ff"
+            greeting="Hi! Send us a message and we'll respond as soon as we can."
+            customer={
+                user && {
+                    email: user.email,
+                    name: user.name,
+                    external_id: String(user.id),
+                    metadata: {
+                        organization_name: user.organization?.name,
+                        organization_id: user.organization?.id,
+                        organization_plan: user.organization?.billing_plan,
+                        posthog_version: user.posthog_version,
+                    },
+                }
+            }
+            showAgentAvailability
+        />
+    )
 }

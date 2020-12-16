@@ -86,7 +86,7 @@ function _App(): JSX.Element | null {
     const basicComponents = (
         // Components that should always be mounted
         <>
-            {featureFlags['papercups-enabled'] && <Papercups />}
+            {featureFlags['papercups-enabled'] && <Papercups user={user} />}
             <Toast />
         </>
     )
