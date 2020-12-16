@@ -4,6 +4,12 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
+def set_plugin_organization(apps, schema_editor):
+    Plugin = apps.get_model("posthog", "Plugin")
+    Organization = apps.get_model("posthog", "User")
+    Plugin.objects.update(organization=Organization.objects.first())
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -23,5 +29,16 @@ class Migration(migrations.Migration):
                 to="posthog.Organization",
             ),
             preserve_default=False,
+        ),
+        migrations.RunPython(set_plugin_organization, migrations.RunPython.noop),
+        migrations.AlterField(
+            model_name="plugin",
+            name="organization",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="plugins",
+                related_query_name="plugin",
+                to="posthog.Organization",
+            ),
         ),
     ]
