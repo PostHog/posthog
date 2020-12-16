@@ -183,6 +183,7 @@ def log_event(
     KafkaProducer().produce(
         topic=KAFKA_EVENTS_WAL,
         data={
+            "uuid": str(UUIDT()),  # UUID generated here specifically for idempotency with plugin server ingestion
             "distinct_id": distinct_id,
             "ip": ip,
             "site_url": site_url,
