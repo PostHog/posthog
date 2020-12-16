@@ -38,12 +38,12 @@ class PluginSerializer(serializers.ModelSerializer):
         read_only_fields = ["id"]
 
     def get_error(self, plugin: Plugin) -> Optional[JSONField]:
-        if plugin.error and can_install_plugins_via_api():
+        if plugin.error and can_install_plugins_via_api(self.context["organization_id"]):
             return plugin.error
         return None
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
-        if not can_install_plugins_via_api():
+        if not can_install_plugins_via_api(self.context["organization_id"]):
             raise ValidationError("Plugin installation via the web is disabled!")
         if validated_data.get("plugin_type", None) != Plugin.PluginType.SOURCE:
             self._update_validated_data_from_url(validated_data, validated_data["url"])
@@ -54,7 +54,7 @@ class PluginSerializer(serializers.ModelSerializer):
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
-        if not can_install_plugins_via_api():
+        if not can_install_plugins_via_api(self.context["organization_id"]):
             raise ValidationError("Plugin upgrades via the web are disabled!")
         if plugin.plugin_type != Plugin.PluginType.SOURCE:
             validated_data = self._update_validated_data_from_url(validated_data, validated_data["url"])

@@ -1,7 +1,8 @@
-from typing import Optional
+from typing import Optional, Union
 
 from django.conf import settings
 
+from posthog.models import organization
 from posthog.models.organization import Organization
 
 
@@ -11,9 +12,14 @@ def not_in_multi_tenancy():
     return settings.TEST or not getattr(settings, "MULTI_TENANCY", False)
 
 
-def can_install_plugins_via_api(organization: Optional[Organization]):
+def can_install_plugins_via_api(organization_or_id: Optional[Union[Organization, str]]):
+    organization_id = (
+        None
+        if not organization_or_id
+        else (organization_or_id if isinstance(organization_or_id, str) else organization_or_id.id)
+    )
     return settings.PLUGINS_INSTALL_VIA_API and (
-        not_in_multi_tenancy() or (organization and organization.id in settings.PLUGINS_CLOUD_WHITELISTED_ORG_IDS)
+        not_in_multi_tenancy() or (organization_id and organization_id in settings.PLUGINS_CLOUD_WHITELISTED_ORG_IDS)
     )
 
 
