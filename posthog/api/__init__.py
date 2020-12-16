@@ -37,11 +37,12 @@ router.register(r"feature_flag", feature_flag.FeatureFlagViewSet)
 router.register(r"dashboard", dashboard.DashboardsViewSet)
 router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"cohort", cohort.CohortViewSet)
-router.register(r"plugin", plugin.PluginViewSet)
 router.register(r"plugin_config", plugin.PluginConfigViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
+# nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet)
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet)
+organizations_router.register(r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"])
 organizations_router.register(
     r"members", organization_member.OrganizationMemberViewSet, "organization_members", ["organization_id"],
 )

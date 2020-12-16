@@ -34,27 +34,37 @@ from posthog.redis import get_client
 class PluginSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plugin
-        fields = ["id", "plugin_type", "name", "description", "url", "config_schema", "tag", "source"]
+        fields = [
+            "id",
+            "plugin_type",
+            "name",
+            "description",
+            "url",
+            "config_schema",
+            "tag",
+            "source",
+        ]
         read_only_fields = ["id"]
 
     def get_error(self, plugin: Plugin) -> Optional[JSONField]:
-        if plugin.error and can_install_plugins_via_api():
+        if plugin.error and can_install_plugins_via_api(self.context["organization_id"]):
             return plugin.error
         return None
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
-        if not can_install_plugins_via_api():
+        if not can_install_plugins_via_api(self.context["organization_id"]):
             raise ValidationError("Plugin installation via the web is disabled!")
         if validated_data.get("plugin_type", None) != Plugin.PluginType.SOURCE:
             self._update_validated_data_from_url(validated_data, validated_data["url"])
         if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
             raise ValidationError('Plugin with name "{}" already installed!'.format(validated_data["name"]))
+        validated_data["organization_id"] = self.context["organization_id"]
         plugin = super().create(validated_data)
         reload_plugins_on_workers()
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
-        if not can_install_plugins_via_api():
+        if not can_install_plugins_via_api(self.context["organization_id"]):
             raise ValidationError("Plugin upgrades via the web are disabled!")
         if plugin.plugin_type != Plugin.PluginType.SOURCE:
             validated_data = self._update_validated_data_from_url(validated_data, validated_data["url"])
@@ -104,23 +114,23 @@ class PluginSerializer(serializers.ModelSerializer):
         return validated_data
 
 
-class PluginViewSet(viewsets.ModelViewSet):
+class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if self.action == "get" or self.action == "list":  # type: ignore
-            if can_install_plugins_via_api() or can_configure_plugins_via_api():
+        if self.action == "get" or self.action == "list":
+            if can_install_plugins_via_api(self.organization) or can_configure_plugins_via_api(self.organization):
                 return queryset
         else:
-            if can_install_plugins_via_api():
+            if can_install_plugins_via_api(self.organization):
                 return queryset
         return queryset.none()
 
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request, **kwargs):
-        if not can_install_plugins_via_api():
+        if not can_install_plugins_via_api(self.organization):
             raise ValidationError("Plugin installation via the web is disabled!")
         url = "https://raw.githubusercontent.com/PostHog/plugins/main/repository.json"
         plugins = requests.get(url)
@@ -128,7 +138,7 @@ class PluginViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def status(self, request: request.Request, **kwargs):
-        if not can_install_plugins_via_api():
+        if not can_install_plugins_via_api(self.organization):
             raise ValidationError("Plugin installation via the web is disabled!")
 
         ping = get_client().get("@posthog-plugin-server/ping")
@@ -170,7 +180,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         return new_plugin_config
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
-        if not can_configure_plugins_via_api():
+        if not can_configure_plugins_via_api(Team.objects.get(id=self.context["team_id"]).organization_id):
             raise ValidationError("Plugin configuration via the web is disabled!")
         request = self.context["request"]
         validated_data["team"] = Team.objects.get(id=self.context["team_id"])
@@ -238,13 +248,13 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = PluginConfigSerializer
 
     def get_queryset(self):
-        if not can_configure_plugins_via_api():
+        if not can_configure_plugins_via_api(self.team.organization_id):
             return self.queryset.none()
         return super().get_queryset()
 
     # we don't really use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:  # type: ignore
-        if not can_configure_plugins_via_api():
+        if not can_configure_plugins_via_api(self.team.organization_id):
             return Response(status=404)
         plugin_config = PluginConfig.objects.get(team_id=self.team_id, pk=pk)
         plugin_config.enabled = False
@@ -253,7 +263,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def global_plugins(self, request: request.Request, **kwargs):
-        if not can_configure_plugins_via_api():
+        if not can_configure_plugins_via_api(self.team.organization_id):
             return Response([])
 
         response = []
