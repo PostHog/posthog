@@ -16,6 +16,7 @@ class Migration(migrations.Migration):
             name="organization",
             field=models.ForeignKey(
                 default=None,
+                null=True,
                 on_delete=django.db.models.deletion.CASCADE,
                 related_name="plugins",
                 related_query_name="plugin",
