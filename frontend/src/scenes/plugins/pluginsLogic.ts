@@ -39,7 +39,7 @@ export const pluginsLogic = kea<
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const { results } = await api.get('api/plugin')
+                    const { results } = await api.get('api/organizations/@current/plugins')
                     const plugins: Record<string, PluginType> = {}
                     for (const plugin of results as PluginType[]) {
                         plugins[plugin.id] = plugin
@@ -49,7 +49,7 @@ export const pluginsLogic = kea<
                 installPlugin: async ({ pluginUrl, pluginType }) => {
                     const url = pluginType === 'local' ? `file:${pluginUrl}` : pluginUrl
                     const response = await api.create(
-                        'api/plugin',
+                        'api/organizations/@current/plugins',
                         pluginType === 'source' ? { plugin_type: pluginType, name: url, source: '' } : { url }
                     )
                     capturePluginEvent(`plugin installed`, response, pluginType)
