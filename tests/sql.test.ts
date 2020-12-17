@@ -3,8 +3,12 @@ import { Plugin, PluginAttachmentDB, PluginConfig, PluginError, PluginsServer } 
 import { createServer } from '../src/server'
 
 let mockServer: PluginsServer
+let closeServer: () => Promise<void>
 beforeEach(async () => {
-    ;[mockServer] = await createServer()
+    ;[mockServer, closeServer] = await createServer()
+})
+afterEach(() => {
+    closeServer()
 })
 
 test('getPluginAttachmentRows', async () => {
