@@ -216,7 +216,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 </Tooltip>
             </div>
 
-            {actionFilter && (
+            {actionFilter && !featureFlags['filter_by_session_props'] && (
                 <p className="text-muted">
                     Showing only sessions where <b>{actionFilter.name}</b> occurred
                 </p>
