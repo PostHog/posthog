@@ -1,5 +1,5 @@
 import React, { RefObject } from 'react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ActionType } from '~/types'
 import { EventUsageType } from '~/types'
 import { EntityTypes } from '../trendsLogic'
@@ -10,6 +10,7 @@ import { Tooltip } from 'antd'
 import { ActionSelectInfo } from '../ActionSelectInfo'
 import { SelectBox } from '../../../lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
+import { entityFilterLogicType } from 'types/scenes/insights/ActionFilter/entityFilterLogicType'
 
 interface FilterType {
     filter: {
@@ -33,20 +34,21 @@ const getSuggestions = (events: EventUsageType[]): EventUsageType[] => {
 }
 export function ActionFilterDropdown({
     open,
-    selectedFilter,
+    logic,
     openButtonRef,
-    updateFilter,
     onClose,
 }: {
     open: boolean
-    selectedFilter?: FilterType
+    logic: entityFilterLogicType
     openButtonRef?: RefObject<HTMLElement>
-    updateFilter: (value: { type: 'actions' | 'events'; id: string | number; name: string; index: number }) => void
     onClose: () => void
 }): JSX.Element | null {
-    if (!open || !selectedFilter) {
+    if (!open) {
         return null
     }
+
+    const selectedFilter: FilterType = useValues(logic).selectedFilter
+    const { updateFilter } = useActions(logic)
 
     const { actions } = useValues(actionsModel)
     const { user } = useValues(userLogic)
