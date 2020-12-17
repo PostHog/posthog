@@ -210,18 +210,17 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                         {name || 'Select action'}
                         <DownOutlined style={{ fontSize: 10 }} />
                     </Button>
-                    {dropDownCondition() && (
-                        <ActionFilterDropdown
-                            selectedFilter={selectedFilter}
-                            updateFilter={updateFilter}
-                            onClickOutside={(e) => {
-                                if (node.current.contains(e.target)) {
-                                    return
-                                }
-                                selectFilter(null)
-                            }}
-                        />
-                    )}
+                    <ActionFilterDropdown
+                        open={dropDownCondition()}
+                        selectedFilter={selectedFilter}
+                        updateFilter={updateFilter}
+                        onClickOutside={(e) => {
+                            if (node.current.contains(e.target)) {
+                                return
+                            }
+                            selectFilter(null)
+                        }}
+                    />
                 </Col>
                 <Col>
                     {!hideMathSelector && (

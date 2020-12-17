@@ -16,14 +16,6 @@ import { Link } from 'lib/components/Link'
 import { CloseButton } from 'lib/components/CloseButton'
 import moment from 'moment'
 
-const constructEntityFilterLogic = (params: EntityFilterLogicParams): { actions: any; values: any } => {
-    const logic = entityFilterLogic(params)
-    return {
-        actions: useActions(logic),
-        values: useValues(logic),
-    }
-}
-
 export function RetentionTab(): JSX.Element {
     const node = useRef()
     const returningNode = useRef()
@@ -33,7 +25,8 @@ export function RetentionTab(): JSX.Element {
         retentionTableLogic({ dashboardItemId: null })
     )
     const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
-    const entityLogic = constructEntityFilterLogic({
+
+    const entityLogic = entityFilterLogic({
         setFilters: (filters) => {
             setFilters({ startEntity: filters })
             setOpen(false)
@@ -43,7 +36,7 @@ export function RetentionTab(): JSX.Element {
         singleMode: true,
     })
 
-    const entityLogicReturning = constructEntityFilterLogic({
+    const entityLogicReturning = entityFilterLogic({
         setFilters: (filters) => {
             setFilters({ returningEntity: filters })
             setReturningOpen(false)
@@ -89,18 +82,17 @@ export function RetentionTab(): JSX.Element {
                     </Select.Option>
                 ))}
             </Select>
-            {open && (
-                <ActionFilterDropdown
-                    selectedFilter={entityLogic.values.selectedFilter}
-                    updateFilter={entityLogic.actions.updateFilter}
-                    onClickOutside={(e): void => {
-                        if (node.current.contains(e.target)) {
-                            return
-                        }
-                        setOpen(false)
-                    }}
-                />
-            )}
+            <ActionFilterDropdown
+                open={open}
+                selectedFilter={useValues(entityLogic).selectedFilter}
+                updateFilter={useActions(entityLogic).updateFilter}
+                onClickOutside={(e): void => {
+                    if (node.current.contains(e.target)) {
+                        return
+                    }
+                    setOpen(false)
+                }}
+            />
             <h4 style={{ marginTop: '0.5rem' }} className="secondary">
                 Retaining event
                 <Tooltip
@@ -120,18 +112,17 @@ export function RetentionTab(): JSX.Element {
                 {returningEntity?.name || 'Select action'}
                 <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} />
             </Button>
-            {returningOpen && (
-                <ActionFilterDropdown
-                    selectedFilter={entityLogicReturning.values.selectedFilter}
-                    updateFilter={entityLogicReturning.actions.updateFilter}
-                    onClickOutside={(e): void => {
-                        if (node.current.contains(e.target)) {
-                            return
-                        }
-                        setReturningOpen(false)
-                    }}
-                />
-            )}
+            <ActionFilterDropdown
+                open={returningOpen}
+                selectedFilter={useValues(entityLogicReturning).selectedFilter}
+                updateFilter={useActions(entityLogicReturning).updateFilter}
+                onClickOutside={(e): void => {
+                    if (node.current.contains(e.target)) {
+                        return
+                    }
+                    setReturningOpen(false)
+                }}
+            />
             <div className="mt-05">
                 <Link
                     to="https://posthog.com/docs/features/retention?utm_campaign=learn-more&utm_medium=in-product"

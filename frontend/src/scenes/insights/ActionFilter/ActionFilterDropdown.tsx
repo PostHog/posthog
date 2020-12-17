@@ -32,14 +32,20 @@ const getSuggestions = (events: EventUsageType[]): EventUsageType[] => {
         .slice(0, 3)
 }
 export function ActionFilterDropdown({
+    open,
     selectedFilter,
     updateFilter,
     onClickOutside,
 }: {
-    selectedFilter: FilterType
+    open: boolean
+    selectedFilter?: FilterType
     updateFilter: (value: { type: 'actions' | 'events'; value: string | number; name: string; index: number }) => void
     onClickOutside: (event: MouseEvent) => void
-}): JSX.Element {
+}): JSX.Element | null {
+    if (!open || !selectedFilter) {
+        return null
+    }
+
     const { actions } = useValues(actionsModel)
     const { user } = useValues(userLogic)
 
