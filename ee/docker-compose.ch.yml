@@ -38,6 +38,8 @@ services:
         depends_on:
             - db
             - redis
+            - clickhouse
+            - kafka
         links:
             - db:db
             - redis:redis
