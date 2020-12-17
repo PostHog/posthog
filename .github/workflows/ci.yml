@@ -5,8 +5,29 @@ on:
 
 jobs:
     code-quality:
-        name: Code quality and functionality checks
-        runs-on: ubuntu-latest
+        name: Code quality
+        runs-on: ubuntu-20.04
+
+        steps:
+            - uses: actions/checkout@v1
+
+            - name: Set up Node 14
+              uses: actions/setup-node@v1
+              with:
+                  node-version: 14
+
+            - name: Install package.json dependencies with Yarn
+              run: yarn
+
+            - name: Check formatting with prettier
+              run: yarn prettier:check
+
+            - name: Lint with ESLint
+              run: yarn lint
+
+    tests:
+        name: Tests
+        runs-on: ubuntu-20.04
 
         services:
             postgres:
@@ -40,20 +61,62 @@ jobs:
             - name: Install package.json dependencies with Yarn
               run: yarn
 
-            - name: Check formatting with prettier
-              run: yarn prettier:check
-
-            - name: Lint with ESLint
-              run: yarn lint
+            - name: Initiate database
+              env:
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  REDIS_URL: 'redis://localhost'
+              run: yarn task:db-init
 
             - name: Test with Jest
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   REDIS_URL: 'redis://localhost'
-              run: yarn task:db-init && yarn test
+              run: yarn test
+
+    benchmarks:
+        name: Benchmarks
+        runs-on: ubuntu-20.04
+
+        services:
+            postgres:
+                image: postgres:12
+                env:
+                    POSTGRES_USER: postgres
+                    POSTGRES_PASSWORD: postgres
+                    POSTGRES_DB: postgres
+                ports: ['5432:5432']
+                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+            redis:
+                image: redis
+                ports:
+                    # Maps port 6379 on service container to the host
+                    # Needed because `redis` host is not discoverable for some reason
+                    - 6379:6379
+                options: >-
+                    --health-cmd "redis-cli ping"
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+
+        steps:
+            - uses: actions/checkout@v1
+
+            - name: Set up Node 14
+              uses: actions/setup-node@v1
+              with:
+                  node-version: 14
+
+            - name: Install package.json dependencies with Yarn
+              run: yarn
+
+            - name: Initiate database
+              env:
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  REDIS_URL: 'redis://localhost'
+              run: yarn task:db-init
 
             - name: Run benchmarks
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   REDIS_URL: 'redis://localhost'
-              run: yarn task:db-init && yarn benchmark
+              run: yarn benchmark
