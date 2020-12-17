@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.db.models import Exists, OuterRef, Q
@@ -12,7 +13,9 @@ from posthog.models.property import Property
 class PropertyMixin(BaseParamMixin):
     @cached_property
     def properties(self) -> List[Property]:
-        return self._parse_properties(self._data.get(PROPERTIES))
+        _props = self._data.get(PROPERTIES)
+        loaded_props = json.loads(_props) if isinstance(_props, str) else _props
+        return self._parse_properties(loaded_props)
 
     def properties_to_Q(self, team_id: int, is_person_query: bool = False) -> Q:
         """

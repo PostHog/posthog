@@ -74,8 +74,11 @@ class RetentionFilter(Filter):
 
     def _parse_target_entity(self, target_entity_data) -> Optional[Entity]:
         if target_entity_data:
-            data = json.loads(target_entity_data)
-            return Entity({"id": data["id"], "type": data["type"]})
+            if isinstance(target_entity_data, str):
+                _data = json.loads(target_entity_data)
+            else:
+                _data = target_entity_data
+            return Entity({"id": _data["id"], "type": _data["type"]})
         return None
 
     def to_dict(self) -> Dict[str, Any]:

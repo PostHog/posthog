@@ -4,7 +4,7 @@ from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMinute
 from django.http import HttpRequest
 
 from posthog.models.filters.base_filter import BaseFilter
-from posthog.models.filters.mixins.common import CompareMixin, DateMixin, IntervalMixin, OffsetMixin, ShownAsMixin
+from posthog.models.filters.mixins.common import CompareMixin, InsightMixin, OffsetMixin, ShownAsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.stickiness import (
     SelectedIntervalMixin,
@@ -22,6 +22,7 @@ class StickinessFilter(
     OffsetMixin,
     CompareMixin,
     ShownAsMixin,
+    InsightMixin,
     BaseFilter,
 ):
     get_earliest_timestamp: Callable
