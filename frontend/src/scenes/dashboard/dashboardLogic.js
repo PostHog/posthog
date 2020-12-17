@@ -31,9 +31,10 @@ export const dashboardLogic = kea({
         enableWobblyDragging: true,
         disableDragging: true,
         refreshDashboardItem: (id) => ({ id }),
+        reportUsage: (payload) => payload,
     }),
 
-    loaders: ({ props }) => ({
+    loaders: ({ props, actions }) => ({
         allItems: [
             [],
             {
@@ -42,6 +43,7 @@ export const dashboardLogic = kea({
                         const dashboard = await api.get(
                             `api/dashboard/${props.id}${props.shareToken ? '/?share_token=' + props.shareToken : ''}`
                         )
+                        actions.reportUsage(dashboard)
                         return dashboard
                     } catch (error) {
                         if (error.status === 404) {
@@ -54,7 +56,6 @@ export const dashboardLogic = kea({
             },
         ],
     }),
-
     reducers: ({ props }) => ({
         allItems: {
             renameDashboardItemSuccess: (state, { item }) => {
@@ -108,7 +109,6 @@ export const dashboardLogic = kea({
             },
         ],
     }),
-
     selectors: ({ props, selectors }) => ({
         items: [() => [selectors.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [() => [selectors.allItemsLoading], (allItemsLoading) => allItemsLoading],
@@ -219,7 +219,6 @@ export const dashboardLogic = kea({
             },
         ],
     }),
-
     events: ({ actions, cache }) => ({
         afterMount: [actions.loadDashboardItems],
         beforeUnmount: () => {
@@ -398,6 +397,23 @@ export const dashboardLogic = kea({
             if (dashboardItem.refreshing) {
                 setTimeout(() => actions.refreshDashboardItem(id), 1000)
             }
+        },
+        reportUsage: async (payload) => {
+            const { created_at, name, is_shared, pinned } = payload
+            const properties = { created_at, name, is_shared, pinned, sample_items_count: 0 }
+            properties.item_count = payload.items.length
+            properties.created_by_system = payload.created_by ? false : true
+
+            for (const item of payload.items) {
+                const key = `${item.filters.insight.toLowerCase()}_count`
+                if (!properties[key]) {
+                    properties[key] = 1
+                } else {
+                    properties[key] += 1
+                }
+                properties.sample_items_count += item.is_sample ? 1 : 0
+            }
+            posthog.capture('viewed dashboard', properties)
         },
     }),
 })

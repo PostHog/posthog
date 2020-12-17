@@ -47,7 +47,7 @@ export const insightLogic = kea<insightLogicType>({
             },
         ],
         /*
-        isFirstLoad determines if this is the first graph being shown in the session (used for analytics)
+        isFirstLoad determines if this is the first graph being shown after the component is mounted (used for analytics)
         */
         isFirstLoad: [
             true,
