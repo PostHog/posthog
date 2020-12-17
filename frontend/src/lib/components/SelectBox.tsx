@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react'
+import React, { useRef, useEffect, useState, Fragment } from 'react'
 import { useActions, useValues } from 'kea'
 import { Col, Row, Input, Divider } from 'antd'
 import { List } from 'antd'
@@ -75,15 +75,14 @@ export function SelectBox({
                     />
                     <div className="search-list">
                         {items.map((item, index) => (
-                            <>
+                            <Fragment key={index}>
                                 <SelectUnit
-                                    key={index}
                                     name={item.name}
                                     dropdownLogic={dropdownLogic}
                                     dataSource={item.dataSource}
                                 />
                                 <Divider />
-                            </>
+                            </Fragment>
                         ))}
                     </div>
                 </Col>
