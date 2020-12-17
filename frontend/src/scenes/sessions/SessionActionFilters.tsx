@@ -5,6 +5,7 @@ import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogi
 import { DownOutlined } from '@ant-design/icons'
 import { ActionFilterDropdown } from 'scenes/insights/ActionFilter/ActionFilterDropdown'
 import { useActions, useValues } from 'kea'
+import { CloseButton } from 'lib/components/CloseButton'
 
 interface Props {
     actionFilter: EntityWithProperties | null
@@ -42,6 +43,15 @@ export function SessionActionFilters({ actionFilter, updateActionFilter }: Props
                 openButtonRef={actionFilterButtonRef}
                 onClose={() => setActionFilterOpen(false)}
             />
+            {actionFilter && (
+                <CloseButton
+                    onClick={() => updateActionFilter(null)}
+                    style={{
+                        float: 'none',
+                        marginLeft: 4,
+                    }}
+                />
+            )}
         </div>
     )
 }
