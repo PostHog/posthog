@@ -1,7 +1,7 @@
 import { runPlugins, setupPlugins } from '../src/plugins'
 import { createServer } from '../src/server'
 import { LogLevel, PluginsServer } from '../src/types'
-import { PluginEvent } from 'posthog-plugins/src/types'
+import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import {
     mockPluginTempFolder,
     mockPluginWithArchive,

@@ -1,6 +1,6 @@
 import { createPluginConfigVM } from '../src/vm'
 import { PluginConfig, PluginsServer, Plugin } from '../src/types'
-import { PluginEvent } from 'posthog-plugins'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import { createServer } from '../src/server'
 import * as fetch from 'node-fetch'
 import { delay } from '../src/utils'

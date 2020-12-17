@@ -1,10 +1,10 @@
+import { Queue } from '../types'
 import Base from './base'
 import { Message } from './message'
-import { Pausable } from './pausable'
 
 type Handler = (...args: any[]) => Promise<void>
 
-export class Worker extends Base implements Pausable {
+export class Worker extends Base implements Queue {
     handlers: Record<string, Handler> = {}
     activeTasks: Set<Promise<any>> = new Set()
 
@@ -70,7 +70,7 @@ export class Worker extends Base implements Pausable {
      * @returns {boolean}
      */
     public isPaused(): boolean {
-        return this.broker.paused
+        return this.broker.isPaused()
     }
 
     /**

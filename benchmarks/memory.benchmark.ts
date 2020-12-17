@@ -1,7 +1,7 @@
 import { createPluginConfigVM } from '../src/vm'
 import { Plugin, PluginConfig, PluginConfigVMReponse } from '../src/types'
 import { createServer } from '../src/server'
-import { PluginEvent } from 'posthog-plugins/src/types'
+import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 jest.mock('../src/sql')
 

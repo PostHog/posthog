@@ -5,10 +5,7 @@ import { createCache } from './extensions/cache'
 import { createPosthog } from './extensions/posthog'
 import { createGoogle } from './extensions/google'
 import { PluginsServer, PluginConfig, PluginConfigVMReponse } from './types'
-
-function areWeTestingWithJest() {
-    return process.env.JEST_WORKER_ID !== undefined
-}
+import { areWeTestingWithJest } from './utils'
 
 export async function createPluginConfigVM(
     server: PluginsServer,

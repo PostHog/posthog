@@ -1,5 +1,5 @@
 import { PluginConfig, PluginConfigId, PluginError, PluginsServer } from './types'
-import { PluginEvent } from 'posthog-plugins'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import { setError } from './sql'
 import * as Sentry from '@sentry/node'
 
