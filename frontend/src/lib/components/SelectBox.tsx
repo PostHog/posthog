@@ -74,9 +74,10 @@ export function SelectBox({
                         style={{ width: '100%', borderRadius: 0 }}
                     />
                     <div className="search-list">
-                        {items.map((item) => (
+                        {items.map((item, index) => (
                             <>
                                 <SelectUnit
+                                    key={index}
                                     name={item.name}
                                     dropdownLogic={dropdownLogic}
                                     dataSource={item.dataSource}
