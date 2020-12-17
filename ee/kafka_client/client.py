@@ -3,14 +3,13 @@ import json
 from typing import Any, Callable, Dict, Optional
 
 import kafka_helper
+from django.conf import settings
 from google.protobuf.internal.encoder import _VarintBytes  # type: ignore
 from google.protobuf.json_format import MessageToJson
 from kafka import KafkaProducer as KP
 
 from ee.clickhouse.client import async_execute, sync_execute
 from ee.kafka_client import helper
-from ee.settings import KAFKA_ENABLED
-from posthog.settings import IS_HEROKU, KAFKA_BASE64_KEYS, KAFKA_HOSTS, TEST
 from posthog.utils import SingletonDecorator
 
 
@@ -27,14 +26,14 @@ class TestKafkaProducer:
 
 class _KafkaProducer:
     def __init__(self):
-        if TEST:
+        if settings.TEST:
             self.producer = TestKafkaProducer()
-        elif IS_HEROKU:
+        elif settings.IS_HEROKU:
             self.producer = kafka_helper.get_kafka_producer(value_serializer=lambda d: d)
-        elif KAFKA_BASE64_KEYS:
+        elif settings.KAFKA_BASE64_KEYS:
             self.producer = helper.get_kafka_producer(value_serializer=lambda d: d)
         else:
-            self.producer = KP(bootstrap_servers=KAFKA_HOSTS)
+            self.producer = KP(bootstrap_servers=settings.KAFKA_HOSTS)
 
     @staticmethod
     def json_serializer(d):
@@ -56,7 +55,7 @@ KafkaProducer = SingletonDecorator(_KafkaProducer)
 
 class ClickhouseProducer:
     def __init__(self):
-        if KAFKA_ENABLED:
+        if settings.EE_ENABLED:
             self.send_to_kafka = True
             self.producer = KafkaProducer()
         else:
