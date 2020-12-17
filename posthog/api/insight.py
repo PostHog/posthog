@@ -14,18 +14,7 @@ from rest_framework.response import Response
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.celery import update_cache_item_task
-from posthog.constants import (
-    DATE_FROM,
-    FROM_DASHBOARD,
-    INSIGHT,
-    INSIGHT_FUNNELS,
-    INSIGHT_PATHS,
-    INSIGHT_RETENTION,
-    INSIGHT_SESSIONS,
-    INSIGHT_TRENDS,
-    OFFSET,
-    TRENDS_STICKINESS,
-)
+from posthog.constants import FROM_DASHBOARD, INSIGHT, INSIGHT_FUNNELS, INSIGHT_PATHS, TRENDS_STICKINESS
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Event, Person, Team
 from posthog.models.filters import Filter, RetentionFilter
