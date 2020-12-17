@@ -45,7 +45,7 @@ services:
         build:
             context: ../
             dockerfile: dev.Dockerfile
-        command: ./bin/docker-worker
+        command: ./bin/docker-worker-celery --with-scheduler
         volumes:
             - ..:/code
         environment:
@@ -66,6 +66,32 @@ services:
         links:
             - db:db
             - redis:redis
+    plugins:
+        build:
+            context: ../
+            dockerfile: production.Dockerfile
+        command: ./bin/plugin-server
+        volumes:
+            - ..:/code
+        environment:
+            IS_DOCKER: 'true'
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            CLICKHOUSE_HOST: 'clickhouse'
+            CLICKHOUSE_DATABASE: 'posthog'
+            CLICKHOUSE_SECURE: 'False'
+            CLICKHOUSE_VERIFY: 'False'
+            KAFKA_URL: 'kafka://kafka'
+            REDIS_URL: 'redis://redis:6379/'
+            SECRET_KEY: 'asdflaisdjkfalsdkjf'
+            DEBUG: 'true'
+            PRIMARY_DB: 'clickhouse'
+        depends_on:
+            - db
+            - redis
+        links:
+            - db:db
+            - redis:redis
+
     clickhouse:
         image: yandex/clickhouse-server
         ports:
