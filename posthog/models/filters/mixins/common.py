@@ -6,7 +6,6 @@ from typing import Dict, List, Optional, Union
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
 from django.utils import timezone
-from django.utils.functional import cached_property
 
 from posthog.constants import (
     ACTIONS,
@@ -31,7 +30,7 @@ from posthog.constants import (
 )
 from posthog.models.entity import Entity
 from posthog.models.filters.mixins.base import BaseParamMixin
-from posthog.models.filters.mixins.utils import include_dict
+from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.utils import relative_date_parse
 
 
