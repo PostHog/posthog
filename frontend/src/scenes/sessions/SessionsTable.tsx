@@ -188,15 +188,15 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
             </Space>
 
-            {featureFlags['filter_by_session_props'] && (
-                <>
-                    <SessionActionFilters actionFilter={actionFilter} updateActionFilter={updateActionFilter} />
+            {featureFlags['filter_by_session_props'] && user?.is_multi_tenancy && (
+                <SessionActionFilters actionFilter={actionFilter} updateActionFilter={updateActionFilter} />
+            )}
 
-                    <SessionRecordingFilters
-                        duration={duration}
-                        onChange={(newDuration) => setFilters(properties, selectedDate, newDuration, actionFilter)}
-                    />
-                </>
+            {featureFlags['filter_by_session_props'] && (
+                <SessionRecordingFilters
+                    duration={duration}
+                    onChange={(newDuration) => setFilters(properties, selectedDate, newDuration, actionFilter)}
+                />
             )}
             <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
 
