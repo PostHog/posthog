@@ -41,7 +41,7 @@ export function ActionFilterDropdown({
     open: boolean
     selectedFilter?: FilterType
     openButtonRef?: RefObject<HTMLElement>
-    updateFilter: (value: { type: 'actions' | 'events'; value: string | number; name: string; index: number }) => void
+    updateFilter: (value: { type: 'actions' | 'events'; id: string | number; name: string; index: number }) => void
     onClose: () => void
 }): JSX.Element | null {
     if (!open || !selectedFilter) {
@@ -58,8 +58,8 @@ export function ActionFilterDropdown({
         onClose()
     }
 
-    const callUpdateFilter = (type: 'actions' | 'events', value: string, name: string): void => {
-        updateFilter({ type, value, name, index: selectedFilter.index })
+    const callUpdateFilter = (type: 'actions' | 'events', id: string | number, name: string): void => {
+        updateFilter({ type, id, name, index: selectedFilter.index })
     }
     const suggestions = getSuggestions(user?.team?.event_names_with_usage || [])
 
