@@ -1,6 +1,6 @@
 import { makePiscina } from '../src/worker/piscina'
 import { defaultConfig } from '../src/config'
-import { PluginEvent } from 'posthog-plugins/src/types'
+import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { performance } from 'perf_hooks'
 import { mockJestWithIndex } from '../tests/helpers/plugins'
 import * as os from 'os'

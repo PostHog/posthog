@@ -1,4 +1,4 @@
-import { ConsoleExtension } from 'posthog-plugins'
+import { ConsoleExtension } from '@posthog/plugin-scaffold'
 
 export function createConsole(): ConsoleExtension {
     return {

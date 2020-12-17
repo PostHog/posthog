@@ -1,14 +1,25 @@
-import { PluginsServer } from '../types'
-import { PluginEvent } from 'posthog-plugins'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-
+import { DateTime } from 'luxon'
 import Worker from '../celery/worker'
 import Client from '../celery/client'
+import { PluginsServer, Queue, RawEventMessage } from '../types'
+import { KafkaQueue } from '../ingestion/kafka-queue'
 
 export function startQueue(
     server: PluginsServer,
-    processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
-): Worker {
+    processEvent: (event: PluginEvent) => Promise<PluginEvent | null>,
+    processEventBatch: (event: PluginEvent[]) => Promise<(PluginEvent | null)[]>
+): Queue {
+    const relevantStartQueue = server.EE_ENABLED ? startQueueKafka : startQueueRedis
+    return relevantStartQueue(server, processEvent, processEventBatch)
+}
+
+function startQueueRedis(
+    server: PluginsServer,
+    processEvent: (event: PluginEvent) => Promise<PluginEvent | null>,
+    processEventBatch: (event: PluginEvent[]) => Promise<(PluginEvent | null)[]>
+): Queue {
     const worker = new Worker(server.redis, server.PLUGINS_CELERY_QUEUE)
     const client = new Client(server.redis, server.CELERY_DEFAULT_QUEUE)
 
@@ -47,4 +58,29 @@ export function startQueue(
     worker.start()
 
     return worker
+}
+
+function startQueueKafka(
+    server: PluginsServer,
+    processEvent: (event: PluginEvent) => Promise<PluginEvent | null>,
+    processEventBatch: (event: PluginEvent[]) => Promise<(PluginEvent | null)[]>
+): Queue {
+    const kafkaQueue = new KafkaQueue(server, processEventBatch, async (event: PluginEvent) => {
+        const singleIngestionTimer = new Date()
+        const { distinct_id, ip, site_url, team_id, now, sent_at } = event
+        await server.eventsProcessor.process_event_ee(
+            distinct_id,
+            ip,
+            site_url,
+            event,
+            team_id,
+            DateTime.fromISO(now),
+            sent_at ? DateTime.fromISO(sent_at) : null
+        )
+        server.statsd?.timing('single-ingestion', singleIngestionTimer)
+    })
+
+    kafkaQueue.start()
+
+    return kafkaQueue
 }

@@ -1,7 +1,7 @@
 import * as Redis from 'ioredis'
 import { v4 } from 'uuid'
+import { Pausable } from '../types'
 import { Message } from './message'
-import { Pausable } from './pausable'
 
 type BrokerSubscription = { queue: string; callback: (message: Message) => any }
 
@@ -106,6 +106,10 @@ export default class RedisBroker implements Pausable {
         for (const { queue, callback } of this.subscriptions) {
             this.channels.push(new Promise((resolve) => this.receiveFast(resolve, queue, callback)))
         }
+    }
+
+    public isPaused(): boolean {
+        return this.paused
     }
 
     /**

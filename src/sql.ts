@@ -1,10 +1,8 @@
+import { areWeTestingWithJest } from './utils'
 import { Plugin, PluginAttachmentDB, PluginConfig, PluginConfigId, PluginError, PluginsServer } from './types'
 
-// This nice "mocking" system is used since we want to mock data in worker threads.
+// This nice "mocking" system with areWeTestingWithJest is used since we want to mock data in worker threads.
 // Jest mocks don't penetrate that far. Improvements welcome.
-function areWeTestingWithJest() {
-    return process.env.JEST_WORKER_ID !== undefined
-}
 
 export async function getPluginRows(server: PluginsServer): Promise<Plugin[]> {
     if (areWeTestingWithJest() && server.__jestMock?.getPluginRows) {
