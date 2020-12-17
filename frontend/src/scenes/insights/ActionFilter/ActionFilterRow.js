@@ -141,6 +141,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
     const {
         selectFilter,
+        updateFilter,
         updateFilterMath,
         removeLocalFilter,
         updateFilterProperty,
@@ -211,7 +212,8 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                     </Button>
                     {dropDownCondition() && (
                         <ActionFilterDropdown
-                            logic={logic}
+                            selectedFilter={selectedFilter}
+                            updateFilter={updateFilter}
                             onClickOutside={(e) => {
                                 if (node.current.contains(e.target)) {
                                     return

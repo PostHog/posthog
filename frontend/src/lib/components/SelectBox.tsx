@@ -33,7 +33,7 @@ export function SelectBox({
     items: SelectBoxItem[]
     selectedItemKey?: string
     onSelect: CallableFunction
-    onDismiss: CallableFunction
+    onDismiss: (event: MouseEvent) => void
 }): JSX.Element {
     const dropdownRef = useRef<HTMLDivElement>(null)
     const dropdownLogic = selectBoxLogic({ updateFilter: onSelect, items })

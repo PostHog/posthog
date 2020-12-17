@@ -16,6 +16,14 @@ import { Link } from 'lib/components/Link'
 import { CloseButton } from 'lib/components/CloseButton'
 import moment from 'moment'
 
+const constructEntityFilterLogic = (params: EntityFilterLogicParams): { actions: any; values: any } => {
+    const logic = entityFilterLogic(params)
+    return {
+        actions: useActions(logic),
+        values: useValues(logic),
+    }
+}
+
 export function RetentionTab(): JSX.Element {
     const node = useRef()
     const returningNode = useRef()
@@ -25,7 +33,7 @@ export function RetentionTab(): JSX.Element {
         retentionTableLogic({ dashboardItemId: null })
     )
     const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
-    const entityLogic = entityFilterLogic({
+    const entityLogic = constructEntityFilterLogic({
         setFilters: (filters) => {
             setFilters({ startEntity: filters })
             setOpen(false)
@@ -35,7 +43,7 @@ export function RetentionTab(): JSX.Element {
         singleMode: true,
     })
 
-    const entityLogicReturning = entityFilterLogic({
+    const entityLogicReturning = constructEntityFilterLogic({
         setFilters: (filters) => {
             setFilters({ returningEntity: filters })
             setReturningOpen(false)
@@ -83,7 +91,8 @@ export function RetentionTab(): JSX.Element {
             </Select>
             {open && (
                 <ActionFilterDropdown
-                    logic={entityLogic}
+                    selectedFilter={entityLogic.values.selectedFilter}
+                    updateFilter={entityLogic.actions.updateFilter}
                     onClickOutside={(e): void => {
                         if (node.current.contains(e.target)) {
                             return
@@ -113,7 +122,8 @@ export function RetentionTab(): JSX.Element {
             </Button>
             {returningOpen && (
                 <ActionFilterDropdown
-                    logic={entityLogicReturning}
+                    selectedFilter={entityLogicReturning.values.selectedFilter}
+                    updateFilter={entityLogicReturning.actions.updateFilter}
                     onClickOutside={(e): void => {
                         if (node.current.contains(e.target)) {
                             return

@@ -1,5 +1,5 @@
 import React from 'react'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { ActionType } from '~/types'
 import { EventUsageType } from '~/types'
 import { EntityTypes } from '../trendsLogic'
@@ -8,9 +8,22 @@ import { actionsModel } from '~/models/actionsModel'
 import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
 import { Tooltip } from 'antd'
 import { ActionSelectInfo } from '../ActionSelectInfo'
-import { entityFilterLogicType } from 'types/scenes/insights/ActionFilter/entityFilterLogicType'
 import { SelectBox } from '../../../lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
+
+interface FilterType {
+    filter: {
+        id: string
+        type: 'actions' | 'events'
+        name: string
+        order: number
+        math?: string
+        math_property?: string
+        properties?: Array<Record<string, any>>
+    }
+    type: 'actions' | 'events'
+    index: number
+}
 
 const getSuggestions = (events: EventUsageType[]): EventUsageType[] => {
     return events
@@ -19,24 +32,25 @@ const getSuggestions = (events: EventUsageType[]): EventUsageType[] => {
         .slice(0, 3)
 }
 export function ActionFilterDropdown({
+    selectedFilter,
+    updateFilter,
     onClickOutside,
-    logic,
 }: {
-    onClickOutside: CallableFunction
-    logic: entityFilterLogicType
+    selectedFilter: FilterType
+    updateFilter: (value: { type: 'actions' | 'events'; value: string | number; name: string; index: number }) => void
+    onClickOutside: (event: MouseEvent) => void
 }): JSX.Element {
-    const { selectedFilter } = useValues(logic)
-    const { updateFilter } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { user } = useValues(userLogic)
 
-    const callUpdateFilter = (type: string, value: string, name: string): CallableFunction =>
+    const callUpdateFilter = (type: 'actions' | 'events', value: string, name: string): void => {
         updateFilter({ type, value, name, index: selectedFilter.index })
-    const suggestions = getSuggestions(user?.team.event_names_with_usage)
+    }
+    const suggestions = getSuggestions(user?.team?.event_names_with_usage || [])
 
     return (
         <SelectBox
-            selectedItemKey={selectedFilter.filter?.type + selectedFilter.filter?.id}
+            selectedItemKey={selectedFilter ? selectedFilter.filter.type + selectedFilter.filter.id : undefined}
             onDismiss={onClickOutside}
             onSelect={callUpdateFilter}
             items={[
