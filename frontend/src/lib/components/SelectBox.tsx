@@ -31,7 +31,7 @@ export function SelectBox({
     onDismiss,
 }: {
     items: SelectBoxItem[]
-    selectedItemKey: string
+    selectedItemKey?: string
     onSelect: CallableFunction
     onDismiss: CallableFunction
 }): JSX.Element {
