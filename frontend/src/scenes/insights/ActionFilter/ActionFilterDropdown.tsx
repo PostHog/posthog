@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { RefObject } from 'react'
 import { useValues } from 'kea'
 import { ActionType } from '~/types'
 import { EventUsageType } from '~/types'
@@ -34,13 +34,15 @@ const getSuggestions = (events: EventUsageType[]): EventUsageType[] => {
 export function ActionFilterDropdown({
     open,
     selectedFilter,
+    openButtonRef,
     updateFilter,
-    onClickOutside,
+    onClose,
 }: {
     open: boolean
     selectedFilter?: FilterType
+    openButtonRef?: RefObject<HTMLElement>
     updateFilter: (value: { type: 'actions' | 'events'; value: string | number; name: string; index: number }) => void
-    onClickOutside: (event: MouseEvent) => void
+    onClose: () => void
 }): JSX.Element | null {
     if (!open || !selectedFilter) {
         return null
@@ -48,6 +50,13 @@ export function ActionFilterDropdown({
 
     const { actions } = useValues(actionsModel)
     const { user } = useValues(userLogic)
+
+    const handleDismiss = (event: MouseEvent): void => {
+        if (openButtonRef?.current?.contains(event.target as Node)) {
+            return
+        }
+        onClose()
+    }
 
     const callUpdateFilter = (type: 'actions' | 'events', value: string, name: string): void => {
         updateFilter({ type, value, name, index: selectedFilter.index })
@@ -57,7 +66,7 @@ export function ActionFilterDropdown({
     return (
         <SelectBox
             selectedItemKey={selectedFilter ? selectedFilter.filter.type + selectedFilter.filter.id : undefined}
-            onDismiss={onClickOutside}
+            onDismiss={handleDismiss}
             onSelect={callUpdateFilter}
             items={[
                 {

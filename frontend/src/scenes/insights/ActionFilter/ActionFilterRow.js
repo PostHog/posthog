@@ -214,12 +214,8 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                         open={dropDownCondition()}
                         selectedFilter={selectedFilter}
                         updateFilter={updateFilter}
-                        onClickOutside={(e) => {
-                            if (node.current.contains(e.target)) {
-                                return
-                            }
-                            selectFilter(null)
-                        }}
+                        openButtonRef={node}
+                        onClose={() => selectFilter(null)}
                     />
                 </Col>
                 <Col>

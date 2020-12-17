@@ -17,8 +17,8 @@ import { CloseButton } from 'lib/components/CloseButton'
 import moment from 'moment'
 
 export function RetentionTab(): JSX.Element {
-    const node = useRef()
-    const returningNode = useRef()
+    const node = useRef<HTMLElement>(null)
+    const returningNode = useRef<HTMLElement>(null)
     const [open, setOpen] = useState<boolean>(false)
     const [returningOpen, setReturningOpen] = useState<boolean>(false)
     const { filters, startEntity, period, retentionType, returningEntity } = useValues(
@@ -86,12 +86,8 @@ export function RetentionTab(): JSX.Element {
                 open={open}
                 selectedFilter={useValues(entityLogic).selectedFilter}
                 updateFilter={useActions(entityLogic).updateFilter}
-                onClickOutside={(e): void => {
-                    if (node.current.contains(e.target)) {
-                        return
-                    }
-                    setOpen(false)
-                }}
+                openButtonRef={node}
+                onClose={() => setOpen(false)}
             />
             <h4 style={{ marginTop: '0.5rem' }} className="secondary">
                 Retaining event
@@ -116,12 +112,8 @@ export function RetentionTab(): JSX.Element {
                 open={returningOpen}
                 selectedFilter={useValues(entityLogicReturning).selectedFilter}
                 updateFilter={useActions(entityLogicReturning).updateFilter}
-                onClickOutside={(e): void => {
-                    if (node.current.contains(e.target)) {
-                        return
-                    }
-                    setReturningOpen(false)
-                }}
+                openButtonRef={returningNode}
+                onClose={() => setReturningOpen(false)}
             />
             <div className="mt-05">
                 <Link
