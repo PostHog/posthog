@@ -401,10 +401,16 @@ export const dashboardLogic = kea({
         reportUsage: async (payload, breakpoint) => {
             await breakpoint(5000) // Only send the event if the user stayed for more than 5s
             const { created_at, name, is_shared, pinned } = payload
-            const properties = { created_at, name, is_shared, pinned, sample_items_count: 0 }
-            properties.item_count = payload.items.length
-            properties.created_by_system = payload.created_by ? false : true
-            properties.watching_shared = !!props.shareToken
+            const properties = {
+                created_at,
+                name,
+                is_shared,
+                pinned,
+                sample_items_count: 0,
+                item_count: payload.items.length,
+                created_by_system: !payload.created_by,
+                watching_shared: !!props.shareToken,
+            }
 
             for (const item of payload.items) {
                 const key = `${item.filters.insight.toLowerCase()}_count`

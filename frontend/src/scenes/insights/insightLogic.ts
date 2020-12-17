@@ -10,6 +10,32 @@ export const ViewType = {
     RETENTION: 'RETENTION',
     PATHS: 'PATHS',
 }
+interface FilterType {
+    insight: 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS'
+    display?:
+        | 'ActionsLineGraph'
+        | 'ActionsLineGraphCumulative'
+        | 'ActionsTable'
+        | 'ActionsPie'
+        | 'ActionsBar'
+        | 'PathsViz'
+        | 'FunnelViz'
+    interval?: string
+    date_from?: string
+    date_to?: string
+    properties?: Record<string, any>[]
+    events?: Record<string, any>[]
+    actions?: Record<string, any>[]
+    breakdown_type?: 'cohort' | 'person' | 'event'
+    shown_as?: 'Volume' | 'Stickiness' | 'Lifecycle'
+    session?: string
+    period?: string
+    retentionType?: 'retention_recurring' | 'retention_first_time'
+    returningEntity?: Record<string, any>
+    startEntity?: Record<string, any>
+    path_type?: '$pageview' | '$screen' | '$autocapture' | 'custom_event'
+}
+
 /*
 InsighLogic maintains state for changing between insight features
 This includes handling the urls and view state
@@ -61,7 +87,7 @@ export const insightLogic = kea<insightLogicType>({
             actions.reportUsage(filters.filters)
             actions.setNotFirstLoad()
         },
-        reportUsage: async (filters: Record<string, any>, breakpoint) => {
+        reportUsage: async (filters: FilterType, breakpoint) => {
             // Reports `insight viewed` event
             const { insight, display, interval, date_from, date_to } = filters
             const properties: Record<string, any> = {
@@ -71,9 +97,9 @@ export const insightLogic = kea<insightLogicType>({
                 interval,
                 date_from,
                 date_to,
-                filters_count: filters.properties ? filters.properties.length : 0, // Only counts general filters (i.e. not per-event filters)
-                events_count: filters.events ? filters.events.length : undefined, // Number of event lines in insights graph; number of steps in funnel
-                actions_count: filters.actions ? filters.actions.length : undefined, // Number of action lines in insights graph; number of steps in funnel
+                filters_count: filters.properties?.length || 0, // Only counts general filters (i.e. not per-event filters)
+                events_count: filters.events?.length, // Number of event lines in insights graph; number of steps in funnel
+                actions_count: filters.actions?.length, // Number of action lines in insights graph; number of steps in funnel
             }
 
             properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
@@ -93,18 +119,12 @@ export const insightLogic = kea<insightLogicType>({
                 properties.date_to = filters.date_to
                 properties.retention_type = filters.retentionType
                 properties.same_retention_and_cohortizing_event =
-                    filters.returningEntity.events[0].id === filters.startEntity.events[0].id
+                    filters.returningEntity?.events[0].id === filters.startEntity?.events[0].id
             } else if (insight === 'PATHS') {
                 properties.path_type = filters.path_type
             }
 
-            const sanitizedProperties: Record<string, any> = {}
-            Object.entries(properties).map(([key, value]) => {
-                if (value !== undefined) {
-                    sanitizedProperties[key] = value
-                }
-            })
-            posthog.capture('insight viewed', sanitizedProperties)
+            posthog.capture('insight viewed', properties)
         },
     }),
     actionToUrl: ({ actions, values }) => ({
