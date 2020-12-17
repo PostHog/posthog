@@ -1,7 +1,7 @@
-import json
 from typing import Any, Dict, Optional
 
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.contrib.postgres.fields import JSONField
 from django.core.exceptions import EmptyResultSet
 from django.db import connection, models, transaction
@@ -9,8 +9,6 @@ from django.db.models import Q
 from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
-
-from posthog.ee import is_ee_enabled
 
 from .action import Action
 from .event import Event
@@ -61,7 +59,7 @@ class Cohort(models.Model):
 
     objects = CohortManager()
 
-    def calculate_people(self, use_clickhouse=is_ee_enabled()):
+    def calculate_people(self, use_clickhouse=settings.EE_ENABLED):
         try:
             if not use_clickhouse:
                 self.is_calculating = True

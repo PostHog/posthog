@@ -17,7 +17,6 @@ from loginas.utils import is_impersonated_session
 from rest_framework import serializers
 
 from posthog.auth import authenticate_secondarily
-from posthog.ee import is_ee_enabled
 from posthog.email import is_email_available
 from posthog.models import Team, User
 from posthog.models.organization import Organization
@@ -149,7 +148,7 @@ def user(request):
             "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
             "is_staff": user.is_staff,
             "ee_available": settings.EE_AVAILABLE,
-            "ee_enabled": is_ee_enabled(),
+            "ee_enabled": settings.EE_ENABLED,
             "email_service_available": is_email_available(with_absolute_urls=True),
             "is_debug": getattr(settings, "DEBUG", False),
             "is_staff": user.is_staff,

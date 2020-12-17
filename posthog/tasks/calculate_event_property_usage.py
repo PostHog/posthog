@@ -2,11 +2,11 @@ from datetime import timedelta
 from typing import Dict, List, Tuple
 
 from celery.app import shared_task
+from django.conf import settings
 from django.db import connection
 from django.db.models import Count
 from django.utils.timezone import now
 
-from posthog.ee import is_ee_enabled
 from posthog.models import Team
 from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
@@ -62,7 +62,7 @@ def calculate_event_property_usage_for_team(team_id: int) -> None:
 
 def _get_properties_volume(team: Team) -> List[Tuple[str, int]]:
     timestamp = now() - timedelta(days=30)
-    if is_ee_enabled():
+    if settings.EE_ENABLED:
         from ee.clickhouse.client import sync_execute
         from ee.clickhouse.sql.events import GET_PROPERTIES_VOLUME
 
@@ -77,7 +77,7 @@ def _get_properties_volume(team: Team) -> List[Tuple[str, int]]:
 
 def _get_events_volume(team: Team) -> List[Tuple[str, int]]:
     timestamp = now() - timedelta(days=30)
-    if is_ee_enabled():
+    if settings.EE_ENABLED:
         from ee.clickhouse.client import sync_execute
         from ee.clickhouse.sql.events import GET_EVENTS_VOLUME
 

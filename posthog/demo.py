@@ -5,11 +5,10 @@ from pathlib import Path
 from typing import List
 
 from dateutil.relativedelta import relativedelta
-from django.http import HttpResponseNotFound, JsonResponse
+from django.conf import settings
 from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.ee import is_ee_enabled
 from posthog.models import (
     Action,
     ActionStep,
@@ -225,7 +224,7 @@ def demo(request):
         team.event_names.append("$pageview")
         team.save()
 
-    if is_ee_enabled():
+    if settings.EE_ENABLED:
         from ee.clickhouse.demo import create_anonymous_users_ch
         from ee.clickhouse.models.event import get_events_by_team
 

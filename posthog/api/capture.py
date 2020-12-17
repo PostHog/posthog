@@ -10,7 +10,6 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
 from posthog.celery import app as celery_app
-from posthog.ee import is_ee_enabled
 from posthog.models import Team, User
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
@@ -186,7 +185,7 @@ def get_event(request):
                 ),
             )
 
-        if is_ee_enabled():
+        if settings.EE_ENABLED:
             process_event_ee(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),
@@ -218,7 +217,7 @@ def get_event(request):
                 ],
             )
 
-        if is_ee_enabled():
+        if settings.EE_ENABLED:
             log_event(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),

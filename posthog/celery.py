@@ -8,7 +8,6 @@ from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 
-from posthog.ee import is_ee_enabled
 from posthog.redis import get_client
 
 # set the default Django settings module for the 'celery' program.
@@ -65,7 +64,7 @@ def setup_periodic_tasks(sender, **kwargs):
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    if not is_ee_enabled():
+    if not settings.EE_ENABLED:
         sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
     else:
         # ee enabled scheduled tasks
@@ -94,7 +93,7 @@ CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id", "session_recordin
 
 @app.task(ignore_result=True)
 def clickhouse_lag():
-    if is_ee_enabled() and settings.EE_AVAILABLE:
+    if settings.EE_ENABLED and settings.EE_AVAILABLE:
         from ee.clickhouse.client import sync_execute
 
         for table in CLICKHOUSE_TABLES:
@@ -109,7 +108,7 @@ def clickhouse_lag():
 
 @app.task(ignore_result=True)
 def clickhouse_row_count():
-    if is_ee_enabled() and settings.EE_AVAILABLE:
+    if settings.EE_ENABLED and settings.EE_AVAILABLE:
         from ee.clickhouse.client import sync_execute
 
         for table in CLICKHOUSE_TABLES:
@@ -124,7 +123,7 @@ def clickhouse_row_count():
 
 @app.task(ignore_result=True)
 def clickhouse_part_count():
-    if is_ee_enabled() and settings.EE_AVAILABLE:
+    if settings.EE_ENABLED and settings.EE_AVAILABLE:
         from ee.clickhouse.client import sync_execute
 
         QUERY = """

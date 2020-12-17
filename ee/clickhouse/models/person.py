@@ -1,8 +1,9 @@
 import datetime
 import json
 from typing import Any, Dict, List, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
+from django.conf import settings
 from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -29,14 +30,12 @@ from ee.clickhouse.sql.person import (
 )
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
-from posthog import settings
-from posthog.ee import is_ee_enabled
 from posthog.models.filters import Filter
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 
-if settings.EE_AVAILABLE and is_ee_enabled():
+if settings.EE_ENABLED:
 
     @receiver(post_save, sender=Person)
     def person_created(sender, instance: Person, created, **kwargs):

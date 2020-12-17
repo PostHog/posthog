@@ -14,7 +14,6 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.kafka_client.client import KafkaProducer
 from ee.kafka_client.topics import KAFKA_EVENTS_WAL
-from posthog.ee import is_ee_enabled
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -107,7 +106,7 @@ def handle_timestamp(data: dict, now: datetime.datetime, sent_at: Optional[datet
     return now_datetime
 
 
-if is_ee_enabled():
+if settings.EE_ENABLED:
 
     def process_event_ee(
         distinct_id: str,

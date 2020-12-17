@@ -1,7 +1,7 @@
+from django.conf import settings
 from rest_framework import decorators, exceptions
 
 from posthog.api.routing import DefaultRouterPlusPlus
-from posthog.ee import is_ee_enabled
 
 from . import (
     action,
@@ -50,7 +50,7 @@ organizations_router.register(
     r"invites", organization_invite.OrganizationInviteViewSet, "organization_invites", ["organization_id"],
 )
 
-if is_ee_enabled():
+if settings.EE_ENABLED:
     try:
         from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet
         from ee.clickhouse.views.element import ClickhouseElementViewSet

@@ -8,7 +8,6 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
-from posthog.ee import is_ee_enabled
 from posthog.models import User
 from posthog.settings import TEST
 from posthog.utils import (
@@ -60,7 +59,7 @@ def system_status(request):
         {
             "key": "analytics_database",
             "metric": "Analytics database in use",
-            "value": "ClickHouse" if is_ee_enabled() else "Postgres",
+            "value": "ClickHouse" if settings.EE_ENABLED else "Postgres",
         }
     )
 
