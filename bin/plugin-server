@@ -18,7 +18,7 @@ fi
 
 cd plugins
 
-yarn --frozen-lockfile
+yarn --frozen-lockfile -v
 
 if [ $? -ne 0 ]; then
     echo "Yarn failed!"
@@ -27,7 +27,7 @@ fi
 
 while true; do
   # Run: posthog-plugin-server
-  yarn --silent start
+  yarn start
   echo ""
   echo "🔴 Plugin server crashed!"
   echo "⌛️ Waiting 2 seconds before restarting!"
