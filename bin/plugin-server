@@ -18,7 +18,7 @@ fi
 
 cd plugins
 
-yarn --frozen-lockfile -v
+yarn --frozen-lockfile --verbose
 
 if [ $? -ne 0 ]; then
     echo "Yarn failed!"
