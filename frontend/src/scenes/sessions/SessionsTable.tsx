@@ -26,6 +26,7 @@ import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPalett
 import { SessionRecordingFilters } from 'scenes/sessions/SessionRecordingFilters'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkButton } from 'lib/components/LinkButton'
+import { SessionActionFilters } from 'scenes/sessions/SessionActionFilters'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -60,7 +61,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         firstRecordingId,
         actionFilter,
     } = useValues(logic)
-    const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
+    const { fetchNextSessions, previousDay, nextDay, setFilters, updateActionFilter } = useActions(logic)
     const { user } = useValues(userLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -188,10 +189,14 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             </Space>
 
             {featureFlags['filter_by_session_props'] && (
-                <SessionRecordingFilters
-                    duration={duration}
-                    onChange={(newDuration) => setFilters(properties, selectedDate, newDuration, actionFilter)}
-                />
+                <>
+                    <SessionActionFilters actionFilter={actionFilter} updateActionFilter={updateActionFilter} />
+
+                    <SessionRecordingFilters
+                        duration={duration}
+                        onChange={(newDuration) => setFilters(properties, selectedDate, newDuration, actionFilter)}
+                    />
+                </>
             )}
             <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
 

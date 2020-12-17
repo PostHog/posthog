@@ -118,7 +118,7 @@ export const entityFilterLogic = kea({
             }
         },
         setFilters: ({ filters }) => {
-            props.setFilters(toFilters(filters))
+            props.setFilters(toFilters(filters), filters)
         },
     }),
     events: ({ actions, props, values }) => ({
