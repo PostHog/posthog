@@ -35,6 +35,7 @@
         "@babel/runtime": "^7.10.4",
         "@mariusandra/query-selector-shadow-dom": "0.7.2-posthog.2",
         "@mariusandra/simmerjs": "0.7.1-posthog.1",
+        "@papercups-io/chat-widget": "^1.1.5",
         "@sentry/browser": "^5.27.2",
         "antd": "^4.1.1",
         "babel-preset-nano-react-app": "^0.1.0",

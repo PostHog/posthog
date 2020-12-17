@@ -2,14 +2,12 @@ from typing import Any, Dict, Optional
 
 from django.http import HttpRequest
 
-from posthog.constants import INSIGHT_SESSIONS
 from posthog.models import Filter
 from posthog.models.filters.mixins.sessions import DistinctIdMixin, DurationMixin, DurationOperatorMixin
 
 
 class SessionsFilter(DurationMixin, DurationOperatorMixin, DistinctIdMixin, Filter):
     def __init__(self, data: Dict[str, Any] = {}, request: Optional[HttpRequest] = None, **kwargs) -> None:
-        data["insight"] = INSIGHT_SESSIONS
         super().__init__(data, request, **kwargs)
 
     @property
