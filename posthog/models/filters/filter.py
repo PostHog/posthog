@@ -60,8 +60,6 @@ class Filter(
                 **request.GET.dict(),
                 **(data if data else {}),
                 **({PROPERTIES: json.loads(request.GET[PROPERTIES])} if request.GET.get(PROPERTIES) else {}),
-                ACTIONS: json.loads(request.GET.get(ACTIONS, "[]")),
-                EVENTS: json.loads(request.GET.get(EVENTS, "[]")),
             }
         elif not data:
             raise ValueError("You need to define either a data dict or a request")

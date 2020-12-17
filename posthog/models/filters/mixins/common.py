@@ -217,13 +217,16 @@ class EntitiesMixin(BaseParamMixin):
     def entities(self) -> List[Entity]:
         _entities: List[Entity] = []
         if self._data.get(ACTIONS):
-            _entities.extend(
-                [Entity({**entity, "type": TREND_FILTER_TYPE_ACTIONS}) for entity in self._data.get(ACTIONS, [])]
-            )
+            actions = self._data.get(ACTIONS, [])
+            if isinstance(actions, str):
+                actions = json.loads(actions)
+
+            _entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_ACTIONS}) for entity in actions])
         if self._data.get(EVENTS):
-            _entities.extend(
-                [Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in self._data.get(EVENTS, [])]
-            )
+            events = self._data.get(EVENTS, [])
+            if isinstance(events, str):
+                events = json.loads(events)
+            _entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in events])
         return sorted(_entities, key=lambda entity: entity.order if entity.order else -1)
 
     @cached_property
