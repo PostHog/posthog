@@ -35,13 +35,13 @@ export function SelectBox({
     onSelect: CallableFunction
     onDismiss: CallableFunction
 }): JSX.Element {
-    const dropdownRef = useRef()
+    const dropdownRef = useRef<HTMLDivElement>(null)
     const dropdownLogic = selectBoxLogic({ updateFilter: onSelect, items })
     const { selectedItem, RenderInfo } = useValues(dropdownLogic)
     const { setSearch, setSelectedItem, onKeyDown } = useActions(dropdownLogic)
 
-    const deselect = (e): void => {
-        if (dropdownRef?.current?.contains(e.target)) {
+    const deselect = (e: MouseEvent): void => {
+        if (e.target && dropdownRef?.current?.contains(e.target as Node)) {
             return
         }
         onDismiss && onDismiss(e)
@@ -62,7 +62,7 @@ export function SelectBox({
         }
     }, [])
     return (
-        <div ref={dropdownRef} className="select-box" tabIndex="0">
+        <div ref={dropdownRef} className="select-box" tabIndex={0}>
             <Row style={{ height: '100%' }}>
                 <Col sm={14} style={{ borderRight: '1px solid rgba(0, 0, 0, 0.1)', maxHeight: '100%' }}>
                     <Input
@@ -128,7 +128,7 @@ export function SelectUnit({
                     dataSource={data || []}
                     renderItem={(item: SelectedItem) => (
                         <List.Item
-                            className={selectedItem.key === item.key && 'selected'}
+                            className={selectedItem.key === item.key ? 'selected' : undefined}
                             datakey={item.key}
                             onClick={() => clickSelectedItem(item)}
                             onMouseOver={() =>
