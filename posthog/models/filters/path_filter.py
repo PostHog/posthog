@@ -25,5 +25,8 @@ class PathFilter(
     BaseFilter,
 ):
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
-        data["insight"] = INSIGHT_PATHS
+        if data:
+            data["insight"] = INSIGHT_PATHS
+        else:
+            data = {"insight": INSIGHT_PATHS}
         super().__init__(data, request)
