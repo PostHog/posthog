@@ -2,7 +2,7 @@ from typing import Any, Dict, Optional
 
 from django.http import HttpRequest
 
-from posthog.constants import DISTINCT_ID_FILTER, INSIGHT_SESSIONS
+from posthog.constants import DISTINCT_ID_FILTER
 from posthog.models import Filter
 
 
@@ -12,7 +12,6 @@ class SessionsFilter(Filter):
     _duration: Optional[str]
 
     def __init__(self, data: Dict[str, Any] = {}, request: Optional[HttpRequest] = None, **kwargs) -> None:
-        data["insight"] = INSIGHT_SESSIONS
         super().__init__(data, request, **kwargs)
         if request:
             data = {

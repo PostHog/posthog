@@ -21,7 +21,6 @@ from posthog.constants import (
     EVENTS,
     INSIGHT,
     INSIGHT_RETENTION,
-    INSIGHT_SESSIONS,
     INSIGHT_TO_DISPLAY,
     INSIGHT_TRENDS,
     INTERVAL,
@@ -240,8 +239,6 @@ def get_filter(team, data: dict = {}, request: Optional[HttpRequest] = None) -> 
         insight = request.GET.get("insight")
     if insight == INSIGHT_RETENTION:
         return RetentionFilter(data={**data, "insight": INSIGHT_RETENTION}, request=request)
-    elif insight == INSIGHT_SESSIONS:
-        return SessionsFilter(data={**data, "insight": INSIGHT_SESSIONS}, request=request)
     elif insight == INSIGHT_TRENDS and data.get("shown_as") == "Stickiness":
         return StickinessFilter(data=data, request=request, team=team)
     return Filter(data=data, request=request)
