@@ -4,6 +4,7 @@ import { createServer } from '../src/server'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 jest.mock('../src/sql')
+jest.setTimeout(600000) // 600 sec timeout
 
 function createEvent(index: number): PluginEvent {
     return {

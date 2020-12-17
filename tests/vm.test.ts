@@ -431,6 +431,9 @@ test('meta.cache set/get', async () => {
 
 test('meta.cache expire', async () => {
     const indexJs = `
+        async function setupPlugin(meta) {
+            await meta.cache.set('counter', 0)
+        }
         async function processEvent (event, meta) {
             const counter = await meta.cache.get('counter', 0)
             await meta.cache.set('counter', counter + 1)
@@ -460,6 +463,9 @@ test('meta.cache expire', async () => {
 
 test('meta.cache set ttl', async () => {
     const indexJs = `
+        async function setupPlugin(meta) {
+            await meta.cache.set('counter', 0)
+        }
         async function processEvent (event, meta) {
             const counter = await meta.cache.get('counter', 0)
             await meta.cache.set('counter', counter + 1, 1)
@@ -488,6 +494,9 @@ test('meta.cache set ttl', async () => {
 
 test('meta.cache incr', async () => {
     const indexJs = `
+        async function setupPlugin(meta) {
+            await meta.cache.set('counter', 0)
+        }
         async function processEvent (event, meta) {
             const counter = await meta.cache.incr('counter')
             event.properties['counter'] = counter
