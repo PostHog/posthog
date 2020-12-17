@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Union
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
 from django.utils import timezone
+from django.utils.functional import cached_property
 
 from posthog.constants import (
     ACTIONS,
@@ -30,7 +31,7 @@ from posthog.constants import (
 )
 from posthog.models.entity import Entity
 from posthog.models.filters.mixins.base import BaseParamMixin
-from posthog.models.filters.mixins.utils import cached_property, include_dict
+from posthog.models.filters.mixins.utils import include_dict
 from posthog.utils import relative_date_parse
 
 
@@ -198,6 +199,17 @@ class DateMixin(BaseParamMixin):
         filter = Q(timestamp__gte=date_from)
         if self.date_to:
             filter &= Q(timestamp__lte=self.date_to)
+        return filter
+
+    def custom_date_filter_Q(self, field: str = "timestamp") -> Q:
+        date_from = self.date_from
+        if self._date_from == "all":
+            return Q()
+        if not date_from:
+            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
+        filter = Q(**{"{}__gte".format(field): date_from})
+        if self.date_to:
+            filter &= Q(**{"{}__lte".format(field): self.date_to})
         return filter
 
     @include_dict
