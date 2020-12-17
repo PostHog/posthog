@@ -118,11 +118,18 @@ export const insightLogic = kea<insightLogicType>({
                 properties.period = filters.period
                 properties.date_to = filters.date_to
                 properties.retention_type = filters.retentionType
-                properties.same_retention_and_cohortizing_event =
-                    filters.returningEntity?.events[0].id === filters.startEntity?.events[0].id
+                const cohortizingEvent = filters.startEntity?.events.length
+                    ? filters.startEntity?.events[0].id
+                    : filters.startEntity?.actions[0].id
+                const retainingEvent = filters.returningEntity?.events.length
+                    ? filters.returningEntity?.events[0].id
+                    : filters.returningEntity?.actions[0].id
+                properties.same_retention_and_cohortizing_event = cohortizingEvent == retainingEvent
             } else if (insight === 'PATHS') {
                 properties.path_type = filters.path_type
             }
+
+            console.log(properties)
 
             posthog.capture('insight viewed', properties)
         },
