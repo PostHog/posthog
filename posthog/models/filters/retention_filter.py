@@ -1,4 +1,5 @@
 import datetime
+import json
 from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple, Union
 
@@ -24,6 +25,7 @@ RETENTION_DEFAULT_INTERVALS = 11
 class RetentionFilter(Filter):
     period: str = "Day"
     target_entity: Entity = Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
+    returning_entity: Entity
     retention_type: str = RETENTION_RECURRING
     total_intervals: int = RETENTION_DEFAULT_INTERVALS
     period_increment: Union[timedelta, relativedelta] = timedelta(days=1)
@@ -42,9 +44,23 @@ class RetentionFilter(Filter):
         elif not data:
             raise ValueError("You need to define either a data dict or a request")
         self.period = data.get(PERIOD, self.period)
-        self.target_entity = self._parse_target_entity(data.get(TARGET_ENTITY)) or self.target_entity
+        if len(self.entities) > 0:
+            self.target_entity = self.entities[0]
+        elif data.get("target_entity"):
+            self.target_entity = Entity(
+                data["target_entity"] if isinstance(data["target_entity"], dict) else json.loads(data["target_entity"])
+            )
+
+        if data.get("returning_entity"):
+            self.returning_entity = Entity(
+                data["returning_entity"]
+                if isinstance(data["returning_entity"], dict)
+                else json.loads(data["returning_entity"])
+            )
+        else:
+            self.returning_entity = self.target_entity
         self.retention_type = data.get(RETENTION_TYPE, self.retention_type)
-        self.total_intervals = data.get(TOTAL_INTERVALS, self.total_intervals)
+        self.total_intervals = int(data.get(TOTAL_INTERVALS, self.total_intervals))
         self.selected_interval = int(data.get(SELECTED_INTERVAL, 0))
 
         if not self.date_from:
@@ -77,10 +93,6 @@ class RetentionFilter(Filter):
         if self._date_to_is_default:
             dict.pop("date_to", None)
         return dict
-
-    @property
-    def returning_entity(self) -> Entity:
-        return self.target_entity if not len(self.entities) > 0 else self.entities[0]
 
     @staticmethod
     def determine_time_delta(

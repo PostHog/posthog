@@ -5,11 +5,14 @@ from dateutil.relativedelta import relativedelta
 from django.db.models import Q
 from freezegun.api import freeze_time
 
+from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.test.base import BaseTest
 
 
 class TestFilter(BaseTest):
+    maxDiff = None
+
     def test_fill_date_from_and_date_to(self):
         with freeze_time("2020-10-01T12:00:00Z"):
             filter = RetentionFilter(data={})
@@ -24,6 +27,24 @@ class TestFilter(BaseTest):
                 "period": "Day",
                 "retention_type": "retention_recurring",
                 "total_intervals": 11,
+                "returning_entity": {
+                    "id": "$pageview",
+                    "math": None,
+                    "math_property": None,
+                    "name": "$pageview",
+                    "order": None,
+                    "properties": [],
+                    "type": "events",
+                },
+                "target_entity": {
+                    "id": "$pageview",
+                    "math": None,
+                    "math_property": None,
+                    "name": "$pageview",
+                    "order": None,
+                    "properties": [],
+                    "type": "events",
+                },
             },
         )
 
@@ -41,5 +62,30 @@ class TestFilter(BaseTest):
                 "period": "Day",
                 "retention_type": "retention_recurring",
                 "total_intervals": 11,
+                "returning_entity": {
+                    "id": "$pageview",
+                    "math": None,
+                    "math_property": None,
+                    "name": "$pageview",
+                    "order": None,
+                    "properties": [],
+                    "type": "events",
+                },
+                "target_entity": {
+                    "id": "$pageview",
+                    "math": None,
+                    "math_property": None,
+                    "name": "$pageview",
+                    "order": None,
+                    "properties": [],
+                    "type": "events",
+                },
             },
         )
+
+    def test_entities(self):
+        filter = RetentionFilter(
+            data={"events": [{"id": "$autocapture"}], "returning_entity": '{"id": "signup", "type": "events"}'}
+        ).to_dict()
+        self.assertEqual(filter["target_entity"]["id"], "$autocapture")
+        self.assertEqual(filter["returning_entity"]["id"], "signup")
