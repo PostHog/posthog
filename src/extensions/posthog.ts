@@ -12,8 +12,8 @@ export interface DummyPostHog {
 export function createPosthog(server: PluginsServer, pluginConfig: PluginConfig): DummyPostHog {
     const distinctId = pluginConfig.plugin?.name || `plugin-id-${pluginConfig.plugin_id}`
 
-    const client = server.EE_ENABLED ? null : new Client(server.redis, server.PLUGINS_CELERY_QUEUE) // Redis
-    const producer = server.EE_ENABLED ? server.kafka!.producer() : null // Kafka
+    const client = server.KAFKA_ENABLED ? null : new Client(server.redis, server.PLUGINS_CELERY_QUEUE) // Redis
+    const producer = server.KAFKA_ENABLED ? server.kafka!.producer() : null // Kafka
     producer?.connect()
 
     function sendEventRedis(event: string, properties: Record<string, any> = {}) {
@@ -70,7 +70,7 @@ export function createPosthog(server: PluginsServer, pluginConfig: PluginConfig)
         })
     }
 
-    const sendEvent = server.EE_ENABLED ? sendEventKafka : sendEventRedis
+    const sendEvent = server.KAFKA_ENABLED ? sendEventKafka : sendEventRedis
 
     return {
         capture(event, properties = {}) {
