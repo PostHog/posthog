@@ -527,11 +527,6 @@ DEBUG_TOOLBAR_CONFIG = {
     "SHOW_TOOLBAR_CALLBACK": "posthog.settings.show_toolbar",
 }
 
-# Extend and override these settings with EE's ones
-if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
-    from ee.settings import *  # noqa: F401, F403
-
-
 # TODO: Temporary
 EMAIL_REPORTS_ENABLED: bool = get_bool_from_env("EMAIL_REPORTS_ENABLED", False)
 
@@ -544,3 +539,7 @@ LOGGING = {
         "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
     },
 }
+
+# Extend and override these settings with EE's ones
+if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
+    from ee.settings import *  # noqa: F401, F403
