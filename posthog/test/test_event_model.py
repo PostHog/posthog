@@ -47,6 +47,12 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
             self.assertActionEventsMatch(action, [all_events[0]])
 
+        def test_filter_with_selector_star(self):
+            all_events = self._setup_action_selector_events()
+            action = _create_action(self.team, [{"event": "$autocapture", "selector": "div *"}])
+
+            self.assertActionEventsMatch(action, all_events)
+
         def _setup_action_selector_events(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
 
@@ -79,19 +85,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 ],
             )
 
-            # make sure other teams' data doesn't get mixed in
-            team2 = Team.objects.create()
             event3 = _create_event(
-                event="$autocapture",
-                team=team2,
-                distinct_id="whatever",
-                elements=[
-                    Element(tag_name="a", nth_child=2, nth_of_type=0, attr_id="someId"),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0),
-                ],
-            )
-
-            event4 = _create_event(
                 event="$autocapture",
                 team=self.team,
                 distinct_id="whatever",
@@ -101,13 +95,24 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 ],
             )
 
-            return event1, event2, event3, event4
+            # make sure other teams' data doesn't get mixed in
+            team2 = Team.objects.create()
+            _create_event(
+                event="$autocapture",
+                team=team2,
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="a", nth_child=2, nth_of_type=0, attr_id="someId"),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                ],
+            )
+
+            return event1, event2, event3
 
         def assertActionEventsMatch(self, action, expected_events):
             events = _get_events_for_action(action)
-            self.assertEqual(len(events), len(expected_events))
-            for event, expected in zip(events, expected_events):
-                self.assertEqual(event.pk, expected.pk)
+
+            self.assertCountEqual([e.pk for e in events], [e.pk for e in expected_events])
 
         def test_with_normal_filters(self):
             # this test also specifically tests the back to back receipt of
