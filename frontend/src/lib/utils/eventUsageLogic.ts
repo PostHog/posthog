@@ -1,25 +1,30 @@
+/* This file contains the logic to report custom frontend events */
 import { kea } from 'kea'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from 'types/lib/utils/eventUsageLogicType'
 import { AnnotationType } from '~/types'
 
+const keyMappingKeys = Object.keys(keyMapping.event)
+
 export const eventUsageLogic = kea<eventUsageLogicType>({
     actions: {
-        reportAnnotationViewed: (payload) => ({ payload }),
+        reportAnnotationViewed: (annotations) => ({ annotations }),
+        reportPersonDetailViewed: (person) => ({ person }),
     },
     listeners: {
-        reportAnnotationViewed: async ({ payload }: { payload: AnnotationType[] | null }, breakpoint) => {
-            if (!payload) {
+        reportAnnotationViewed: async ({ annotations }: { annotations: AnnotationType[] | null }, breakpoint) => {
+            if (!annotations) {
                 // If value is `null` the component has been unmounted, we cancel the report if the timeout hasn't elapsed
                 return
             }
             await breakpoint(1500)
 
-            for (const annotation of payload) {
+            for (const annotation of annotations) {
                 /* Report one event per annotation */
                 const properties = {
-                    total_items_count: payload.length,
+                    total_items_count: annotations.length,
                     content_length: annotation.content.length,
                     scope: annotation.scope,
                     deleted: annotation.deleted,
@@ -30,6 +35,30 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 }
                 posthog.capture('annotation viewed', properties)
             }
+        },
+        reportPersonDetailViewed: async ({ person }, breakpoint) => {
+            await breakpoint(5000)
+
+            let custom_properties_count = 0
+            let posthog_properties_count = 0
+            for (const prop of Object.keys(person.properties)) {
+                if (keyMappingKeys.includes(prop)) {
+                    posthog_properties_count += 1
+                } else {
+                    custom_properties_count += 1
+                }
+            }
+
+            const properties = {
+                properties_count: Object.keys(person.properties).length,
+                is_identified: person.is_identified,
+                has_email: !!person.properties.email,
+                has_name: !!person.properties.name,
+                custom_properties_count,
+                posthog_properties_count,
+            }
+            console.log('person viewed', properties)
+            posthog.capture('person viewed', properties)
         },
     },
 })

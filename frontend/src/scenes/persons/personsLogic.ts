@@ -4,8 +4,7 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { personsLogicType } from 'types/scenes/persons/personsLogicType'
 import { PersonType } from '~/types'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import posthog from 'posthog-js'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface PersonPaginatedResponse {
     next: string | null
@@ -13,15 +12,15 @@ interface PersonPaginatedResponse {
     results: PersonType[]
 }
 
-const keyMappingKeys = Object.keys(keyMapping.event)
-
 const FILTER_WHITELIST: string[] = ['is_identified', 'search', 'cohort']
 
 export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
+    connect: {
+        actions: [eventUsageLogic, ['reportPersonDetailViewed']],
+    },
     actions: {
         setListFilters: (payload) => ({ payload }),
         editProperty: (key, newValue) => ({ key, newValue }),
-        reportUsage: () => {},
     },
     reducers: {
         listFilters: [
@@ -53,29 +52,6 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             const response = await api.update(`api/person/${person.id}`, person)
             actions.setPerson(response)
         },
-        reportUsage: async (_, breakpoint) => {
-            await breakpoint(5000)
-
-            let custom_properties_count = 0
-            let posthog_properties_count = 0
-            for (const prop of Object.keys(values.person.properties)) {
-                if (keyMappingKeys.includes(prop)) {
-                    posthog_properties_count += 1
-                } else {
-                    custom_properties_count += 1
-                }
-            }
-
-            const properties = {
-                properties_count: Object.keys(values.person.properties).length,
-                is_identified: values.person.is_identified,
-                has_email: !!values.person.properties.email,
-                has_name: !!values.person.properties.name,
-                custom_properties_count,
-                posthog_properties_count,
-            }
-            posthog.capture('person viewed', properties)
-        },
     }),
     loaders: ({ values, actions }) => ({
         persons: [
@@ -106,8 +82,9 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                     if (!response.results.length) {
                         router.actions.push('/404')
                     }
-                    actions.reportUsage()
-                    return response.results[0]
+                    const person = response.results[0]
+                    actions.reportPersonDetailViewed(person)
+                    return person
                 },
                 setPerson: (person: PersonType): PersonType => {
                     // Used after merging persons to update the view without an additional request
