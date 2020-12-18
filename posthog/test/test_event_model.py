@@ -5,9 +5,49 @@ from posthog.models.event import Selector, SelectorPart
 from posthog.test.base import BaseTest
 
 
+def _create_action(team, steps):
+    action = Action.objects.create(team=team)
+    for step in steps:
+        ActionStep.objects.create(action=action, **step)
+
+    action.calculate_events()
+
+    return action
+
+
 def filter_by_actions_factory(_create_event, _create_person, _get_events_for_action):
     class TestFilterByActions(BaseTest):
-        def test_filter_with_selectors(self):
+        def test_filter_with_selector_direct_decendant_ordering(self):
+            all_events = self._setup_action_selector_events()
+            action = _create_action(
+                self.team,
+                [
+                    {"event": "$autocapture", "selector": "div > div > a"},
+                    {"event": "$autocapture", "selector": "div > a.somethingthatdoesntexist"},
+                ],
+            )
+
+            self.assertActionEventsMatch(action, [all_events[1]])
+
+        def test_filter_with_selector_nth_child(self):
+            all_events = self._setup_action_selector_events()
+            action = _create_action(self.team, [{"event": "$autocapture", "selector": "div > a:nth-child(2)"}])
+
+            self.assertActionEventsMatch(action, [all_events[1]])
+
+        def test_filter_with_selector_id(self):
+            all_events = self._setup_action_selector_events()
+            action = _create_action(self.team, [{"event": "$autocapture", "selector": "[id='someId']"}])
+
+            self.assertActionEventsMatch(action, [all_events[1]])
+
+        def test_filter_with_selector_nested(self):
+            all_events = self._setup_action_selector_events()
+            action = _create_action(self.team, [{"event": "$autocapture", "selector": "[id='nested'] a"}])
+
+            self.assertActionEventsMatch(action, [all_events[0]])
+
+        def _setup_action_selector_events(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
 
             event1 = _create_event(
@@ -51,21 +91,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 ],
             )
 
-            # test direct decendant ordering
-            action1 = Action.objects.create(team=self.team, name="action1")
-            ActionStep.objects.create(event="$autocapture", action=action1, selector="div > div > a")
-            ActionStep.objects.create(
-                event="$autocapture", action=action1, selector="div > a.somethingthatdoesntexist",
-            )
-            action1.calculate_events()
-
-            events = _get_events_for_action(action1)
-            self.assertEqual(len(events), 1)
-            self.assertEqual(events[0].pk, event2.pk)
-
-            # test :nth-child()
-            action2 = Action.objects.create(team=self.team)
-            _create_event(
+            event4 = _create_event(
                 event="$autocapture",
                 team=self.team,
                 distinct_id="whatever",
@@ -74,30 +100,14 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                     Element(tag_name="div", nth_child=0, nth_of_type=0),
                 ],
             )
-            ActionStep.objects.create(event="$autocapture", action=action2, selector="div > a:nth-child(2)")
-            action2.calculate_events()
 
-            events = _get_events_for_action(action2)
-            self.assertEqual(len(events), 1)
-            self.assertEqual(events[0].pk, event2.pk)
+            return event1, event2, event3, event4
 
-            # test [id='someId']
-            action3 = Action.objects.create(team=self.team)
-            ActionStep.objects.create(event="$autocapture", action=action3, selector="[id='someId']")
-            action3.calculate_events()
-
-            events = _get_events_for_action(action3)
-            self.assertEqual(len(events), 1)
-            self.assertEqual(events[0].pk, event2.pk)
-
-            # test selector without >
-            action4 = Action.objects.create(team=self.team, name="action1")
-            ActionStep.objects.create(event="$autocapture", action=action4, selector="[id='nested'] a")
-            action4.calculate_events()
-
-            events = _get_events_for_action(action4)
-            self.assertEqual(len(events), 1)
-            self.assertEqual(events[0].pk, event1.pk)
+        def assertActionEventsMatch(self, action, expected_events):
+            events = _get_events_for_action(action)
+            self.assertEqual(len(events), len(expected_events))
+            for event, expected in zip(events, expected_events):
+                self.assertEqual(event.pk, expected.pk)
 
         def test_with_normal_filters(self):
             # this test also specifically tests the back to back receipt of
