@@ -11,7 +11,7 @@ export function startQueue(
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>,
     processEventBatch: (event: PluginEvent[]) => Promise<(PluginEvent | null)[]>
 ): Queue {
-    const relevantStartQueue = server.EE_ENABLED ? startQueueKafka : startQueueRedis
+    const relevantStartQueue = server.KAFKA_ENABLED ? startQueueKafka : startQueueRedis
     return relevantStartQueue(server, processEvent, processEventBatch)
 }
 

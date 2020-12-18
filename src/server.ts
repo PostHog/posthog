@@ -44,7 +44,7 @@ export async function createServer(
     })
 
     let kafka: Kafka | undefined
-    if (serverConfig.EE_ENABLED) {
+    if (serverConfig.KAFKA_ENABLED) {
         if (!serverConfig.KAFKA_HOSTS) {
             throw new Error('You must set KAFKA_HOSTS to process events from Kafka!')
         }
@@ -52,13 +52,16 @@ export async function createServer(
             clientId: `plugin-server-v${version}`,
             brokers: serverConfig.KAFKA_HOSTS.split(','),
             logLevel: logLevel.NOTHING,
-            ssl: process.env.KAFKA_CLIENT_CERT_B64
-                ? {
-                      cert: Buffer.from(process.env.KAFKA_CLIENT_CERT_B64!, 'base64'),
-                      key: Buffer.from(process.env.KAFKA_CLIENT_CERT_KEY_B64!, 'base64'),
-                      ca: Buffer.from(process.env.KAFKA_TRUSTED_CERT_B64!, 'base64'),
-                  }
-                : undefined,
+            ssl:
+                serverConfig.KAFKA_CLIENT_CERT_B64 &&
+                serverConfig.KAFKA_CLIENT_CERT_KEY_B64 &&
+                serverConfig.KAFKA_TRUSTED_CERT_B64
+                    ? {
+                          cert: Buffer.from(serverConfig.KAFKA_CLIENT_CERT_B64, 'base64'),
+                          key: Buffer.from(serverConfig.KAFKA_CLIENT_CERT_KEY_B64, 'base64'),
+                          ca: Buffer.from(serverConfig.KAFKA_TRUSTED_CERT_B64, 'base64'),
+                      }
+                    : undefined,
         })
     }
 
