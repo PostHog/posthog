@@ -57,14 +57,6 @@
   resolved "https://registry.yarnpkg.com/@google-cloud/promisify/-/promisify-2.0.3.tgz#f934b5cdc939e3c7039ff62b9caaf59a9d89e3a8"
   integrity sha512-d4VSA86eL/AFTe5xtyZX+ePUjE8dIFu2T8zmdeNBSa5/kNgXPCx/o/wbFNHAGLJdGnk1vddRuMESD9HbOC8irw==
 
-"@posthog/node-rdkafka@2.10.0-6.831-worker-context":
-  version "2.10.0-6.831-worker-context"
-  resolved "https://registry.yarnpkg.com/@posthog/node-rdkafka/-/node-rdkafka-2.10.0-6.831-worker-context.tgz#8b361f25f5c7633208331b31bf54583ab4848f61"
-  integrity sha512-FWzVTFrAeerw9r8QPw+FOjZgyq0GO0Z3z0YzZGHzTWSEZMhpiLRGLiAn73U2OxiKHNFTWqO5Afu6vKoIPwj1kQ==
-  dependencies:
-    bindings "^1.3.1"
-    nan "^2.14.0"
-
 "@sentry/core@5.29.0":
   version "5.29.0"
   resolved "https://registry.yarnpkg.com/@sentry/core/-/core-5.29.0.tgz#4410ca0dc5785abf3df02fa23c18e83ad90d7cda"
@@ -234,7 +226,7 @@ bignumber.js@^9.0.0:
   resolved "https://registry.yarnpkg.com/bignumber.js/-/bignumber.js-9.0.1.tgz#8d7ba124c882bfd8e43260c67475518d0689e4e5"
   integrity sha512-IdZR9mh6ahOBv/hYGiXyVuyCetmGJhtYkqLBpTStdhEGjegpPlUawydyaF3pbIOFynJTpllEs+NP+CS9jKFLjA==
 
-bindings@^1.3.0, bindings@^1.3.1:
+bindings@^1.3.0:
   version "1.5.0"
   resolved "https://registry.yarnpkg.com/bindings/-/bindings-1.5.0.tgz#10353c9e945334bc0511a6d90b38fbc7c9c504df"
   integrity sha512-p2q/t/mhvuOj/UeLlV6566GD/guowlr0hHxClI0W9m7MWYkL1F0hLo+0Aexs9HSPCtR1SXQ0TD3MMKrXZajbiQ==
@@ -249,6 +241,11 @@ bl@^4.0.3:
     buffer "^5.5.0"
     inherits "^2.0.4"
     readable-stream "^3.4.0"
+
+bluebird@^3.7.2:
+  version "3.7.2"
+  resolved "https://registry.yarnpkg.com/bluebird/-/bluebird-3.7.2.tgz#9f229c15be272454ffa973ace0dbee79a1b0c36f"
+  integrity sha512-XpNj6GDQzdfW+r2Wnn7xiSAd7TM3jzkxGXBGTtWKuSXv1xUV+azxAm8jdWZN06QTQk+2N2XB9jRDkvbmQmcRtg==
 
 buffer-equal-constant-time@1.0.1:
   version "1.0.1"
@@ -675,6 +672,11 @@ jws@^4.0.0:
     jwa "^2.0.0"
     safe-buffer "^5.0.1"
 
+kafkajs@^1.15.0:
+  version "1.15.0"
+  resolved "https://registry.yarnpkg.com/kafkajs/-/kafkajs-1.15.0.tgz#a5ada0d933edca2149177393562be6fb0875ec3a"
+  integrity sha512-yjPyEnQCkPxAuQLIJnY5dI+xnmmgXmhuOQ1GVxClG5KTOV/rJcW1qA3UfvyEJKTp/RTSqQnUR3HJsKFvHyTpNg==
+
 light-my-request@^4.2.0:
   version "4.3.0"
   resolved "https://registry.yarnpkg.com/light-my-request/-/light-my-request-4.3.0.tgz#0178dfe7f298089df976f8e4cc0e10998be50aad"
@@ -740,7 +742,7 @@ ms@2.1.2:
   resolved "https://registry.yarnpkg.com/ms/-/ms-2.1.2.tgz#d09d1f357b443f493382a8eb3ccd183872ae6009"
   integrity sha512-sGkPx+VjMtmA6MX27oA4FBFELFCZZ4S4XqeGOXCv68tT+jb3vk/RyaKWP0PTKyWtmLSM0b+adUTEvbs1PEaH2w==
 
-nan@^2.13.2, nan@^2.14.0:
+nan@^2.13.2:
   version "2.14.2"
   resolved "https://registry.yarnpkg.com/nan/-/nan-2.14.2.tgz#f5376400695168f4cc694ac9393d0c9585eeea19"
   integrity sha512-M2ufzIiINKCuDfBSAUr1vWQ+vuVcA9kqx8JJUsbQi6yf1uGRyb7HfpdfUr5qLXf3B/t8dPvcjhKMmlfnP47EzQ==
@@ -929,13 +931,12 @@ postgres-interval@^1.1.0:
   dependencies:
     xtend "^4.0.0"
 
-posthog-plugin-server@0.6.0-beta:
-  version "0.6.0-beta"
-  resolved "https://registry.yarnpkg.com/posthog-plugin-server/-/posthog-plugin-server-0.6.0-beta.tgz#7810e137aee05a75e60a1b8d95654ecc49a6c54f"
-  integrity sha512-Vvbjvjjcee3sQmYnEo/laBlKeAGSqecfsn/4APmd58XC2k04EOBRtY8xZ2IPJxb8u3qTilR/9g4m0HAJB2FwEQ==
+posthog-plugin-server@0.6.1:
+  version "0.6.1"
+  resolved "https://registry.yarnpkg.com/posthog-plugin-server/-/posthog-plugin-server-0.6.1.tgz#7afd83587ab740d44a0c92921117a6d0ece8a2e8"
+  integrity sha512-xwjGJESHbaq4x21939x9opf80REQ2r7TzUYstXY+RhM42G753I5p19+PkbFm8etfhFygsuS2/oSmWMESon3f0g==
   dependencies:
     "@google-cloud/bigquery" "^5.5.0"
-    "@posthog/node-rdkafka" "2.10.0-6.831-worker-context"
     "@sentry/node" "^5.29.0"
     "@sentry/tracing" "^5.29.0"
     "@types/luxon" "^1.25.0"
@@ -943,11 +944,13 @@ posthog-plugin-server@0.6.0-beta:
     fastify "^3.8.0"
     hot-shots "^8.2.1"
     ioredis "^4.19.2"
+    kafkajs "^1.15.0"
     luxon "^1.25.0"
     node-fetch "^2.6.1"
     node-schedule "^1.3.2"
     pg "^8.4.2"
     piscina "^2.1.0"
+    redlock "^4.2.0"
     tar-stream "^2.1.4"
     uuid "^8.3.1"
     vm2 "^3.9.2"
@@ -1001,6 +1004,13 @@ redis-parser@^3.0.0:
   integrity sha1-tm2CjNyv5rS4pCin3vTGvKwxyLQ=
   dependencies:
     redis-errors "^1.0.0"
+
+redlock@^4.2.0:
+  version "4.2.0"
+  resolved "https://registry.yarnpkg.com/redlock/-/redlock-4.2.0.tgz#c26590768559afd5fff76aa1133c94b411ff4f5f"
+  integrity sha512-j+oQlG+dOwcetUt2WJWttu4CZVeRzUrcVcISFmEmfyuwCVSJ93rDT7YSgg7H7rnxwoRyk/jU46kycVka5tW7jA==
+  dependencies:
+    bluebird "^3.7.2"
 
 require-directory@^2.1.1:
   version "2.1.1"
