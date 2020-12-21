@@ -6,8 +6,12 @@ export const annotationsTableLogic = kea({
     loaders: ({ actions }) => ({
         annotations: {
             __default: [],
-            loadAnnotations: async () => {
-                const response = await api.get('api/annotation/?' + toParams({ order: '-updated_at' }))
+            loadAnnotations: async (hideDeleted = true) => {
+                let params = { order: '-updated_at' }
+                if (hideDeleted) {
+                    params = { ...params, deleted: false }
+                }
+                const response = await api.get('api/annotation/?' + toParams(params))
                 actions.setNext(response.next)
                 return response.results
             },

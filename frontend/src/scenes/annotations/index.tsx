@@ -1,7 +1,7 @@
 import { hot } from 'react-hot-loader/root'
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Tag, Button, Modal, Input, DatePicker, Row, Spin, Menu, Dropdown } from 'antd'
+import { Table, Tag, Button, Modal, Input, DatePicker, Row, Spin, Menu, Dropdown, Checkbox } from 'antd'
 import { Link } from 'lib/components/Link'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import moment from 'moment'
@@ -25,6 +25,7 @@ function _Annotations(): JSX.Element {
     const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
     const [selectedAnnotation, setSelected] = useState(null)
+    const [hideDeletedAnnotations, setHideDeletedAnnotations] = useState(true)
 
     const columns = [
         {
@@ -98,6 +99,11 @@ function _Annotations(): JSX.Element {
         setTimeout(() => setSelected(null), 500)
     }
 
+    const handleCheckboxChange = (): void => {
+        loadAnnotations(!hideDeletedAnnotations)
+        setHideDeletedAnnotations(!hideDeletedAnnotations)
+    }
+
     return (
         <div>
             <PageHeader
@@ -116,6 +122,12 @@ function _Annotations(): JSX.Element {
                         Create Annotation
                     </Button>
                 </div>
+                <div>
+                    <Checkbox checked={hideDeletedAnnotations} onChange={handleCheckboxChange}>
+                        Hide deleted annotations
+                    </Checkbox>
+                </div>
+                <br />
                 <Table
                     data-attr="annotations-table"
                     size="small"
