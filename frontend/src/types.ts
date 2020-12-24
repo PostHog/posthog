@@ -311,3 +311,12 @@ export interface PluginErrorType {
     name?: string
     event?: Record<string, any>
 }
+
+export interface PluginConfigSchemaType {
+    hint: string
+    key: string
+    name: string
+    order: number
+    required: boolean
+    type: string
+}

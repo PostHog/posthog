@@ -5,6 +5,7 @@ import { PluginConfigType, PluginType } from '~/types'
 import { PluginInstallationType, PluginRepositoryEntry, PluginTypeWithConfig } from './types'
 import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
+import { PersonalAPIKeyType } from '~/types'
 import posthog from 'posthog-js'
 
 function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
@@ -155,6 +156,17 @@ export const pluginsLogic = kea<
                         repository[plugin.name] = plugin
                     }
                     return repository
+                },
+            },
+        ],
+        personalApiKey: [
+            [] as PersonalAPIKeyType[],
+            {
+                createKey: async (label: string) => {
+                    const newKey: PersonalAPIKeyType = await api.create('api/personal_api_keys/', {
+                        label,
+                    })
+                    return newKey
                 },
             },
         ],

@@ -13,6 +13,7 @@ import { getConfigSchemaArray } from 'scenes/plugins/utils'
 import Markdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/SourcePluginTag'
 import { PluginSource } from 'scenes/plugins/PluginSource'
+import { PluginConfigSchemaType } from '~/types'
 
 function EnabledDisabledSwitch({
     value,
@@ -31,22 +32,39 @@ function EnabledDisabledSwitch({
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { editingPlugin, loading, editingSource } = useValues(pluginsLogic)
-    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource } = useActions(pluginsLogic)
+    const { editingPlugin, loading, editingSource, personalApiKey } = useValues(pluginsLogic)
+    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, createKey } = useActions(pluginsLogic)
+
     const [form] = Form.useForm()
 
     const canDelete = user?.plugin_access.install
 
     useEffect(() => {
         if (editingPlugin) {
+            const pluginConfig = editingPlugin.pluginConfig.config
+            if (getConfigSchemaArray(editingPlugin.config_schema).length > 0) {
+                const pluginConfigSchemaKeys = (getConfigSchemaArray(
+                    editingPlugin.config_schema
+                ) as PluginConfigSchemaType[]).map((schemaObject: PluginConfigSchemaType) => schemaObject.key)
+                if (pluginConfigSchemaKeys.includes('posthogApiKey') && !pluginConfig.posthogApiKey) {
+                    if (!personalApiKey || personalApiKey.length === 0) {
+                        createKey('Plugins')
+                    } else {
+                        pluginConfig.posthogApiKey = personalApiKey.value
+                    }
+                }
+                if (pluginConfigSchemaKeys.includes('posthogHost') && !pluginConfig.posthogHost) {
+                    pluginConfig.posthogHost = window.location.origin
+                }
+            }
             form.setFieldsValue({
-                ...(editingPlugin.pluginConfig.config || {}),
+                ...(pluginConfig || {}),
                 __enabled: editingPlugin.pluginConfig.enabled,
             })
         } else {
             form.resetFields()
         }
-    }, [editingPlugin?.name])
+    }, [editingPlugin, personalApiKey])
 
     return (
         <>
