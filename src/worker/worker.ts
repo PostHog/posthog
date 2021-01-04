@@ -3,13 +3,14 @@ import { cloneObject } from '../utils'
 import { createServer } from '../server'
 import { PluginsServerConfig } from '../types'
 import { initApp } from '../init'
+import { status } from '../status'
 
 type TaskWorker = ({ task, args }: { task: string; args: any }) => Promise<any>
 
 export async function createWorker(config: PluginsServerConfig, threadId: number): Promise<TaskWorker> {
     initApp(config)
 
-    console.info(`🧵 Starting Piscina worker thread ${threadId}…`)
+    status.info('🧵', `Starting Piscina worker thread ${threadId}…`)
 
     const [server, closeServer] = await createServer(config, threadId)
     await setupPlugins(server)

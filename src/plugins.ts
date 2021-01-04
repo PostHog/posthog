@@ -5,8 +5,8 @@ import { PluginsServer, PluginConfig, PluginJsonConfig, TeamId, PluginTask } fro
 import { PluginEvent, PluginAttachment } from '@posthog/plugin-scaffold'
 import { clearError, processError } from './error'
 import { getFileFromArchive } from './utils'
-import { performance } from 'perf_hooks'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from './sql'
+import { status } from './status'
 
 export async function setupPlugins(server: PluginsServer): Promise<void> {
     const pluginRows = await getPluginRows(server)
@@ -142,7 +142,7 @@ async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Pr
 
             try {
                 pluginConfig.vm = await createPluginConfigVM(server, pluginConfig, indexJs, libJs)
-                console.info(`Loaded local plugin "${plugin.name}" from "${pluginPath}"!`)
+                status.info('🔌', `Loaded local plugin "${plugin.name}" from "${pluginPath}"!`)
                 await clearError(server, pluginConfig)
                 return true
             } catch (error) {
@@ -170,7 +170,7 @@ async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Pr
             if (indexJs) {
                 try {
                     pluginConfig.vm = await createPluginConfigVM(server, pluginConfig, indexJs, libJs || '')
-                    console.info(`Loaded plugin "${plugin.name}"!`)
+                    status.info('🔌', `Loaded plugin "${plugin.name}"!`)
                     await clearError(server, pluginConfig)
                     return true
                 } catch (error) {
@@ -182,7 +182,7 @@ async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Pr
         } else if (plugin.plugin_type === 'source' && plugin.source) {
             try {
                 pluginConfig.vm = await createPluginConfigVM(server, pluginConfig, plugin.source)
-                console.info(`Loaded plugin "${plugin.name}"!`)
+                status.info('🔌', `Loaded plugin "${plugin.name}"!`)
                 await clearError(server, pluginConfig)
                 return true
             } catch (error) {

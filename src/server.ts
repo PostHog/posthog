@@ -14,6 +14,7 @@ import * as Sentry from '@sentry/node'
 import { areWeTestingWithJest, delay } from './utils'
 import { StatsD } from 'hot-shots'
 import { EventsProcessor } from './ingestion/process-event'
+import { status } from './status'
 import { startSchedule } from './services/schedule'
 
 export async function createServer(
@@ -34,7 +35,7 @@ export async function createServer(
         })
         .on('ready', () => {
             if (!areWeTestingWithJest()) {
-                console.info(`✅ Connected to Redis!`)
+                status.info('✅', 'Connected to Redis!')
             }
         })
     await redis.info()
@@ -74,8 +75,9 @@ export async function createServer(
         })
         // don't repeat the same info in each thread
         if (threadId === null) {
-            console.info(
-                `🪵 Sending metrics to StatsD at ${serverConfig.STATSD_HOST}:${serverConfig.STATSD_PORT}, prefix: "${serverConfig.STATSD_PREFIX}"`
+            status.info(
+                '🪵',
+                `Sending metrics to StatsD at ${serverConfig.STATSD_HOST}:${serverConfig.STATSD_PORT}, prefix: "${serverConfig.STATSD_PREFIX}"`
             )
         }
     }
@@ -117,7 +119,7 @@ export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
     makePiscina: (config: PluginsServerConfig) => Piscina
 ): Promise<ServerInstance> {
-    console.info(`⚡ posthog-plugin-server v${version}`)
+    status.info('⚡', `posthog-plugin-server v${version}`)
 
     let serverConfig: PluginsServerConfig | undefined
     let pubSub: Redis.Redis | undefined
@@ -135,15 +137,15 @@ export async function startPluginsServer(
     async function closeJobs(): Promise<void> {
         shutdownStatus += 1
         if (shutdownStatus === 2) {
-            console.info('🔁 Try again to shut down forcibly')
+            status.info('🔁', 'Try again to shut down forcibly')
             return
         }
         if (shutdownStatus >= 3) {
-            console.info('❗️ Shutting down forcibly!')
+            status.info('❗️', 'Shutting down forcibly!')
             piscina?.destroy()
             process.exit()
         }
-        console.info('💤 Shutting down gracefully...')
+        status.info('💤', ' Shutting down gracefully...')
         if (fastifyInstance && !serverConfig?.DISABLE_WEB) {
             await stopFastifyInstance(fastifyInstance!)
         }
@@ -197,7 +199,7 @@ export async function startPluginsServer(
         pubSub.subscribe(server.PLUGINS_RELOAD_PUBSUB_CHANNEL)
         pubSub.on('message', async (channel: string, message) => {
             if (channel === server!.PLUGINS_RELOAD_PUBSUB_CHANNEL) {
-                console.info('⚡ Reloading plugins!')
+                status.info('⚡', 'Reloading plugins!')
                 await queue?.stop()
                 await stopSchedule?.()
                 await stopPiscina(piscina!)
@@ -224,7 +226,7 @@ export async function startPluginsServer(
 
         stopSchedule = await startSchedule(server, piscina)
 
-        console.info(`🚀 All systems go.`)
+        status.info('🚀', 'All systems go.')
     } catch (error) {
         Sentry.captureException(error)
         console.error(`💥 Launchpad failure!\n${error.stack}`)
