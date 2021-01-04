@@ -199,3 +199,10 @@ class TestDashboard(TransactionBaseTest):
         )
         items_response = self.client.get("/api/dashboard_item/{}/".format(response["id"])).json()
         self.assertTrue("lg" in items_response["layouts"])
+
+    def test_dashboard_from_template(self):
+        response = self.client.post(
+            "/api/dashboard/", data={"name": "another", "use_template": "DEFAULT_APP"}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertGreater(DashboardItem.objects.count(), 1)

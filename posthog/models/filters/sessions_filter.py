@@ -11,7 +11,7 @@ class SessionsFilter(Filter):
     duration_operator: Optional[str]  # lt, gt
     _duration: Optional[str]
 
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
+    def __init__(self, data: Dict[str, Any] = {}, request: Optional[HttpRequest] = None, **kwargs) -> None:
         super().__init__(data, request, **kwargs)
         if request:
             data = {

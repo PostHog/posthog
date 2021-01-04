@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Keys to export from django settings.py
-KEYS="DATABASE_URL REDIS_URL PLUGINS_CELERY_QUEUE CELERY_DEFAULT_QUEUE KAFKA_HOSTS EE_ENABLED BASE_DIR PLUGINS_RELOAD_PUBSUB_CHANNEL"
+KEYS="DATABASE_URL REDIS_URL PLUGINS_CELERY_QUEUE CELERY_DEFAULT_QUEUE KAFKA_HOSTS KAFKA_ENABLED BASE_DIR PLUGINS_RELOAD_PUBSUB_CHANNEL"
 
 # Export $CONFIG to posthog-plugin-server
 export CONFIG=`python manage.py print_settings --format json --indent 0 $KEYS 2> /dev/null | tr -d '\n' | sed 's/\n$//'`
@@ -18,7 +18,8 @@ fi
 
 cd plugins
 
-yarn --frozen-lockfile --silent
+yarn --frozen-lockfile --verbose
+
 if [ $? -ne 0 ]; then
     echo "Yarn failed!"
     exit 1
@@ -26,7 +27,7 @@ fi
 
 while true; do
   # Run: posthog-plugin-server
-  yarn --silent start
+  yarn start
   echo ""
   echo "🔴 Plugin server crashed!"
   echo "⌛️ Waiting 2 seconds before restarting!"

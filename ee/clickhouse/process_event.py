@@ -117,6 +117,7 @@ if is_ee_enabled():
         team_id: int,
         now: datetime.datetime,
         sent_at: Optional[datetime.datetime],
+        event_uuid: UUIDT,
     ) -> None:
         timer = statsd.Timer("%s_posthog_cloud" % (settings.STATSD_PREFIX,))
         timer.start()
@@ -125,7 +126,6 @@ if is_ee_enabled():
             properties["$set"] = data["$set"]
 
         person_uuid = UUIDT()
-        event_uuid = UUIDT()
         ts = handle_timestamp(data, now, sent_at)
         handle_identify_or_alias(data["event"], properties, distinct_id, team_id)
 
@@ -164,6 +164,7 @@ else:
         team_id: int,
         now: datetime.datetime,
         sent_at: Optional[datetime.datetime],
+        event_uuid: UUIDT,
     ) -> None:
         # Noop if ee is not enabled
         return
@@ -177,12 +178,14 @@ def log_event(
     team_id: int,
     now: datetime.datetime,
     sent_at: Optional[datetime.datetime],
+    event_uuid: UUIDT,
 ) -> None:
     if settings.DEBUG:
         print(f'Logging event {data["event"]} to WAL')
     KafkaProducer().produce(
         topic=KAFKA_EVENTS_WAL,
         data={
+            "uuid": str(event_uuid),
             "distinct_id": distinct_id,
             "ip": ip,
             "site_url": site_url,

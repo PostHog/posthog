@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 from django.core.cache import cache
 from django.db.models import QuerySet
+from django.db.models.query_utils import Q
 from django.utils.timezone import now
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
@@ -11,21 +12,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.user import UserSerializer
 from posthog.celery import update_cache_item_task
-from posthog.constants import (
-    DATE_FROM,
-    FROM_DASHBOARD,
-    INSIGHT,
-    INSIGHT_FUNNELS,
-    INSIGHT_PATHS,
-    INSIGHT_RETENTION,
-    INSIGHT_TRENDS,
-    OFFSET,
-    TRENDS_STICKINESS,
-)
+from posthog.constants import FROM_DASHBOARD, INSIGHT, INSIGHT_FUNNELS, INSIGHT_PATHS, TRENDS_STICKINESS
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Event, Person, Team
 from posthog.models.filters import Filter, RetentionFilter
+from posthog.models.filters.filter import get_filter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
@@ -35,6 +28,7 @@ from posthog.utils import generate_cache_key
 
 class InsightSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
+    created_by = serializers.SerializerMethodField()
 
     class Meta:
         model = DashboardItem
@@ -42,8 +36,8 @@ class InsightSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "filters",
+            "filters_hash",
             "order",
-            "type",
             "deleted",
             "dashboard",
             "layouts",
@@ -55,6 +49,10 @@ class InsightSerializer(serializers.ModelSerializer):
             "saved",
             "created_by",
         ]
+        read_only_fields = (
+            "created_by",
+            "created_at",
+        )
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
         request = self.context["request"]
@@ -76,12 +74,14 @@ class InsightSerializer(serializers.ModelSerializer):
     def get_result(self, dashboard_item: DashboardItem):
         if not dashboard_item.filters:
             return None
-        filter = Filter(data=dashboard_item.filters)
-        cache_key = generate_cache_key(filter.toJSON() + "_" + str(dashboard_item.team_id))
-        result = cache.get(cache_key)
+        result = cache.get(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
         return result["result"]
+
+    def get_created_by(self, dashboard_item: DashboardItem):
+        if dashboard_item.created_by:
+            return UserSerializer(dashboard_item.created_by).data
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -110,7 +110,10 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         for key in filters:
             if key == "saved":
-                queryset = queryset.filter(saved=bool(strtobool(str(request.GET["saved"]))))
+                if strtobool(str(request.GET["saved"])):
+                    queryset = queryset.filter(Q(saved=True) | Q(dashboard__isnull=False))
+                else:
+                    queryset = queryset.filter(Q(saved=False))
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == INSIGHT:
@@ -142,7 +145,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_trends(request)
         return Response(result)
 
-    @cached_function(cache_type=CacheType.TRENDS)
+    @cached_function()
     def calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request)
@@ -168,9 +171,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result: Dict[str, Any] = {
-            "result": sessions.Sessions().run(
-                filter=Filter(request=request, data={"insight": INSIGHT_RETENTION}), team=self.team
-            )
+            "result": sessions.Sessions().run(filter=SessionsFilter(request=request), team=self.team)
         }
 
         return Response(result)
@@ -191,6 +192,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return Response(result)
 
+    @cached_function()
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         refresh = request.GET.get("refresh", None)
@@ -211,7 +213,6 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     return result
 
         payload = {"filter": filter.toJSON(), "team_id": team.pk}
-
         task = update_cache_item_task.delay(cache_key, CacheType.FUNNEL, payload)
         task_id = task.id
         cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
@@ -230,6 +231,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_retention(request)
         return Response({"data": result})
 
+    @cached_function()
     def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = RetentionFilter(request=request)
@@ -250,6 +252,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_path(request)
         return Response(result)
 
+    @cached_function()
     def calculate_path(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_PATHS})

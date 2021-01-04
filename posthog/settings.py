@@ -313,6 +313,10 @@ SOCIAL_AUTH_GITLAB_KEY = os.environ.get("SOCIAL_AUTH_GITLAB_KEY")
 SOCIAL_AUTH_GITLAB_SECRET = os.environ.get("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL = os.environ.get("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
+
+# See https://docs.djangoproject.com/en/3.1/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
+DISABLE_SERVER_SIDE_CURSORS = get_bool_from_env("USING_PGBOUNCER", False)
+
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
@@ -333,6 +337,7 @@ elif os.environ.get("POSTHOG_DB_NAME"):
             "HOST": os.environ.get("POSTHOG_POSTGRES_HOST", "localhost"),
             "PORT": os.environ.get("POSTHOG_POSTGRES_PORT", "5432"),
             "CONN_MAX_AGE": 0,
+            "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
         }
     }
     DATABASE_URL = "postgres://{}{}{}{}:{}/{}".format(
@@ -348,8 +353,6 @@ else:
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
 
-# See https://docs.djangoproject.com/en/3.1/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
-DISABLE_SERVER_SIDE_CURSORS = get_bool_from_env("USING_PGBOUNCER", False)
 
 # Broker
 
@@ -393,7 +396,7 @@ CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
 CELERY_IGNORE_RESULT = True  # only applies to delay(), must do @shared_task(ignore_result=True) for apply_async
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
-CACHED_RESULTS_TTL = 24 * 60 * 60  # how long to keep cached results for
+CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators

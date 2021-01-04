@@ -22,6 +22,7 @@ import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { Link } from 'lib/components/Link'
 import { BackTo } from 'lib/components/BackTo'
+import { Papercups } from 'lib/components/Papercups'
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
@@ -82,10 +83,19 @@ function _App(): JSX.Element | null {
 
     const SceneComponent = loadedScenes[scene]?.component || (() => <SceneLoading />)
 
+    const essentialElements = (
+        // Components that should always be mounted inside Layout
+        <>
+            {featureFlags['papercups-enabled'] && <Papercups user={user} />}
+            <Toast />
+        </>
+    )
+
     if (!user) {
         return sceneConfig.unauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <SceneComponent {...params} /> <Toast />
+                <SceneComponent {...params} />
+                {essentialElements}
             </Layout>
         ) : null
     }
@@ -95,7 +105,7 @@ function _App(): JSX.Element | null {
             <Layout style={{ minHeight: '100vh' }}>
                 {featureFlags['navigation-1775'] ? <TopNavigation /> : null}
                 <SceneComponent user={user} {...params} />
-                <Toast />
+                {essentialElements}
             </Layout>
         )
     }
@@ -141,9 +151,9 @@ function _App(): JSX.Element | null {
                             />
                         )}
                         <SceneComponent user={user} {...params} />
-                        <Toast />
                     </Layout.Content>
                 </Layout>
+                {essentialElements}
             </Layout>
             <CommandPalette />
         </>

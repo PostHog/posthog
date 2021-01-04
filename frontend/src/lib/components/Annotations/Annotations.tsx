@@ -37,44 +37,45 @@ export const Annotations = function Annotations({
     )
 
     const markers: JSX.Element[] = []
-    dates.forEach((date: string, index: number) => {
-        const annotations = groupedAnnotations[moment(date).startOf(diffType)]
-        if (annotations) {
-            markers.push(
-                <AnnotationMarker
-                    elementId={dates[index]}
-                    label={moment(dates[index]).format('MMMM Do YYYY')}
-                    key={index}
-                    left={index * interval + leftExtent - 12.5}
-                    top={topExtent}
-                    annotations={annotations}
-                    onCreate={(input, applyAll) => {
-                        if (applyAll) {
-                            createGlobalAnnotation(input, dates[index], dashboardItemId)
-                        } else if (dashboardItemId) {
-                            createAnnotationNow(input, dates[index])
-                        } else {
-                            createAnnotation(input, dates[index])
-                        }
-                    }}
-                    onDelete={(data) => {
-                        annotations.length === 1 && onClose?.()
-                        if (data.scope !== AnnotationScope.DashboardItem) {
-                            deleteGlobalAnnotation(data.id)
-                        } else {
-                            deleteAnnotation(data.id)
-                        }
-                    }}
-                    onClick={onClick}
-                    onClose={onClose}
-                    color={color}
-                    graphColor={graphColor}
-                    accessoryColor={accessoryColor}
-                    currentDateMarker={currentDateMarker}
-                    index={index}
-                />
-            )
-        }
-    })
+    dates &&
+        dates.forEach((date: string, index: number) => {
+            const annotations = groupedAnnotations[moment(date).startOf(diffType)]
+            if (annotations) {
+                markers.push(
+                    <AnnotationMarker
+                        elementId={dates[index]}
+                        label={moment(dates[index]).format('MMMM Do YYYY')}
+                        key={index}
+                        left={index * interval + leftExtent - 12.5}
+                        top={topExtent}
+                        annotations={annotations}
+                        onCreate={(input, applyAll) => {
+                            if (applyAll) {
+                                createGlobalAnnotation(input, dates[index], dashboardItemId)
+                            } else if (dashboardItemId) {
+                                createAnnotationNow(input, dates[index])
+                            } else {
+                                createAnnotation(input, dates[index])
+                            }
+                        }}
+                        onDelete={(data) => {
+                            annotations.length === 1 && onClose?.()
+                            if (data.scope !== AnnotationScope.DashboardItem) {
+                                deleteGlobalAnnotation(data.id)
+                            } else {
+                                deleteAnnotation(data.id)
+                            }
+                        }}
+                        onClick={onClick}
+                        onClose={onClose}
+                        color={color}
+                        graphColor={graphColor}
+                        accessoryColor={accessoryColor}
+                        currentDateMarker={currentDateMarker}
+                        index={index}
+                    />
+                )
+            }
+        })
     return markers
 }

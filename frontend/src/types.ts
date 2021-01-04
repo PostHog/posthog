@@ -241,11 +241,28 @@ export interface BillingSubscription {
     stripe_checkout_session: string
 }
 
+export interface DashboardItemType {
+    id: number
+    name: string
+    filters: Record<string, any>
+    filters_hash: string
+    order: number
+    deleted: boolean
+    saved: boolean
+    created_at: string
+    layouts: Record<string, any>
+    color: string
+    last_refresh: string
+    refreshing: boolean
+    created_by: Record<string, any>
+    is_sample: boolean
+}
+
 export interface DashboardType {
     id: number
     name: string
     pinned: string
-    items: []
+    items: DashboardItemType[]
     created_at: string
     created_by: number
     is_shared: boolean

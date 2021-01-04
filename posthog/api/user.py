@@ -154,7 +154,10 @@ def user(request):
             "is_debug": getattr(settings, "DEBUG", False),
             "is_staff": user.is_staff,
             "is_impersonated": is_impersonated_session(request),
-            "plugin_access": {"install": can_install_plugins_via_api(), "configure": can_configure_plugins_via_api()},
+            "plugin_access": {
+                "install": can_install_plugins_via_api(user.organization),
+                "configure": can_configure_plugins_via_api(user.organization),
+            },
         }
     )
 
