@@ -85,7 +85,10 @@ class TestFilter(BaseTest):
 
     def test_entities(self):
         filter = RetentionFilter(
-            data={"events": [{"id": "$autocapture"}], "returning_entity": '{"id": "signup", "type": "events"}'}
+            data={
+                "target_entity": {"id": "$autocapture", "type": "events"},
+                "returning_entity": '{"id": "signup", "type": "events"}',
+            }
         ).to_dict()
         self.assertEqual(filter["target_entity"]["id"], "$autocapture")
         self.assertEqual(filter["returning_entity"]["id"], "signup")

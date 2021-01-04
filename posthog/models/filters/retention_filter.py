@@ -44,9 +44,7 @@ class RetentionFilter(Filter):
         elif not data:
             raise ValueError("You need to define either a data dict or a request")
         self.period = data.get(PERIOD, self.period)
-        if len(self.entities) > 0:
-            self.target_entity = self.entities[0]
-        elif data.get("target_entity"):
+        if data.get("target_entity"):
             self.target_entity = Entity(
                 data["target_entity"] if isinstance(data["target_entity"], dict) else json.loads(data["target_entity"])
             )
