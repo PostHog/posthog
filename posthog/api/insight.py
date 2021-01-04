@@ -236,9 +236,10 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @cached_function()
     def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
-        filter = RetentionFilter(request=request)
-        if not filter.date_from:
-            filter._date_from = "-11d"
+        data = {}
+        if not request.GET.get("date_from"):
+            data.update({"date_from": "-11d"})
+        filter = RetentionFilter(data=data, request=request)
         result = retention.Retention().run(filter, team)
         return result
 

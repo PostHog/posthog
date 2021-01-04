@@ -34,11 +34,13 @@ class ClickhouseEventsViewSet(EventViewSet):
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
-        filter = Filter(request=request)
+        data = {}
         if request.GET.get("after"):
-            filter._date_from = request.GET["after"]
+            data.update({"date_from": request.GET["after"]})
         if request.GET.get("before"):
-            filter._date_to = request.GET["before"]
+            data.update({"date_to": request.GET["before"]})
+        filter = Filter(data=data, request=request)
+
         limit = "LIMIT 101"
         conditions, condition_params = determine_event_conditions(request.GET.dict())
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)

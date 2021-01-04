@@ -14,6 +14,7 @@ from posthog.models.filters.mixins.common import (
     BreakdownTypeMixin,
     BreakdownValueMixin,
     CompareMixin,
+    DateMixin,
     DisplayDerivedMixin,
     EntitiesMixin,
     InsightMixin,
@@ -41,6 +42,7 @@ class Filter(
     InsightMixin,
     SessionMixin,
     OffsetMixin,
+    DateMixin,
     BaseFilter,
 ):
     """
@@ -49,8 +51,6 @@ class Filter(
     This class just allows for stronger typing of this object.
     """
 
-    _date_from: Optional[Union[str, datetime.datetime]] = None
-    _date_to: Optional[Union[str, datetime.datetime]] = None
     funnel_id: Optional[int] = None
     _data: Dict
 
@@ -65,48 +65,3 @@ class Filter(
             raise ValueError("You need to define either a data dict or a request")
 
         self._data = data
-        self._date_from = data.get(DATE_FROM)
-        self._date_to = data.get(DATE_TO)
-
-    @property
-    def date_from(self) -> Optional[datetime.datetime]:
-        if self._date_from:
-            if self._date_from == "all":
-                return None
-            elif isinstance(self._date_from, str):
-                return relative_date_parse(self._date_from)
-            else:
-                return self._date_from
-        return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-
-    @property
-    def date_to(self) -> datetime.datetime:
-        if self._date_to:
-            if isinstance(self._date_to, str):
-                return relative_date_parse(self._date_to)
-            else:
-                return self._date_to
-        return timezone.now()
-
-    @property
-    def date_filter_Q(self) -> Q:
-        date_from = self.date_from
-        if self._date_from == "all":
-            return Q()
-        if not date_from:
-            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        filter = Q(timestamp__gte=date_from)
-        if self.date_to:
-            filter &= Q(timestamp__lte=self.date_to)
-        return filter
-
-    def custom_date_filter_Q(self, field: str = "timestamp") -> Q:
-        date_from = self.date_from
-        if self._date_from == "all":
-            return Q()
-        if not date_from:
-            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        filter = Q(**{"{}__gte".format(field): date_from})
-        if self.date_to:
-            filter &= Q(**{"{}__lte".format(field): self.date_to})
-        return filter

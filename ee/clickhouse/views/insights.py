@@ -44,7 +44,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     @action(methods=["GET"], detail=False)
     def session(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         response = ClickhouseSessions().run(
-            team=self.team, filter=Filter(request=request, data={"insight": INSIGHT_SESSIONS})
+            team=self.team, filter=SessionsFilter(request=request, data={"insight": INSIGHT_SESSIONS})
         )
 
         return Response({"result": response,})

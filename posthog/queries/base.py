@@ -29,9 +29,9 @@ def determine_compared_filter(filter):
     if not filter.date_to or not filter.date_from:
         raise ValueError("You need date_from and date_to to compare")
     date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
-    compared_filter = copy.deepcopy(filter)
-    compared_filter._date_from = date_from.date().isoformat()
-    compared_filter._date_to = date_to.date().isoformat()
+    compared_filter = Filter(
+        data={**filter._data, "date_from": date_from.date().isoformat(), "date_to": date_to.date().isoformat()}
+    )
     return compared_filter
 
 
