@@ -144,7 +144,7 @@ def prop_filter_json_extract(
 def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
 
     parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
-    parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 00:00:00"))
+    parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
 
     if value:
         return sync_execute(

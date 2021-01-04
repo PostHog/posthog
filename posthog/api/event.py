@@ -214,7 +214,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         params.append(self.team_id)
         params.append(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
-        params.append(timezone.now().strftime("%Y-%m-%d 00:00:00"))
+        params.append(timezone.now().strftime("%Y-%m-%d 23:59:59"))
 
         # This samples a bunch of events with that property, and then orders them by most popular in that sample
         # This is much quicker than trying to do this over the entire table

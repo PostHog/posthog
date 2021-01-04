@@ -138,7 +138,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                     properties={"random_prop": "don't include", "some other prop": "with some text"},
                 )
 
-            with freeze_time("2020-01-20"):
+            with freeze_time("2020-01-20 20:00:00"):
                 event_factory(
                     distinct_id="bla",
                     event="random event",
