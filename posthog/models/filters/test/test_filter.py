@@ -33,7 +33,6 @@ class TestFilter(BaseTest):
                 "date_from": "2020-01-01T20:00:00Z",
             }
         )
-        filter.toJSON()
         self.assertCountEqual(list(filter.to_dict().keys()), ["events", "display", "compare", "insight", "date_from"])
 
 
