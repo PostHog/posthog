@@ -215,10 +215,22 @@ class DateMixin(BaseParamMixin):
     def date_to_dict(self) -> Dict:
         result_dict = {}
         if self._date_from:
-            result_dict.update({"date_from": self._date_from})
+            result_dict.update(
+                {
+                    "date_from": self._date_from.isoformat()
+                    if isinstance(self._date_from, datetime.datetime)
+                    else self._date_from
+                }
+            )
 
         if self._date_to:
-            result_dict.update({"date_to": self._date_to})
+            result_dict.update(
+                {
+                    "date_to": self._date_to.isoformat()
+                    if isinstance(self._date_to, datetime.datetime)
+                    else self._date_to
+                }
+            )
 
         return result_dict
 
