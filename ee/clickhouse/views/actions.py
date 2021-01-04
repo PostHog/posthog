@@ -74,16 +74,16 @@ class ClickhouseActionsViewSet(ActionViewSet):
         data = {}
         if filter.interval == "month":
             data.update(
-                {"date_from": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
+                {"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
             )
         elif filter.interval == "week":
             data.update(
-                {"date_from": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
+                {"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
             )
         elif filter.interval == "hour":
-            data.update({"date_from": date_from + timedelta(hours=1)})
+            data.update({"date_to": date_from + timedelta(hours=1)})
         elif filter.interval == "minute":
-            data.update({"date_from": date_from + timedelta(minutes=1)})
+            data.update({"date_to": date_from + timedelta(minutes=1)})
         filter = Filter(data={**filter._data, **data})
 
         current_url = request.get_full_path()
