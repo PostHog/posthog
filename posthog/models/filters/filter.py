@@ -139,10 +139,16 @@ class Filter(PropertyMixin):
                 continue
             if not isinstance(value, list) and not value:
                 continue
-            if key == "date_from" and not self._date_from:
-                continue
-            if key == "date_to" and not self._date_to:
-                continue
+            if key == "date_from":
+                if self._date_from:
+                    value = self._date_from
+                else:
+                    continue
+            if key == "date_to":
+                if self._date_to:
+                    value = self._date_to
+                else:
+                    continue
             if isinstance(value, datetime.datetime):
                 value = value.isoformat()
             if not isinstance(value, (list, bool, int, float, str)):
