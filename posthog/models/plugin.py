@@ -53,3 +53,10 @@ class PluginAttachment(models.Model):
     file_name: models.CharField = models.CharField(max_length=200)
     file_size: models.IntegerField = models.IntegerField()
     contents: models.BinaryField = models.BinaryField()
+
+
+class PluginStorage(models.Model):
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
+    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
+    key: models.CharField = models.CharField(max_length=200)
+    value: models.TextField = models.TextField(blank=True, null=True)
