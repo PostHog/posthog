@@ -1,6 +1,7 @@
 import { Queue } from '../types'
 import Base from './base'
 import { Message } from './message'
+import { status } from '../status'
 
 type Handler = (...args: any[]) => Promise<void>
 
@@ -43,7 +44,7 @@ export class Worker extends Base implements Queue {
      * worker.start();
      */
     public start(): Promise<any> {
-        console.info('🍆 Starting Celery worker...')
+        status.info('🍆', 'Starting Celery worker...')
         return this.run().catch((err) => console.error(err))
     }
 
@@ -105,7 +106,7 @@ export class Worker extends Base implements Queue {
 
         return () => {
             const result = this.broker.subscribe(queue, onMessage)
-            console.info(`✅ Celery worker subscribed to ${Object.keys(this.handlers).join(', ')}!`)
+            status.info('✅', `Celery worker subscribed to ${Object.keys(this.handlers).join(', ')}!`)
             return result
         }
     }
@@ -208,17 +209,18 @@ export class Worker extends Base implements Queue {
     public async stop(): Promise<void> {
         const taskCount = this.activeTasks.size
         if (taskCount > 0) {
-            console.info(
-                `⌛ ${taskCount} ${taskCount === 1 ? 'task' : 'tasks'} in progress, waiting for ${
+            status.info(
+                '⌛',
+                `${taskCount} ${taskCount === 1 ? 'task' : 'tasks'} in progress, waiting for ${
                     taskCount === 1 ? 'it' : 'them'
                 } to finish before disconnecting Celery...`
             )
             await this.whenCurrentJobsFinished()
         } else {
-            console.info(`👍 No tasks in progress, disconnecting Celery...`)
+            status.info('👍', 'No tasks in progress, disconnecting Celery...')
         }
         await this.disconnect()
-        console.info(`🛑 Celery worker disconnected!`)
+        status.info('🛑', 'Celery worker disconnected!')
     }
 }
 

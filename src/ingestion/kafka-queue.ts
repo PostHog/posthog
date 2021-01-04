@@ -2,9 +2,8 @@ import * as Sentry from '@sentry/node'
 import { Kafka, Consumer, Message } from 'kafkajs'
 import { ParsedEventMessage, PluginsServer, Queue, RawEventMessage } from 'types'
 import { KAFKA_EVENTS_WAL } from './topics'
-import { version } from '../../package.json'
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { DateTime } from 'luxon'
+import { status } from '../status'
 
 export type BatchCallback = (messages: Message[]) => Promise<void>
 
@@ -30,7 +29,7 @@ export class KafkaQueue implements Queue {
     }
 
     async start(): Promise<void> {
-        console.info(`⏬ Connecting Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
+        status.info('⏬', `Connecting Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
         await this.consumer.subscribe({ topic: KAFKA_EVENTS_WAL })
         // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
         await this.consumer.run({
@@ -66,11 +65,11 @@ export class KafkaQueue implements Queue {
                 ).filter((event: PluginEvent[] | false | null | undefined) => Boolean(event))
                 for (const event of processedEvents) {
                     if (!isRunning()) {
-                        console.info('😮 Consumer not running anymore, canceling batch processing!')
+                        status.info('😮', 'Consumer not running anymore, canceling batch processing!')
                         return
                     }
                     if (isStale()) {
-                        console.info('😮 Batch stale, canceling batch processing!')
+                        status.info('😮', 'Batch stale, canceling batch processing!')
                         return
                     }
                     await this.saveEvent(event)
@@ -106,9 +105,9 @@ export class KafkaQueue implements Queue {
     }
 
     async stop(): Promise<void> {
-        console.info(`⏳ Stopping Kafka queue...`)
+        status.info('⏳', 'Stopping Kafka queue...')
         await this.consumer.stop()
-        console.error('⏹ Kafka consumer stopped!')
+        status.error('⏹', 'Kafka consumer stopped!')
         await this.consumer.disconnect()
     }
 
@@ -119,18 +118,18 @@ export class KafkaQueue implements Queue {
         })
         const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events
         consumer.on(GROUP_JOIN, ({ payload: { groupId } }) => {
-            console.info(`✅ Kafka consumer joined group ${groupId}!`)
+            status.info('✅', `Kafka consumer joined group ${groupId}!`)
         })
         consumer.on(CRASH, ({ payload: { error, groupId } }) => {
-            console.error(`⚠️ Kafka consumer group ${groupId} crashed!`)
+            status.error('⚠️', `Kafka consumer group ${groupId} crashed!`)
             console.error(error)
             Sentry.captureException(error)
         })
         consumer.on(CONNECT, () => {
-            console.info(`✅ Kafka consumer connected!`)
+            status.info('✅', 'Kafka consumer connected!')
         })
         consumer.on(DISCONNECT, () => {
-            console.info(`🛑 Kafka consumer disconnected!`)
+            status.info('🛑', 'Kafka consumer disconnected!')
         })
         return consumer
     }
