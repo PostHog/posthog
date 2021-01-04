@@ -186,7 +186,7 @@ class DateMixin(BaseParamMixin):
                 return relative_date_parse(self._date_to)
             else:
                 return self._date_to
-        return timezone.now().replace(second=0, microsecond=0)
+        return timezone.now()
 
     @cached_property
     def date_filter_Q(self) -> Q:
@@ -216,13 +216,9 @@ class DateMixin(BaseParamMixin):
         result_dict = {}
         if self._date_from:
             result_dict.update({"date_from": self._date_from})
-        elif self.date_from:
-            result_dict.update({"date_from": self.date_from.isoformat()})
 
         if self._date_to:
             result_dict.update({"date_to": self._date_to})
-        elif self.date_to:
-            result_dict.update({"date_to": self.date_to.isoformat()})
 
         return result_dict
 
