@@ -84,10 +84,7 @@ class ClickhouseEventsViewSet(EventViewSet):
         return Response({"next": next_url, "results": result})
 
     def retrieve(self, request: Request, pk: Optional[int] = None, *args: Any, **kwargs: Any) -> Response:
-
-        # TODO: implement getting elements
-        team = self.team
-        query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": team.pk, "event_id": pk},)
+        query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk},)
         result = ClickhouseEventSerializer(query_result[0], many=False).data
 
         return Response(result)

@@ -40,32 +40,27 @@ class BaseSessions(BaseQuery):
         )
 
     def build_all_sessions_query(self, events: QuerySet, _date_gte=Q()) -> Tuple[Query, QueryParams]:
-        sessions = (
-            events.filter(_date_gte)
-            .annotate(
-                previous_timestamp=Window(
-                    expression=Lag("timestamp", default=None),
-                    partition_by=F("distinct_id"),
-                    order_by=F("timestamp").asc(),
-                )
-            )
-            .annotate(
-                previous_event=Window(
-                    expression=Lag("event", default=None), partition_by=F("distinct_id"), order_by=F("timestamp").asc(),
-                )
+        sessions = events.filter(_date_gte).annotate(
+            previous_timestamp=Window(
+                expression=Lag("timestamp", default=None), partition_by=F("distinct_id"), order_by=F("timestamp").asc(),
             )
         )
 
         sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
-        all_sessions = "\
-            SELECT *,\
-                SUM(new_session) OVER (ORDER BY distinct_id, timestamp) AS global_session_id,\
-                SUM(new_session) OVER (PARTITION BY distinct_id ORDER BY timestamp) AS user_session_id\
-                FROM (SELECT id, team_id, distinct_id, event, elements_hash, timestamp, properties, CASE WHEN EXTRACT('EPOCH' FROM (timestamp - previous_timestamp)) >= (60 * 30)\
-                    OR previous_timestamp IS NULL \
-                    THEN 1 ELSE 0 END AS new_session \
-                    FROM ({}) AS inner_sessions\
-                ) AS outer_sessions".format(
+        all_sessions = """
+            SELECT *,
+                SUM(new_session) OVER (ORDER BY distinct_id, timestamp) AS global_session_id
+                FROM (
+                    SELECT
+                        id, team_id, distinct_id, event, elements_hash, timestamp, properties,
+                        CASE
+                            WHEN EXTRACT('EPOCH' FROM (timestamp - previous_timestamp)) >= (60 * 30) OR previous_timestamp IS NULL
+                            THEN 1
+                            ELSE 0
+                        END AS new_session
+                    FROM ({}) AS inner_sessions
+                ) AS outer_sessions
+        """.format(
             sessions_sql
         )
 
