@@ -1343,7 +1343,7 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.2.6.tgz#5e27067e19ce42a78b67fbbafc001f816ccb0c70"
   integrity sha512-W4Ata+n1Zsb+yAVlAQv3OEuHOmwz3Fp6en9iXq5dNNM0gxFoYtKAhzITvz7idAvIy15sa2244E8itSTbqEzzKA==
 
-"@posthog/simmerjs@@posthog/simmerjs@0.7.2-posthog.1":
+"@posthog/simmerjs@0.7.2-posthog.1":
   version "0.7.2-posthog.1"
   resolved "https://registry.yarnpkg.com/@posthog/simmerjs/-/simmerjs-0.7.2-posthog.1.tgz#9231dd534c4d30fbbbb6c31bd534aa9bdc151b55"
   integrity sha512-9OlQDKoohYvpgOq89P/FN9zbXIW2XcUom93ydnvSaV+SyIjO9HIWDy63e0V+EQJ4awTp39GsDB3lv8dknaCO3w==
