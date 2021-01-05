@@ -46,7 +46,7 @@ class Retention(BaseQuery):
         labels_format = "%a. %-d %B"
         days_format = "%Y-%m-%d"
 
-        if filter.interval == "hour" or filter.interval == "minute":
+        if filter.period == "hour" or filter.period == "minute":
             labels_format += ", %H:%M"
             days_format += " %H:%M:%S"
 
