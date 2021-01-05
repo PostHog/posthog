@@ -39,7 +39,7 @@ RETENTION_DEFAULT_INTERVALS = 11
 class TotalIntervalsMixin(BaseParamMixin):
     @cached_property
     def total_intervals(self) -> int:
-        return self._data.get(TOTAL_INTERVALS, RETENTION_DEFAULT_INTERVALS)
+        return int(self._data.get(TOTAL_INTERVALS, RETENTION_DEFAULT_INTERVALS))
 
     @include_dict
     def total_intervals_to_dict(self):

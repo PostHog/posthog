@@ -8,6 +8,7 @@ import './RetentionTable.scss'
 import moment from 'moment'
 
 export function RetentionTable({ dashboardItemId = null }) {
+    const logic = retentionTableLogic({ dashboardItemId })
     const {
         results,
         resultsLoading,
@@ -15,8 +16,8 @@ export function RetentionTable({ dashboardItemId = null }) {
         people,
         loadingMore,
         filters: { period },
-    } = useValues(retentionTableLogic({ dashboardItemId }))
-    const { loadPeople, loadMore } = useActions(retentionTableLogic({ dashboardItemId }))
+    } = useValues(logic)
+    const { loadPeople, loadMore } = useActions(logic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
 
