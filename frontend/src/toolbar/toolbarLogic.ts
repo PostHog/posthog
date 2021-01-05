@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { toolbarLogicType } from 'types/toolbar/toolbarLogicType'
 import { EditorProps } from '~/types'
 import { clearSessionToolbarToken } from '~/toolbar/utils'
-import { posthog } from '~/toolbar/posthog'
+import posthog from 'posthog-js'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 
@@ -36,11 +36,13 @@ export const toolbarLogic = kea<toolbarLogicType>({
 
     listeners: ({ values, props }) => ({
         authenticate: () => {
+            posthog.capture('toolbar authenticated', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
             window.location.href = `${values.apiURL}authorize_and_redirect/?redirect=${encodedUrl}`
             clearSessionToolbarToken()
         },
         logout: () => {
+            posthog.capture('toolbar logout')
             clearSessionToolbarToken()
         },
         processUserIntent: async () => {

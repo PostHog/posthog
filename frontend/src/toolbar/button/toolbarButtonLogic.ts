@@ -4,6 +4,7 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogicType } from 'types/toolbar/button/toolbarButtonLogicType'
+import posthog from 'posthog-js'
 
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
     actions: () => ({
@@ -163,10 +164,13 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             actionsTabLogic.actions.selectAction(null)
         },
         showStats: () => {
-            console.log('toolbar mode triggered', { mode: 'stats', enabled: true })
+            posthog.capture('toolbar mode triggered', { mode: 'stats', enabled: true })
         },
         hideStats: () => {
-            console.log('toolbar mode triggered', { mode: 'stats', enabled: false })
+            posthog.capture('toolbar mode triggered', { mode: 'stats', enabled: false })
+        },
+        setExtensionPercentage: ({ percentage }) => {
+            console.log('toolbar set extension percentage', { percentage })
         },
     }),
 })
