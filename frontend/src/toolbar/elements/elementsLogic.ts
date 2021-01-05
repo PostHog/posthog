@@ -134,7 +134,7 @@ export const elementsLogic = kea<
             (s) => [s.displayActionElements, actionsTabLogic.selectors.selectedEditedAction],
             (displayActionElements, selectedEditedAction): ElementWithMetadata[] => {
                 if (displayActionElements && selectedEditedAction?.steps) {
-                    const allElements = collectAllElementsDeep('', document, null)
+                    const allElements = collectAllElementsDeep('*', document)
                     const steps: ElementWithMetadata[] = []
                     selectedEditedAction.steps.forEach((step, index) => {
                         const element = getElementForStep(step, allElements)
@@ -187,7 +187,7 @@ export const elementsLogic = kea<
         actionsForElementMap: [
             (s) => [actionsLogic.selectors.sortedActions, s.rectUpdateCounter, toolbarLogic.selectors.buttonVisible],
             (sortedActions): ActionElementMap => {
-                const allElements = collectAllElementsDeep('', document, null)
+                const allElements = collectAllElementsDeep('*', document)
                 const actionsForElementMap = new Map<HTMLElement, ActionElementWithMetadata[]>()
                 sortedActions.forEach((action, index) => {
                     action.steps
