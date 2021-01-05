@@ -55,11 +55,14 @@ class ClickhouseInsightsViewSet(InsightViewSet):
 
     @action(methods=["GET"], detail=False)
     def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response = self.calculate_funnel(request)
+        return Response(response)
 
+    @cached_function()
+    def calculate_funnel(self, request: Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
-        response = ClickhouseFunnel(team=team, filter=filter).run()
-        return Response(response)
+        return ClickhouseFunnel(team=team, filter=filter).run()
 
     @cached_function()
     def calculate_retention(self, request: Request) -> List[Dict[str, Any]]:
