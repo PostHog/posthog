@@ -163,10 +163,9 @@ class EntitiesDerivedMixin(EntitiesMixin):
 
     @cached_property
     def returning_entity(self) -> Entity:
-        entity = (
-            self._parse_entity(self._data[RETURNING_ENTITY]) if self._data.get(RETURNING_ENTITY) else self.target_entity
-        )
-        return entity
+        if self._data.get(RETURNING_ENTITY):
+            return self._parse_entity(self._data[RETURNING_ENTITY]) or self.target_entity
+        return self.target_entity
 
     @include_dict
     def returning_entity_to_dict(self):
