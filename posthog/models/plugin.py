@@ -57,8 +57,10 @@ class PluginAttachment(models.Model):
 
 class PluginStorage(models.Model):
     class Meta:
-        indexes = [
-            models.Index(fields=["team_id", "plugin_config_id", "key"]),
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team_id", "plugin_config_id", "key"], name="posthog_unique_plugin_storage_key"
+            )
         ]
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
