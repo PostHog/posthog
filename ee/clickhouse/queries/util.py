@@ -1,14 +1,16 @@
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.models.filters import Filter
+from posthog.models.filters.path_filter import PathFilter
+from posthog.types import FilterType
 
 
-def parse_timestamps(filter: Filter, team_id: int, table: str = "") -> Tuple[str, str, dict]:
+def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple[str, str, dict]:
     date_from = None
     date_to = None
     params = {}

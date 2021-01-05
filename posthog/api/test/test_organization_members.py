@@ -83,6 +83,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
             {"level": OrganizationMembership.Level.ADMIN},
             content_type="application/json",
         )
+
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         self.assertEqual(updated_membership.level, OrganizationMembership.Level.MEMBER)
         self.assertDictEqual(

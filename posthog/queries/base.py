@@ -25,17 +25,17 @@ def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> Q
     return QuerySet()
 
 
-def determine_compared_filter(filter: Filter) -> Filter:
+def determine_compared_filter(filter):
     if not filter.date_to or not filter.date_from:
         raise ValueError("You need date_from and date_to to compare")
     date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
-    compared_filter = copy.deepcopy(filter)
-    compared_filter._date_from = date_from.date().isoformat()
-    compared_filter._date_to = date_to.date().isoformat()
+    compared_filter = Filter(
+        data={**filter._data, "date_from": date_from.date().isoformat(), "date_to": date_to.date().isoformat()}
+    )
     return compared_filter
 
 
-def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter: Filter, label: str) -> List[Dict[str, Any]]:
+def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str) -> List[Dict[str, Any]]:
     for entity in trend_entity:
         days = [i for i in range(len(entity["days"]))]
         labels = [
@@ -62,7 +62,7 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter: Filter, la
 """
 
 
-def handle_compare(filter: Filter, func: Callable, team: Team, **kwargs) -> List:
+def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
     entities_list = []
     trend_entity = func(filter=filter, team_id=team.pk, **kwargs)
     if filter.compare:

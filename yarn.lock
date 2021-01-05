@@ -1321,30 +1321,6 @@
     "@types/yargs" "^15.0.0"
     chalk "^4.0.0"
 
-"@mariusandra/query-selector-shadow-dom@0.7.2-posthog":
-  version "0.7.2-posthog"
-  resolved "https://registry.yarnpkg.com/@mariusandra/query-selector-shadow-dom/-/query-selector-shadow-dom-0.7.2-posthog.tgz#133a043b0a43b358f99d371a80b6c31ff0865c5a"
-  integrity sha512-lRgyns8UVpJAbzQNTHeuz2Yyn0NBkeL2S8U4WoFg/BDKwm5o3FjkRiHIGINb2umANVRo68/4UumIlPn9CwjwOw==
-
-"@mariusandra/query-selector-shadow-dom@0.7.2-posthog.2":
-  version "0.7.2-posthog.2"
-  resolved "https://registry.yarnpkg.com/@mariusandra/query-selector-shadow-dom/-/query-selector-shadow-dom-0.7.2-posthog.2.tgz#9f32cced63db384e33b6423d2cb539257019401b"
-  integrity sha512-TodRWt0WvumbIdbGZMj7VQ300GpuX5gA2vZCla7Y/1D8UBbNXLAwyrKl6flUjPopvvnRp3PhNbYgWVsFXi+V3w==
-
-"@mariusandra/simmerjs@0.7.1-posthog.1":
-  version "0.7.1-posthog.1"
-  resolved "https://registry.yarnpkg.com/@mariusandra/simmerjs/-/simmerjs-0.7.1-posthog.1.tgz#45da4a0f98915de40c7a1a0adb9d19dd5adf4167"
-  integrity sha512-buz5dTu6iVoAJ/4foc/AzKO8UDTfZV0kBuwij7gYnklZLIvlT+aaeqJx/1WOWp0HWGXhFaK1ByX3l+U5XBWEGw==
-  dependencies:
-    "@babel/runtime" "^7.11.2"
-    "@mariusandra/query-selector-shadow-dom" "0.7.2-posthog"
-    "@rollup/plugin-commonjs" "^15.1.0"
-    lodash.difference "^4.5.0"
-    lodash.flatmap "^4.5.0"
-    lodash.isfunction "^3.0.8"
-    lodash.take "^4.1.1"
-    lodash.takeright "^4.1.1"
-
 "@mdx-js/react@^1.0.0":
   version "1.6.22"
   resolved "https://registry.yarnpkg.com/@mdx-js/react/-/react-1.6.22.tgz#ae09b4744fddc74714ee9f9d6f17a66e77c43573"
@@ -1361,6 +1337,25 @@
     superagent "^5.3.1"
     theme-ui "^0.3.1"
     tinycolor2 "^1.4.1"
+
+"@posthog/plugin-scaffold@0.2.6":
+  version "0.2.6"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.2.6.tgz#5e27067e19ce42a78b67fbbafc001f816ccb0c70"
+  integrity sha512-W4Ata+n1Zsb+yAVlAQv3OEuHOmwz3Fp6en9iXq5dNNM0gxFoYtKAhzITvz7idAvIy15sa2244E8itSTbqEzzKA==
+
+"@posthog/simmerjs@0.7.2-posthog.1":
+  version "0.7.2-posthog.1"
+  resolved "https://registry.yarnpkg.com/@posthog/simmerjs/-/simmerjs-0.7.2-posthog.1.tgz#9231dd534c4d30fbbbb6c31bd534aa9bdc151b55"
+  integrity sha512-9OlQDKoohYvpgOq89P/FN9zbXIW2XcUom93ydnvSaV+SyIjO9HIWDy63e0V+EQJ4awTp39GsDB3lv8dknaCO3w==
+  dependencies:
+    "@babel/runtime" "^7.11.2"
+    "@rollup/plugin-commonjs" "^15.1.0"
+    lodash.difference "^4.5.0"
+    lodash.flatmap "^4.5.0"
+    lodash.isfunction "^3.0.8"
+    lodash.take "^4.1.1"
+    lodash.takeright "^4.1.1"
+    query-selector-shadow-dom "0.8.0"
 
 "@rollup/plugin-commonjs@^15.1.0":
   version "15.1.0"
@@ -8644,11 +8639,6 @@ posthog-js@1.8.0:
   dependencies:
     fflate "^0.4.1"
 
-posthog-plugins@0.1.3:
-  version "0.1.3"
-  resolved "https://registry.yarnpkg.com/posthog-plugins/-/posthog-plugins-0.1.3.tgz#3a47f1303733720c308f33f67162ca2823845bbf"
-  integrity sha512-6VElUUux/AA+uetGWk9p0+cep8+ByE0P0Zv8cypT9z/3hLUhueTjrvQZDL835656BOPtVRdBOxjBqQ7fYog57g==
-
 posthog-react-rrweb-player@^1.0.11:
   version "1.0.11"
   resolved "https://registry.yarnpkg.com/posthog-react-rrweb-player/-/posthog-react-rrweb-player-1.0.11.tgz#960c6198af179242e5c94aebdb8301d2439eb51a"
@@ -8847,6 +8837,11 @@ qs@~6.5.2:
   version "6.5.2"
   resolved "https://registry.yarnpkg.com/qs/-/qs-6.5.2.tgz#cb3ae806e8740444584ef154ce8ee98d403f3e36"
   integrity sha512-N5ZAX4/LxJmF+7wN74pUD6qAh9/wnvdQcjq9TZjevvXzSUo7bfmw91saqMjzGS2xq91/odN2dW/WOl7qQHNDGA==
+
+query-selector-shadow-dom@0.8.0:
+  version "0.8.0"
+  resolved "https://registry.yarnpkg.com/query-selector-shadow-dom/-/query-selector-shadow-dom-0.8.0.tgz#74c7509e8b9bc24114febf076f89eb0eaf8e77a7"
+  integrity sha512-dY6R/X8hfGapwcW9Xl6zSpGR1guYNdSVV7XOrO3Xb9UUyo5tEcWON2siDpNyQ+skVjAH0fH3azm3GdnTpUC/2A==
 
 query-string@^4.1.0:
   version "4.3.4"

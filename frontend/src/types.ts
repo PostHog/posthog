@@ -1,5 +1,5 @@
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { PluginConfigSchema } from 'posthog-plugins'
+import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 export interface UserType {
     anonymize_data: boolean
