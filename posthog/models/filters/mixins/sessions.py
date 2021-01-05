@@ -1,5 +1,5 @@
 import json
-from typing import Optional
+from typing import Dict, Optional, Union, cast
 
 from posthog.constants import DISTINCT_ID_FILTER
 from posthog.models.entity import Entity
@@ -41,7 +41,7 @@ class ActionFilterMixin(BaseParamMixin):
     @cached_property
     def action_filter(self) -> Optional[Entity]:
         if self._data.get("action_filter") is not None:
-            action_filter = self._data.get("action_filter")
+            action_filter = cast(Union[str, Dict], self._data.get("action_filter"))
             action_filter = json.loads(action_filter) if isinstance(action_filter, str) else action_filter
             return Entity(action_filter)
         else:
