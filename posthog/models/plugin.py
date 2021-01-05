@@ -56,7 +56,12 @@ class PluginAttachment(models.Model):
 
 
 class PluginStorage(models.Model):
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id", "plugin_config_id", "key"]),
+        ]
+
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
     key: models.CharField = models.CharField(max_length=200)
     value: models.TextField = models.TextField(blank=True, null=True)
