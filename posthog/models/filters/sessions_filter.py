@@ -1,10 +1,14 @@
-import json
 from typing import Any, Dict, Optional
 
 from django.http import HttpRequest
 
 from posthog.models import Filter
-from posthog.models.filters.mixins.sessions import ActionFilterMixin, DistinctIdMixin, DurationMixin, DurationOperatorMixin
+from posthog.models.filters.mixins.sessions import (
+    ActionFilterMixin,
+    DistinctIdMixin,
+    DurationMixin,
+    DurationOperatorMixin,
+)
 
 
 class SessionsFilter(ActionFilterMixin, DurationMixin, DurationOperatorMixin, DistinctIdMixin, Filter):
