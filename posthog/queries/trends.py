@@ -317,15 +317,19 @@ class Trends(LifecycleTrend, BaseQuery):
 
         return serialized_data
 
-    def _set_default_dates(self, filter: Filter, team_id: int) -> None:
+    def _set_default_dates(self, filter: Filter, team_id: int) -> Filter:
         # format default dates
         if not filter.date_from:
-            filter._date_from = (
-                Event.objects.filter(team_id=team_id)
-                .order_by("timestamp")[0]
-                .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-                .isoformat()
+            return Filter(
+                data={
+                    **filter._data,
+                    "date_from": Event.objects.filter(team_id=team_id)
+                    .order_by("timestamp")[0]
+                    .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+                    .isoformat(),
+                }
             )
+        return filter
 
     def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
@@ -396,7 +400,7 @@ class Trends(LifecycleTrend, BaseQuery):
             actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)
         actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
 
-        self._set_default_dates(filter, team.pk)
+        filter = self._set_default_dates(filter, team.pk)
 
         result = []
         for entity in filter.entities:

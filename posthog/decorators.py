@@ -8,7 +8,7 @@ from django.utils.timezone import now
 
 from posthog.models import Filter, Team, User
 from posthog.models.dashboard_item import DashboardItem
-from posthog.models.filters.filter import get_filter
+from posthog.models.filters.utils import get_filter
 from posthog.settings import CACHED_RESULTS_TTL
 from posthog.utils import generate_cache_key
 

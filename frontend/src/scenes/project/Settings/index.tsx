@@ -46,10 +46,17 @@ function _Setup(): JSX.Element {
                 For more guidance, including on identying users,{' '}
                 <a href="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</a>.
                 <JSSnippet />
-                <br />
-                It's possible to test out Posthog on a live site without changing any code. <br />
-                Just drag this bookmarklet to your bookmarks bar, open the website you want to track and click it:{' '}
-                <JSBookmarklet />
+                <p>
+                    You can even test PostHog out on a live site without changing any code.
+                    <br />
+                    Just drag the bookmarklet below to your bookmarks bar, open the website you want to test PostHog on
+                    and click it.
+                    <br />
+                    This will enable our tracking, on the currently loaded page only. The data will show up in this
+                    project.
+                    <br />
+                </p>
+                <p>{user?.team && <JSBookmarklet team={user.team} />}</p>
                 <Divider />
                 <h2 id="custom-events" className="subtitle">
                     Send Custom Events

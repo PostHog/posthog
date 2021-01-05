@@ -83,7 +83,10 @@ def _create_regex(selector: Selector) -> str:
     regex = r""
     for idx, tag in enumerate(selector.parts):
         if tag.data.get("tag_name") and isinstance(tag.data["tag_name"], str):
-            regex += tag.data["tag_name"]
+            if tag.data["tag_name"] == "*":
+                regex += ".+"
+            else:
+                regex += tag.data["tag_name"]
         if tag.data.get("attr_class__contains"):
             regex += r".*?\.{}".format(r"\..*?".join(sorted(tag.data["attr_class__contains"])))
         if tag.ch_attributes:

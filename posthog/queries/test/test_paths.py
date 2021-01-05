@@ -3,6 +3,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.models import Element, Event, Filter, Person
+from posthog.models.filters.path_filter import PathFilter
 from posthog.queries.paths import Paths
 from posthog.test.base import BaseTest
 from posthog.utils import request_to_date_query
@@ -68,7 +69,7 @@ def paths_test_factory(paths, event_factory, person_factory):
                 )
 
             with freeze_time("2012-01-15T03:21:34.000Z"):
-                filter = Filter(data={"dummy": "dummy"})
+                filter = PathFilter(data={"dummy": "dummy"})
                 response = paths().run(team=self.team, filter=filter)
 
             self.assertEqual(response[0]["source"], "1_/", response)
@@ -89,19 +90,27 @@ def paths_test_factory(paths, event_factory, person_factory):
 
             with freeze_time("2012-01-15T03:21:34.000Z"):
                 date_from = now() - relativedelta(days=7)
-                response = self.client.get("/api/paths/?date_from=" + date_from.strftime("%Y-%m-%d")).json()
+                response = self.client.get(
+                    "/api/insight/path/?insight=PATHS&date_from=" + date_from.strftime("%Y-%m-%d")
+                ).json()
                 self.assertEqual(len(response), 4)
 
                 date_to = now()
-                response = self.client.get("/api/paths/?date_to=" + date_to.strftime("%Y-%m-%d")).json()
+                response = self.client.get(
+                    "/api/insight/path/?insight=PATHS&date_to=" + date_to.strftime("%Y-%m-%d")
+                ).json()
                 self.assertEqual(len(response), 4)
 
                 date_from = now() + relativedelta(days=7)
-                response = self.client.get("/api/paths/?date_from=" + date_from.strftime("%Y-%m-%d")).json()
+                response = self.client.get(
+                    "/api/insight/path/?insight=PATHS&date_from=" + date_from.strftime("%Y-%m-%d")
+                ).json()
                 self.assertEqual(len(response), 0)
 
                 date_to = now() - relativedelta(days=7)
-                response = self.client.get("/api/paths/?date_to=" + date_to.strftime("%Y-%m-%d")).json()
+                response = self.client.get(
+                    "/api/insight/path/?insight=PATHS&date_to=" + date_to.strftime("%Y-%m-%d")
+                ).json()
                 self.assertEqual(len(response), 0)
 
                 date_from = now() - relativedelta(days=7)
@@ -109,14 +118,14 @@ def paths_test_factory(paths, event_factory, person_factory):
 
                 date_params = {"date_from": date_from.strftime("%Y-%m-%d"), "date_to": date_to.strftime("%Y-%m-%d")}
 
-                filter = Filter(data={**date_params})
+                filter = PathFilter(data={**date_params})
                 response = paths().run(team=self.team, filter=filter)
                 self.assertEqual(len(response), 4)
 
                 date_from = now() + relativedelta(days=7)
                 date_to = now() - relativedelta(days=7)
                 date_params = {"date_from": date_from.strftime("%Y-%m-%d"), "date_to": date_to.strftime("%Y-%m-%d")}
-                filter = Filter(data={**date_params})
+                filter = PathFilter(data={**date_params})
                 response = paths().run(team=self.team, filter=filter)
                 self.assertEqual(len(response), 0)
 
@@ -141,7 +150,7 @@ def paths_test_factory(paths, event_factory, person_factory):
             event_factory(distinct_id="person_4", event="custom_event_1", team=self.team)
             event_factory(distinct_id="person_4", event="custom_event_2", team=self.team)
 
-            response = paths().run(team=self.team, filter=Filter(data={"path_type": "custom_event"}))
+            response = paths().run(team=self.team, filter=PathFilter(data={"path_type": "custom_event"}))
 
             self.assertEqual(response[0]["source"], "1_custom_event_1", response)
             self.assertEqual(response[0]["target"], "2_custom_event_2")
@@ -195,7 +204,7 @@ def paths_test_factory(paths, event_factory, person_factory):
                 properties={"$screen_name": "/pricing"}, distinct_id="person_4", event="$screen", team=self.team,
             )
 
-            response = paths().run(team=self.team, filter=Filter(data={"path_type": "$screen"}))
+            response = paths().run(team=self.team, filter=PathFilter(data={"path_type": "$screen"}))
             self.assertEqual(response[0]["source"], "1_/", response)
             self.assertEqual(response[0]["target"], "2_/pricing")
             self.assertEqual(response[0]["value"], 2)
@@ -276,7 +285,7 @@ def paths_test_factory(paths, event_factory, person_factory):
                 ],
             )
 
-            response = paths().run(team=self.team, filter=Filter(data={"path_type": "$autocapture"}))
+            response = paths().run(team=self.team, filter=PathFilter(data={"path_type": "$autocapture"}))
 
             self.assertEqual(response[0]["source"], "1_<a> hello")
             self.assertEqual(response[0]["target"], "2_<a> goodbye")
@@ -348,7 +357,7 @@ def paths_test_factory(paths, event_factory, person_factory):
                 properties={"$current_url": "/pricing"}, distinct_id="person_4", event="$pageview", team=self.team,
             )
 
-            filter = Filter(data={"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]})
+            filter = PathFilter(data={"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]})
 
             response = paths().run(team=self.team, filter=filter)
 
@@ -417,10 +426,10 @@ def paths_test_factory(paths, event_factory, person_factory):
                 properties={"$current_url": "/help"}, distinct_id="person_5b", event="$pageview", team=self.team,
             )
 
-            response = self.client.get("/api/paths/?type=%24pageview&start=%2Fpricing").json()
+            response = self.client.get("/api/insight/path/?type=%24pageview&start=%2Fpricing").json()
 
             response = paths().run(
-                team=self.team, filter=Filter(data={"path_type": "$pageview", "start_point": "/pricing"}),
+                team=self.team, filter=PathFilter(data={"path_type": "$pageview", "start_point": "/pricing"}),
             )
 
             self.assertEqual(len(response), 5)
@@ -431,7 +440,9 @@ def paths_test_factory(paths, event_factory, person_factory):
             self.assertTrue(response[3].items() >= {"source": "2_/about", "target": "3_/pricing", "value": 1}.items())
             self.assertTrue(response[4].items() >= {"source": "3_/pricing", "target": "4_/help", "value": 1}.items())
 
-            response = paths().run(team=self.team, filter=Filter(data={"path_type": "$pageview", "start_point": "/"}),)
+            response = paths().run(
+                team=self.team, filter=PathFilter(data={"path_type": "$pageview", "start_point": "/"}),
+            )
 
             self.assertEqual(len(response), 3)
 
@@ -460,7 +471,7 @@ def paths_test_factory(paths, event_factory, person_factory):
                     properties={"$current_url": "/about"}, distinct_id="person_1", event="$pageview", team=self.team,
                 )
 
-            response = paths().run(team=self.team, filter=Filter(data={"date_from": "2020-04-13"}))
+            response = paths().run(team=self.team, filter=PathFilter(data={"date_from": "2020-04-13"}))
 
             self.assertEqual(response[0]["source"], "1_/")
             self.assertEqual(response[0]["target"], "2_/about")
