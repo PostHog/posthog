@@ -129,59 +129,78 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             return sign_up
 
         def test_event_property_values(self):
-            event_factory(
-                distinct_id="bla",
-                event="random event",
-                team=self.team,
-                properties={"random_prop": "asdf", "some other prop": "with some text"},
-            )
-            event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": "asdf"})
-            event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": "qwerty"})
-            event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": True})
-            event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": False})
-            event_factory(
-                distinct_id="bla",
-                event="random event",
-                team=self.team,
-                properties={"random_prop": {"first_name": "Mary", "last_name": "Smith"}},
-            )
-            event_factory(
-                distinct_id="bla", event="random event", team=self.team, properties={"something_else": "qwerty"}
-            )
-            event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": 565})
-            event_factory(
-                distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item1", "item2"]}
-            )
-            event_factory(
-                distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item3"]}
-            )
 
-            team2 = Team.objects.create()
-            event_factory(distinct_id="bla", event="random event", team=team2, properties={"random_prop": "abcd"})
-            response = self.client.get("/api/event/values/?key=random_prop").json()
+            with freeze_time("2020-01-10"):
+                event_factory(
+                    distinct_id="bla",
+                    event="random event",
+                    team=self.team,
+                    properties={"random_prop": "don't include", "some other prop": "with some text"},
+                )
 
-            keys = [resp["name"].replace(" ", "") for resp in response]
-            self.assertCountEqual(
-                keys,
-                [
-                    "asdf",
-                    "qwerty",
-                    "565",
-                    "false",
-                    "true",
-                    '{"first_name":"Mary","last_name":"Smith"}',
-                    "item1",
-                    "item2",
-                    "item3",
-                ],
-            )
-            self.assertEqual(len(response), 9)
+            with freeze_time("2020-01-20 20:00:00"):
+                event_factory(
+                    distinct_id="bla",
+                    event="random event",
+                    team=self.team,
+                    properties={"random_prop": "asdf", "some other prop": "with some text"},
+                )
+                event_factory(
+                    distinct_id="bla", event="random event", team=self.team, properties={"random_prop": "asdf"}
+                )
+                event_factory(
+                    distinct_id="bla", event="random event", team=self.team, properties={"random_prop": "qwerty"}
+                )
+                event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": True})
+                event_factory(
+                    distinct_id="bla", event="random event", team=self.team, properties={"random_prop": False}
+                )
+                event_factory(
+                    distinct_id="bla",
+                    event="random event",
+                    team=self.team,
+                    properties={"random_prop": {"first_name": "Mary", "last_name": "Smith"}},
+                )
+                event_factory(
+                    distinct_id="bla", event="random event", team=self.team, properties={"something_else": "qwerty"}
+                )
+                event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": 565})
+                event_factory(
+                    distinct_id="bla",
+                    event="random event",
+                    team=self.team,
+                    properties={"random_prop": ["item1", "item2"]},
+                )
+                event_factory(
+                    distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item3"]}
+                )
 
-            response = self.client.get("/api/event/values/?key=random_prop&value=qw").json()
-            self.assertEqual(response[0]["name"], "qwerty")
+                team2 = Team.objects.create()
+                event_factory(distinct_id="bla", event="random event", team=team2, properties={"random_prop": "abcd"})
+                response = self.client.get("/api/event/values/?key=random_prop").json()
 
-            response = self.client.get("/api/event/values/?key=random_prop&value=6").json()
-            self.assertEqual(response[0]["name"], "565")
+                keys = [resp["name"].replace(" ", "") for resp in response]
+                self.assertCountEqual(
+                    keys,
+                    [
+                        "asdf",
+                        "qwerty",
+                        "565",
+                        "false",
+                        "true",
+                        '{"first_name":"Mary","last_name":"Smith"}',
+                        "item1",
+                        "item2",
+                        "item3",
+                    ],
+                )
+                self.assertEqual(len(response), 9)
+
+                response = self.client.get("/api/event/values/?key=random_prop&value=qw").json()
+                self.assertEqual(response[0]["name"], "qwerty")
+
+                response = self.client.get("/api/event/values/?key=random_prop&value=6").json()
+                self.assertEqual(response[0]["name"], "565")
 
         def test_before_and_after(self):
             user = self._create_user("tim")

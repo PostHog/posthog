@@ -10,7 +10,7 @@ import { ActionStepType, ActionType } from '~/types'
 import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { collectAllElementsDeep } from '@mariusandra/query-selector-shadow-dom'
+import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 type ElementMap = Map<HTMLElement, ElementWithMetadata>
