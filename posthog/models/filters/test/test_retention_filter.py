@@ -53,6 +53,9 @@ class TestFilter(BaseTest):
         self.assertEqual(filter.date_from.isoformat(), "2020-07-22T00:00:00+00:00")
         self.assertEqual(filter.date_to.isoformat(), "2020-08-02T00:00:00+00:00")
         #  Make sure these dates aren't present in final filter to ensure rolling retention
+
+        # The date_to below is the base value that's provided when the object was created (_date_to).
+        # It doesn't match the date_to above because the retention filter will transform date_to to include one period ahead
         self.assertEqual(
             filter.to_dict(),
             {
