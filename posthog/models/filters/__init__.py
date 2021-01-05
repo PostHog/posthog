@@ -1,2 +1,2 @@
-from .filter import Filter, get_filter
+from .filter import Filter
 from .retention_filter import RetentionFilter

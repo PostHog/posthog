@@ -8,8 +8,8 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { heatmapLogicType } from 'types/toolbar/elements/heatmapLogicType'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { ActionStepType } from '~/types'
-import { collectAllElementsDeep, querySelectorAllDeep } from '@mariusandra/query-selector-shadow-dom'
 import posthog from 'posthog-js'
+import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionStepType>>({
     actions: {
@@ -80,7 +80,7 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
             (selectors) => [selectors.events],
             (events) => {
                 // cache all elements in shadow roots
-                const allElements = collectAllElementsDeep('', document, null)
+                const allElements = collectAllElementsDeep('*', document)
                 const elements: CountedHTMLElement[] = []
                 events.forEach((event) => {
                     let combinedSelector

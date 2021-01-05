@@ -10,6 +10,7 @@ class SessionRecordingEvent(models.Model):
         indexes = [
             models.Index(fields=["team_id", "session_id"]),
             models.Index(fields=["team_id", "distinct_id", "timestamp", "session_id"]),
+            models.Index(fields=["team_id", "timestamp"]),
         ]
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True, blank=True)
