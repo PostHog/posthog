@@ -34,24 +34,25 @@ class ClickhouseTrendsBreakdown:
     def _serialize_breakdown(self, entity: Entity, filter: Filter, team_id: int):
         if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
             result = []
-            filter.breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
-            filter.breakdown.remove("all")
+            _breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
+            _breakdown.remove("all")
 
             # handle breakdown by all and by specific props separately
             if filter.breakdown:
-                result.extend(self._format_breakdown_query(entity, filter, team_id))
+                result.extend(self._format_breakdown_query(entity, filter, _breakdown, team_id))
 
-            filter.breakdown = ["all"]
-            all_result = self._format_breakdown_query(entity, filter, team_id)
+            _breakdown = ["all"]
+            all_result = self._format_breakdown_query(entity, filter, _breakdown, team_id)
 
             result.extend(all_result)
         else:
-            result = self._format_breakdown_query(entity, filter, team_id)
+            result = self._format_breakdown_query(entity, filter, filter.breakdown, team_id)
 
         return result
 
-    def _format_breakdown_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
-
+    def _format_breakdown_query(
+        self, entity: Entity, filter: Filter, breakdown: List, team_id: int
+    ) -> List[Dict[str, Any]]:
         # process params
         params: Dict[str, Any] = {"team_id": team_id}
         interval_annotation = get_trunc_func_ch(filter.interval)
@@ -98,8 +99,7 @@ class ClickhouseTrendsBreakdown:
             "event_filter": "AND event = %(event)s" if not action_query else "",
             "filters": prop_filters if props_to_filter else "",
         }
-        breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
-        breakdown_query = self._get_breakdown_query(filter)
+        breakdown_query = self._get_breakdown_query(filter, breakdown)
 
         _params, _breakdown_filter_params = {}, {}
 
@@ -134,7 +134,7 @@ class ClickhouseTrendsBreakdown:
             )
 
             result = sync_execute(content_sql, params)
-            parsed_results = self._parse_single_aggregate_result(result, filter, entity)
+            parsed_results = self._parse_single_aggregate_result(result, filter, entity, breakdown)
 
             return parsed_results
 
@@ -161,12 +161,11 @@ class ClickhouseTrendsBreakdown:
             except:
                 result = []
 
-            parsed_results = self._parse_trend_result(result, filter, entity)
+            parsed_results = self._parse_trend_result(result, filter, entity, breakdown)
 
             return parsed_results
 
-    def _get_breakdown_query(self, filter: Filter):
-        breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
+    def _get_breakdown_query(self, filter: Filter, breakdown: List):
 
         if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
             return BREAKDOWN_AGGREGATE_DEFAULT_SQL if "all" in breakdown else BREAKDOWN_AGGREGATE_QUERY_SQL
@@ -216,36 +215,42 @@ class ClickhouseTrendsBreakdown:
 
         return params, breakdown_filter, {}, "JSONExtractRaw(properties, %(key)s)"
 
-    def _parse_single_aggregate_result(self, result, filter: Filter, entity: Entity):
+    def _parse_single_aggregate_result(
+        self, result, filter: Filter, entity: Entity, breakdown: Union[str, List[Union[str, int]], None]
+    ):
         parsed_results = []
         for idx, stats in enumerate(result):
             breakdown_value = stats[1] if not filter.breakdown_type == "cohort" else ""
-            additional_values = self._breakdown_result_descriptors(breakdown_value, idx, filter, entity)
+            additional_values = self._breakdown_result_descriptors(breakdown_value, idx, filter, entity, breakdown)
             parsed_result = {"aggregated_value": stats[0], **additional_values}
             parsed_results.append(parsed_result)
 
         return parsed_results
 
-    def _parse_trend_result(self, result, filter: Filter, entity: Entity):
+    def _parse_trend_result(
+        self, result, filter: Filter, entity: Entity, breakdown: Union[str, List[Union[str, int]], None]
+    ):
         parsed_results = []
         for idx, stats in enumerate(result):
             breakdown_value = stats[2] if not filter.breakdown_type == "cohort" else ""
-            additional_values = self._breakdown_result_descriptors(breakdown_value, idx, filter, entity)
+            additional_values = self._breakdown_result_descriptors(breakdown_value, idx, filter, entity, breakdown)
             parsed_result = parse_response(stats, filter, additional_values)
             parsed_results.append(parsed_result)
 
         return parsed_results
 
-    def _breakdown_result_descriptors(self, breakdown_value, index, filter: Filter, entity: Entity):
+    def _breakdown_result_descriptors(
+        self, breakdown_value, index, filter: Filter, entity: Entity, breakdown: Union[str, List[Union[str, int]], None]
+    ):
         stripped_value = breakdown_value.strip('"') if isinstance(breakdown_value, str) else breakdown_value
 
-        extra_label = self._determine_breakdown_label(index, filter.breakdown_type, filter.breakdown, stripped_value)
+        extra_label = self._determine_breakdown_label(index, filter.breakdown_type, breakdown, stripped_value)
         label = "{} - {}".format(entity.name, extra_label)
         additional_values = {
             "label": label,
-            "breakdown_value": filter.breakdown[index]
-            if isinstance(filter.breakdown, list)
-            else filter.breakdown
+            "breakdown_value": breakdown[index]
+            if isinstance(breakdown, list)
+            else breakdown
             if filter.breakdown_type == "cohort"
             else stripped_value,
         }

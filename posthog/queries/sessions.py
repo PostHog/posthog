@@ -100,11 +100,14 @@ class Sessions(BaseSessions):
 
         if filter.session == SESSION_AVG:
             if not filter.date_from:
-                filter._date_from = (
-                    Event.objects.filter(team_id=team)
-                    .order_by("timestamp")[0]
-                    .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-                    .isoformat()
+                filter = Filter(
+                    data={
+                        **filter._data,
+                        "date_from": Event.objects.filter(team=team)
+                        .order_by("timestamp")[0]
+                        .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+                        .isoformat(),
+                    }
                 )
             return self._session_avg(all_sessions, sessions_sql_params, filter)
         else:  # SESSION_DIST

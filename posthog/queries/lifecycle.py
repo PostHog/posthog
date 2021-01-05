@@ -391,8 +391,9 @@ class LifecycleTrend:
         interval_trunc, sub_interval = get_trunc_func(period=period)
 
         # include the before and after when filteirng all events
-        filter._date_from = prev_date_from.isoformat()
-        filter._date_to = after_date_to.isoformat()
+        filter = Filter(
+            data={**filter._data, "date_from": prev_date_from.isoformat(), "date_to": after_date_to.isoformat()}
+        )
 
         filtered_events = Event.objects.filter(team_id=team_id).filter(filter_events(team_id, filter, entity))
         event_query, event_params = queryset_to_named_query(filtered_events, "events")
@@ -448,8 +449,9 @@ class LifecycleTrend:
         interval_trunc, sub_interval = get_trunc_func(period=period)
 
         # include the before and after when filteirng all events
-        filter._date_from = prev_date_from.isoformat()
-        filter._date_to = after_date_to.isoformat()
+        filter = Filter(
+            data={**filter._data, "date_from": prev_date_from.isoformat(), "date_to": after_date_to.isoformat()}
+        )
 
         filtered_events = Event.objects.filter(team_id=team_id).filter(filter_events(team_id, filter, entity))
         event_query, event_params = queryset_to_named_query(filtered_events)

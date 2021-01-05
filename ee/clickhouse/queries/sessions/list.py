@@ -19,7 +19,7 @@ class ClickhouseSessionsList(BaseQuery):
     def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT)
         offset = kwargs.get("offset", 0)
-        set_default_dates(filter)
+        filter = set_default_dates(filter)
 
         filters, params = parse_prop_clauses(filter.properties, team.pk)
 

@@ -71,14 +71,20 @@ class ClickhouseActionsViewSet(ActionViewSet):
 
         # adhoc date handling. parsed differently with django orm
         date_from = filter.date_from or timezone.now()
+        data = {}
         if filter.interval == "month":
-            filter._date_to = (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+            data.update(
+                {"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
+            )
         elif filter.interval == "week":
-            filter._date_to = date_from + timedelta(weeks=1)
+            data.update(
+                {"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
+            )
         elif filter.interval == "hour":
-            filter._date_to = date_from + timedelta(hours=1)
+            data.update({"date_to": date_from + timedelta(hours=1)})
         elif filter.interval == "minute":
-            filter._date_to = date_from + timedelta(minutes=1)
+            data.update({"date_to": date_from + timedelta(minutes=1)})
+        filter = Filter(data={**filter._data, **data})
 
         current_url = request.get_full_path()
         serialized_people = self._calculate_entity_people(team, entity, filter)
