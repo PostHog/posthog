@@ -370,7 +370,11 @@ export const elementsLogic = kea<
 
     listeners: ({ actions, values }) => ({
         enableInspect: () => {
+            console.log('toolbar mode triggered', { mode: 'inspect', enabled: true })
             actionsLogic.actions.getActions()
+        },
+        disableInspect: () => {
+            console.log('toolbar mode triggered', { mode: 'inspect', enabled: false })
         },
         selectElement: ({ element }) => {
             const inpsectForAction =
