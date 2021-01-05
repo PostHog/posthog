@@ -9,6 +9,7 @@ import { heatmapLogicType } from 'types/toolbar/elements/heatmapLogicType'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { ActionStepType } from '~/types'
 import { collectAllElementsDeep, querySelectorAllDeep } from '@mariusandra/query-selector-shadow-dom'
+import posthog from 'posthog-js'
 
 export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionStepType>>({
     actions: {
@@ -209,10 +210,12 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
         },
         enableHeatmap: () => {
             actions.getEvents({ $current_url: currentPageLogic.values.href })
+            posthog.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
         disableHeatmap: () => {
             actions.resetEvents()
             actions.setShowHeatmapTooltip(false)
+            posthog.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
         },
         getEventsSuccess: () => {
             actions.setShowHeatmapTooltip(true)

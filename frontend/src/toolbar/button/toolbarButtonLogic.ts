@@ -162,5 +162,11 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         hideActionsInfo: () => {
             actionsTabLogic.actions.selectAction(null)
         },
+        showStats: () => {
+            console.log('toolbar mode triggered', { mode: 'stats', enabled: true })
+        },
+        hideStats: () => {
+            console.log('toolbar mode triggered', { mode: 'stats', enabled: false })
+        },
     }),
 })

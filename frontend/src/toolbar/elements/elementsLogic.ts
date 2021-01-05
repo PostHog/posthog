@@ -11,6 +11,7 @@ import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/to
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { collectAllElementsDeep } from '@mariusandra/query-selector-shadow-dom'
+import posthog from 'posthog-js'
 
 type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 type ElementMap = Map<HTMLElement, ElementWithMetadata>
@@ -367,7 +368,7 @@ export const elementsLogic = kea<
         },
     }),
 
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         enableInspect: () => {
             actionsLogic.actions.getActions()
         },
@@ -383,6 +384,21 @@ export const elementsLogic = kea<
             } else {
                 actions.setSelectedElement(element)
             }
+
+            posthog.capture('viewed toolbar element', {
+                element_tag: element?.tagName.toLowerCase(),
+                element_type: element?.type,
+                has_href: !!element?.href,
+                has_class: !!element?.className,
+                has_id: !!element?.id,
+                has_name: !!element?.name,
+                has_data_attr: !!element?.attributes.getNamedItem('data-attr'),
+                attribute_length: element?.attributes.length,
+                inspect_enabled: values.inspectEnabled,
+                heatmap_enabled: values.heatmapEnabled,
+                actions_enabled: actionsTabLogic.values.buttonActionsVisible,
+                enabled_last: values.enabledLast,
+            })
         },
         createAction: ({ element }) => {
             actionsTabLogic.actions.showButtonActions()
