@@ -40,7 +40,7 @@ CH_TYPE_TO_IMPORT = {
     CacheType.SESSION: ("ee.clickhouse.queries.sessions.clickhouse_sessions", "ClickhouseSessions"),
     CacheType.STICKINESS: ("ee.clickhouse.queries.clickhouse_stickiness", "ClickhouseStickiness"),
     CacheType.RETENTION: ("ee.clickhouse.queries.clickhouse_retention", "ClickhouseRetention"),
-    CacheType.PATHS: ("ee.clickhouse.queries.trends.clickhouse_paths", "ClickhousePaths"),
+    CacheType.PATHS: ("ee.clickhouse.queries.clickhouse_paths", "ClickhousePaths"),
 }
 
 TYPE_TO_IMPORT = {
@@ -67,7 +67,7 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
         cache.set(key, {"result": result, "details": payload, "type": cache_type}, CACHED_RESULTS_TTL)
 
 
-def get_cache_type(filter) -> CacheType:
+def get_cache_type(filter: FilterType) -> CacheType:
     if filter.insight == INSIGHT_FUNNELS:
         return CacheType.FUNNEL
     elif filter.insight == INSIGHT_SESSIONS:
@@ -76,7 +76,11 @@ def get_cache_type(filter) -> CacheType:
         return CacheType.PATHS
     elif filter.insight == INSIGHT_RETENTION:
         return CacheType.RETENTION
-    elif filter.insight == INSIGHT_TRENDS and filter.shown_as == TRENDS_STICKINESS:
+    elif (
+        filter.insight == INSIGHT_TRENDS
+        and isinstance(filter, StickinessFilter)
+        and filter.shown_as == TRENDS_STICKINESS
+    ):
         return CacheType.STICKINESS
     else:
         return CacheType.TRENDS
@@ -114,9 +118,7 @@ def import_from(module: str, name: str) -> Any:
     return getattr(importlib.import_module(module), name)
 
 
-def _calculate_by_filter(
-    filter: Union[Filter, RetentionFilter, StickinessFilter, PathFilter], key: str, team_id: int, cache_type: CacheType
-) -> List[Dict[str, Any]]:
+def _calculate_by_filter(filter: FilterType, key: str, team_id: int, cache_type: CacheType) -> List[Dict[str, Any]]:
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
 
