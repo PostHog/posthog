@@ -394,11 +394,11 @@ export const elementsLogic = kea<
 
             posthog.capture('viewed toolbar element', {
                 element_tag: element?.tagName.toLowerCase(),
-                element_type: element?.type,
-                has_href: !!element?.href,
+                element_type: (element as HTMLInputElement)?.type,
+                has_href: !!(element as HTMLAnchorElement)?.href,
                 has_class: !!element?.className,
                 has_id: !!element?.id,
-                has_name: !!element?.name,
+                has_name: !!(element as HTMLInputElement)?.name,
                 has_data_attr: !!element?.attributes.getNamedItem('data-attr'),
                 attribute_length: element?.attributes.length,
                 inspect_enabled: inspectEnabled,
