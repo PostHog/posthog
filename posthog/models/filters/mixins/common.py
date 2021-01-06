@@ -263,6 +263,6 @@ class EntitiesMixin(BaseParamMixin):
     @include_dict
     def entities_to_dict(self):
         return {
-            "events": [entity.to_dict() for entity in self.events],
-            "actions": [entity.to_dict() for entity in self.actions],
+            **({"events": [entity.to_dict() for entity in self.events]} if len(self.events) > 0 else {}),
+            **({"actions": [entity.to_dict() for entity in self.actions]} if len(self.actions) > 0 else {}),
         }

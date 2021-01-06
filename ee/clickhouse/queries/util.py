@@ -38,7 +38,7 @@ def format_ch_timestamp(timestamp: datetime, filter, default_hour_min: str = " 0
     is_hour_or_min = (filter.interval and filter.interval.lower() == "hour") or (
         filter.interval and filter.interval.lower() == "minute"
     )
-    return timestamp.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if is_hour_or_min else default_hour_min))
+    return timestamp.strftime("%Y-%m-%d{}".format(" %H:%M:%S.%f" if is_hour_or_min else default_hour_min))
 
 
 def get_earliest_timestamp(team_id: int) -> datetime:

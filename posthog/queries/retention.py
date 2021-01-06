@@ -43,11 +43,9 @@ class Retention(BaseQuery):
         data = []
         days = []
         total_intervals = filter.total_intervals
-        labels_format = "%a. %-d %B"
         days_format = "%Y-%m-%d"
 
-        if filter.interval == "hour" or filter.interval == "minute":
-            labels_format += ", %H:%M"
+        if filter.period == "Hour":
             days_format += " %H:%M:%S"
 
         for interval_number in range(total_intervals):

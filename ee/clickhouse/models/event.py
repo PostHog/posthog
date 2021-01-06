@@ -163,13 +163,15 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return event[6]
 
 
-def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> Tuple[str, Dict]:
+def determine_event_conditions(
+    conditions: Dict[str, Union[str, List[str]]], long_date_from: bool = False
+) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
     for idx, (k, v) in enumerate(conditions.items()):
         if not isinstance(v, str):
             continue
-        if k == "after":
+        if k == "after" and not long_date_from:
             timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
             result += "AND timestamp > %(after)s"
             params.update({"after": timestamp})

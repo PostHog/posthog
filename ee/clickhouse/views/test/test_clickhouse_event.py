@@ -1,7 +1,10 @@
 from uuid import uuid4
 
+from freezegun import freeze_time
+
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.api.test.base import TransactionBaseTest
 from posthog.api.test.test_event import test_event_api_factory
 from posthog.models import Action, ActionStep, Event, Person
 

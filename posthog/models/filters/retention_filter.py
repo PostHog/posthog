@@ -40,7 +40,6 @@ class RetentionFilter(
     PropertyMixin,
     DisplayDerivedMixin,
     InsightMixin,
-    IntervalMixin,
     OffsetMixin,
     BaseFilter,
 ):
