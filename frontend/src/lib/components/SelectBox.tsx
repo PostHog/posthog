@@ -117,7 +117,7 @@ export function SelectUnit({
                         style={{ float: 'right', fontWeight: search && data.length > 0 ? 700 : 'normal' }}
                         className="text-small"
                     >
-                        {data.length} event{data.length !== 1 && 's'}
+                        {data.length} {data.length === 1 ? 'entry' : 'entries'}
                     </span>
                 </h4>
             </span>
