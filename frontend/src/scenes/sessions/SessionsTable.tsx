@@ -27,6 +27,7 @@ import { SessionRecordingFilters } from 'scenes/sessions/SessionRecordingFilters
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { SessionActionFilters } from 'scenes/sessions/SessionActionFilters'
+import { SessionsFilterBox } from 'scenes/sessions/SessionsFilterBox'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -187,6 +188,8 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
             </Space>
+
+            <SessionsFilterBox />
 
             {featureFlags['filter_by_session_props'] && user?.is_multi_tenancy && (
                 <SessionActionFilters actionFilter={actionFilter} updateActionFilter={updateActionFilter} />

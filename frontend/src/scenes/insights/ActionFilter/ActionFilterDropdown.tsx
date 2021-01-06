@@ -32,6 +32,7 @@ const getSuggestions = (events: EventUsageType[]): EventUsageType[] => {
         .sort((a, b) => b.usage_count - a.usage_count)
         .slice(0, 3)
 }
+
 export function ActionFilterDropdown({
     open,
     logic,
@@ -118,24 +119,7 @@ export function ActionFilterDropdown({
                         id: action.id,
                         action,
                     })),
-                    renderInfo: function actions({ item }) {
-                        return (
-                            <>
-                                <AimOutlined /> Actions
-                                <Link
-                                    to={`/action/${item.id}#backTo=Insights&backToURL=${encodeURIComponent(
-                                        window.location.pathname + window.location.search
-                                    )}`}
-                                    style={{ float: 'right' }}
-                                >
-                                    edit
-                                </Link>
-                                <br />
-                                <h3>{item.name} </h3>
-                                {item.action && <ActionSelectInfo entity={item.action} />}
-                            </>
-                        )
-                    },
+                    renderInfo: ActionInfo,
                 },
                 {
                     name: (
@@ -170,5 +154,24 @@ export function ActionFilterDropdown({
                 },
             ]}
         />
+    )
+}
+
+export function ActionInfo({ item }: { item: SelectedItem }): JSX.Element {
+    return (
+        <>
+            <AimOutlined /> Actions
+            <Link
+                to={`/action/${item.id}#backTo=Insights&backToURL=${encodeURIComponent(
+                    window.location.pathname + window.location.search
+                )}`}
+                style={{ float: 'right' }}
+            >
+                edit
+            </Link>
+            <br />
+            <h3>{item.name} </h3>
+            {item.action && <ActionSelectInfo entity={item.action} />}
+        </>
     )
 }
