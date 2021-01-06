@@ -348,9 +348,6 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             )
             event_factory(event="pageview", timestamp=timezone.now(), team=self.team, distinct_id="user1")
             response = self.client.get("/api/event/").json()
-            import ipdb
-
-            ipdb.set_trace()
             self.assertEqual(len(response["results"]), 2)
 
     return TestEvents
