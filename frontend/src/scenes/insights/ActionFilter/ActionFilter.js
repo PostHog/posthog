@@ -1,11 +1,33 @@
+import './ActionFilter.scss'
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { entityFilterLogic } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
+import { sortableContainer, sortableElement, sortableHandle } from 'react-sortable-hoc'
+import { EntityTypes } from 'scenes/insights/trendsLogic'
 
-export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector, copy = '', disabled = false }) {
+const DragHandle = sortableHandle(() => <span className="action-filter-drag-handle">::</span>)
+const SortableActionFilterRow = sortableElement(({ logic, filter, index, hideMathSelector }) => (
+    <div className="draggable-action-filter">
+        <DragHandle />
+        <ActionFilterRow logic={logic} filter={filter} index={index} key={index} hideMathSelector={hideMathSelector} />
+    </div>
+))
+const SortableContainer = sortableContainer(({ children }) => {
+    return <div>{children}</div>
+})
+
+export function ActionFilter({
+    setFilters,
+    filters,
+    typeKey,
+    hideMathSelector,
+    copy = '',
+    disabled = false,
+    sortable = false,
+}) {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
     const { localFilters } = useValues(logic)
@@ -17,18 +39,42 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector, c
         setLocalFilters(filters)
     }, [filters])
 
+    function onSortEnd({ oldIndex, newIndex }) {
+        const move = (arr, from, to) => {
+            const clone = [...arr]
+            Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
+            return clone.map((child, order) => ({ ...child, order }))
+        }
+        setFilters({ [EntityTypes.ACTIONS]: move(filters[EntityTypes.ACTIONS], oldIndex, newIndex) })
+    }
+
     return (
         <div>
-            {localFilters &&
-                localFilters.map((filter, index) => (
-                    <ActionFilterRow
-                        logic={logic}
-                        filter={filter}
-                        index={index}
-                        key={index}
-                        hideMathSelector={hideMathSelector}
-                    />
-                ))}
+            {localFilters ? (
+                sortable ? (
+                    <SortableContainer onSortEnd={onSortEnd} useDragHandle>
+                        {localFilters.map((filter, index) => (
+                            <SortableActionFilterRow
+                                key={index}
+                                logic={logic}
+                                filter={filter}
+                                index={index}
+                                hideMathSelector={hideMathSelector}
+                            />
+                        ))}
+                    </SortableContainer>
+                ) : (
+                    localFilters.map((filter, index) => (
+                        <ActionFilterRow
+                            logic={logic}
+                            filter={filter}
+                            index={index}
+                            key={index}
+                            hideMathSelector={hideMathSelector}
+                        />
+                    ))
+                )
+            ) : null}
             <div className="mt">
                 <Button
                     type="primary"

@@ -1,0 +1,12 @@
+.draggable-action-filter {
+    margin-top: 16px;
+    display: flex;
+
+    .action-filter-drag-handle {
+        cursor: move;
+        padding-right: 6px;
+    }
+    .ant-row.mt {
+        margin-top: 0;
+    }
+}
