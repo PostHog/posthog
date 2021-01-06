@@ -9,10 +9,17 @@ import { sortableContainer, sortableElement, sortableHandle } from 'react-sortab
 import { EntityTypes } from 'scenes/insights/trendsLogic'
 
 const DragHandle = sortableHandle(() => <span className="action-filter-drag-handle">::</span>)
-const SortableActionFilterRow = sortableElement(({ logic, filter, index, hideMathSelector }) => (
+const SortableActionFilterRow = sortableElement(({ logic, filter, filterIndex, hideMathSelector }) => (
     <div className="draggable-action-filter">
         <DragHandle />
-        <ActionFilterRow logic={logic} filter={filter} index={index} key={index} hideMathSelector={hideMathSelector} />
+        <ActionFilterRow
+            logic={logic}
+            filter={filter}
+            // sortableElement requires, yet eats the index prop, so passing via filterIndex here
+            index={filterIndex}
+            key={filterIndex}
+            hideMathSelector={hideMathSelector}
+        />
     </div>
 ))
 const SortableContainer = sortableContainer(({ children }) => {
@@ -59,6 +66,7 @@ export function ActionFilter({
                                 logic={logic}
                                 filter={filter}
                                 index={index}
+                                filterIndex={index}
                                 hideMathSelector={hideMathSelector}
                             />
                         ))}
