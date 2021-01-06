@@ -37,7 +37,9 @@ class ClickhouseEventsViewSet(EventViewSet):
 
     def _query_events_list(self, filter: Filter, team: Team, request: Request, long_date_from: bool = False) -> List:
         limit = "LIMIT 101"
-        conditions, condition_params = determine_event_conditions(request.GET.dict(), long_date_from)
+        conditions, condition_params = determine_event_conditions(
+            {"after": (now() - timedelta(days=1)).isoformat(), **request.GET.dict()}, long_date_from
+        )
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
 
         if request.GET.get("action_id"):
