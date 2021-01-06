@@ -404,7 +404,7 @@ export const elementsLogic = kea<
                 }
             }
 
-            posthog.capture('viewed toolbar element', {
+            posthog.capture('toolbar selected HTML element', {
                 element_tag: element?.tagName.toLowerCase(),
                 element_type: (element as HTMLInputElement)?.type,
                 has_href: !!(element as HTMLAnchorElement)?.href,
