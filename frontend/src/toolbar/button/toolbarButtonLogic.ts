@@ -169,8 +169,5 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         hideStats: () => {
             posthog.capture('toolbar mode triggered', { mode: 'stats', enabled: false })
         },
-        setExtensionPercentage: ({ percentage }) => {
-            posthog.capture('toolbar set extension percentage', { percentage })
-        },
     }),
 })
