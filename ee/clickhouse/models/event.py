@@ -169,15 +169,7 @@ def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> 
     for idx, (k, v) in enumerate(conditions.items()):
         if not isinstance(v, str):
             continue
-        if k == "after":
-            timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
-            result += "AND timestamp > %(after)s"
-            params.update({"after": timestamp})
-        elif k == "before":
-            timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
-            result += "AND timestamp < %(before)s"
-            params.update({"before": timestamp})
-        elif k == "person_id":
+        if k == "person_id":
             result += """AND distinct_id IN (%(distinct_ids)s)"""
             distinct_ids = Person.objects.filter(pk=v)[0].distinct_ids
             distinct_ids = [distinct_id.__str__() for distinct_id in distinct_ids]

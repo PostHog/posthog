@@ -15,6 +15,7 @@ from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording
 from ee.clickhouse.queries.sessions.list import SESSIONS_LIST_DEFAULT_LIMIT, ClickhouseSessionsList
+from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
 from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
@@ -34,20 +35,13 @@ class ClickhouseEventsViewSet(EventViewSet):
                 distinct_to_person[distinct_id] = person
         return distinct_to_person
 
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        team = self.team
-        data = {}
-        if request.GET.get("after"):
-            data.update({"date_from": request.GET["after"]})
-        else:
-            data.update({"date_from": now() - timedelta(days=1)})
-        if request.GET.get("before"):
-            data.update({"date_to": request.GET["before"]})
-        filter = Filter(data=data, request=request)
-
+    def _query_events_list(self, filter: Filter, team: Team, request: Request) -> List:
         limit = "LIMIT 101"
         conditions, condition_params = determine_event_conditions(request.GET.dict())
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+        date_from, date_to, _ = parse_timestamps(filter, team.pk)
+        conditions += " {} {}".format(date_from, date_to)
+
         if request.GET.get("action_id"):
             action = Action.objects.get(pk=request.GET["action_id"])
             if action.steps.count() == 0:
@@ -57,15 +51,35 @@ class ClickhouseEventsViewSet(EventViewSet):
             prop_filter_params = {**prop_filter_params, **params}
 
         if prop_filters != "":
-            query_result = sync_execute(
+            return sync_execute(
                 SELECT_EVENT_WITH_PROP_SQL.format(conditions=conditions, limit=limit, filters=prop_filters),
                 {"team_id": team.pk, **condition_params, **prop_filter_params},
             )
         else:
-            query_result = sync_execute(
+            return sync_execute(
                 SELECT_EVENT_WITH_ARRAY_PROPS_SQL.format(conditions=conditions, limit=limit),
                 {"team_id": team.pk, **condition_params},
             )
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        team = self.team
+        data = {}
+        if request.GET.get("after"):
+            data.update({"date_from": request.GET["after"]})
+        else:
+            #  Try getting data for just the last day to speed query up
+            data.update({"date_from": now() - timedelta(days=1)})
+        if request.GET.get("before"):
+            data.update({"date_to": request.GET["before"]})
+        filter = Filter(data=data, request=request)
+
+        query_result = self._query_events_list(filter, team, request)
+
+        # Retry the query without the 1 day optimization
+        if len(query_result) < 100 and not request.GET.get("after"):
+            data["date_from"] = now() - timedelta(days=365)
+            filter = Filter(data=data, request=request)
+            query_result = self._query_events_list(filter, team, request)
 
         result = ClickhouseEventSerializer(
             query_result[0:100], many=True, context={"people": self._get_people(query_result, team),},
