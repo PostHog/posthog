@@ -3,8 +3,8 @@ from typing import Dict, List, Tuple
 
 from django.forms.models import model_to_dict
 
-from posthog.constants import AUTOCAPTURE_EVENT
-from posthog.models import Action, Filter
+from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
+from posthog.models import Action, Entity, Filter
 from posthog.models.action_step import ActionStep
 from posthog.models.event import Selector
 
@@ -125,3 +125,17 @@ def filter_element(step: ActionStep, prepend: str = "") -> Tuple[List[str], Dict
         conditions.append("match(elements_chain, %({}attributes_regex)s)".format(prepend))
 
     return (conditions, params)
+
+
+def format_entity_filter(entity: Entity) -> Tuple[str, Dict]:
+    if entity.type == TREND_FILTER_TYPE_ACTIONS:
+        try:
+            action = Action.objects.get(pk=entity.id)
+            entity_filter, params = format_action_filter(action)
+        except Action.DoesNotExist:
+            raise ValueError("This action does not exist")
+    else:
+        entity_filter = "event = %(event)s"
+        params = {"event": entity.id}
+
+    return entity_filter, params

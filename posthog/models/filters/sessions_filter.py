@@ -3,10 +3,15 @@ from typing import Any, Dict, Optional
 from django.http import HttpRequest
 
 from posthog.models import Filter
-from posthog.models.filters.mixins.sessions import DistinctIdMixin, DurationMixin, DurationOperatorMixin
+from posthog.models.filters.mixins.sessions import (
+    ActionFilterMixin,
+    DistinctIdMixin,
+    DurationMixin,
+    DurationOperatorMixin,
+)
 
 
-class SessionsFilter(DurationMixin, DurationOperatorMixin, DistinctIdMixin, Filter):
+class SessionsFilter(ActionFilterMixin, DurationMixin, DurationOperatorMixin, DistinctIdMixin, Filter):
     def __init__(self, data: Dict[str, Any] = {}, request: Optional[HttpRequest] = None, **kwargs) -> None:
         super().__init__(data, request, **kwargs)
 
