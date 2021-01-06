@@ -389,6 +389,9 @@ export const elementsLogic = kea<
                 actions.setSelectedElement(element)
             }
 
+            const { inspectEnabled, heatmapEnabled, enabledLast, selectedElementMeta } = values
+            const { buttonActionsVisible: actionsEnabled } = actionsTabLogic.values
+
             posthog.capture('viewed toolbar element', {
                 element_tag: element?.tagName.toLowerCase(),
                 element_type: element?.type,
@@ -398,12 +401,12 @@ export const elementsLogic = kea<
                 has_name: !!element?.name,
                 has_data_attr: !!element?.attributes.getNamedItem('data-attr'),
                 attribute_length: element?.attributes.length,
-                inspect_enabled: values.inspectEnabled,
-                heatmap_enabled: values.heatmapEnabled,
-                actions_enabled: actionsTabLogic.values.buttonActionsVisible,
-                enabled_last: values.enabledLast,
-                heatmap_count: values.selectedElementMeta?.count,
-                actions_count: values.selectedElementMeta?.actions.length,
+                inspect_enabled: inspectEnabled,
+                heatmap_enabled: heatmapEnabled,
+                actions_enabled: actionsEnabled,
+                enabled_last: enabledLast,
+                heatmap_count: heatmapEnabled ? selectedElementMeta?.count || 0 : undefined,
+                actions_count: actionsEnabled ? selectedElementMeta?.actions.length : undefined,
             })
         },
         createAction: ({ element }) => {
