@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -245,8 +246,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                     team=self.team,
                     event="some event",
                     distinct_id="1",
-                    timestamp=timezone.datetime(2019, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-                    + relativedelta(days=idx, seconds=idx),
+                    timestamp=timezone.now() - relativedelta(months=11) + relativedelta(days=idx, seconds=idx),
                 )
             response = self.client.get("/api/event/?distinct_id=1").json()
             self.assertEqual(len(response["results"]), 100)
@@ -338,6 +338,16 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 response_person_1 = self.client.get("/api/event/sessions/?distinct_id=1",).json()
 
             self.assertEqual(len(response_person_1["result"]), 1)
+
+        def test_optimize_query(self):
+            #  For ClickHouse we normally only query the last day,
+            # but if a user doesn't have many events we still want to return events that are older
+            event_factory(
+                event="pageview", timestamp=timezone.now() - timedelta(days=25), team=self.team, distinct_id="user1"
+            )
+            event_factory(event="pageview", timestamp=timezone.now(), team=self.team, distinct_id="user1")
+            response = self.client.get("/api/event/").json()
+            self.assertEqual(len(response["results"]), 2)
 
     return TestEvents
 
