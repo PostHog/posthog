@@ -1,11 +1,11 @@
 {
     "name": "posthog-plugin-server",
-    "version": "0.6.0",
+    "version": "0.6.1",
     "description": "PostHog Plugin Server",
     "types": "dist/src/index.d.ts",
     "main": "dist/src/index.js",
     "scripts": {
-        "test": "jest --testPathIgnorePatterns='benchmarks/'",
+        "test": "jest --runInBand tests/*.test.ts",
         "benchmark": "node --expose-gc node_modules/.bin/jest --runInBand benchmarks/",
         "start": "yarn start:dev",
         "start:dist": "node dist/src/index.js --base-dir ../posthog",
@@ -18,7 +18,7 @@
         "prettier": "prettier --write .",
         "prettier:check": "prettier --check .",
         "prepublishOnly": "yarn test && yarn build",
-        "task:db-init": "ts-node ./tasks/db-init.ts"
+        "task:init-test-db": "NODE_ENV=test ts-node ./tasks/init-test-db.ts"
     },
     "bin": {
         "posthog-plugin-server": "bin/posthog-plugin-server"
@@ -52,7 +52,7 @@
         "@babel/core": "^7.0.0",
         "@babel/preset-env": "^7.0.0",
         "@babel/preset-typescript": "^7.8.3",
-        "@posthog/plugin-scaffold": "0.2.5",
+        "@posthog/plugin-scaffold": "0.2.6",
         "@types/adm-zip": "^0.4.33",
         "@types/ioredis": "^4.17.7",
         "@types/jest": "^26.0.15",

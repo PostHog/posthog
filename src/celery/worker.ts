@@ -205,7 +205,6 @@ export class Worker extends Base implements Queue {
      *
      * @todo implement here
      */
-    // eslint-disable-next-line class-methods-use-this
     public async stop(): Promise<void> {
         const taskCount = this.activeTasks.size
         if (taskCount > 0) {

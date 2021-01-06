@@ -11,7 +11,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { defaultConfig } from './config'
 import Piscina from 'piscina'
 import * as Sentry from '@sentry/node'
-import { areWeTestingWithJest, delay } from './utils'
+import { delay } from './utils'
 import { StatsD } from 'hot-shots'
 import { EventsProcessor } from './ingestion/process-event'
 import { status } from './status'
@@ -34,7 +34,7 @@ export async function createServer(
             console.error(error)
         })
         .on('ready', () => {
-            if (!areWeTestingWithJest()) {
+            if (process.env.NODE_ENV !== 'test') {
                 status.info('✅', 'Connected to Redis!')
             }
         })

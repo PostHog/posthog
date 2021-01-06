@@ -127,10 +127,6 @@ export function cloneObject<T extends any | any[]>(obj: T): T {
     return clone as T
 }
 
-export function areWeTestingWithJest(): boolean {
-    return Boolean(process.env.JEST_WORKER_ID)
-}
-
 /** LUT of byte value to hexadecimal representation. For UUID stringification. */
 const byteToHex: string[] = []
 for (let i = 0; i < 256; i++) {

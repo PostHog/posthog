@@ -4,6 +4,7 @@ import { runTasksDebounced, startSchedule, waitForTasksToFinish } from '../src/s
 import { LogLevel } from '../src/types'
 import { delay } from '../src/utils'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
+import { resetTestDatabase } from './helpers/sql'
 
 jest.mock('../src/sql')
 jest.setTimeout(60000) // 60 sec timeout
@@ -37,8 +38,8 @@ test('runTasksDebounced', async () => {
             await meta.cache.incr(counterKey)
         }
     `
-    const piscina = setupPiscina(workerThreads, testCode, 10)
-
+    await resetTestDatabase(testCode)
+    const piscina = setupPiscina(workerThreads, 10)
     const getPluginSchedule = () => piscina.runTask({ task: 'getPluginSchedule' })
     const processEvent = (event: PluginEvent) => piscina.runTask({ task: 'processEvent', args: { event } })
 
@@ -74,7 +75,8 @@ test('runTasksDebounced exception', async () => {
             throw new Error('lol')
         }
     `
-    const piscina = setupPiscina(workerThreads, testCode, 10)
+    await resetTestDatabase(testCode)
+    const piscina = setupPiscina(workerThreads, 10)
 
     const getPluginSchedule = () => piscina.runTask({ task: 'getPluginSchedule' })
     const [server, closeServer] = await createServer({ LOG_LEVEL: LogLevel.Log })
@@ -98,7 +100,8 @@ test('redlock', async () => {
             throw new Error('lol')
         }
     `
-    const piscina = setupPiscina(workerThreads, testCode, 10)
+    await resetTestDatabase(testCode)
+    const piscina = setupPiscina(workerThreads, 10)
     const [server, closeServer] = await createServer({ LOG_LEVEL: LogLevel.Log, SCHEDULE_LOCK_TTL: 3 })
 
     let lock1 = false
@@ -150,8 +153,9 @@ test('unobtained redlock does not leave itself hanging', async () => {
             throw new Error('lol')
         }
     `
+    await resetTestDatabase(testCode)
     const [server, closeServer] = await createServer({ LOG_LEVEL: LogLevel.Log, SCHEDULE_LOCK_TTL: 3 })
-    const piscina = setupPiscina(workerThreads, testCode, 10)
+    const piscina = setupPiscina(workerThreads, 10)
 
     let lock1 = false
     let lock2 = false

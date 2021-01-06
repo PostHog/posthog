@@ -4,9 +4,11 @@ export const defaultConfig = overrideWithEnv(getDefaultConfig())
 export const configHelp = getConfigHelp()
 
 export function getDefaultConfig(): PluginsServerConfig {
+    const isTestEnv = process.env.NODE_ENV === 'test'
+
     return {
         CELERY_DEFAULT_QUEUE: 'celery',
-        DATABASE_URL: 'postgres://localhost:5432/posthog',
+        DATABASE_URL: isTestEnv ? 'postgres://localhost:5432/posthog_test' : 'postgres://localhost:5432/posthog',
         KAFKA_ENABLED: false,
         KAFKA_HOSTS: null,
         KAFKA_CLIENT_CERT_B64: null,
