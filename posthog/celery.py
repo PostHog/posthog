@@ -66,9 +66,11 @@ def setup_periodic_tasks(sender, **kwargs):
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
     sender.add_periodic_task(90, check_cached_items.s(), name="check dashboard items")
-    sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
-    sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
-    sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
+
+    if is_ee_enabled():
+        sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
+        sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
+        sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
 
     sender.add_periodic_task(60, calculate_cohort.s(), name="recalculate cohorts")
 
