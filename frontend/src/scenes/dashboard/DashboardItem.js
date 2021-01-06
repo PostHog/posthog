@@ -156,7 +156,12 @@ export function DashboardItem({
     const [showSaveModal, setShowSaveModal] = useState(false)
 
     const _type =
-        item.filters.insight === ViewType.RETENTION ? 'RetentionContainer' : item.filters.display || 'ActionsLineGraph'
+        item.filters.insight === ViewType.RETENTION
+            ? 'RetentionContainer'
+            : item.filters.insight === ViewType.PATHS
+            ? 'PathsViz'
+            : item.filters.display || 'ActionsLineGraph'
+
     const className = displayMap[_type].className
     const Element = displayMap[_type].element
     const Icon = displayMap[_type].icon

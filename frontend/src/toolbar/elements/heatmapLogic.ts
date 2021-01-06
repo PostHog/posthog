@@ -79,7 +79,7 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
             (selectors) => [selectors.events],
             (events) => {
                 // cache all elements in shadow roots
-                const allElements = collectAllElementsDeep('', document, null)
+                const allElements = collectAllElementsDeep('*', document)
                 const elements: CountedHTMLElement[] = []
                 events.forEach((event) => {
                     let combinedSelector

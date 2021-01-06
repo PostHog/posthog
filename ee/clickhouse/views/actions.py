@@ -10,7 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.models.action import format_action_filter, format_entity_filter
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -110,24 +110,9 @@ class ClickhouseActionsViewSet(ActionViewSet):
             }
         )
 
-    def _format_entity_filter(self, entity: Entity) -> Tuple[str, Dict]:
-        if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            try:
-                action = Action.objects.get(pk=entity.id)
-                action_query, params = format_action_filter(action)
-                entity_filter = "AND {}".format(action_query)
-
-            except Action.DoesNotExist:
-                raise ValueError("This action does not exist")
-        else:
-            entity_filter = "AND event = %(event)s"
-            params = {"event": entity.id}
-
-        return entity_filter, params
-
     def _calculate_entity_people(self, team: Team, entity: Entity, filter: Filter):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
-        entity_sql, entity_params = self._format_entity_filter(entity=entity)
+        entity_sql, entity_params = format_entity_filter(entity=entity)
         person_filter = ""
         person_filter_params: Dict[str, Any] = {}
 
@@ -147,7 +132,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         params: Dict = {"team_id": team.pk, **prop_filter_params, **entity_params, "offset": filter.offset}
 
         content_sql = PERSON_TREND_SQL.format(
-            entity_filter=entity_sql,
+            entity_filter=f"AND {entity_sql}",
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
             filters=prop_filters,

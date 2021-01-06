@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Tuple
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.action import format_entity_filter
 from ee.clickhouse.models.event import ClickhouseEventSerializer
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -22,11 +23,23 @@ class ClickhouseSessionsList(BaseQuery):
         filter = set_default_dates(filter)
 
         filters, params = parse_prop_clauses(filter.properties, team.pk)
+        action_filter_timestamp_sql, action_filter_params = format_action_filter_aggregate(filter, team.pk)
 
         date_from, date_to, _ = parse_timestamps(filter, team.pk)
-        params = {**params, "team_id": team.pk, "limit": limit, "offset": offset, "distinct_id_limit": limit + offset}
+        params = {
+            **params,
+            **action_filter_params,
+            "team_id": team.pk,
+            "limit": limit,
+            "offset": offset,
+            "distinct_id_limit": limit + offset,
+        }
         query = SESSION_SQL.format(
-            date_from=date_from, date_to=date_to, filters=filters, sessions_limit="LIMIT %(offset)s, %(limit)s",
+            date_from=date_from,
+            date_to=date_to,
+            filters=filters,
+            action_filter_timestamp=action_filter_timestamp_sql,
+            sessions_limit="LIMIT %(offset)s, %(limit)s",
         )
         query_result = sync_execute(query, params)
         result = self._parse_list_results(query_result)
@@ -87,3 +100,16 @@ class ClickhouseSessionsList(BaseQuery):
             )
 
         return final
+
+
+def format_action_filter_aggregate(filter: SessionsFilter, team_id: int):
+    if filter.action_filter is None:
+        return "timestamp", {}
+
+    filter_sql, params = format_entity_filter(filter.action_filter)
+    if filter.action_filter.properties:
+        filters, filter_params = parse_prop_clauses(filter.action_filter.properties, team_id=None)
+        filter_sql += f" {filters}"
+        params = {**params, **filter_params}
+
+    return f"({filter_sql}) ? timestamp : NULL", params

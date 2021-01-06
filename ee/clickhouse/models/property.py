@@ -14,10 +14,12 @@ from posthog.utils import relative_date_parse
 
 
 def parse_prop_clauses(
-    filters: List[Property], team_id: int, prepend: str = "global", table_name: str = ""
+    filters: List[Property], team_id: Optional[int], prepend: str = "global", table_name: str = ""
 ) -> Tuple[str, Dict]:
     final = []
-    params: Dict[str, Any] = {"team_id": team_id}
+    params: Dict[str, Any] = {}
+    if team_id is not None:
+        params["team_id"] = team_id
     if table_name != "":
         table_name += "."
 
@@ -41,11 +43,8 @@ def parse_prop_clauses(
             filter_query, filter_params = prop_filter_json_extract(
                 prop, idx, prepend, prop_var="{}properties".format(table_name)
             )
-            final.append(
-                "{filter_query} AND {table_name}team_id = %(team_id)s".format(
-                    table_name=table_name, filter_query=filter_query
-                )
-            )
+
+            final.append(f"{filter_query} AND {table_name}team_id = %(team_id)s" if team_id else filter_query)
             params.update(filter_params)
     return " ".join(final), params
 

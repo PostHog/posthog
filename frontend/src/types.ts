@@ -161,7 +161,11 @@ export interface Entity {
     id: string | number
     name: string
     order: number
-    type: string
+    type: 'actions' | 'events'
+}
+
+export interface EntityWithProperties extends Entity {
+    properties: Record<string, any>
 }
 
 export interface PersonType {
