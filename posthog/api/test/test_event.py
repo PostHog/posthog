@@ -339,6 +339,16 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
 
             self.assertEqual(len(response_person_1["result"]), 1)
 
+        def test_events_in_future(self):
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                event_factory(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
+            # Don't show events more than 5 seconds in the future
+            with freeze_time("2012-01-15T04:01:44.000Z"):
+                event_factory(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                response = self.client.get("/api/event/").json()
+            self.assertEqual(len(response["results"]), 1)
+
     return TestEvents
 
 

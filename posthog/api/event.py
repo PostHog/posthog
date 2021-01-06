@@ -163,6 +163,8 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         queryset = self.get_queryset()
         monday = now() + timedelta(days=-now().weekday())
+        # don't allow events too far into the future
+        queryset = queryset.filter(timestamp__lte=now() + timedelta(seconds=5),)
         events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[0:101]
 
         is_csv_request = self.request.accepted_renderer.format == "csv"
