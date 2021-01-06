@@ -43,12 +43,15 @@ export const pathsLogic = kea({
     connect: {
         actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
     },
-    loaders: ({ values }) => ({
+    loaders: ({ values, props }) => ({
         loadedPaths: [
             { paths: [], filter: {} },
             {
                 loadPaths: async (_, breakpoint) => {
                     const filter = { ...values.filter, properties: values.properties }
+                    if (props.cachedResults || props.preventLoading) {
+                        return { paths: props.cachedResults, filter }
+                    }
                     const params = toParams(filter)
                     const paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
                     breakpoint()
