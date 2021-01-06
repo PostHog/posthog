@@ -72,6 +72,7 @@ export const sessionsTableLogic = kea<
             actionFilter: EntityWithProperties | null
         ) => ({ properties, selectedDate, duration, actionFilter }),
         setSessionRecordingId: (sessionRecordingId: SessionRecordingId) => ({ sessionRecordingId }),
+        updateActionFilter: (actionFilter: EntityWithProperties | null) => ({ actionFilter }),
         closeSessionPlayer: true,
     }),
     reducers: {
@@ -156,6 +157,9 @@ export const sessionsTableLogic = kea<
                 actions.setNextOffset(null)
             }
             actions.appendNewSessions(response.result)
+        },
+        updateActionFilter: ({ actionFilter }) => {
+            actions.setFilters(values.properties, values.selectedDate, values.duration, actionFilter)
         },
         setFilters: () => {
             actions.setNextOffset(null)

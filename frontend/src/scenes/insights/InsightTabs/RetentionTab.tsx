@@ -17,14 +17,15 @@ import { CloseButton } from 'lib/components/CloseButton'
 import moment from 'moment'
 
 export function RetentionTab(): JSX.Element {
-    const node = useRef()
-    const returningNode = useRef()
+    const node = useRef<HTMLElement>(null)
+    const returningNode = useRef<HTMLElement>(null)
     const [open, setOpen] = useState<boolean>(false)
     const [returningOpen, setReturningOpen] = useState<boolean>(false)
     const { filters, startEntity, period, retentionType, returningEntity } = useValues(
         retentionTableLogic({ dashboardItemId: null })
     )
     const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
+
     const entityLogic = entityFilterLogic({
         setFilters: (filters) => {
             setFilters({ startEntity: filters })
@@ -81,17 +82,7 @@ export function RetentionTab(): JSX.Element {
                     </Select.Option>
                 ))}
             </Select>
-            {open && (
-                <ActionFilterDropdown
-                    logic={entityLogic}
-                    onClickOutside={(e): void => {
-                        if (node.current.contains(e.target)) {
-                            return
-                        }
-                        setOpen(false)
-                    }}
-                />
-            )}
+            <ActionFilterDropdown open={open} logic={entityLogic} openButtonRef={node} onClose={() => setOpen(false)} />
             <h4 style={{ marginTop: '0.5rem' }} className="secondary">
                 Retaining event
                 <Tooltip
@@ -111,17 +102,12 @@ export function RetentionTab(): JSX.Element {
                 {returningEntity?.name || 'Select action'}
                 <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} />
             </Button>
-            {returningOpen && (
-                <ActionFilterDropdown
-                    logic={entityLogicReturning}
-                    onClickOutside={(e): void => {
-                        if (node.current.contains(e.target)) {
-                            return
-                        }
-                        setReturningOpen(false)
-                    }}
-                />
-            )}
+            <ActionFilterDropdown
+                open={returningOpen}
+                logic={entityLogicReturning}
+                openButtonRef={returningNode}
+                onClose={() => setReturningOpen(false)}
+            />
             <div className="mt-05">
                 <Link
                     to="https://posthog.com/docs/features/retention?utm_campaign=learn-more&utm_medium=in-product"

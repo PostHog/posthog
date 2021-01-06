@@ -19,7 +19,6 @@ export function SessionRecordingFilters({ duration, onChange }: Props): JSX.Elem
     return (
         <div style={{ display: 'flex', alignItems: 'center' }}>
             <Select
-                style={{ width: 233 }}
                 defaultValue={duration ? duration[0] : undefined}
                 value={duration ? duration[0] : undefined}
                 onChange={onOperatorChange}

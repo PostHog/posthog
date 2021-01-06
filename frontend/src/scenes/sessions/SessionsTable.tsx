@@ -26,6 +26,7 @@ import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPalett
 import { SessionRecordingFilters } from 'scenes/sessions/SessionRecordingFilters'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkButton } from 'lib/components/LinkButton'
+import { SessionActionFilters } from 'scenes/sessions/SessionActionFilters'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -60,7 +61,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         firstRecordingId,
         actionFilter,
     } = useValues(logic)
-    const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
+    const { fetchNextSessions, previousDay, nextDay, setFilters, updateActionFilter } = useActions(logic)
     const { user } = useValues(userLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -187,6 +188,10 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
             </Space>
 
+            {featureFlags['filter_by_session_props'] && user?.is_multi_tenancy && (
+                <SessionActionFilters actionFilter={actionFilter} updateActionFilter={updateActionFilter} />
+            )}
+
             {featureFlags['filter_by_session_props'] && (
                 <SessionRecordingFilters
                     duration={duration}
@@ -211,7 +216,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 </Tooltip>
             </div>
 
-            {actionFilter && (
+            {actionFilter && !featureFlags['filter_by_session_props'] && (
                 <p className="text-muted">
                     Showing only sessions where <b>{actionFilter.name}</b> occurred
                 </p>
