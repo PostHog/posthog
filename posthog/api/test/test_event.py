@@ -246,8 +246,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                     team=self.team,
                     event="some event",
                     distinct_id="1",
-                    timestamp=timezone.datetime(2019, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-                    + relativedelta(days=idx, seconds=idx),
+                    timestamp=timezone.now() - relativedelta(months=11) + relativedelta(days=idx, seconds=idx),
                 )
             response = self.client.get("/api/event/?distinct_id=1").json()
             self.assertEqual(len(response["results"]), 100)

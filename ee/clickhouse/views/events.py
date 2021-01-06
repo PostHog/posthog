@@ -35,12 +35,10 @@ class ClickhouseEventsViewSet(EventViewSet):
                 distinct_to_person[distinct_id] = person
         return distinct_to_person
 
-    def _query_events_list(self, filter: Filter, team: Team, request: Request) -> List:
+    def _query_events_list(self, filter: Filter, team: Team, request: Request, long_date_from: bool = False) -> List:
         limit = "LIMIT 101"
-        conditions, condition_params = determine_event_conditions(request.GET.dict())
+        conditions, condition_params = determine_event_conditions(request.GET.dict(), long_date_from)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
-        date_from, date_to, _ = parse_timestamps(filter, team.pk)
-        conditions += " {} {}".format(date_from, date_to)
 
         if request.GET.get("action_id"):
             action = Action.objects.get(pk=request.GET["action_id"])
@@ -63,23 +61,13 @@ class ClickhouseEventsViewSet(EventViewSet):
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
-        data = {}
-        if request.GET.get("after"):
-            data.update({"date_from": request.GET["after"]})
-        else:
-            #  Try getting data for just the last day to speed query up
-            data.update({"date_from": now() - timedelta(days=1)})
-        if request.GET.get("before"):
-            data.update({"date_to": request.GET["before"]})
-        filter = Filter(data=data, request=request)
+        filter = Filter(request=request)
 
         query_result = self._query_events_list(filter, team, request)
 
         # Retry the query without the 1 day optimization
         if len(query_result) < 100 and not request.GET.get("after"):
-            data["date_from"] = now() - timedelta(days=365)
-            filter = Filter(data=data, request=request)
-            query_result = self._query_events_list(filter, team, request)
+            query_result = self._query_events_list(filter, team, request, long_date_from=True)
 
         result = ClickhouseEventSerializer(
             query_result[0:100], many=True, context={"people": self._get_people(query_result, team),},
