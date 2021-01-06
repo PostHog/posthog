@@ -12,6 +12,9 @@ export interface SelectBoxItem {
     dataSource: SelectedItem[]
     renderInfo({ item }: { item: SelectedItem }): JSX.Element
     name: JSX.Element | string
+    type: string
+    getValue: (item: SelectedItem) => string | number
+    getLabel: (item: SelectedItem) => string
 }
 
 export interface SelectedItem {
@@ -75,13 +78,9 @@ export function SelectBox({
                         style={{ width: '100%', borderRadius: 0 }}
                     />
                     <div className="search-list">
-                        {items.map((item, index) => (
+                        {items.map((group, index) => (
                             <Fragment key={index}>
-                                <SelectUnit
-                                    name={item.name}
-                                    dropdownLogic={dropdownLogic}
-                                    dataSource={item.dataSource}
-                                />
+                                <SelectUnit group={group} dropdownLogic={dropdownLogic} dataSource={group.dataSource} />
                                 <Divider />
                             </Fragment>
                         ))}
@@ -96,11 +95,11 @@ export function SelectBox({
 }
 
 export function SelectUnit({
-    name,
+    group,
     dataSource,
     dropdownLogic,
 }: {
-    name: string | JSX.Element
+    group: SelectBoxItem
     dataSource: SelectedItem[]
     dropdownLogic: selectBoxLogicType
 }): JSX.Element {
@@ -112,7 +111,7 @@ export function SelectUnit({
         <>
             <span onClick={() => setIsCollapsed(!isCollapsed)}>
                 <h4 style={{ cursor: 'pointer', userSelect: 'none', padding: '4px 12px', marginBottom: 0 }}>
-                    {isCollapsed || data.length === 0 ? <RightOutlined /> : <DownOutlined />} {name}
+                    {isCollapsed || data.length === 0 ? <RightOutlined /> : <DownOutlined />} {group.name}
                     <span
                         style={{ float: 'right', fontWeight: search && data.length > 0 ? 700 : 'normal' }}
                         className="text-small"
@@ -130,9 +129,9 @@ export function SelectUnit({
                         <List.Item
                             className={selectedItem.key === item.key ? 'selected' : undefined}
                             datakey={item.key}
-                            onClick={() => clickSelectedItem(item)}
+                            onClick={() => clickSelectedItem(item, group)}
                             onMouseOver={() =>
-                                !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: name })
+                                !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: group.type })
                             }
                         >
                             {item.name}

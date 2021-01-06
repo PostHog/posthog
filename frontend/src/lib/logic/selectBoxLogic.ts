@@ -1,6 +1,5 @@
 import { kea } from 'kea'
-import { SelectedItem } from 'lib/components/SelectBox'
-import { EntityTypes } from 'scenes/insights/trendsLogic'
+import { SelectBoxItem, SelectedItem } from 'lib/components/SelectBox'
 import Fuse from 'fuse.js'
 
 const scrollUpIntoView = (key: string): void => {
@@ -39,7 +38,7 @@ export const selectBoxLogic = kea({
     actions: {
         setSelectedItem: (item: SelectedItem) => ({ item }),
         setSearch: (search: string) => ({ search }),
-        clickSelectedItem: (item: SelectedItem) => ({ item }),
+        clickSelectedItem: (item: SelectedItem, group: SelectBoxItem) => ({ item, group }),
         setBlockMouseOver: (block: boolean) => ({ block }),
         onKeyDown: (e) => ({ e }),
     },
@@ -72,13 +71,8 @@ export const selectBoxLogic = kea({
         ],
     }),
     listeners: ({ props, values, actions }) => ({
-        clickSelectedItem: ({ item }: { item: SelectedItem }) => {
-            if (item.event) {
-                props.updateFilter(EntityTypes.EVENTS, item.event, item.event)
-            }
-            if (item.action) {
-                props.updateFilter(EntityTypes.ACTIONS, item.action.id, item.action.name)
-            }
+        clickSelectedItem: ({ item, group }: { item: SelectedItem; group: SelectBoxItem }) => {
+            props.updateFilter(group.type, group.getValue(item), group.getLabel(item))
         },
         setBlockMouseOver: ({ block }: { block: boolean }) => {
             if (block) {

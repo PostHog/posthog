@@ -8,7 +8,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
 import { Tooltip } from 'antd'
 import { ActionSelectInfo } from '../ActionSelectInfo'
-import { SelectBox } from '../../../lib/components/SelectBox'
+import { SelectBox, SelectedItem } from '../../../lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
 import { entityFilterLogicType } from 'types/scenes/insights/ActionFilter/entityFilterLogicType'
 
@@ -105,6 +105,9 @@ export function ActionFilterDropdown({
                             </>
                         )
                     },
+                    type: EntityTypes.ACTIONS,
+                    getValue: (item: SelectedItem) => item.action?.id,
+                    getLabel: (item: SelectedItem) => item.action?.name,
                 },
                 {
                     name: (
@@ -120,6 +123,9 @@ export function ActionFilterDropdown({
                         action,
                     })),
                     renderInfo: ActionInfo,
+                    type: EntityTypes.EVENTS,
+                    getValue: (item: SelectedItem) => item.event,
+                    getLabel: (item: SelectedItem) => item.event,
                 },
                 {
                     name: (
@@ -151,6 +157,9 @@ export function ActionFilterDropdown({
                             </>
                         )
                     },
+                    type: EntityTypes.EVENTS,
+                    getValue: (item: SelectedItem) => item.event,
+                    getLabel: (item: SelectedItem) => item.event,
                 },
             ]}
         />
