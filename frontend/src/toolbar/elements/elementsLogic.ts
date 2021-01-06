@@ -402,6 +402,8 @@ export const elementsLogic = kea<
                 heatmap_enabled: values.heatmapEnabled,
                 actions_enabled: actionsTabLogic.values.buttonActionsVisible,
                 enabled_last: values.enabledLast,
+                heatmap_count: values.selectedElementMeta?.count,
+                actions_count: values.selectedElementMeta?.actions.length,
             })
         },
         createAction: ({ element }) => {
