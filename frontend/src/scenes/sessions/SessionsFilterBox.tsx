@@ -1,33 +1,35 @@
-import React, { useState } from 'react'
-import { AimOutlined, DownOutlined } from '@ant-design/icons'
+import React from 'react'
+import { AimOutlined, SearchOutlined } from '@ant-design/icons'
 import { Button } from 'antd'
 import { SelectBox } from 'lib/components/SelectBox'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType } from '~/types'
 import { EntityTypes } from 'scenes/insights/trendsLogic'
 import { ActionInfo } from 'scenes/insights/ActionFilter/ActionFilterDropdown'
+import { sessionsFiltersLogic } from 'scenes/sessions/sessionsFiltersLogic'
 
 interface Props {
     i?: boolean
 }
 
 export function SessionsFilterBox({}: Props): JSX.Element {
-    const [open, setOpen] = useState<boolean>(false)
-
+    const { openFilter } = useValues(sessionsFiltersLogic)
+    const { closeFilterSelect } = useActions(sessionsFiltersLogic)
     const { actions } = useValues(actionsModel)
 
     return (
-        <div>
-            <Button data-attr="sessions-filter-open" onClick={(): void => setOpen(!open)}>
-                {false || 'Add filter'}
-                <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} />
+        <>
+            <Button data-attr="sessions-filter-open" onClick={() => !open ? closeFilterSelect() : null}>
+                <SearchOutlined />
+                <span className="text-muted">Search  for users, events, actions...</span>
+                {/* <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} /> */}
             </Button>
-            {open && (
+            {openFilter && (
                 <SelectBox
                     selectedItemKey={undefined}
-                    onDismiss={() => setOpen(false)}
-                    onSelect={() => {}}
+                    onDismiss={closeFilterSelect}
+                    onSelect={(...args) => console.log(args)}
                     items={[
                         {
                             name: (
@@ -47,6 +49,6 @@ export function SessionsFilterBox({}: Props): JSX.Element {
                     ]}
                 />
             )}
-        </div>
+        </>
     )
 }

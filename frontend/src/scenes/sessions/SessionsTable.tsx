@@ -28,6 +28,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { SessionActionFilters } from 'scenes/sessions/SessionActionFilters'
 import { SessionsFilterBox } from 'scenes/sessions/SessionsFilterBox'
+import { SessionsEditFiltersPanel } from 'scenes/sessions/SessionsEditFiltersPanel'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -187,9 +188,10 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                     allowClear={false}
                 />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
+
+                <SessionsFilterBox />
             </Space>
 
-            <SessionsFilterBox />
 
             {featureFlags['filter_by_session_props'] && user?.is_multi_tenancy && (
                 <SessionActionFilters actionFilter={actionFilter} updateActionFilter={updateActionFilter} />
@@ -202,6 +204,8 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 />
             )}
             <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
+
+            <SessionsEditFiltersPanel />
 
             <div className="text-right mb">
                 <Tooltip title={playAllCTA}>
