@@ -11,6 +11,7 @@ from posthog.constants import (
     PERIOD,
     RETENTION_RECURRING,
     RETENTION_TYPE,
+    RETURNING_ENTITY,
     SELECTED_INTERVAL,
     TARGET_ENTITY,
     TOTAL_INTERVALS,
@@ -38,7 +39,7 @@ RETENTION_DEFAULT_INTERVALS = 11
 class TotalIntervalsMixin(BaseParamMixin):
     @cached_property
     def total_intervals(self) -> int:
-        return self._data.get(TOTAL_INTERVALS, RETENTION_DEFAULT_INTERVALS)
+        return int(self._data.get(TOTAL_INTERVALS, RETENTION_DEFAULT_INTERVALS))
 
     @include_dict
     def total_intervals_to_dict(self):
@@ -143,7 +144,7 @@ class RetentionDateDerivedMixin(PeriodMixin, TotalIntervalsMixin, DateMixin, Sel
 class EntitiesDerivedMixin(EntitiesMixin):
     @cached_property
     def target_entity(self) -> Entity:
-        return self._parse_target_entity(self._data.get(TARGET_ENTITY)) or Entity(
+        return self._parse_entity(self._data.get(TARGET_ENTITY)) or Entity(
             {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}
         )
 
@@ -151,15 +152,21 @@ class EntitiesDerivedMixin(EntitiesMixin):
     def target_entity_to_dict(self):
         return {"target_entity": self.target_entity.to_dict()} if self.target_entity else {}
 
-    @cached_property
-    def returning_entity(self) -> Entity:
-        return self.target_entity if not len(self.entities) > 0 else self.entities[0]
-
-    def _parse_target_entity(self, target_entity_data) -> Optional[Entity]:
-        if target_entity_data:
-            if isinstance(target_entity_data, str):
-                _data = json.loads(target_entity_data)
+    def _parse_entity(self, entity_data) -> Optional[Entity]:
+        if entity_data:
+            if isinstance(entity_data, str):
+                _data = json.loads(entity_data)
             else:
-                _data = target_entity_data
+                _data = entity_data
             return Entity({"id": _data["id"], "type": _data["type"]})
         return None
+
+    @cached_property
+    def returning_entity(self) -> Entity:
+        if self._data.get(RETURNING_ENTITY):
+            return self._parse_entity(self._data[RETURNING_ENTITY]) or self.target_entity
+        return self.target_entity
+
+    @include_dict
+    def returning_entity_to_dict(self):
+        return {"returning_entity": self.returning_entity.to_dict()} if self.returning_entity else {}
