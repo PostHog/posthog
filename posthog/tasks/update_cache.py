@@ -1,37 +1,89 @@
+import importlib
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional, Union
 
 from celery import group
 from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
 from django.db.models import Prefetch, Q
+from django.db.models.expressions import F, Subquery
 from django.utils import timezone
 
 from posthog.celery import update_cache_item_task
+from posthog.constants import (
+    INSIGHT_FUNNELS,
+    INSIGHT_PATHS,
+    INSIGHT_RETENTION,
+    INSIGHT_SESSIONS,
+    INSIGHT_TRENDS,
+    TRENDS_STICKINESS,
+)
 from posthog.decorators import CacheType
-from posthog.models import Action, ActionStep, DashboardItem, Filter, Team
+from posthog.ee import is_ee_enabled
+from posthog.models import DashboardItem, Filter, Team
+from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
-from posthog.queries.funnel import Funnel
-from posthog.queries.trends import Trends
 from posthog.settings import CACHED_RESULTS_TTL
+from posthog.types import FilterType
 from posthog.utils import generate_cache_key
+
+PARALLEL_DASHBOARD_ITEM_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
 
 logger = logging.getLogger(__name__)
 
+CH_TYPE_TO_IMPORT = {
+    CacheType.TRENDS: ("ee.clickhouse.queries.trends.clickhouse_trends", "ClickhouseTrends"),
+    CacheType.SESSION: ("ee.clickhouse.queries.sessions.clickhouse_sessions", "ClickhouseSessions"),
+    CacheType.STICKINESS: ("ee.clickhouse.queries.clickhouse_stickiness", "ClickhouseStickiness"),
+    CacheType.RETENTION: ("ee.clickhouse.queries.clickhouse_retention", "ClickhouseRetention"),
+    CacheType.PATHS: ("ee.clickhouse.queries.clickhouse_paths", "ClickhousePaths"),
+}
 
-def update_cache_item(key: str, cache_type: str, payload: dict) -> None:
+TYPE_TO_IMPORT = {
+    CacheType.TRENDS: ("posthog.queries.trends", "Trends"),
+    CacheType.SESSION: ("posthog.queries.sessions", "Sessions"),
+    CacheType.STICKINESS: ("posthog.queries.stickiness", "Stickiness"),
+    CacheType.RETENTION: ("posthog.queries.retention", "Retention"),
+    CacheType.PATHS: ("posthog.queries.paths", "Paths"),
+}
+
+
+def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
 
     result: Optional[Union[List, Dict]] = None
     filter_dict = json.loads(payload["filter"])
-    filter = get_filter(data=filter_dict, team=Team(pk=payload["team_id"]))
-    if cache_type == CacheType.TRENDS:
-        result = _calculate_trends(filter, key, int(payload["team_id"]))
-    elif cache_type == CacheType.FUNNEL:
-        result = _calculate_funnel(filter, key, int(payload["team_id"]))
+    team_id = int(payload["team_id"])
+    filter = get_filter(data=filter_dict, team=Team(pk=team_id))
+    if cache_type == CacheType.FUNNEL:
+        result = _calculate_funnel(filter, key, team_id)
+    else:
+        result = _calculate_by_filter(filter, key, team_id, cache_type)
 
     if result:
         cache.set(key, {"result": result, "details": payload, "type": cache_type}, CACHED_RESULTS_TTL)
+
+
+def get_cache_type(filter: FilterType) -> CacheType:
+    if filter.insight == INSIGHT_FUNNELS:
+        return CacheType.FUNNEL
+    elif filter.insight == INSIGHT_SESSIONS:
+        return CacheType.SESSION
+    elif filter.insight == INSIGHT_PATHS:
+        return CacheType.PATHS
+    elif filter.insight == INSIGHT_RETENTION:
+        return CacheType.RETENTION
+    elif (
+        filter.insight == INSIGHT_TRENDS
+        and isinstance(filter, StickinessFilter)
+        and filter.shown_as == TRENDS_STICKINESS
+    ):
+        return CacheType.STICKINESS
+    else:
+        return CacheType.TRENDS
 
 
 def update_cached_items() -> None:
@@ -47,12 +99,13 @@ def update_cached_items() -> None:
         .distinct("filters_hash")
     )
 
-    for item in items.filter(filters__isnull=False).exclude(filters={}).distinct("filters"):
+    for item in DashboardItem.objects.filter(
+        pk__in=Subquery(items.filter(filters__isnull=False).exclude(filters={}).distinct("filters").values("pk"))
+    ).order_by(F("last_refresh").asc(nulls_first=True))[0:PARALLEL_DASHBOARD_ITEM_CACHE]:
         filter = get_filter(data=item.filters, team=item.team)
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
-        curr_data = cache.get(cache_key)
 
-        cache_type = CacheType.FUNNEL if filter.insight == "FUNNELS" else CacheType.TRENDS
+        cache_type = get_cache_type(filter)
         payload = {"filter": filter.toJSON(), "team_id": item.team_id}
         tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
 
@@ -61,12 +114,21 @@ def update_cached_items() -> None:
     taskset.apply_async()
 
 
-def _calculate_trends(filter: Filter, key: str, team_id: int) -> List[Dict[str, Any]]:
-    actions = Action.objects.filter(team_id=team_id)
-    actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
+def import_from(module: str, name: str) -> Any:
+    return getattr(importlib.import_module(module), name)
+
+
+def _calculate_by_filter(filter: FilterType, key: str, team_id: int, cache_type: CacheType) -> List[Dict[str, Any]]:
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
-    result = Trends().run(filter, Team(pk=team_id))
+
+    if is_ee_enabled():
+        insight_class_path = CH_TYPE_TO_IMPORT[cache_type]
+    else:
+        insight_class_path = TYPE_TO_IMPORT[cache_type]
+
+    insight_class = import_from(insight_class_path[0], insight_class_path[1])
+    result = insight_class().run(filter, Team(pk=team_id))
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result
 
@@ -74,6 +136,12 @@ def _calculate_trends(filter: Filter, key: str, team_id: int) -> List[Dict[str, 
 def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, Any]]:
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
-    result = Funnel(filter=filter, team=Team(pk=team_id)).run()
+
+    if is_ee_enabled():
+        insight_class = import_from("ee.clickhouse.queries.clickhouse_funnel", "ClickhouseFunnel")
+    else:
+        insight_class = import_from("posthog.queries.funnel", "Funnel")
+
+    result = insight_class(filter=filter, team=Team(pk=team_id)).run()
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Dict, List
 
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -13,6 +13,7 @@ from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.api.insight import InsightViewSet
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_SESSIONS, TRENDS_STICKINESS
+from posthog.decorators import cached_function
 from posthog.models import Event
 from posthog.models.filters import Filter
 from posthog.models.filters.path_filter import PathFilter
@@ -22,9 +23,8 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):
-    @action(methods=["GET"], detail=False)
-    def trend(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-
+    @cached_function()
+    def calculate_trends(self, request: Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request)
 
@@ -38,37 +38,38 @@ class ClickhouseInsightsViewSet(InsightViewSet):
             result = ClickhouseTrends().run(filter, team)
 
         self._refresh_dashboard(request=request)
+        return result
 
-        return Response(result)
-
-    @action(methods=["GET"], detail=False)
-    def session(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        response = ClickhouseSessions().run(
+    @cached_function()
+    def calculate_session(self, request: Request) -> List[Dict[str, Any]]:
+        return ClickhouseSessions().run(
             team=self.team, filter=SessionsFilter(request=request, data={"insight": INSIGHT_SESSIONS})
         )
 
-        return Response({"result": response,})
-
-    @action(methods=["GET"], detail=False)
-    def path(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-
+    @cached_function()
+    def calculate_path(self, request: Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
         resp = ClickhousePaths().run(filter=filter, team=team)
-        return Response(resp)
+        return resp
 
     @action(methods=["GET"], detail=False)
     def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-
-        team = self.team
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
-        response = ClickhouseFunnel(team=team, filter=filter).run()
+        response = self.calculate_funnel(request)
         return Response(response)
 
-    @action(methods=["GET"], detail=False)
-    def retention(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-
+    @cached_function()
+    def calculate_funnel(self, request: Request) -> List[Dict[str, Any]]:
         team = self.team
-        filter = RetentionFilter(request=request)
+        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
+        return ClickhouseFunnel(team=team, filter=filter).run()
+
+    @cached_function()
+    def calculate_retention(self, request: Request) -> List[Dict[str, Any]]:
+        team = self.team
+        data = {}
+        if not request.GET.get("date_from"):
+            data.update({"date_from": "-11d"})
+        filter = RetentionFilter(data=data, request=request)
         result = ClickhouseRetention().run(filter, team)
-        return Response({"data": result})
+        return result

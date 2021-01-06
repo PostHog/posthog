@@ -40,7 +40,7 @@ class StickinessDateMixin(DateMixin):
 
     @cached_property
     def _date_to(self) -> Optional[Union[str, datetime]]:
-        return self._data.get(DATE_TO, timezone.now().isoformat())
+        return self._data.get(DATE_TO)
 
 
 class TotalIntervalsDerivedMixin(IntervalMixin, StickinessDateMixin):
