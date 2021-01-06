@@ -15,6 +15,7 @@ export interface SelectBoxItem {
 }
 
 export interface SelectedItem {
+    id?: number // Populated for actions
     name: string
     key: string
     action?: ActionType
