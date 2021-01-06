@@ -1,6 +1,8 @@
 import json
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
+from django.utils.timezone import now
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -37,6 +39,8 @@ class ClickhouseEventsViewSet(EventViewSet):
         data = {}
         if request.GET.get("after"):
             data.update({"date_from": request.GET["after"]})
+        else:
+            data.update({"date_from": now() - timedelta(days=1)})
         if request.GET.get("before"):
             data.update({"date_to": request.GET["before"]})
         filter = Filter(data=data, request=request)
