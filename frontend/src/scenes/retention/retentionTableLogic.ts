@@ -261,7 +261,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         },
         loadResults: () => {
             actions.clearPeople()
-            actions.setAllFilters(cleanRetentionParams(values.filters, values.properties))
+            actions.setAllFilters(prepareParams(values))
             if (!props.dashboardItemId) {
                 actions.createInsight(prepareParams(values))
             }
