@@ -2,12 +2,13 @@ import React, { useCallback, useState } from 'react'
 import { Col, Row, Select, Tabs } from 'antd'
 import { operatorMap, isOperatorFlag } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
-import { PropertyKeyInfo, keyMapping } from 'lib/components/PropertyKeyInfo'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { cohortsModel } from '../../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { Link } from '../Link'
+import { PropertySelect } from './PropertySelect'
 
 const { TabPane } = Tabs
 
@@ -22,21 +23,35 @@ function PropertyPaneContents({
     type,
     displayOperatorAndValue,
 }) {
+    const optionGroups = [
+        {
+            type: 'event',
+            label: 'Event properties',
+            options: eventProperties,
+        },
+        {
+            type: 'person',
+            label: 'User properties',
+            options: personProperties,
+        },
+    ]
+
+    if (eventProperties.length > 0) {
+        optionGroups.push({
+            type: 'element',
+            label: 'Elements',
+            options: ['tag_name', 'text', 'href', 'selector'].map((value) => ({ value, label: value })),
+        })
+    }
+
     return (
         <>
             <Row gutter={8} className="full-width">
                 <Col flex={1}>
-                    <SelectGradientOverflow
-                        className={rrwebBlockClass}
-                        showSearch
-                        autoFocus={!propkey}
-                        defaultOpen={!propkey}
-                        placeholder="Property key"
-                        data-attr="property-filter-dropdown"
-                        labelInValue
+                    <PropertySelect
                         value={
                             type === 'cohort'
-                                ? { value: '' }
+                                ? null
                                 : {
                                       value: propkey,
                                       label:
@@ -44,61 +59,16 @@ function PropertyPaneContents({
                                           propkey,
                                   }
                         }
-                        filterOption={(input, option) => option.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
-                        onChange={(_, newKey) =>
+                        onChange={(type, value) =>
                             setThisFilter(
-                                newKey.value.replace(/^(event_|person_|element_)/gi, ''),
+                                value,
                                 undefined,
-                                newKey.value === 'event_$active_feature_flags' ? 'icontains' : operator,
-                                newKey.type
+                                value === '$active_feature_flags' ? 'icontains' : operator,
+                                type
                             )
                         }
-                        style={{ width: '100%' }}
-                        virtual={false}
-                    >
-                        {eventProperties.length > 0 && (
-                            <Select.OptGroup key="event properties" label="Event properties">
-                                {eventProperties.map((item, index) => (
-                                    <Select.Option
-                                        key={'event_' + item.value}
-                                        value={'event_' + item.value}
-                                        type="event"
-                                        data-attr={'prop-filter-event-' + index}
-                                    >
-                                        <PropertyKeyInfo value={item.value} />
-                                    </Select.Option>
-                                ))}
-                            </Select.OptGroup>
-                        )}
-                        {personProperties && (
-                            <Select.OptGroup key="user properties" label="User properties">
-                                {personProperties.map((item, index) => (
-                                    <Select.Option
-                                        key={'person_' + item.value}
-                                        value={'person_' + item.value}
-                                        type="person"
-                                        data-attr={'prop-filter-person-' + index}
-                                    >
-                                        <PropertyKeyInfo value={item.value} />
-                                    </Select.Option>
-                                ))}
-                            </Select.OptGroup>
-                        )}
-                        {eventProperties.length > 0 && (
-                            <Select.OptGroup key="elements" label="Elements">
-                                {['tag_name', 'text', 'href', 'selector'].map((item, index) => (
-                                    <Select.Option
-                                        key={'element_' + item}
-                                        value={'element_' + item}
-                                        type="element"
-                                        data-attr={'prop-filter-element-' + index}
-                                    >
-                                        <PropertyKeyInfo value={item} type="element" />
-                                    </Select.Option>
-                                ))}
-                            </Select.OptGroup>
-                        )}
-                    </SelectGradientOverflow>
+                        optionGroups={optionGroups}
+                    />
                 </Col>
                 {displayOperatorAndValue && (
                     <Col flex={1}>
