@@ -392,6 +392,18 @@ export const elementsLogic = kea<
             const { inspectEnabled, heatmapEnabled, enabledLast, selectedElementMeta } = values
             const { buttonActionsVisible: actionsEnabled } = actionsTabLogic.values
 
+            // Get list of data-* attributes in the element
+            const data_attributes = []
+            if (element?.attributes) {
+                for (let i = 0; i < element.attributes.length; i++) {
+                    const name = element.attributes.item(i)?.nodeName
+                    console.log(element.attributes.item(i), name)
+                    if (name && name.indexOf('data-') > -1) {
+                        data_attributes.push(name)
+                    }
+                }
+            }
+
             posthog.capture('viewed toolbar element', {
                 element_tag: element?.tagName.toLowerCase(),
                 element_type: (element as HTMLInputElement)?.type,
@@ -399,7 +411,8 @@ export const elementsLogic = kea<
                 has_class: !!element?.className,
                 has_id: !!element?.id,
                 has_name: !!(element as HTMLInputElement)?.name,
-                has_data_attr: !!element?.attributes.getNamedItem('data-attr'),
+                has_data_attr: data_attributes.includes('data-attr'),
+                data_attributes: data_attributes,
                 attribute_length: element?.attributes.length,
                 inspect_enabled: inspectEnabled,
                 heatmap_enabled: heatmapEnabled,
