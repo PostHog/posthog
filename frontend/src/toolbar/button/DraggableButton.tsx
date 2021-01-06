@@ -9,7 +9,7 @@ import { Flag } from '~/toolbar/button/icons/Flag'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
 import { Stats } from '~/toolbar/button/icons/Stats'
-import posthog from 'posthog-js'
+import { posthog } from '~/toolbar/posthog'
 
 export function DraggableButton(): JSX.Element {
     const {

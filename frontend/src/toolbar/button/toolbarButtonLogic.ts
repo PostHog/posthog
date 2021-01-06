@@ -4,7 +4,7 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogicType } from 'types/toolbar/button/toolbarButtonLogicType'
-import posthog from 'posthog-js'
+import { posthog } from '~/toolbar/posthog'
 
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
     actions: () => ({

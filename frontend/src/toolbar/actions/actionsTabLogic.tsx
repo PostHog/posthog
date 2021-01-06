@@ -10,7 +10,7 @@ import { actionsTabLogicType } from 'types/toolbar/actions/actionsTabLogicType'
 import { ActionType } from '~/types'
 import { ActionForm, AntdFieldData } from '~/toolbar/types'
 import { FormInstance } from 'antd/es/form'
-import posthog from 'posthog-js'
+import { posthog } from '~/toolbar/posthog'
 
 function newAction(element: HTMLElement | null): Partial<ActionType> {
     return {

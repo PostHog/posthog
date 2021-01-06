@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { toolbarLogicType } from 'types/toolbar/toolbarLogicType'
 import { EditorProps } from '~/types'
 import { clearSessionToolbarToken } from '~/toolbar/utils'
-import posthog from 'posthog-js'
+import { posthog } from '~/toolbar/posthog'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 
