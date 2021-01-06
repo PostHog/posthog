@@ -35,6 +35,8 @@ export const plugin60: Plugin = {
             'function processEvent (event) { if (event.properties) { event.properties.processed = true } return event }',
     }),
     error: undefined,
+    from_json: false,
+    from_web: false,
 }
 
 export const pluginAttachment1: PluginAttachmentDB = {
@@ -87,16 +89,16 @@ export const mockPluginWithArchive = (indexJs: string, pluginJson?: string): Plu
     archive: createZipBuffer('posthog-maxmind-plugin', { indexJs, pluginJson }),
 })
 
-export const mockJestWithIndex = (
+export const makePluginObjects = (
     indexJs: string
 ): {
-    getPluginRows: Plugin[]
-    getPluginConfigRows: PluginConfig[]
-    getPluginAttachmentRows: PluginAttachmentDB[]
+    pluginRows: Plugin[]
+    pluginConfigRows: PluginConfig[]
+    pluginAttachmentRows: PluginAttachmentDB[]
 } => ({
-    getPluginRows: [mockPluginWithArchive(indexJs)],
-    getPluginConfigRows: [pluginConfig39],
-    getPluginAttachmentRows: [pluginAttachment1],
+    pluginRows: [mockPluginWithArchive(indexJs)],
+    pluginConfigRows: [pluginConfig39],
+    pluginAttachmentRows: [pluginAttachment1],
 })
 
 export function mockPluginTempFolder(indexJs: string, pluginJson?: string): [Plugin, () => void] {

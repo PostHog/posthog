@@ -40,12 +40,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     STATSD_PORT: number
     STATSD_PREFIX: string
     SCHEDULE_LOCK_TTL: number
-
-    __jestMock?: {
-        getPluginRows: Plugin[]
-        getPluginConfigRows: PluginConfig[]
-        getPluginAttachmentRows: PluginAttachmentDB[]
-    }
 }
 
 export interface PluginsServer extends PluginsServerConfig {
@@ -90,6 +84,8 @@ export interface Plugin {
     archive: Buffer | null
     source?: string
     error?: PluginError
+    from_json?: boolean
+    from_web?: boolean
 }
 
 export interface PluginConfig {

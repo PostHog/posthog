@@ -104,7 +104,13 @@ test('plugin meta has what it should have', async () => {
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     const returnedEvent = await runPlugins(mockServer, event)
 
-    expect(Object.keys(returnedEvent!.properties!).sort()).toEqual(['attachments', 'cache', 'config', 'global'])
+    expect(Object.keys(returnedEvent!.properties!).sort()).toEqual([
+        'attachments',
+        'cache',
+        'config',
+        'global',
+        'storage',
+    ])
     expect(returnedEvent!.properties!['attachments']).toEqual({
         maxmindMmdb: { content_type: 'application/octet-stream', contents: Buffer.from('test'), file_name: 'test.txt' },
     })

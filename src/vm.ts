@@ -5,7 +5,7 @@ import { createCache } from './extensions/cache'
 import { createPosthog } from './extensions/posthog'
 import { createGoogle } from './extensions/google'
 import { PluginsServer, PluginConfig, PluginConfigVMReponse } from './types'
-import { areWeTestingWithJest } from './utils'
+import { createStorage } from './extensions/storage'
 
 export async function createPluginConfigVM(
     server: PluginsServer,
@@ -25,7 +25,7 @@ export async function createPluginConfigVM(
     vm.freeze(fetch, 'fetch')
     vm.freeze(createGoogle(), 'google')
 
-    if (areWeTestingWithJest()) {
+    if (process.env.NODE_ENV === 'test') {
         vm.freeze(setTimeout, '__jestSetTimeout')
     }
     vm.freeze(
@@ -37,6 +37,7 @@ export async function createPluginConfigVM(
             ),
             config: pluginConfig.config,
             attachments: pluginConfig.attachments,
+            storage: createStorage(server, pluginConfig),
         },
         '__pluginHostMeta'
     )

@@ -2,9 +2,9 @@ import { makePiscina } from '../src/worker/piscina'
 import { defaultConfig } from '../src/config'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { performance } from 'perf_hooks'
-import { mockJestWithIndex } from '../tests/helpers/plugins'
 import * as os from 'os'
 import { LogLevel } from '../src/types'
+import { resetTestDatabase } from '../tests/helpers/sql'
 
 jest.mock('../src/sql')
 jest.setTimeout(600000) // 600 sec timeout
@@ -61,13 +61,12 @@ async function processCountEvents(piscina: ReturnType<typeof makePiscina>, count
     }
 }
 
-function setupPiscina(workers: number, code: string, tasksPerWorker: number) {
+function setupPiscina(workers: number, tasksPerWorker: number) {
     return makePiscina({
         ...defaultConfig,
         WORKER_CONCURRENCY: workers,
         TASKS_PER_WORKER: tasksPerWorker,
         LOG_LEVEL: LogLevel.Log,
-        __jestMock: mockJestWithIndex(code),
     })
 }
 
@@ -119,6 +118,7 @@ test('piscina worker benchmark', async () => {
 
     const results: Array<Record<string, string | number>> = []
     for (const { testName, events: _events, testCode } of tests) {
+        await resetTestDatabase(testCode)
         const events = isLightDevRun ? _events / 10 : _events
         for (const batchSize of [1, 10, 100].filter((size) => size <= events)) {
             const result: Record<string, any> = {
@@ -128,7 +128,7 @@ test('piscina worker benchmark', async () => {
                 batchSize,
             }
             for (const threads of workerThreads) {
-                const piscina = setupPiscina(threads, testCode, 100)
+                const piscina = setupPiscina(threads, 100)
 
                 // warmup
                 await processCountEvents(piscina, threads * 4)

@@ -65,7 +65,7 @@ jobs:
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   REDIS_URL: 'redis://localhost'
-              run: yarn task:db-init
+              run: yarn task:init-test-db
 
             - name: Test with Jest
               env:
@@ -113,7 +113,7 @@ jobs:
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   REDIS_URL: 'redis://localhost'
-              run: yarn task:db-init
+              run: yarn task:init-test-db
 
             - name: Run benchmarks
               env:

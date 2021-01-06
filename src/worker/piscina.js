@@ -1,10 +1,6 @@
 const Sentry = require('@sentry/node')
 const { isMainThread, threadId } = require('worker_threads')
 
-function areWeTestingWithJest() {
-    return Boolean(process.env.JEST_WORKER_ID)
-}
-
 if (isMainThread) {
     const Piscina = require('piscina')
     const { createConfig } = require('./config')
@@ -20,7 +16,7 @@ if (isMainThread) {
         },
     }
 } else {
-    if (areWeTestingWithJest()) {
+    if (process.env.NODE_ENV === 'test') {
         require('ts-node').register()
     }
 

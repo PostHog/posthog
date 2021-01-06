@@ -3,9 +3,9 @@ import { setupPiscina } from './helpers/worker'
 import { delay } from '../src/utils'
 import { startPluginsServer } from '../src/server'
 import { LogLevel } from '../src/types'
-import { mockJestWithIndex } from './helpers/plugins'
 import { makePiscina } from '../src/worker/piscina'
 import Client from '../src/celery/client'
+import { resetTestDatabase } from './helpers/sql'
 
 jest.mock('../src/sql')
 jest.setTimeout(600000) // 600 sec timeout
@@ -33,40 +33,8 @@ test('piscina worker test', async () => {
             return 4
         } 
     `
-    const piscina = setupPiscina(workerThreads, testCode, 10)
-
-    const processEvent = (event: PluginEvent) => piscina.runTask({ task: 'processEvent', args: { event } })
-    const processEventBatch = (batch: PluginEvent[]) => piscina.runTask({ task: 'processEventBatch', args: { batch } })
-    const runEveryDay = (pluginConfigId: number) => piscina.runTask({ task: 'runEveryDay', args: { pluginConfigId } })
-    const getPluginSchedule = () => piscina.runTask({ task: 'getPluginSchedule' })
-
-    const pluginSchedule = await getPluginSchedule()
-    expect(pluginSchedule).toEqual({ runEveryDay: [39], runEveryHour: [], runEveryMinute: [] })
-
-    const event = await processEvent(createEvent())
-    expect(event.properties['somewhere']).toBe('over the rainbow')
-
-    const eventBatch = await processEventBatch([createEvent()])
-    expect(eventBatch[0]!.properties['somewhere']).toBe('over the rainbow')
-
-    const everyDayReturn = await runEveryDay(39)
-    expect(everyDayReturn).toBe(4)
-
-    await piscina.destroy()
-})
-
-test('scheduled task test', async () => {
-    const workerThreads = 2
-    const testCode = `
-        function processEvent (event, meta) {
-            event.properties["somewhere"] = "over the rainbow";
-            return event
-        }
-        async function runEveryDay (meta) {
-            return 4
-        } 
-    `
-    const piscina = setupPiscina(workerThreads, testCode, 10)
+    await resetTestDatabase(testCode)
+    const piscina = setupPiscina(workerThreads, 10)
 
     const processEvent = (event: PluginEvent) => piscina.runTask({ task: 'processEvent', args: { event } })
     const processEventBatch = (batch: PluginEvent[]) => piscina.runTask({ task: 'processEventBatch', args: { batch } })
@@ -97,7 +65,8 @@ test('assume that the workerThreads and tasksPerWorker values behave as expected
             return event
         }
     `
-    const piscina = setupPiscina(workerThreads, testCode, tasksPerWorker)
+    await resetTestDatabase(testCode)
+    const piscina = setupPiscina(workerThreads, tasksPerWorker)
     const processEvent = (event: PluginEvent) => piscina.runTask({ task: 'processEvent', args: { event } })
     const promises = []
 
@@ -128,6 +97,7 @@ test('pause the queue if too many tasks', async () => {
             return event
         }
     `
+    await resetTestDatabase(testCode)
     const pluginsServer = await startPluginsServer(
         {
             WORKER_CONCURRENCY: 2,
@@ -135,7 +105,6 @@ test('pause the queue if too many tasks', async () => {
             PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
             CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
             LOG_LEVEL: LogLevel.Debug,
-            __jestMock: mockJestWithIndex(testCode),
         },
         makePiscina
     )

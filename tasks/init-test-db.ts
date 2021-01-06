@@ -7,23 +7,23 @@ async function task() {
     await server.db.query(createPlugin)
     await server.db.query(createPluginConfig)
     await server.db.query(createPluginAttachment)
+    await server.db.query(createPluginStorage)
 
     await closeServer()
 }
 
-const ifNotExists = 'IF NOT EXISTS'
-
 const createTeam = `
-    CREATE TABLE ${ifNotExists} posthog_team
+    CREATE TABLE posthog_team
     (
         id            serial  NOT NULL
             CONSTRAINT posthog_team_pkey
-                PRIMARY KEY
+                PRIMARY KEY,
+        name          varchar(200)
     );
 `
 
 const createPlugin = `
-    CREATE TABLE ${ifNotExists} posthog_plugin
+    CREATE TABLE posthog_plugin
     (
         id            serial  NOT NULL
             CONSTRAINT posthog_plugin_pkey
@@ -36,12 +36,14 @@ const createPlugin = `
         archive       bytea,
         from_json     boolean NOT NULL,
         from_web      boolean NOT NULL,
-        error         jsonb
+        error         jsonb,
+        plugin_type     varchar(200),
+        source          text
     );
 `
 
 const createPluginAttachment = `
-    CREATE TABLE ${ifNotExists} posthog_pluginattachment
+    CREATE TABLE posthog_pluginattachment
     (
         id               serial       NOT NULL
             CONSTRAINT posthog_pluginattachment_pkey
@@ -61,15 +63,15 @@ const createPluginAttachment = `
                 DEFERRABLE INITIALLY DEFERRED
     );
     
-    CREATE INDEX ${ifNotExists} posthog_pluginattachment_plugin_config_id_cc94a1b9
+    CREATE INDEX posthog_pluginattachment_plugin_config_id_cc94a1b9
         ON posthog_pluginattachment (plugin_config_id);
     
-    CREATE INDEX ${ifNotExists} posthog_pluginattachment_team_id_415eacc7
+    CREATE INDEX posthog_pluginattachment_team_id_415eacc7
         ON posthog_pluginattachment (team_id);
 `
 
 const createPluginConfig = `
-    CREATE TABLE ${ifNotExists} posthog_pluginconfig
+    CREATE TABLE posthog_pluginconfig
     (
         id        serial  NOT NULL
             CONSTRAINT posthog_pluginconfig_pkey
@@ -88,11 +90,25 @@ const createPluginConfig = `
         error     jsonb
     );
     
-    CREATE INDEX ${ifNotExists} posthog_pluginconfig_team_id_71185766
+    CREATE INDEX posthog_pluginconfig_team_id_71185766
         ON posthog_pluginconfig (team_id);
     
-    CREATE INDEX ${ifNotExists} posthog_pluginconfig_plugin_id_d014ca1c
+    CREATE INDEX posthog_pluginconfig_plugin_id_d014ca1c
         ON posthog_pluginconfig (plugin_id);
+`
+
+const createPluginStorage = `
+    CREATE TABLE posthog_pluginstorage (
+        id serial NOT NULL CONSTRAINT posthog_pluginstorage_pkey PRIMARY KEY,
+        key varchar(200) NOT NULL,
+        value text,
+        plugin_config_id integer NOT NULL CONSTRAINT posthog_pluginstorag_plugin_config_id_6744363a_fk_posthog_p
+        REFERENCES posthog_pluginconfig DEFERRABLE INITIALLY DEFERRED
+    );
+
+    CREATE INDEX posthog_pluginstorage_plugin_config_id_6744363a ON posthog_pluginstorage (plugin_config_id);
+
+    CREATE UNIQUE INDEX posthog_unique_plugin_storage_key ON posthog_pluginstorage (plugin_config_id int4_ops, KEY text_ops);
 `
 
 task()

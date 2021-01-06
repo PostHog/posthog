@@ -168,7 +168,6 @@ export default class RedisBroker implements Pausable {
                 if (body) {
                     callback(body)
                 }
-                Promise.resolve()
                 return body
             })
             .then((body) => {
