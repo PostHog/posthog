@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Col, Row, Input, Divider } from 'antd'
 import { List } from 'antd'
 import { DownOutlined, RightOutlined } from '@ant-design/icons'
-import { ActionType } from '~/types'
+import { ActionType, CohortType } from '~/types'
 import { searchItems, selectBoxLogic } from 'lib/logic/selectBoxLogic'
 import './SelectBox.scss'
 import { selectBoxLogicType } from 'types/lib/logic/selectBoxLogicType'
@@ -26,6 +26,7 @@ export interface SelectedItem {
     volume?: number
     usage_count?: number
     category?: string
+    cohort?: CohortType
 }
 
 export function SelectBox({

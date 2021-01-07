@@ -14,7 +14,11 @@ interface Props {
 const SECTIONS: Record<string, { label: string; description: string }> = {
     action_type: {
         label: 'Action filters',
-        description: 'Find sessions that match the following values',
+        description: 'Find sessions where user has done a given action',
+    },
+    cohort: {
+        label: 'Cohort filters',
+        description: 'Find sessions by users in the following cohorts',
     },
 }
 
@@ -48,7 +52,9 @@ export function SessionsEditFiltersPanel({}: Props): JSX.Element {
                                         <DownOutlined style={{ fontSize: 12, color: '#bfbfbf' }} />
                                     </Button>
                                 </Col>
-                                <EventPropertyFilter filter={item as EventTypePropertyFilter} selector={selector} />
+                                {['event_type', 'action_type'].includes(item.type) && (
+                                    <EventPropertyFilter filter={item as EventTypePropertyFilter} selector={selector} />
+                                )}
                             </Row>
                             <CloseButton onClick={() => removeFilter(selector)} style={{ marginLeft: 8 }} />
                         </div>
@@ -57,7 +63,7 @@ export function SessionsEditFiltersPanel({}: Props): JSX.Element {
             ))}
 
             <Button onClick={() => openFilterSelect('new')}>+</Button>
-            <Button>collapse</Button>
+            <Button className="float-right">close</Button>
         </Card>
     )
 }

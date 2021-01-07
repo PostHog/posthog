@@ -10,7 +10,11 @@ export const sessionsFiltersLogic = kea<sessionsFiltersLogicType<SessionsPropert
         closeFilterSelect: true,
         updateFilter: (property: SessionsPropertyFilter, selector: FilterSelector) => ({ property, selector }),
         removeFilter: (selector: number) => ({ selector }),
-        dropdownSelected: (type: SessionsPropertyFilter['type'], id: string | number, label: string) => ({ type, id, label })
+        dropdownSelected: (type: SessionsPropertyFilter['type'], id: string | number, label: string) => ({
+            type,
+            id,
+            label,
+        }),
     }),
     reducers: {
         filters: [
@@ -28,38 +32,38 @@ export const sessionsFiltersLogic = kea<sessionsFiltersLogicType<SessionsPropert
                     const newState = [...state]
                     newState.splice(selector, 1)
                     return newState
-                }
-            }
+                },
+            },
         ],
         openFilter: [
             null as null | FilterSelector,
             {
                 openFilterSelect: (_, { selector }) => selector,
                 updateFilter: () => null,
-                closeFilterSelect: () => null
-            }
-        ]
+                closeFilterSelect: () => null,
+            },
+        ],
     },
     selectors: {
         displayedFilters: [
             (s) => [s.filters],
             (filters: Array<SessionsPropertyFilter>) => {
-                const groups: Record<string, Array<{ item: SessionsPropertyFilter, selector: number }>> = {}
+                const groups: Record<string, Array<{ item: SessionsPropertyFilter; selector: number }>> = {}
                 filters.forEach((item, selector) => {
                     groups[item.type] = groups[item.type] || []
                     groups[item.type].push({ item, selector })
                 })
                 return groups
-            }
-        ]
+            },
+        ],
     },
     listeners: ({ actions, values }) => ({
         dropdownSelected: ({ type, id, label }) => {
             if (values.openFilter !== null) {
-                if (type === 'action_type') {
+                if (type === 'action_type' || type === 'cohort') {
                     actions.updateFilter({ type, value: id, key: 'id', label }, values.openFilter)
                 }
             }
-        }
-    })
+        },
+    }),
 })
