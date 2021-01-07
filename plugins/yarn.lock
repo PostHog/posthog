@@ -931,10 +931,10 @@ postgres-interval@^1.1.0:
   dependencies:
     xtend "^4.0.0"
 
-posthog-plugin-server@0.6.1:
-  version "0.6.1"
-  resolved "https://registry.yarnpkg.com/posthog-plugin-server/-/posthog-plugin-server-0.6.1.tgz#7afd83587ab740d44a0c92921117a6d0ece8a2e8"
-  integrity sha512-xwjGJESHbaq4x21939x9opf80REQ2r7TzUYstXY+RhM42G753I5p19+PkbFm8etfhFygsuS2/oSmWMESon3f0g==
+posthog-plugin-server@0.6.2:
+  version "0.6.2"
+  resolved "https://registry.yarnpkg.com/posthog-plugin-server/-/posthog-plugin-server-0.6.2.tgz#310844d51fc636f3e6bd33fe795e97df2f0b5d64"
+  integrity sha512-0V0pE+4zilezeQOZnBPgH3+FcBE39xjw6e2yzXeETlm8LlBeYgbJ/IHyv9OBT5/hl6YVBW2p902DdOKsrDLyvQ==
   dependencies:
     "@google-cloud/bigquery" "^5.5.0"
     "@sentry/node" "^5.29.0"
