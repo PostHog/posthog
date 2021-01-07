@@ -14,6 +14,8 @@ InsighLogic maintains state for changing between insight features
 This includes handling the urls and view state
 */
 
+const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
+
 export const insightLogic = kea<insightLogicType>({
     actions: () => ({
         setActiveView: (type) => ({ type }),
@@ -21,27 +23,16 @@ export const insightLogic = kea<insightLogicType>({
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: true,
-        endQuery: (exception) => ({ exception }),
+        endQuery: (view, exception) => ({ view, exception }),
+        setMaybeShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
         setShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
+        setShowErrorMessage: (showErrorMessage: boolean) => ({ showErrorMessage }),
         setTimeout: (timeout) => ({ timeout }),
     }),
 
     reducers: () => ({
-        queryTimer: [
-            null,
-            {
-                startQuery: () => new Date(),
-                endQuery: () => null,
-            },
-        ],
-        queryException: [
-            null,
-            {
-                startQuery: () => null,
-                endQuery: (_, { exception }: { exception: any }) => exception || null,
-            },
-        ],
-        showTimeoutMessage: [
+        showTimeoutMessage: [false, { setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage }],
+        maybeShowTimeoutMessage: [
             false,
             {
                 // Only show timeout message if timer is still running
@@ -54,13 +45,16 @@ export const insightLogic = kea<insightLogicType>({
                     return false
                 },
                 startQuery: () => false,
+                setActiveView: () => false,
             },
         ],
-        showErrorMessage: [
+        showErrorMessage: [false, { setShowErrorMessage: (_, { showErrorMessage }) => showErrorMessage }],
+        maybeShowErrorMessage: [
             false,
             {
                 endQuery: (_, { exception }) => exception?.status === 500 || false,
                 startQuery: () => false,
+                setActiveView: () => false,
             },
         ],
         cachedUrls: [
@@ -89,9 +83,18 @@ export const insightLogic = kea<insightLogicType>({
     listeners: ({ actions, values }) => ({
         startQuery: () => {
             values.timeout && clearTimeout(values.timeout)
-            actions.setTimeout(setTimeout(() => actions.setShowTimeoutMessage(true), 15000))
+            actions.setTimeout(setTimeout(() => actions.setMaybeShowTimeoutMessage(true), SHOW_TIMEOUT_MESSAGE_AFTER))
         },
-        endQuery: () => {
+        endQuery: ({ view }) => {
+            clearTimeout(values.timeout)
+            if (view === values.activeView) {
+                actions.setShowTimeoutMessage(values.maybeShowTimeoutMessage)
+                actions.setShowErrorMessage(values.maybeShowErrorMessage)
+            }
+        },
+        setActiveView: () => {
+            actions.setShowTimeoutMessage(false)
+            actions.setShowErrorMessage(false)
             clearTimeout(values.timeout)
         },
     }),

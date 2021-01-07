@@ -50,8 +50,16 @@ export const pathsLogic = kea({
                 loadPaths: async (_, breakpoint) => {
                     const filter = { ...values.filter, properties: values.properties }
                     const params = toParams(filter)
-                    const paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
+                    let paths
+                    insightLogic.actions.startQuery()
+                    try {
+                        paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
+                    } catch (e) {
+                        insightLogic.actions.endQuery(ViewType.PATHS, e)
+                        return { paths: [], filter, error: true }
+                    }
                     breakpoint()
+                    insightLogic.actions.endQuery(ViewType.PATHS)
                     return { paths, filter }
                 },
             },
@@ -98,7 +106,7 @@ export const pathsLogic = kea({
         paths: [
             (s) => [s.loadedPaths],
             (loadedPaths) => {
-                const { paths } = loadedPaths
+                const { paths, error } = loadedPaths
 
                 const nodes = {}
                 for (const path of paths) {
@@ -113,6 +121,7 @@ export const pathsLogic = kea({
                 const response = {
                     nodes: Object.values(nodes),
                     links: paths,
+                    error,
                 }
                 return response
             },

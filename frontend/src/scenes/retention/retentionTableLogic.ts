@@ -50,9 +50,17 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 if (!refresh && (props.cachedResults || props.preventLoading)) {
                     return props.cachedResults
                 }
+                insightLogic.actions.startQuery()
+                let res
                 const urlParams = toParams(values.filters)
-                const res = await api.get(`api/insight/retention/?${urlParams}`)
+                try {
+                    res = await api.get(`api/insight/retention/?${urlParams}`)
+                } catch (e) {
+                    insightLogic.actions.endQuery(ViewType.RETENTION, e)
+                    return []
+                }
                 breakpoint()
+                insightLogic.actions.endQuery(ViewType.RETENTION)
                 return res.data
             },
         },
@@ -100,7 +108,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         },
         results: {
             updateRetention: (_, { retention }) => retention,
-            clearRetention: () => ({}),
+            clearRetention: () => [],
         },
         loadingMore: [
             false,

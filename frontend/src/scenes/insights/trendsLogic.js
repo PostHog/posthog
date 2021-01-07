@@ -160,10 +160,10 @@ export const trendsLogic = kea({
                         )
                     }
                 } catch (e) {
-                    insightLogic.actions.endQuery(e)
+                    insightLogic.actions.endQuery(values.filters.insight, e)
                     return []
                 }
-                insightLogic.actions.endQuery()
+                insightLogic.actions.endQuery(values.filters.insight)
                 breakpoint()
                 return response
             },

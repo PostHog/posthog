@@ -37,6 +37,9 @@ export function RetentionTable({ dashboardItemId = null }) {
     ]
 
     if (!resultsLoading && results) {
+        if (results.length === 0) {
+            return null
+        }
         results[0].values.forEach((_, dayIndex) => {
             columns.push({
                 title: results[dayIndex].label,
