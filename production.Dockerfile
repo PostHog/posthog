@@ -18,8 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl git build-
     && yarn cache clean \
     && apt-get purge -y curl build-essential \
     && rm -rf node_modules \
-	&& rm -rf /var/lib/apt/lists/* \
-    && rm -rf frontend/dist/*.map
+    && rm -rf /var/lib/apt/lists/*
 
 # install dependencies but ignore any we don't need for dev environment
 RUN pip install $(grep -ivE "psycopg2" requirements.txt | cut -d'#' -f1) --no-cache-dir --compile\
