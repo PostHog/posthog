@@ -4,6 +4,7 @@ import React from 'react'
 import imgEmptyLineGraph from 'public/empty-line-graph.svg'
 import imgEmptyLineGraphDark from 'public/empty-line-graph-dark.svg'
 import { QuestionCircleOutlined } from '@ant-design/icons'
+import { userLogic } from 'scenes/userLogic'
 
 export function LineGraphEmptyState({ color }: { color: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -34,5 +35,62 @@ export function LineGraphEmptyState({ color }: { color: string }): JSX.Element {
                 </div>
             )}
         </>
+    )
+}
+
+export function TimeOut(): JSX.Element {
+    const { user } = useValues(userLogic)
+    return (
+        <div style={{}}>
+            <h2>Looks like things are a little slow</h2>
+            Your query is taking a long time to complete. Here are some things you can try:
+            <ol>
+                <li>Reduce the date range of your query</li>
+                <li>Remove some filters</li>
+                {!user?.is_multi_tenancy && <li>Increase the size of your database</li>}
+                {!user?.is_multi_tenancy && (
+                    <li>
+                        <a href="https://posthog.com/pricing?o=enterprise" rel="noopener noreferrer" target="_blank">
+                            Upgrade your database to Clickhouse
+                        </a>
+                    </li>
+                )}
+                <li>
+                    <a href="https://github.com/PostHog/posthog.com/issues/new">Raise an issue in our repo</a>
+                </li>
+                <li>
+                    Get in touch with us{' '}
+                    <a href="https://posthog.com/slack" rel="noopener noreferrer" target="_blank">
+                        on slack
+                    </a>
+                </li>
+                <li>
+                    Email us <a href="mailto:hey@posthog.com">hey@posthog.com</a>
+                </li>
+            </ol>
+        </div>
+    )
+}
+
+export function ErrorMessage(): JSX.Element {
+    return (
+        <div style={{}}>
+            <h2>There was an error while completing this query</h2>
+            Please try again later or:
+            <ol>
+                <li>
+                    <a href="https://github.com/PostHog/posthog.com/issues/new">Raise an issue in our repo</a>
+                </li>
+                <li>
+                    Get in touch with us{' '}
+                    <a href="https://posthog.com/slack" rel="noopener noreferrer" target="_blank">
+                        on slack
+                    </a>
+                </li>
+                <li>
+                    Email us <a href="mailto:hey@posthog.com">hey@posthog.com</a>
+                </li>
+            </ol>
+        </div>
     )
 }

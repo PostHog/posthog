@@ -18,7 +18,7 @@ async function getJSONOrThrow(response) {
     try {
         return await response.json()
     } catch (e) {
-        throw new Error('Something went wrong when parsing the response from the server.')
+        return { statusText: response.statusText }
     }
 }
 

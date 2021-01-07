@@ -1,6 +1,8 @@
 import json
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
+from django.utils.timezone import now
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -42,6 +44,7 @@ class ClickhouseEventsViewSet(EventViewSet):
         limit = "LIMIT 101"
         conditions, condition_params = determine_event_conditions(request.GET.dict())
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+
         if request.GET.get("action_id"):
             action = Action.objects.get(pk=request.GET["action_id"])
             if action.steps.count() == 0:

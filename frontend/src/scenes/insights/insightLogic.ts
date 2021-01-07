@@ -20,8 +20,49 @@ export const insightLogic = kea<insightLogicType>({
         updateActiveView: (type) => ({ type }),
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
+        startQuery: true,
+        endQuery: (exception) => ({ exception }),
+        setShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
+        setTimeout: (timeout) => ({ timeout }),
     }),
+
     reducers: () => ({
+        queryTimer: [
+            null,
+            {
+                startQuery: () => new Date(),
+                endQuery: () => null,
+            },
+        ],
+        queryException: [
+            null,
+            {
+                startQuery: () => null,
+                endQuery: (_, { exception }: { exception: any }) => exception || null,
+            },
+        ],
+        showTimeoutMessage: [
+            false,
+            {
+                // Only show timeout message if timer is still running
+                setShowTimeoutMessage: (_, { showTimeoutMessage }: { showTimeoutMessage: boolean }) =>
+                    showTimeoutMessage,
+                endQuery: (_, { exception }) => {
+                    if (exception && exception.status !== 500) {
+                        return true
+                    }
+                    return false
+                },
+                startQuery: () => false,
+            },
+        ],
+        showErrorMessage: [
+            false,
+            {
+                endQuery: (_, { exception }) => exception?.status === 500 || false,
+                startQuery: () => false,
+            },
+        ],
         cachedUrls: [
             {},
             {
@@ -34,6 +75,7 @@ export const insightLogic = kea<insightLogicType>({
                 updateActiveView: (_, { type }) => type,
             },
         ],
+        timeout: [null, { setTimeout: (_, { timeout }) => timeout }],
         /*
         allfilters is passed to components that are shared between the different insight features
         */
@@ -43,6 +85,15 @@ export const insightLogic = kea<insightLogicType>({
                 setAllFilters: (_, { filters }) => filters,
             },
         ],
+    }),
+    listeners: ({ actions, values }) => ({
+        startQuery: () => {
+            values.timeout && clearTimeout(values.timeout)
+            actions.setTimeout(setTimeout(() => actions.setShowTimeoutMessage(true), 15000))
+        },
+        endQuery: () => {
+            clearTimeout(values.timeout)
+        },
     }),
     actionToUrl: ({ actions, values }) => ({
         setActiveView: ({ type }) => {

@@ -48,6 +48,7 @@ import { userLogic } from 'scenes/userLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
+import { ErrorMessage, TimeOut } from './EmptyStates'
 
 const { TabPane } = Tabs
 
@@ -98,7 +99,7 @@ function _Insights() {
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
     const { user } = useValues(userLogic)
-    const { activeView, allFilters } = useValues(insightLogic)
+    const { activeView, allFilters, showTimeoutMessage, showErrorMessage } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
 
     return (
@@ -233,10 +234,15 @@ function _Insights() {
                                     headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
                                 >
                                     <div>
+                                        {showErrorMessage ? <ErrorMessage /> : showTimeoutMessage && <TimeOut />}
                                         {
                                             {
-                                                [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                                [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                                [`${ViewType.TRENDS}`]: (
+                                                    <TrendInsight view={ViewType.TRENDS} key={ViewType.TRENDS} />
+                                                ),
+                                                [`${ViewType.SESSIONS}`]: (
+                                                    <TrendInsight view={ViewType.SESSIONS} key={ViewType.SESSIONS} />
+                                                ),
                                                 [`${ViewType.FUNNELS}`]: <FunnelInsight />,
                                                 [`${ViewType.RETENTION}`]: <RetentionContainer />,
                                                 [`${ViewType.PATHS}`]: <Paths />,
@@ -259,7 +265,7 @@ function _Insights() {
 }
 
 function TrendInsight({ view }) {
-    const { filters, loading, showingPeople } = useValues(trendsLogic({ dashboardItemId: null, view, filters: null }))
+    const { filters, loading, showingPeople } = useValues(trendsLogic({ dashboardItemId: null, view }))
 
     return (
         <>
