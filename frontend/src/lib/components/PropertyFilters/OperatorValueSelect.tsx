@@ -5,14 +5,14 @@ import { isOperatorFlag, operatorMap } from 'lib/utils'
 import { PropertyValue } from 'lib/components/PropertyFilters/PropertyValue'
 
 interface Props {
-    type: string,
-    key: string,
-    operator: PropertyOperator,
-    value: string | number | undefined,
+    type: string
+    propkey: string
+    operator: PropertyOperator
+    value: string | number | null
     onChange: (operator: PropertyOperator, value: string | number | null) => void
 }
 
-export function OperatorValueSelect({ type, key, operator, value, onChange }: Props): JSX.Element {
+export function OperatorValueSelect({ type, propkey, operator, value, onChange }: Props): JSX.Element {
     const [currentOperator, setCurrentOperator] = useState(operator)
 
     return (
@@ -49,8 +49,8 @@ export function OperatorValueSelect({ type, key, operator, value, onChange }: Pr
                 <Col flex={1}>
                     <PropertyValue
                         type={type}
-                        key={key}
-                        propertyKey={key}
+                        key={propkey}
+                        propertyKey={propkey}
                         operator={operator}
                         value={value}
                         onSet={(value: string | number | null) => {
@@ -58,9 +58,7 @@ export function OperatorValueSelect({ type, key, operator, value, onChange }: Pr
                         }}
                     />
                     {(operator === 'gt' || operator === 'lt') && isNaN(value) && (
-                        <p className="text-danger">
-                            Value needs to be a number. Try "equals" or "contains" instead.
-                        </p>
+                        <p className="text-danger">Value needs to be a number. Try "equals" or "contains" instead.</p>
                     )}
                 </Col>
             )}

@@ -1,7 +1,5 @@
 import React, { useCallback, useState } from 'react'
 import { Col, Row, Select, Tabs } from 'antd'
-import { operatorMap, isOperatorFlag } from 'lib/utils'
-import { PropertyValue } from './PropertyValue'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { cohortsModel } from '../../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
@@ -9,7 +7,7 @@ import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { Link } from '../Link'
 import { PropertySelect } from './PropertySelect'
-import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorSelect'
+import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
 
 const { TabPane } = Tabs
 
@@ -69,13 +67,15 @@ function PropertyPaneContents({
                             )
                         }
                         optionGroups={optionGroups}
+                        autoOpenIfEmpty
+                        placeholder="Property key"
                     />
                 </Col>
 
                 {displayOperatorAndValue && (
                     <OperatorValueSelect
                         type={type}
-                        key={propkey}
+                        propkey={propkey}
                         operator={operator}
                         value={value}
                         onChange={(newOperator, newValue) => {

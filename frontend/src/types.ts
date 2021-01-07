@@ -158,12 +158,23 @@ export interface PropertyFilter {
 }
 
 interface BasePropertyFilter {
-    key: string,
-    value: string | number
+    key: string
+    value: string | number | null
     label?: string
 }
 
-export type PropertyOperator = undefined | 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex' | 'gt' | 'lt' | 'is_set' | 'is_not_set'
+export type PropertyOperator =
+    | undefined
+    | 'exact'
+    | 'is_not'
+    | 'icontains'
+    | 'not_icontains'
+    | 'regex'
+    | 'not_regex'
+    | 'gt'
+    | 'lt'
+    | 'is_set'
+    | 'is_not_set'
 
 interface EventPropertyFilter extends BasePropertyFilter {
     type: 'event'
@@ -186,15 +197,20 @@ interface RecordingPropertyFilter extends BasePropertyFilter {
 
 interface ActionTypePropertyFilter extends BasePropertyFilter {
     type: 'action_type'
+    properties?: Array<EventPropertyFilter>
 }
 
-
-interface EventTypePropertyFilter extends BasePropertyFilter {
+export interface EventTypePropertyFilter extends BasePropertyFilter {
     type: 'event_type'
     properties?: Array<EventPropertyFilter>
 }
 
-export type SessionsPropertyFilter = PersonPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | ActionTypePropertyFilter | EventTypePropertyFilter
+export type SessionsPropertyFilter =
+    | PersonPropertyFilter
+    | CohortPropertyFilter
+    | RecordingPropertyFilter
+    | ActionTypePropertyFilter
+    | EventTypePropertyFilter
 
 export interface Entity {
     id: string | number

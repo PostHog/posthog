@@ -1,19 +1,21 @@
-import React, { Fragment } from 'react'
-import { Button, Card, Col, Divider, Row } from 'antd'
+import React from 'react'
+import { Button, Card, Col, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { sessionsFiltersLogic } from 'scenes/sessions/sessionsFiltersLogic'
 import { DownOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
+import { EventPropertyFilter } from 'scenes/sessions/EventPropertyFilter'
+import { EventTypePropertyFilter } from '~/types'
 
 interface Props {
     i?: boolean
 }
 
-const SECTIONS: Record<string, { label: string, description: string }> = {
+const SECTIONS: Record<string, { label: string; description: string }> = {
     action_type: {
         label: 'Action filters',
-        description: 'Find sessions that match the following values'
-    }
+        description: 'Find sessions that match the following values',
+    },
 }
 
 export function SessionsEditFiltersPanel({}: Props): JSX.Element {
@@ -31,11 +33,24 @@ export function SessionsEditFiltersPanel({}: Props): JSX.Element {
                     </div>
                     {filters.map(({ item, selector }) => (
                         <div className="sessions-filter-row" key={selector}>
-                            <Button onClick={() => openFilterSelect(selector)}>
-                                Has done {item.label}
-                                <DownOutlined style={{ fontSize: 12, color: '#bfbfbf' }} />
-                            </Button>
-                            <CloseButton onClick={() => removeFilter(selector)} />
+                            <Row style={{ width: '100%' }}>
+                                <Col span={6}>
+                                    <Button
+                                        onClick={() => openFilterSelect(selector)}
+                                        className="full-width"
+                                        style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                        }}
+                                    >
+                                        {item.label}
+                                        <DownOutlined style={{ fontSize: 12, color: '#bfbfbf' }} />
+                                    </Button>
+                                </Col>
+                                <EventPropertyFilter filter={item as EventTypePropertyFilter} selector={selector} />
+                            </Row>
+                            <CloseButton onClick={() => removeFilter(selector)} style={{ marginLeft: 8 }} />
                         </div>
                     ))}
                 </div>

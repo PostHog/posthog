@@ -11,6 +11,8 @@ interface Props {
     optionGroups: Array<PropertyOptionGroup>
     value: PropertyOption | null
     onChange: (type: PropertyOptionGroup['type'], value: string) => void
+    placeholder: string
+    autoOpenIfEmpty?: boolean
 }
 
 interface PropertyOptionGroup {
@@ -19,17 +21,17 @@ interface PropertyOptionGroup {
     options: Array<{ value: string }>
 }
 
-export function PropertySelect({ optionGroups, value, onChange }: Props): JSX.Element {
+export function PropertySelect({ optionGroups, value, onChange, placeholder, autoOpenIfEmpty }: Props): JSX.Element {
     return (
         <SelectGradientOverflow
             className={rrwebBlockClass}
             showSearch
-            autoFocus={!value}
-            defaultOpen={!value}
-            placeholder="Property key"
+            autoFocus={autoOpenIfEmpty && !value}
+            defaultOpen={autoOpenIfEmpty && !value}
+            placeholder={placeholder}
             data-attr="property-filter-dropdown"
             labelInValue
-            value={value || { value: '' }}
+            value={value || undefined}
             filterOption={(input, option) => option?.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
             onChange={(_, { value, type }) => {
                 onChange(type, value.replace(/^(event_|person_|element_)/gi, ''))
