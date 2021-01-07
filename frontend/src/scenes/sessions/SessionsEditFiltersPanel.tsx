@@ -16,6 +16,10 @@ const SECTIONS: Record<string, { label: string; description: string }> = {
         label: 'Action filters',
         description: 'Find sessions where user has done a given action',
     },
+    event_type: {
+        label: 'Event filters',
+        description: 'Find sessions where user has done a given event',
+    },
     cohort: {
         label: 'Cohort filters',
         description: 'Find sessions by users in the following cohorts',

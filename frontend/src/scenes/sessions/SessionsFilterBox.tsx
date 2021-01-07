@@ -1,5 +1,5 @@
 import React from 'react'
-import { AimOutlined, SearchOutlined, UsergroupAddOutlined } from '@ant-design/icons'
+import { AimOutlined, SearchOutlined, UsergroupAddOutlined, ContainerOutlined } from '@ant-design/icons'
 import { Button } from 'antd'
 import { SelectBox, SelectedItem } from 'lib/components/SelectBox'
 import { useActions, useValues } from 'kea'
@@ -10,6 +10,7 @@ import { ActionInfo } from 'scenes/insights/ActionFilter/ActionFilterDropdown'
 import { sessionsFiltersLogic } from 'scenes/sessions/sessionsFiltersLogic'
 import { Link } from 'lib/components/Link'
 import { cohortsModel } from '~/models/cohortsModel'
+import { userLogic } from 'scenes/userLogic'
 
 interface Props {
     i?: boolean
@@ -19,6 +20,7 @@ export function SessionsFilterBox({}: Props): JSX.Element {
     const { openFilter } = useValues(sessionsFiltersLogic)
     const { openFilterSelect, closeFilterSelect, dropdownSelected } = useActions(sessionsFiltersLogic)
 
+    const { user } = useValues(userLogic)
     const { actions } = useValues(actionsModel)
     const { cohorts } = useValues(cohortsModel)
 
@@ -55,6 +57,41 @@ export function SessionsFilterBox({}: Props): JSX.Element {
                             type: 'action_type',
                             getValue: (item: SelectedItem) => item.action?.id,
                             getLabel: (item: SelectedItem) => item.action?.name,
+                        },
+                        {
+                            name: (
+                                <>
+                                    <ContainerOutlined /> Events
+                                </>
+                            ),
+                            dataSource:
+                                user?.team?.event_names_with_usage.map((event) => ({
+                                    key: EntityTypes.EVENTS + event.event,
+                                    name: event.event,
+                                    ...event,
+                                })) || [],
+                            renderInfo: function events({ item }) {
+                                return (
+                                    <>
+                                        <ContainerOutlined /> Events
+                                        <br />
+                                        <h3>{item.name}</h3>
+                                        {item?.volume && (
+                                            <>
+                                                Seen <strong>{item.volume}</strong> times.{' '}
+                                            </>
+                                        )}
+                                        {item?.usage_count && (
+                                            <>
+                                                Used in <strong>{item.usage_count}</strong> queries.
+                                            </>
+                                        )}
+                                    </>
+                                )
+                            },
+                            type: 'event_type',
+                            getValue: (item: SelectedItem) => item.event,
+                            getLabel: (item: SelectedItem) => item.event,
                         },
                         {
                             name: (
