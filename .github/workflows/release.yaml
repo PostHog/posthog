@@ -1,0 +1,59 @@
+name: 'Release'
+
+on:
+    push:
+        branches:
+            - main
+            - master
+
+jobs:
+    release:
+        name: Bake a Release
+        runs-on: ubuntu-20.04
+
+        steps:
+            - name: Checkout the repository
+              uses: actions/checkout@v2
+              with:
+                  fetch-depth: 0
+
+            - name: Get package version
+              id: version
+              run: |
+                  PACKAGE_VERSION=$(node -p "require('./package.json').version")
+                  PACKAGE_VERSION_TAG="v$PACKAGE_VERSION"
+                  if git rev-parse "$PACKAGE_VERSION_TAG"; then
+                    IS_NEW_VERSION=false
+                  else
+                    IS_NEW_VERSION=true
+                  fi
+                  echo "PACKAGE_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
+                  echo "PACKAGE_VERSION_TAG=$PACKAGE_VERSION_TAG" >> $GITHUB_ENV
+                  echo "IS_NEW_VERSION=$IS_NEW_VERSION" >> $GITHUB_ENV
+                  echo "::set-output name=IS_NEW_VERSION::$IS_NEW_VERSION"
+
+            - name: Set up Node 14
+              if: steps.version.outputs.IS_NEW_VERSION == 'true'
+              uses: actions/setup-node@v2
+              with:
+                  node-version: 14
+                  registry-url: https://registry.npmjs.org
+
+            - name: Install dependencies
+              if: steps.version.outputs.IS_NEW_VERSION == 'true'
+              run: yarn --frozen-lockfile
+
+            - name: Publish the package in the npm registry
+              if: steps.version.outputs.IS_NEW_VERSION == 'true'
+              run: yarn publish --access public
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+            - name: Create GitHub release
+              if: steps.version.outputs.IS_NEW_VERSION == 'true'
+              uses: actions/create-release@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  tag_name: ${{ env.PACKAGE_VERSION_TAG }}
+                  release_name: ${{ env.PACKAGE_VERSION }}
