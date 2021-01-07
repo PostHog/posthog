@@ -1,6 +1,11 @@
 from typing import Any, Dict, List, Optional, Union
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import (
+    SESSIONS_FILTER_ACTION_TYPE,
+    SESSIONS_FILTER_EVENT_TYPE,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_EVENTS,
+)
 from posthog.models.filters.mixins.property import PropertyMixin
 
 from .property import Property

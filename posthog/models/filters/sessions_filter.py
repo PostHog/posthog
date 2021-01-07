@@ -8,10 +8,11 @@ from posthog.models.filters.mixins.sessions import (
     DistinctIdMixin,
     DurationMixin,
     DurationOperatorMixin,
+    SessionsFiltersMixin,
 )
 
 
-class SessionsFilter(ActionFilterMixin, DurationMixin, DurationOperatorMixin, DistinctIdMixin, Filter):
+class SessionsFilter(SessionsFiltersMixin, DurationMixin, DurationOperatorMixin, DistinctIdMixin, Filter):
     def __init__(self, data: Dict[str, Any] = {}, request: Optional[HttpRequest] = None, **kwargs) -> None:
         super().__init__(data, request, **kwargs)
 
