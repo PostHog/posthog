@@ -63,7 +63,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         firstRecordingId,
         actionFilter,
     } = useValues(logic)
-    const { fetchNextSessions, previousDay, nextDay, setFilters, updateActionFilter } = useActions(logic)
+    const { fetchNextSessions, previousDay, nextDay, setFilters, updateActionFilter, applyFilters } = useActions(logic)
     const { user } = useValues(userLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -192,7 +192,6 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 <SessionsFilterBox />
             </Space>
 
-
             {featureFlags['filter_by_session_props'] && user?.is_multi_tenancy && (
                 <SessionActionFilters actionFilter={actionFilter} updateActionFilter={updateActionFilter} />
             )}
@@ -205,7 +204,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             )}
             <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
 
-            <SessionsEditFiltersPanel />
+            <SessionsEditFiltersPanel onSubmit={applyFilters} />
 
             <div className="text-right mb">
                 <Tooltip title={playAllCTA}>

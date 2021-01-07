@@ -8,6 +8,7 @@ export const sessionsFiltersLogic = kea<sessionsFiltersLogicType<SessionsPropert
     actions: () => ({
         openFilterSelect: (selector: FilterSelector) => ({ selector }),
         closeFilterSelect: true,
+        setAllFilters: (filters: Array<SessionsPropertyFilter>) => ({ filters }),
         updateFilter: (property: SessionsPropertyFilter, selector: FilterSelector) => ({ property, selector }),
         removeFilter: (selector: number) => ({ selector }),
         dropdownSelected: (type: SessionsPropertyFilter['type'], id: string | number, label: string) => ({
@@ -20,6 +21,7 @@ export const sessionsFiltersLogic = kea<sessionsFiltersLogicType<SessionsPropert
         filters: [
             [] as Array<SessionsPropertyFilter>,
             {
+                setAllFilters: (_, { filters }) => filters,
                 updateFilter: (state, { property, selector }) => {
                     if (selector === 'new') {
                         return [...state, property]

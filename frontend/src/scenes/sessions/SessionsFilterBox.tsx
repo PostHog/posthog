@@ -12,11 +12,7 @@ import { Link } from 'lib/components/Link'
 import { cohortsModel } from '~/models/cohortsModel'
 import { userLogic } from 'scenes/userLogic'
 
-interface Props {
-    i?: boolean
-}
-
-export function SessionsFilterBox({}: Props): JSX.Element {
+export function SessionsFilterBox(): JSX.Element {
     const { openFilter } = useValues(sessionsFiltersLogic)
     const { openFilterSelect, closeFilterSelect, dropdownSelected } = useActions(sessionsFiltersLogic)
 
@@ -32,7 +28,6 @@ export function SessionsFilterBox({}: Props): JSX.Element {
             >
                 <SearchOutlined />
                 <span className="text-muted">Search for users, events, actions...</span>
-                {/* <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} /> */}
             </Button>
             {openFilter !== null && (
                 <SelectBox

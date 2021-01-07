@@ -3,9 +3,10 @@ import api from 'lib/api'
 import moment from 'moment'
 import { toParams } from 'lib/utils'
 import { sessionsTableLogicType } from 'types/scenes/sessions/sessionsTableLogicType'
-import { EntityWithProperties, PropertyFilter, SessionType } from '~/types'
+import { EntityWithProperties, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
 import { eventWithTime } from 'rrweb/typings/types'
+import { sessionsFiltersLogic } from 'scenes/sessions/sessionsFiltersLogic'
 
 type Moment = moment.Moment
 
@@ -17,6 +18,7 @@ interface Params {
     duration?: any
     sessionRecordingId?: SessionRecordingId
     actionFilter?: EntityWithProperties
+    filters?: Array<SessionsPropertyFilter>
 }
 
 export type RecordingDurationFilter = ['lt' | 'gt', number | null, 's' | 'm' | 'h']
@@ -35,6 +37,10 @@ export const sessionsTableLogic = kea<
     props: {} as {
         personIds?: string[]
     },
+    connect: {
+        values: [sessionsFiltersLogic, ['filters']],
+        actions: [sessionsFiltersLogic, ['setAllFilters']],
+    },
     loaders: ({ actions, values, props }) => ({
         sessions: {
             __default: [] as SessionType[],
@@ -45,6 +51,7 @@ export const sessionsTableLogic = kea<
                     date_to: selectedDateURLparam,
                     offset: 0,
                     distinct_id: props.personIds ? props.personIds[0] : '',
+                    filters: values.filters,
                     properties: values.properties,
                     action_filter: values.actionFilter || undefined,
                     ...values.durationFilter,
@@ -65,6 +72,7 @@ export const sessionsTableLogic = kea<
         appendNewSessions: (sessions) => ({ sessions }),
         previousDay: true,
         nextDay: true,
+        applyFilters: true,
         setFilters: (
             properties: Array<PropertyFilter>,
             selectedDate: Moment | null,
@@ -161,6 +169,10 @@ export const sessionsTableLogic = kea<
         updateActionFilter: ({ actionFilter }) => {
             actions.setFilters(values.properties, values.selectedDate, values.duration, actionFilter)
         },
+        applyFilters: () => {
+            actions.setNextOffset(null)
+            actions.loadSessions(true)
+        },
         setFilters: () => {
             actions.setNextOffset(null)
             actions.loadSessions(true)
@@ -194,6 +206,7 @@ export const sessionsTableLogic = kea<
                 duration: values.duration || undefined,
                 sessionRecordingId: values.sessionRecordingId || undefined,
                 actionFilter: values.actionFilter || undefined,
+                filters: values.filters,
                 ...overrides,
             }
 
@@ -202,6 +215,7 @@ export const sessionsTableLogic = kea<
 
         return {
             setFilters: () => buildURL(),
+            loadSessions: () => buildURL(),
             setSessionRecordingId: () => buildURL(),
             closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),
         }
@@ -229,6 +243,10 @@ export const sessionsTableLogic = kea<
 
             if (params.sessionRecordingId && params.sessionRecordingId !== values.sessionRecordingId) {
                 actions.setSessionRecordingId(params.sessionRecordingId)
+            }
+
+            if (JSON.stringify(params.filters || {}) !== JSON.stringify(values.filters)) {
+                actions.setAllFilters(params.filters || [])
             }
         },
     }),

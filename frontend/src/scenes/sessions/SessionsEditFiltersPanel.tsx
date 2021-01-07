@@ -2,13 +2,13 @@ import React from 'react'
 import { Button, Card, Col, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { sessionsFiltersLogic } from 'scenes/sessions/sessionsFiltersLogic'
-import { DownOutlined } from '@ant-design/icons'
+import { DownOutlined, PlusCircleOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
 import { EventPropertyFilter } from 'scenes/sessions/EventPropertyFilter'
 import { EventTypePropertyFilter } from '~/types'
 
 interface Props {
-    i?: boolean
+    onSubmit: () => void
 }
 
 const SECTIONS: Record<string, { label: string; description: string }> = {
@@ -26,14 +26,12 @@ const SECTIONS: Record<string, { label: string; description: string }> = {
     },
 }
 
-export function SessionsEditFiltersPanel({}: Props): JSX.Element {
+export function SessionsEditFiltersPanel({ onSubmit }: Props): JSX.Element {
     const { displayedFilters } = useValues(sessionsFiltersLogic)
     const { openFilterSelect, removeFilter } = useActions(sessionsFiltersLogic)
 
     return (
         <Card>
-            {/* <pre>{JSON.stringify(displayedFilters, null, 2)}</pre> */}
-
             {Object.entries(displayedFilters).map(([key, filters]) => (
                 <div key={key}>
                     <div className="sessions-filter-title">
@@ -66,8 +64,17 @@ export function SessionsEditFiltersPanel({}: Props): JSX.Element {
                 </div>
             ))}
 
-            <Button onClick={() => openFilterSelect('new')}>+</Button>
-            <Button className="float-right">close</Button>
+            <div style={{ marginBottom: 8 }}>
+                <Button onClick={() => openFilterSelect('new')}>
+                    <PlusCircleOutlined />
+                </Button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+                <Button type="primary" onClick={onSubmit}>
+                    Apply filters
+                </Button>
+            </div>
         </Card>
     )
 }
