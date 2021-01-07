@@ -163,7 +163,7 @@ interface BasePropertyFilter {
     label?: string
 }
 
-type PropertyOperator = undefined | 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex' | 'gt' | 'lt' | 'is_set' | 'is_not_set'
+export type PropertyOperator = undefined | 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex' | 'gt' | 'lt' | 'is_set' | 'is_not_set'
 
 interface EventPropertyFilter extends BasePropertyFilter {
     type: 'event'

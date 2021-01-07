@@ -9,6 +9,7 @@ import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { Link } from '../Link'
 import { PropertySelect } from './PropertySelect'
+import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorSelect'
 
 const { TabPane } = Tabs
 
@@ -70,59 +71,18 @@ function PropertyPaneContents({
                         optionGroups={optionGroups}
                     />
                 </Col>
+
                 {displayOperatorAndValue && (
-                    <Col flex={1}>
-                        <Select
-                            style={{ width: '100%' }}
-                            defaultActiveFirstOption
-                            labelInValue
-                            value={{
-                                value: operator || '=',
-                                label: operatorMap[operator || 'exact'],
-                            }}
-                            placeholder="Property key"
-                            onChange={(_, newOperator) => {
-                                let newValue = value
-                                if (isOperatorFlag(newOperator.value)) {
-                                    // change value to induce reload
-                                    newValue = newOperator.value
-                                    onComplete()
-                                } else {
-                                    // clear value if switching from nonparametric (flag) to parametric
-                                    if (isOperatorFlag(operator)) {
-                                        newValue = undefined
-                                    }
-                                }
-                                setThisFilter(propkey, newValue, newOperator.value, type)
-                            }}
-                        >
-                            {Object.keys(operatorMap).map((operator) => (
-                                <Select.Option key={operator} value={operator}>
-                                    {operatorMap[operator || 'exact']}
-                                </Select.Option>
-                            ))}
-                        </Select>
-                    </Col>
-                )}
-                {displayOperatorAndValue && !isOperatorFlag(operator) && (
-                    <Col flex={1}>
-                        <PropertyValue
-                            type={type}
-                            key={propkey}
-                            propertyKey={propkey}
-                            operator={operator}
-                            value={value}
-                            onSet={(value) => {
-                                onComplete()
-                                setThisFilter(propkey, value, operator, type)
-                            }}
-                        />
-                        {(operator === 'gt' || operator === 'lt') && isNaN(value) && (
-                            <p className="text-danger">
-                                Value needs to be a number. Try "equals" or "contains" instead.
-                            </p>
-                        )}
-                    </Col>
+                    <OperatorValueSelect
+                        type={type}
+                        key={propkey}
+                        operator={operator}
+                        value={value}
+                        onChange={(newOperator, newValue) => {
+                            onComplete()
+                            setThisFilter(propkey, newValue, newOperator, type)
+                        }}
+                    />
                 )}
             </Row>
         </>
