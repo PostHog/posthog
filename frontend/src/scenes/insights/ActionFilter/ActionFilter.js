@@ -1,12 +1,11 @@
 import './ActionFilter.scss'
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { entityFilterLogic } from './entityFilterLogic'
+import { entityFilterLogic, toFilters } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import { sortableContainer, sortableElement, sortableHandle } from 'react-sortable-hoc'
-import { EntityTypes } from 'scenes/insights/trendsLogic'
 
 const DragHandle = sortableHandle(() => <span className="action-filter-drag-handle">::</span>)
 const SortableActionFilterRow = sortableElement(({ logic, filter, filterIndex, hideMathSelector }) => (
@@ -52,7 +51,7 @@ export function ActionFilter({
             Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
             return clone.map((child, order) => ({ ...child, order }))
         }
-        setFilters({ [EntityTypes.ACTIONS]: move(filters[EntityTypes.ACTIONS], oldIndex, newIndex) })
+        setFilters(toFilters(move(localFilters, oldIndex, newIndex)))
     }
 
     return (

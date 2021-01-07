@@ -3,7 +3,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { EntityTypes } from '../trendsLogic'
 import { userLogic } from 'scenes/userLogic'
 
-function toLocalFilters(filters) {
+export function toLocalFilters(filters) {
     return [
         ...(filters[EntityTypes.ACTIONS] || []),
         ...(filters[EntityTypes.EVENTS] || []),
@@ -13,7 +13,7 @@ function toLocalFilters(filters) {
         .map((filter, order) => ({ ...filter, order }))
 }
 
-function toFilters(localFilters) {
+export function toFilters(localFilters) {
     const filters = localFilters.map((filter, index) => ({
         ...filter,
         order: index,
