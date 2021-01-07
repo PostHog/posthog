@@ -11,7 +11,7 @@ from django.utils import timezone
 from posthog.celery import update_cache_item_task
 from posthog.decorators import CacheType
 from posthog.models import Action, ActionStep, DashboardItem, Filter, Team
-from posthog.models.filters.filter import get_filter
+from posthog.models.filters.utils import get_filter
 from posthog.queries.funnel import Funnel
 from posthog.queries.trends import Trends
 from posthog.settings import CACHED_RESULTS_TTL

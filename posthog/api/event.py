@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Prefetch, QuerySet
+from django.utils import timezone
 from django.utils.timezone import now
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -19,7 +20,7 @@ from posthog.models.event import EventManager
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.session_recording import SessionRecording
-from posthog.utils import convert_property_value, flatten
+from posthog.utils import convert_property_value, flatten, relative_date_parse
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -212,6 +213,9 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             where = ""
 
         params.append(self.team_id)
+        params.append(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
+        params.append(timezone.now().strftime("%Y-%m-%d 23:59:59"))
+
         # This samples a bunch of events with that property, and then orders them by most popular in that sample
         # This is much quicker than trying to do this over the entire table
         values = Event.objects.raw(
@@ -225,7 +229,9 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     "posthog_event"
                 WHERE
                     ("posthog_event"."properties" -> %s) IS NOT NULL {} AND
-                    ("posthog_event"."team_id" = %s)
+                    ("posthog_event"."team_id" = %s) AND
+                    ("posthog_event"."timestamp" >= %s) AND
+                    ("posthog_event"."timestamp" <= %s)
                 LIMIT 10000
             ) as "value"
             GROUP BY value

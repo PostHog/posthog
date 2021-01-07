@@ -12,6 +12,7 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.element import Element
 from posthog.models.event import Event
 from posthog.models.session_recording_event import SessionRecordingEvent
+from posthog.models.utils import UUIDT
 from posthog.tasks.test.test_process_event import test_process_event_factory
 
 
@@ -50,6 +51,7 @@ def _process_event_ee(
         team_id=team_id,
         now=parser.isoparse(now),
         sent_at=parser.isoparse(sent_at) if sent_at else None,
+        event_uuid=UUIDT(),
     )
 
 

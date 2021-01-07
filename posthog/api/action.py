@@ -178,10 +178,11 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         filter = Filter(request=request)
         if filter.shown_as == TRENDS_STICKINESS:
-            filter = StickinessFilter(
-                request=request, team=team, get_earliest_timestamp=Event.objects.earliest_timestamp
+            earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
+            stickiness_filter = StickinessFilter(
+                request=request, team=team, get_earliest_timestamp=earliest_timestamp_func
             )
-            result = stickiness.Stickiness().run(filter, team)
+            result = stickiness.Stickiness().run(stickiness_filter, team)
         else:
             result = trends.Trends().run(filter, team)
 
@@ -196,14 +197,15 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         properties = request.GET.get("properties", "{}")
 
-        filter = RetentionFilter(data={"properties": json.loads(properties)})
-
+        data = {"properties": json.loads(properties)}
         start_entity_data = request.GET.get("start_entity", None)
         if start_entity_data:
-            data = json.loads(start_entity_data)
-            filter.entities = [Entity({"id": data["id"], "type": data["type"]})]
+            entity_data = json.loads(start_entity_data)
+            data.update({"entites": [Entity({"id": entity_data["id"], "type": entity_data["type"]})]})
 
-        filter._date_from = "-11d"
+        data.update({"date_from": "-11d"})
+        filter = RetentionFilter(data=data)
+
         result = retention.Retention().run(filter, team)
         return Response({"data": result})
 

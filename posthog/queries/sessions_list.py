@@ -3,10 +3,11 @@ from typing import Any, Dict, List
 from dateutil.relativedelta import relativedelta
 from django.db import connection
 from django.db.models import Q, QuerySet
+from django.db.models.query import Prefetch
 from django.utils.timezone import now
 
 from posthog.api.element import ElementSerializer
-from posthog.models import ElementGroup, Event, Team
+from posthog.models import Element, ElementGroup, Event, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.session_recording import filter_sessions_by_recordings
 from posthog.queries.sessions import BaseSessions, Query, QueryParams
@@ -98,23 +99,20 @@ class SessionsList(BaseSessions):
 
             for session in sessions:
                 for event in session["events"]:
-                    try:
-                        event.update(
-                            {
-                                "elements": ElementSerializer(
-                                    [group for group in groups if group.hash == event["elements_hash"]][0]
-                                    .element_set.all()
-                                    .order_by("order"),
-                                    many=True,
-                                ).data
-                            }
-                        )
-                    except IndexError:
+                    element_group = groups.get(event["elements_hash"])
+                    if element_group:
+                        event.update({"elements": ElementSerializer(element_group.element_set, many=True,).data})
+                    else:
                         event.update({"elements": []})
+
         return filter_sessions_by_recordings(team, sessions, filter)
 
-    def _prefetch_elements(self, hash_ids: List[str], team: Team) -> QuerySet:
-        groups = ElementGroup.objects.none()
+    def _prefetch_elements(self, hash_ids: List[str], team: Team) -> Dict[str, ElementGroup]:
         if len(hash_ids) > 0:
-            groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related("element_set")
-        return groups
+            groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related(
+                Prefetch("element_set", queryset=Element.objects.order_by("order"))
+            )
+
+            return {group.hash: group for group in groups}
+        else:
+            return {}

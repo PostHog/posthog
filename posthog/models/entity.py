@@ -1,8 +1,9 @@
 from typing import Any, Dict, List, Optional, Union
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.models.filters.mixins.property import PropertyMixin
 
-from .property import Property, PropertyMixin
+from .property import Property
 
 
 class Entity(PropertyMixin):
@@ -18,7 +19,6 @@ class Entity(PropertyMixin):
     name: Optional[str]
     math: Optional[str]
     math_property: Optional[str]
-    properties: List[Property]
 
     def __init__(self, data: Dict[str, Any]) -> None:
         self.id = data["id"]
@@ -32,7 +32,8 @@ class Entity(PropertyMixin):
         self.name = data.get("name")
         self.math = data.get("math")
         self.math_property = data.get("math_property")
-        self.properties = self._parse_properties(data.get("properties"))
+
+        self._data = data  # push data to instance object so mixins are handled properly
         if self.type == TREND_FILTER_TYPE_EVENTS and not self.name:
             # It won't be an int if it's an event, but mypy...
             self.name = str(self.id)

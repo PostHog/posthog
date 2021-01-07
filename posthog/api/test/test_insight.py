@@ -67,6 +67,7 @@ def insight_test_factory(event_factory, person_factory):
                     "filters": {
                         "events": [{"id": "$pageview"}],
                         "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                        "date_from": "-90d",
                     },
                 },
                 content_type="application/json",
@@ -75,6 +76,7 @@ def insight_test_factory(event_factory, person_factory):
             response = DashboardItem.objects.all()
             self.assertEqual(len(response), 1)
             self.assertEqual(response[0].filters["events"][0]["id"], "$pageview")
+            self.assertEqual(response[0].filters["date_from"], "-90d")
 
         # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 

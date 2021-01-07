@@ -15,6 +15,7 @@ from posthog.api.insight import InsightViewSet
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_SESSIONS, TRENDS_STICKINESS
 from posthog.models import Event
 from posthog.models.filters import Filter
+from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -28,8 +29,11 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         filter = Filter(request=request)
 
         if filter.shown_as == TRENDS_STICKINESS:
-            filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=get_earliest_timestamp)
-            result = ClickhouseStickiness().run(filter, team)
+            earliest_timestamp_func = lambda team_id: get_earliest_timestamp(team_id)
+            stickiness_filter = StickinessFilter(
+                request=request, team=team, get_earliest_timestamp=earliest_timestamp_func
+            )
+            result = ClickhouseStickiness().run(stickiness_filter, team)
         else:
             result = ClickhouseTrends().run(filter, team)
 
@@ -40,7 +44,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     @action(methods=["GET"], detail=False)
     def session(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         response = ClickhouseSessions().run(
-            team=self.team, filter=Filter(request=request, data={"insight": INSIGHT_SESSIONS})
+            team=self.team, filter=SessionsFilter(request=request, data={"insight": INSIGHT_SESSIONS})
         )
 
         return Response({"result": response,})
@@ -49,7 +53,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     def path(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
         team = self.team
-        filter = Filter(request=request, data={"insight": INSIGHT_PATHS})
+        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
         resp = ClickhousePaths().run(filter=filter, team=team)
         return Response(resp)
 

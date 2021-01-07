@@ -89,6 +89,10 @@
                 {
                     "name": "PLUGINS_CLOUD_WHITELISTED_ORG_IDS",
                     "value": "4dc8564d-bd82-1065-2f40-97f7c50f67cf,57543eee-fe77-11ea-b810-0902baec2d39"
+                },
+                {
+                    "name": "EMAIL_DEFAULT_FROM",
+                    "value": "hey@posthog.com"
                 }
             ],
             "secrets": [

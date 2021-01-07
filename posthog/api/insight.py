@@ -15,9 +15,10 @@ from posthog.api.user import UserSerializer
 from posthog.celery import update_cache_item_task
 from posthog.constants import FROM_DASHBOARD, INSIGHT, INSIGHT_FUNNELS, INSIGHT_PATHS, TRENDS_STICKINESS
 from posthog.decorators import CacheType, cached_function
-from posthog.models import DashboardItem, Event, Person, Team
+from posthog.models import DashboardItem, Event, Filter, Person, Team
+from posthog.models.action import Action
 from posthog.models.filters import Filter, RetentionFilter
-from posthog.models.filters.filter import get_filter
+from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
@@ -149,10 +150,11 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         filter = Filter(request=request)
         if filter.shown_as == TRENDS_STICKINESS:
-            filter = StickinessFilter(
-                request=request, team=team, get_earliest_timestamp=Event.objects.earliest_timestamp
+            earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
+            stickiness_filter = StickinessFilter(
+                request=request, team=team, get_earliest_timestamp=earliest_timestamp_func
             )
-            result = stickiness.Stickiness().run(filter, team)
+            result = stickiness.Stickiness().run(stickiness_filter, team)
         else:
             result = trends.Trends().run(filter, team)
 
@@ -233,9 +235,10 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @cached_function()
     def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
-        filter = RetentionFilter(request=request)
-        if not filter.date_from:
-            filter._date_from = "-11d"
+        data = {}
+        if not request.GET.get("date_from"):
+            data.update({"date_from": "-11d"})
+        filter = RetentionFilter(data=data, request=request)
         result = retention.Retention().run(filter, team)
         return result
 
@@ -254,7 +257,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @cached_function()
     def calculate_path(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
-        filter = Filter(request=request, data={"insight": INSIGHT_PATHS})
+        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
         resp = paths.Paths().run(filter=filter, team=team)
         return resp
 

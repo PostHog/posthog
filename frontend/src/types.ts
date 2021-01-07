@@ -1,5 +1,5 @@
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { PluginConfigSchema } from 'posthog-plugins'
+import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 export interface UserType {
     anonymize_data: boolean
@@ -161,7 +161,11 @@ export interface Entity {
     id: string | number
     name: string
     order: number
-    type: string
+    type: 'actions' | 'events'
+}
+
+export interface EntityWithProperties extends Entity {
+    properties: Record<string, any>
 }
 
 export interface PersonType {

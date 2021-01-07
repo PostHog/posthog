@@ -223,6 +223,7 @@ def demo(request):
     user.save()
     if "$pageview" not in team.event_names:
         team.event_names.append("$pageview")
+        team.event_names_with_usage.append({"event": "$pageview", "usage_count": None, "volume": None})
         team.save()
 
     if is_ee_enabled():

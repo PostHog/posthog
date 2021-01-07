@@ -6,6 +6,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Event, Filter
+from posthog.models.filters.path_filter import PathFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths
 from posthog.utils import dict_from_cursor_fetchall, request_to_date_query
@@ -47,7 +48,7 @@ class PathsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     def get_list(self, request):
         team = self.team
         date_query = request_to_date_query(request.GET, exact=False)
-        filter = Filter(request=request)
+        filter = PathFilter(request=request)
         start_point = request.GET.get("start")
         request_type = request.GET.get("type", None)
         resp = paths.Paths().run(

@@ -139,7 +139,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                         "date_to": self._date(10, hour=6),
                         RETENTION_TYPE: RETENTION_FIRST_TIME,
                         "target_entity": target_entity,
-                        "events": [{"id": "$pageview", "type": "events"},],
+                        "returning_entity": {"id": "$pageview", "type": "events"},
                         "selected_interval": 1,
                     }
                 ),
@@ -155,7 +155,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                         "date_to": self._date(14, hour=6),
                         RETENTION_TYPE: RETENTION_FIRST_TIME,
                         "target_entity": target_entity,
-                        "events": [{"id": "$pageview", "type": "events"},],
+                        "returning_entity": {"id": "$pageview", "type": "events"},
                         "selected_interval": 1,
                     }
                 ),
@@ -250,7 +250,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                     data={
                         "date_to": self._date(6, hour=6),
                         "target_entity": target_entity,
-                        "events": [{"id": "$pageview", "type": "events"},],
+                        "returning_entity": {"id": "$pageview", "type": "events"},
                         "total_intervals": 7,
                     }
                 ),
@@ -294,7 +294,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                     data={
                         "date_to": self._date(6, hour=0),
                         "target_entity": start_entity,
-                        "events": [{"id": some_event, "type": TREND_FILTER_TYPE_EVENTS},],
+                        "returning_entity": {"id": some_event, "type": TREND_FILTER_TYPE_EVENTS},
                         "total_intervals": 7,
                     }
                 ),
@@ -371,7 +371,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                         "date_to": self._date(5, hour=6),
                         RETENTION_TYPE: RETENTION_FIRST_TIME,
                         "target_entity": target_entity,
-                        "events": [{"id": "$pageview", "type": "events"},],
+                        "returning_entity": {"id": "$pageview", "type": "events"},
                         "total_intervals": 7,
                     }
                 ),
