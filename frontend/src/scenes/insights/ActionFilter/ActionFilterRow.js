@@ -300,6 +300,7 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
             defaultValue={'total'}
             value={math}
             onChange={(value) => onMathSelect(index, value)}
+            data-attr={`math-selector-${index}`}
         >
             <Select.OptGroup key="event aggregates" label="Event aggregation">
                 {EVENT_MATH_ENTRIES.map(([key, { name, description, onProperty }]) => {
