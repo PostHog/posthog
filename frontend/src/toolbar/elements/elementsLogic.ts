@@ -10,6 +10,7 @@ import { ActionStepType, ActionType } from '~/types'
 import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { posthog } from '~/toolbar/posthog'
 import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
@@ -367,9 +368,13 @@ export const elementsLogic = kea<
         },
     }),
 
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         enableInspect: () => {
+            posthog.capture('toolbar mode triggered', { mode: 'inspect', enabled: true })
             actionsLogic.actions.getActions()
+        },
+        disableInspect: () => {
+            posthog.capture('toolbar mode triggered', { mode: 'inspect', enabled: false })
         },
         selectElement: ({ element }) => {
             const inpsectForAction =
@@ -383,6 +388,39 @@ export const elementsLogic = kea<
             } else {
                 actions.setSelectedElement(element)
             }
+
+            const { inspectEnabled, heatmapEnabled, enabledLast, selectedElementMeta } = values
+            const { buttonActionsVisible: actionsEnabled } = actionsTabLogic.values
+
+            // Get list of data-* attributes in the element
+            const data_attributes = []
+            if (element?.attributes) {
+                for (let i = 0; i < element.attributes.length; i++) {
+                    const name = element.attributes.item(i)?.nodeName
+                    console.log(element.attributes.item(i), name)
+                    if (name && name.indexOf('data-') > -1) {
+                        data_attributes.push(name)
+                    }
+                }
+            }
+
+            posthog.capture('toolbar selected HTML element', {
+                element_tag: element?.tagName.toLowerCase(),
+                element_type: (element as HTMLInputElement)?.type,
+                has_href: !!(element as HTMLAnchorElement)?.href,
+                has_class: !!element?.className,
+                has_id: !!element?.id,
+                has_name: !!(element as HTMLInputElement)?.name,
+                has_data_attr: data_attributes.includes('data-attr'),
+                data_attributes: data_attributes,
+                attribute_length: element?.attributes.length,
+                inspect_enabled: inspectEnabled,
+                heatmap_enabled: heatmapEnabled,
+                actions_enabled: actionsEnabled,
+                enabled_last: enabledLast,
+                heatmap_count: heatmapEnabled ? selectedElementMeta?.count || 0 : undefined,
+                actions_count: actionsEnabled ? selectedElementMeta?.actions.length : undefined,
+            })
         },
         createAction: ({ element }) => {
             actionsTabLogic.actions.showButtonActions()

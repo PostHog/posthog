@@ -9,6 +9,7 @@ import { Flag } from '~/toolbar/button/icons/Flag'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
 import { Stats } from '~/toolbar/button/icons/Stats'
+import { posthog } from '~/toolbar/posthog'
 
 export function DraggableButton(): JSX.Element {
     const {
@@ -39,6 +40,7 @@ export function DraggableButton(): JSX.Element {
                     saveDragPosition(x, y)
                 }}
                 onStop={(_, { x, y }) => {
+                    posthog.capture('toolbar dragged', { x, y })
                     saveDragPosition(x, y)
                 }}
             >
