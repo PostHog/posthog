@@ -64,10 +64,18 @@ jobs:
               if: steps.version.outputs.IS_NEW_VERSION == 'true'
               run: yarn --frozen-lockfile
 
+            - name: Initiate database for tests
+              env:
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  REDIS_URL: 'redis://localhost'
+              run: yarn task:init-test-db
+
             - name: Publish the package in the npm registry
               if: steps.version.outputs.IS_NEW_VERSION == 'true'
               run: yarn publish --access public
               env:
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  REDIS_URL: 'redis://localhost'
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
             - name: Create GitHub release
