@@ -157,6 +157,45 @@ export interface PropertyFilter {
     value: string | number
 }
 
+interface BasePropertyFilter {
+    key: string,
+    value: string | number
+    label?: string
+}
+
+type PropertyOperator = undefined | 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex' | 'gt' | 'lt' | 'is_set' | 'is_not_set'
+
+interface EventPropertyFilter extends BasePropertyFilter {
+    type: 'event'
+    operator: PropertyOperator
+}
+
+interface PersonPropertyFilter extends BasePropertyFilter {
+    type: 'person'
+    operator: PropertyOperator
+}
+
+interface CohortPropertyFilter extends BasePropertyFilter {
+    type: 'cohort'
+}
+
+interface RecordingPropertyFilter extends BasePropertyFilter {
+    type: 'recording'
+    operator: 'lt' | 'gt'
+}
+
+interface ActionTypePropertyFilter extends BasePropertyFilter {
+    type: 'action_type'
+}
+
+
+interface EventTypePropertyFilter extends BasePropertyFilter {
+    type: 'event_type'
+    properties?: Array<EventPropertyFilter>
+}
+
+export type SessionsPropertyFilter = PersonPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | ActionTypePropertyFilter | EventTypePropertyFilter
+
 export interface Entity {
     id: string | number
     name: string

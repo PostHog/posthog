@@ -2,16 +2,15 @@ import { kea } from 'kea'
 import { sessionsFiltersLogicType } from 'types/scenes/sessions/sessionsFiltersLogicType'
 import { SessionsPropertyFilter } from '~/types'
 
-type NewFilter = 'new'
-type FilterSelector = number | NewFilter
+type FilterSelector = number | 'new'
 
-export const sessionsFiltersLogic = kea<sessionsFiltersLogicType<SessionsPropertyFilter>>({
+export const sessionsFiltersLogic = kea<sessionsFiltersLogicType<SessionsPropertyFilter, FilterSelector>>({
     actions: () => ({
         openFilterSelect: (selector: FilterSelector) => ({ selector }),
         closeFilterSelect: true,
         updateFilter: (property: SessionsPropertyFilter, selector: FilterSelector) => ({ property, selector }),
         removeFilter: (selector: number) => ({ selector }),
-        dropdownSelected: (type: SessionsPropertyFilter['type'], id: string) => ({ type, id })
+        dropdownSelected: (type: SessionsPropertyFilter['type'], id: string | number, label: string) => ({ type, id, label })
     }),
     reducers: {
         filters: [
@@ -27,7 +26,7 @@ export const sessionsFiltersLogic = kea<sessionsFiltersLogicType<SessionsPropert
                 },
                 removeFilter: (state, { selector }) => {
                     const newState = [...state]
-                    newState.splice(selector)
+                    newState.splice(selector, 1)
                     return newState
                 }
             }
@@ -55,10 +54,11 @@ export const sessionsFiltersLogic = kea<sessionsFiltersLogicType<SessionsPropert
         ]
     },
     listeners: ({ actions, values }) => ({
-        dropdownSelected: ({ type, id }) => {
-            if (values.openFilter) {
-                // let property: SessionsPropertyFilter
-                // actions.updateFilter(property, values.openFilter)
+        dropdownSelected: ({ type, id, label }) => {
+            if (values.openFilter !== null) {
+                if (type === 'action_type') {
+                    actions.updateFilter({ type, value: id, key: 'id', label }, values.openFilter)
+                }
             }
         }
     })
