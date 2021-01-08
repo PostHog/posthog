@@ -10,6 +10,7 @@ import { actionsTabLogicType } from 'types/toolbar/actions/actionsTabLogicType'
 import { ActionType } from '~/types'
 import { ActionForm, AntdFieldData } from '~/toolbar/types'
 import { FormInstance } from 'antd/es/form'
+import { posthog } from '~/toolbar/posthog'
 
 function newAction(element: HTMLElement | null): Partial<ActionType> {
     return {
@@ -218,9 +219,11 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, A
         },
         showButtonActions: () => {
             actionsLogic.actions.getActions()
+            posthog.capture('toolbar mode triggered', { mode: 'actions', enabled: true })
         },
         hideButtonActions: () => {
             actions.setShowActionsTooltip(false)
+            posthog.capture('toolbar mode triggered', { mode: 'actions', enabled: false })
         },
         [actionsLogic.actionTypes.getActionsSuccess]: () => {
             const { userIntent } = toolbarLogic.values

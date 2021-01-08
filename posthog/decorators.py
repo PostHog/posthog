@@ -18,6 +18,10 @@ from .utils import generate_cache_key
 class CacheType(str, Enum):
     TRENDS = "Trends"
     FUNNEL = "Funnel"
+    RETENTION = "Retention"
+    SESSION = "Session"
+    STICKINESS = "Stickiness"
+    PATHS = "Path"
 
 
 def cached_function():
