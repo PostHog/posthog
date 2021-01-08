@@ -8,7 +8,7 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_trends import trend_test_factory
 
@@ -187,3 +187,74 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(sum(event_response[1]["data"]), 1)
         self.assertEqual(event_response[1]["data"][5], 1)
         self.assertTrue(self._compare_entity_response(action_response, event_response))
+
+    def test_dau_with_breakdown_filtering_with_prop_filter(self):
+        sign_up_action, _ = self._create_events()
+        with freeze_time("2020-01-02T13:01:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "other_value", "$os": "Windows"},
+            )
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "breakdown": "$some_property",
+                        "actions": [{"id": sign_up_action.id, "math": "dau"}],
+                        "properties": [{"key": "$os", "value": "Windows"}],
+                    }
+                ),
+                self.team,
+            )
+            event_response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "breakdown": "$some_property",
+                        "events": [{"id": "sign up", "math": "dau"}],
+                        "properties": [{"key": "$os", "value": "Windows"}],
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertEqual(event_response[0]["label"], "sign up - value")
+        self.assertEqual(event_response[1]["label"], "sign up - other_value")
+
+        self.assertEqual(sum(event_response[1]["data"]), 1)
+        self.assertEqual(event_response[1]["data"][5], 1)  # property not defined
+
+        self.assertTrue(self._compare_entity_response(action_response, event_response))
+
+    # this ensures that the properties don't conflict when formatting params
+    def test_action_with_prop(self):
+        person = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+        )
+        sign_up_action = Action.objects.create(team=self.team, name="sign up")
+        ActionStep.objects.create(
+            action=sign_up_action, event="sign up", properties={"$current_url": "https://posthog.com/feedback/1234"}
+        )
+
+        with freeze_time("2020-01-02T13:01:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "https://posthog.com/feedback/1234"},
+            )
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "actions": [{"id": sign_up_action.id, "math": "dau"}],
+                        "properties": [{"key": "$current_url", "value": "fake"}],
+                    }
+                ),
+                self.team,
+            )
+
+        # if the params were shared it would be 1 because action would take precedence
+        self.assertEqual(action_response[0]["count"], 0)

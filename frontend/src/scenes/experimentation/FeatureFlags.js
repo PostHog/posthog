@@ -40,7 +40,7 @@ function _FeatureFlags() {
                     </Tooltip>
                 )
             },
-            sorter: (a, b) => a.created_at > b.created_at,
+            sorter: (a, b) => (new Date(a.created_at) > new Date(b.created_at) ? 1 : -1),
         },
         {
             title: 'Created by',
@@ -87,9 +87,9 @@ function _FeatureFlags() {
                 return (
                     <Link
                         to={
-                            '/insights?events=[{"id":"$feature_flag_called","name":"$feature_flag_called","type":"events","math":"dau"}]&properties=[{"key":"$feature_flag","value":"' +
+                            '/insights?events=[{"id":"$pageview","name":"$pageview","type":"events","math":"dau"}]&properties=[{"key":"$active_feature_flags","operator":"icontains","value":"' +
                             featureFlag.key +
-                            '"}]&breakdown=$feature_flag_response&breakdown_type=event#backTo=Feature Flags&backToURL=' +
+                            '"}]&breakdown_type=event#backTo=Feature Flags&backToURL=' +
                             window.location.pathname
                         }
                         data-attr="usage"

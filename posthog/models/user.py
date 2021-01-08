@@ -1,13 +1,14 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
-from django.utils.timezone import now
+from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
 
 from .organization import Organization, OrganizationMembership
+from .personal_api_key import PersonalAPIKey
 from .team import Team
 from .utils import generate_random_token, sane_repr
 
@@ -47,7 +48,7 @@ class UserManager(BaseUserManager):
             user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
             team = Team.objects.create_with_data(user=user, organization=organization, **(team_fields or {}))
             user.join(
-                organization=organization, level=OrganizationMembership.Level.ADMIN,
+                organization=organization, level=OrganizationMembership.Level.OWNER,
             )
             return organization, team, user
 
@@ -64,6 +65,18 @@ class UserManager(BaseUserManager):
             user = self.create_user(email=email, password=password, first_name=first_name, **extra_fields)
             membership = user.join(organization=organization, level=level)
             return user
+
+    def get_from_personal_api_key(self, key_value: str) -> Optional["User"]:
+        try:
+            personal_api_key: PersonalAPIKey = (
+                PersonalAPIKey.objects.select_related("user").filter(user__is_active=True).get(value=key_value)
+            )
+        except PersonalAPIKey.DoesNotExist:
+            return None
+        else:
+            personal_api_key.last_used_at = timezone.now()
+            personal_api_key.save()
+            return personal_api_key.user
 
 
 class User(AbstractUser):
@@ -92,10 +105,6 @@ class User(AbstractUser):
     )
 
     objects: UserManager = UserManager()  # type: ignore
-
-    @property
-    def ee_available(self) -> bool:
-        return settings.EE_AVAILABLE
 
     @property
     def is_superuser(self) -> bool:  # type: ignore
@@ -129,7 +138,7 @@ class User(AbstractUser):
             self.save()
             return membership
 
-    def leave(self, *, organization: Organization, team: Optional[Team] = None) -> None:
+    def leave(self, *, organization: Organization) -> None:
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
         if membership.level == OrganizationMembership.Level.OWNER:
             raise ValidationError("Cannot leave the organization as its owner!")

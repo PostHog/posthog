@@ -14,23 +14,31 @@ from django.template.loader import render_to_string
 from django.urls import include, path, re_path, reverse
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
+from loginas.utils import is_impersonated_session, restore_original_login
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
+from posthog.api import (
+    api_not_found,
+    capture,
+    dashboard,
+    decide,
+    organization,
+    projects_router,
+    router,
+    user,
+)
 from posthog.demo import demo
 from posthog.email import is_email_available
 from posthog.models.organization import Organization
 
-from .api import api_not_found, capture, dashboard, decide, router, team, user
 from .models import OrganizationInvite, Team, User
 from .utils import render_template
 from .views import health, preflight_check, stats, system_status
 
 
 def home(request, **kwargs):
-    if request.path.endswith(".map") or request.path.endswith(".map.js"):
-        return redirect("/static%s" % request.path)
     return render_template("index.html", request)
 
 
@@ -44,13 +52,24 @@ def login_view(request):
         email = request.POST["email"]
         password = request.POST["password"]
         user = cast(Optional[User], authenticate(request, email=email, password=password))
+        next_url = request.GET.get("next")
         if user is not None:
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
             if user.distinct_id:
                 posthoganalytics.capture(user.distinct_id, "user logged in")
+            if next_url:
+                return redirect(next_url)
             return redirect("/")
         else:
-            return render_template("login.html", request=request, context={"email": email, "error": True})
+            return render_template(
+                "login.html",
+                request=request,
+                context={
+                    "email": email,
+                    "error": True,
+                    "action": "/login" if not next_url else f"/login?next={next_url}",
+                },
+            )
     return render_template("login.html", request)
 
 
@@ -245,6 +264,11 @@ def logout(request):
         request.user.temporary_token = None
         request.user.save()
 
+    if is_impersonated_session(request):
+        restore_original_login(request)
+        return redirect("/")
+
+    restore_original_login(request)
     response = auth_views.logout_then_login(request)
     response.delete_cookie(settings.TOOLBAR_COOKIE_NAME, "/")
 
@@ -275,7 +299,7 @@ try:
 except ImportError:
     pass
 else:
-    extend_api_router(router)
+    extend_api_router(router, projects_router=projects_router)
 
 
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> str:
@@ -298,7 +322,7 @@ urlpatterns = [
     opt_slash_path("api/user/change_password", user.change_password),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/user", user.user),
-    opt_slash_path("api/signup", team.TeamSignupViewset.as_view()),
+    opt_slash_path("api/signup", organization.OrganizationSignupViewset.as_view()),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),

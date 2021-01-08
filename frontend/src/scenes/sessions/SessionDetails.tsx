@@ -55,7 +55,7 @@ export function SessionDetails({ events }: { events: EventType[] }): JSX.Element
     return (
         <Table
             columns={columns}
-            rowKey={(event) => event.id}
+            rowKey="id"
             dataSource={events}
             pagination={{
                 pageSize: pageSize,

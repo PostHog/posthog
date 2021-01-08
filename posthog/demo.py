@@ -17,7 +17,7 @@ from posthog.models import (
     DashboardItem,
     Element,
     Event,
-    Funnel,
+    FeatureFlag,
     Person,
     PersonDistinctId,
     Team,
@@ -44,6 +44,12 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
 
         distinct_id = str(UUIDT())
         distinct_ids.append(PersonDistinctId(team=team, person=person, distinct_id=distinct_id))
+
+        # Add first user more 3 distinct id's
+        if index == 0:
+            for _ in range(0, 3):
+                distinct_ids.append(PersonDistinctId(team=team, person=person, distinct_id=str(UUIDT())))
+
         date = now() - relativedelta(days=days_ago)
         browser = random.choice(["Chrome", "Safari", "Firefox"])
         events.append(
@@ -51,7 +57,7 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                 team=team,
                 event="$pageview",
                 distinct_id=distinct_id,
-                properties={"$current_url": base_url, "$browser": browser, "$lib": "web",},
+                properties={"$current_url": base_url, "$browser": browser, "$lib": "web"},
                 timestamp=date,
             )
         )
@@ -181,7 +187,6 @@ def _create_funnel(team: Team, base_url: str) -> None:
         team=team,
         dashboard=dashboard,
         name="HogFlix signup -> watching movie",
-        type="FunnelViz",
         filters={
             "actions": [
                 {"id": homepage.id, "name": "HogFlix homepage view", "order": 0, "type": TREND_FILTER_TYPE_ACTIONS},
@@ -210,11 +215,15 @@ def demo(request):
         )
         _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo"))
         _create_funnel(team=team, base_url=request.build_absolute_uri("/demo"))
+        FeatureFlag.objects.create(
+            team=team, rollout_percentage=100, name="Sign Up CTA", key="sign-up-cta", created_by=user,
+        )
         _recalculate(team=team)
     user.current_team = team
     user.save()
     if "$pageview" not in team.event_names:
         team.event_names.append("$pageview")
+        team.event_names_with_usage.append({"event": "$pageview", "usage_count": None, "volume": None})
         team.save()
 
     if is_ee_enabled():

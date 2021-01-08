@@ -16,8 +16,7 @@ from posthog.models import (
     Person,
     Team,
 )
-
-from .base import BaseTest, TransactionBaseTest
+from posthog.test.base import BaseTest, TransactionBaseTest
 
 
 @patch("posthog.tasks.calculate_action.calculate_action.delay")
@@ -100,7 +99,7 @@ class TestCreateAction(BaseTest):
         self.assertEqual(action.events.count(), 1)
 
         # test queries
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(7):
             response = self.client.get("/api/action/")
 
         # test remove steps

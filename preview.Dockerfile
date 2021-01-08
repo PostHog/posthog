@@ -53,7 +53,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && yarn --frozen-lockfile \
     && yarn build \
     && cd plugins \
-    && yarn --frozen-lockfile \
+    && yarn --frozen-lockfile --ignore-optional \
     && cd .. \
     && yarn cache clean \
     && apt-get purge -y curl \

@@ -94,7 +94,7 @@ function _Licenses(): JSX.Element {
             <Table
                 data-attr="license-table"
                 size="small"
-                rowKey={(item): string => item.id}
+                rowKey="id"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 rowClassName="cursor-pointer"
                 dataSource={licenses}

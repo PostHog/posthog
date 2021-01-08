@@ -7,11 +7,11 @@ from ee.clickhouse.models.action import filter_event, format_action_filter
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.sql.actions import ACTION_QUERY
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.api.test.base import BaseTest
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.event import Event
 from posthog.models.person import Person
+from posthog.test.base import BaseTest
 from posthog.test.test_event_model import filter_by_actions_factory
 
 

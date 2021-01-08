@@ -61,7 +61,7 @@ class Organization(UUIDModel):
 
         # Otherwise, try to find a valid license on this instance
         if License is not None:
-            license = License.objects.filter(valid_until__gte=timezone.now()).first()
+            license = License.objects.first_valid()
             if license:
                 return (license.plan, "ee")
         return (None, None)
@@ -75,12 +75,8 @@ class Organization(UUIDModel):
         plan, realm = self._billing_plan_details
         if not plan:
             return []
-
         if realm == "ee":
-            if plan not in License.PLANS:
-                return []
-            return License.PLANS[plan]
-
+            return License.PLANS.get(plan, [])
         return self.billing.available_features  # type: ignore
 
     def is_feature_available(self, feature: str) -> bool:
@@ -124,22 +120,30 @@ class OrganizationMembership(UUIDModel):
     def __str__(self):
         return str(self.Level(self.level))
 
-    def validate_level_change(self, membership_being_updated: "OrganizationMembership", new_level: Level) -> None:
-        if membership_being_updated.id == self.id:
-            raise exceptions.PermissionDenied("You can't change your own access level.")
-        if membership_being_updated.organization_id != self.organization_id:
-            raise exceptions.PermissionDenied("You both need to belong to the same organization.")
-        if membership_being_updated.level >= self.level:
-            raise exceptions.PermissionDenied("You can only change access level of others with level lower than you.")
-        if new_level == OrganizationMembership.Level.OWNER:
-            if self.level != OrganizationMembership.Level.OWNER:
-                raise exceptions.PermissionDenied("You can only pass on organization ownership if you're its owner.")
-            self.level = OrganizationMembership.Level.ADMIN
-            self.save()
-        elif new_level >= self.level:
-            raise exceptions.PermissionDenied(
-                "You can only change access level of others to lower than your current one."
-            )
+    def validate_update(
+        self, membership_being_updated: "OrganizationMembership", new_level: Optional[Level] = None
+    ) -> None:
+        if new_level is not None:
+            if membership_being_updated.id == self.id:
+                raise exceptions.PermissionDenied("You can't change your own access level.")
+            if new_level == OrganizationMembership.Level.OWNER:
+                if self.level != OrganizationMembership.Level.OWNER:
+                    raise exceptions.PermissionDenied(
+                        "You can only pass on organization ownership if you're its owner."
+                    )
+                self.level = OrganizationMembership.Level.ADMIN
+                self.save()
+            elif new_level > self.level:
+                raise exceptions.PermissionDenied(
+                    "You can only change access level of others to lower or equal to your current one."
+                )
+        if membership_being_updated.id != self.id:
+            if membership_being_updated.organization_id != self.organization_id:
+                raise exceptions.PermissionDenied("You both need to belong to the same organization.")
+            if self.level < OrganizationMembership.Level.ADMIN:
+                raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
+            if membership_being_updated.level > self.level:
+                raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
 
     __repr__ = sane_repr("organization", "user", "level")
 
@@ -179,7 +183,7 @@ class OrganizationInvite(UUIDModel):
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization)
-        self.delete()
+        OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
 
     def is_expired(self) -> bool:
         """Check if invite is older than 3 days."""

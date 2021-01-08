@@ -6,18 +6,18 @@ import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
 import './RetentionTable.scss'
 import moment from 'moment'
-import posthog from 'posthog-js'
 
 export function RetentionTable({ dashboardItemId = null }) {
+    const logic = retentionTableLogic({ dashboardItemId })
     const {
-        retention,
-        retentionLoading,
+        results,
+        resultsLoading,
         peopleLoading,
         people,
         loadingMore,
         filters: { period },
-    } = useValues(retentionTableLogic({ dashboardItemId }))
-    const { loadPeople, loadMore } = useActions(retentionTableLogic({ dashboardItemId }))
+    } = useValues(logic)
+    const { loadPeople, loadMore } = useActions(logic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
 
@@ -36,10 +36,10 @@ export function RetentionTable({ dashboardItemId = null }) {
         },
     ]
 
-    if (!retentionLoading && retention.data) {
-        retention.data[0].values.forEach((_, dayIndex) => {
+    if (!resultsLoading && results) {
+        results[0].values.forEach((_, dayIndex) => {
             columns.push({
-                title: retention.data[dayIndex].label,
+                title: results[dayIndex].label,
                 key: `day::${dayIndex}`,
                 render: (row) => {
                     if (dayIndex >= row.values.length) {
@@ -54,6 +54,7 @@ export function RetentionTable({ dashboardItemId = null }) {
     function dismissModal() {
         setModalVisible(false)
     }
+
     return (
         <>
             <Table
@@ -61,17 +62,14 @@ export function RetentionTable({ dashboardItemId = null }) {
                 size="small"
                 className="retention-table"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowClassName={posthog.isFeatureEnabled('ch-retention-endpoint') ? '' : 'cursor-pointer'}
-                dataSource={retention.data}
+                rowClassName={'cursor-pointer'}
+                dataSource={results}
                 columns={columns}
-                loading={retentionLoading}
+                rowKey="date"
+                loading={resultsLoading}
                 onRow={(_, rowIndex) => {
                     return {
                         onClick: () => {
-                            if (posthog.isFeatureEnabled('ch-retention-endpoint')) {
-                                return
-                            }
-
                             !people[rowIndex] && loadPeople(rowIndex)
                             setModalVisible(true)
                             selectRow(rowIndex)
@@ -79,7 +77,7 @@ export function RetentionTable({ dashboardItemId = null }) {
                     }
                 }}
             />
-            {retention.data && (
+            {results && (
                 <Modal
                     visible={modalVisible}
                     closable={false}
@@ -87,14 +85,14 @@ export function RetentionTable({ dashboardItemId = null }) {
                     footer={<Button onClick={dismissModal}>Close</Button>}
                     style={{
                         top: 20,
-                        minWidth: retention?.data[selectedRow]?.values[0]?.count === 0 ? '10%' : '90%',
+                        minWidth: results[selectedRow]?.values[0]?.count === 0 ? '10%' : '90%',
                         fontSize: 16,
                     }}
-                    title={retention.data[selectedRow].date}
+                    title={results[selectedRow]?.date}
                 >
-                    {retention && !peopleLoading ? (
+                    {results && !peopleLoading ? (
                         <div>
-                            {retention?.data[selectedRow]?.values[0]?.count === 0 ? (
+                            {results[selectedRow]?.values[0]?.count === 0 ? (
                                 <span>No users during this period.</span>
                             ) : (
                                 <div>
@@ -102,15 +100,15 @@ export function RetentionTable({ dashboardItemId = null }) {
                                         <tbody>
                                             <tr>
                                                 <th />
-                                                {retention.data &&
-                                                    retention.data
-                                                        .slice(0, retention.data[selectedRow].values.length)
+                                                {results &&
+                                                    results
+                                                        .slice(0, results[selectedRow]?.values.length)
                                                         .map((data, index) => <th key={index}>{data.label}</th>)}
                                             </tr>
                                             <tr>
                                                 <td />
-                                                {retention.data &&
-                                                    retention.data[selectedRow].values.map((data, index) => (
+                                                {results &&
+                                                    results[selectedRow]?.values.map((data, index) => (
                                                         <td key={index}>
                                                             {data.count}&nbsp;{' '}
                                                             {data.count > 0 && (
@@ -118,9 +116,7 @@ export function RetentionTable({ dashboardItemId = null }) {
                                                                     (
                                                                     {percentage(
                                                                         data.count /
-                                                                            retention.data[selectedRow].values[0][
-                                                                                'count'
-                                                                            ]
+                                                                            results[selectedRow]?.values[0]['count']
                                                                     )}
                                                                     )
                                                                 </span>
@@ -128,18 +124,20 @@ export function RetentionTable({ dashboardItemId = null }) {
                                                         </td>
                                                     ))}
                                             </tr>
-                                            {people[selectedRow] &&
-                                                people[selectedRow].map((person) => (
-                                                    <tr key={person.id}>
+                                            {people.result &&
+                                                people.result.map((personAppearances) => (
+                                                    <tr key={personAppearances.person.id}>
                                                         <td className="text-overflow" style={{ minWidth: 200 }}>
-                                                            <Link to={`/person_by_id/${person.id}`}>{person.name}</Link>
+                                                            <Link to={`/person_by_id/${personAppearances.person.id}`}>
+                                                                {personAppearances.person.name}
+                                                            </Link>
                                                         </td>
-                                                        {retention.data[selectedRow].values.map((step, index) => {
+                                                        {personAppearances.appearances.map((appearance, index) => {
                                                             return (
                                                                 <td
                                                                     key={index}
                                                                     className={
-                                                                        step.people.indexOf(person.id) > -1
+                                                                        appearance
                                                                             ? 'retention-success'
                                                                             : 'retention-dropped'
                                                                     }
@@ -156,7 +154,7 @@ export function RetentionTable({ dashboardItemId = null }) {
                                             textAlign: 'center',
                                         }}
                                     >
-                                        {retention.data[selectedRow].values.some((element) => element.next) && (
+                                        {people.next && (
                                             <Button type="primary" onClick={() => loadMore(selectedRow)}>
                                                 {loadingMore ? <Spin /> : 'Load More People'}
                                             </Button>

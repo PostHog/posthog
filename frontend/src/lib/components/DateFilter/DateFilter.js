@@ -30,16 +30,22 @@ export function DateFilter({ style, disabled }) {
                 setOpen(false)
                 setDateRangeOpen(true)
             }
-        } else setDate(dateMapping[v][0], dateMapping[v][1])
+        } else {
+            setDate(dateMapping[v][0], dateMapping[v][1])
+        }
     }
 
     function onBlur() {
-        if (dateRangeOpen) return
+        if (dateRangeOpen) {
+            return
+        }
         onClickOutside()
     }
 
     function onClick() {
-        if (dateRangeOpen) return
+        if (dateRangeOpen) {
+            return
+        }
         setOpen(!open)
     }
 

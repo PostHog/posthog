@@ -6,6 +6,7 @@ from django.contrib.postgres.fields import JSONField
 from django.core.exceptions import EmptyResultSet
 from django.db import connection, models, transaction
 from django.db.models import Q
+from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
@@ -13,7 +14,7 @@ from posthog.ee import is_ee_enabled
 
 from .action import Action
 from .event import Event
-from .filter import Filter
+from .filters import Filter
 from .person import Person
 
 DELETE_QUERY = """
@@ -56,6 +57,7 @@ class Cohort(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True, null=True)
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     last_calculation: models.DateTimeField = models.DateTimeField(blank=True, null=True)
+    errors_calculating: models.IntegerField = models.IntegerField(default=0)
 
     objects = CohortManager()
 
@@ -83,8 +85,12 @@ class Cohort(models.Model):
 
                 self.is_calculating = False
                 self.last_calculation = timezone.now()
+                self.errors_calculating = 0
                 self.save()
         except:
+            self.is_calculating = False
+            self.errors_calculating = F("errors_calculating") + 1
+            self.save()
             capture_exception()
 
     def __str__(self):
@@ -100,6 +106,8 @@ class Cohort(models.Model):
         return Person.objects.filter(self._people_filter(), team=self.team)
 
     def _people_filter(self, extra_filter=None):
+        from posthog.queries.base import properties_to_Q
+
         filters = Q()
         for group in self.groups:
             if group.get("action_id"):
@@ -109,7 +117,7 @@ class Cohort(models.Model):
                     .filter(
                         team_id=self.team_id,
                         **(
-                            {"timestamp__gt": timezone.now() - relativedelta(days=group["days"])}
+                            {"timestamp__gt": timezone.now() - relativedelta(days=int(group["days"]))}
                             if group.get("days")
                             else {}
                         ),
@@ -123,7 +131,7 @@ class Cohort(models.Model):
                 filters |= Q(persondistinctid__distinct_id__in=events)
             elif group.get("properties"):
                 filter = Filter(data=group)
-                filters |= Q(filter.properties_to_Q(team_id=self.team_id, is_person_query=True))
+                filters |= Q(properties_to_Q(filter.properties, team_id=self.team_id, is_person_query=True))
         return filters
 
 

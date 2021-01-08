@@ -1,8 +1,8 @@
-import Simmer from '@mariusandra/simmerjs'
+import Simmer from '@posthog/simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, ElementType } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
-import { querySelectorAllDeep } from '@mariusandra/query-selector-shadow-dom'
+import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 // these plus any element with cursor:pointer will be click targets
 const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
@@ -13,10 +13,14 @@ const TAGS_TO_IGNORE = ['html', 'body', 'meta', 'head', 'script', 'link', 'style
 const simmer = new Simmer(window, { depth: 8 })
 
 export function getSafeText(el: HTMLElement): string {
-    if (!el.childNodes || !el.childNodes.length) return ''
+    if (!el.childNodes || !el.childNodes.length) {
+        return ''
+    }
     let elText = ''
     el.childNodes.forEach((child) => {
-        if (child.nodeType !== 3 || !child.textContent) return
+        if (child.nodeType !== 3 || !child.textContent) {
+            return
+        }
         elText += child.textContent
             .trim()
             .replace(/[\r\n]/g, ' ')

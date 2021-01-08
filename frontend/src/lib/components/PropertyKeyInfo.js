@@ -121,7 +121,15 @@ export const keyMapping = {
         },
         $feature_flag: {
             label: 'Feature Flag',
-            description: 'The feature flag that was called.',
+            description: (
+                <>
+                    The feature flag that was called.
+                    <br />
+                    <br />
+                    Warning! This only works in combination with the $feature_flag_called event. If you want to filter
+                    other events, try "Active Feature Flags".
+                </>
+            ),
             examples: ['beta-feature'],
         },
         $device: {
@@ -243,10 +251,15 @@ export const keyMapping = {
 
 export function PropertyKeyInfo({ value, type = 'event' }) {
     let data
-    if (type === 'cohort') return value.name
-    else data = keyMapping[type][value]
+    if (type === 'cohort') {
+        return value.name
+    } else {
+        data = keyMapping[type][value]
+    }
 
-    if (!data) return value
+    if (!data) {
+        return value
+    }
 
     return (
         <Popover

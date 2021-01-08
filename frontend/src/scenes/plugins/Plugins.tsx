@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react'
 import { hot } from 'react-hot-loader/root'
 import { PluginDrawer } from 'scenes/plugins/PluginDrawer'
-import { CustomPlugin } from 'scenes/plugins/CustomPlugin'
 import { Repository } from 'scenes/plugins/Repository'
 import { InstalledPlugins } from 'scenes/plugins/InstalledPlugins'
 import { useActions, useValues } from 'kea'
@@ -10,7 +9,9 @@ import { pluginsLogic } from './pluginsLogic'
 import { Tabs, Tag } from 'antd'
 import { OptInPlugins } from 'scenes/plugins/OptInPlugins'
 import { OptOutPlugins } from 'scenes/plugins/OptOutPlugins'
-import { LocalPlugin } from 'scenes/plugins/LocalPlugin'
+import { CustomPlugin } from 'scenes/plugins/install/CustomPlugin'
+import { LocalPlugin } from 'scenes/plugins/install/LocalPlugin'
+import { SourcePlugin } from 'scenes/plugins/install/SourcePlugin'
 import { PageHeader } from 'lib/components/PageHeader'
 
 export const Plugins = hot(_Plugins)
@@ -33,20 +34,22 @@ function _Plugins(): JSX.Element {
 
     return (
         <div>
-            {user.team.plugins_opt_in ? <OptOutPlugins /> : null}
             <PageHeader
-                title="Plugins"
-                caption={
+                title={
                     <>
-                        <span>Plugins enable you to extend PostHog's core functionality.</span>
-                        <Tag color="orange" style={{ marginLeft: 8 }}>
-                            BETA
-                        </Tag>
+                        Plugins
+                        <sup>
+                            <Tag color="orange" style={{ marginLeft: 8 }}>
+                                BETA
+                            </Tag>
+                        </sup>
                     </>
                 }
+                caption="Plugins enable you to extend PostHog's core functionality."
+                buttons={user.team?.plugins_opt_in && <OptOutPlugins />}
             />
 
-            {user.team.plugins_opt_in ? (
+            {user.team?.plugins_opt_in ? (
                 <>
                     <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey)}>
                         <TabPane tab="Installed" key="installed">
@@ -55,6 +58,7 @@ function _Plugins(): JSX.Element {
                         {user.plugin_access.install && (
                             <TabPane tab="Available" key="available">
                                 <Repository />
+                                <SourcePlugin />
                                 <CustomPlugin />
                                 <LocalPlugin />
                             </TabPane>

@@ -1,14 +1,102 @@
 # Changelog
 
+### 1.19.0 - Tuesday 15 December 2020
+
+- [Scheduled Plugins and Editor](https://github.com/PostHog/posthog/pull/2743)
+
+![Plugin Editor Screenshot](https://posthog.com/static/f4aae550d6d85f934877d6e2c9e787c8/8c557/plugin-editor.png)
+
+We now support scheduled plugins that run periodically on a specified time cycle (e.g. minute, hour, day), as well as have a built-in code editor for plugins right into the PostHog UI.
+
+With the ability to run tasks in specified time intervals, you can now setup plugins that, for example, keep track of external metrics and add this data to PostHog via new events. This is possible because we now [support `posthog.capture` calls inside plugins as well](https://github.com/PostHog/posthog-plugin-server/pull/67). 
+
+Some metrics you might want to keep track of are, for example, server performance, GitHub activities (e.g. stars ⭐ ), engagement with your project's social media profiles, and anything else you can think of!
+
+You can learn more about scheduled plugins on the [PR that created them](https://github.com/PostHog/posthog-plugin-server/pull/63), as well as our docs for [building your own plugin](https://posthog.com/docs/plugins/build).
+
+> **Note:** Plugins are a Beta feature currently only available on self-hosted instances. We are working to make it available on PostHog Cloud soon.
+
+- [Lifecycle Analysis](https://github.com/PostHog/posthog/pull/2460)
+
+![Lifecycle Screenshot](https://posthog.com/static/b577dd0e4d2817e816ba602e5ef94e1d/8c557/lifecycle.png)
+
+Our 'Trends' tab just got an awesome new feature: lifecycle graphs!
+
+Lifecycle analysis digs deeper into your events and shows you a breakdown of the users who performed the event into new, returning, and resurrecting users. In addition, it also shows you the churn on for the specified time period. 
+
+To use it, select 'Shown As' -> 'Lifecycle' when in the 'Trends' tab.  
+
+- [New Session Recording Compression Scheme](https://github.com/PostHog/posthog/pull/2578)
+
+![Gzip Session Recording Screenshot](https://posthog.com/static/fe91676a24a8c70a017fafe2ab68f63e/8c557/session-recording-gzip.png)
+
+See the image above? That's our event processing time before and after the new compression scheme!
+
+By using gzip-based compression, we have now significantly improved performance both on the client and server, making event processing faster, as well as decreasing the number of session recordings that are lost. Be on the lookout for more green play buttons on your 'Sessions' page now.
+
+> If you installed `posthog-js` via `npm`, you should update to version 1.8.0 to get access to this update. Snippet users have access to the latest version by default.
+
+- [New Actions UX](https://github.com/PostHog/posthog/pull/2615)
+
+![New Actions UX Screenshot](https://posthog.com/static/1f931cd359d1238e8ecba8d72a0be0c4/8c557/actions-ux.png)
+
+This might not be news to all of you, since we have been experimenting with our actions UX using [feature flags](/docs/features/feature-flags). However, we're now rolling out a new UX for creating actions to all PostHog users, so try it out let us know what you think!
+
+- [New operations for numerical properties](https://github.com/PostHog/posthog/pull/2630)
+
+In addition to the average, sum, maximum, and minimum operations available to numerical properties in trends, we now also support median, and 90th, 95th, and 99th percentiles.
+
+#### [Full Release Notes](https://posthog.com/blog/the-posthog-array-1-19-0)
+
+### 1.18.0 - Monday 30 November 2020
+
+Our primary goals for this release were to iron out bugs and improve the user experience of our Beta features.
+
+As a result, we fixed **a whole lot of stuff**. We merged dozens of PRs with session recording fixes and improvements, and a dozen more with updates to our plugins functionality. We also improved things like event ingestion, the UX for feature flags, and our settings for both organizations and projects. You can read through the entire list of fixes [on our website](https://posthog.com/blog/the-posthog-array-1-18-0#bug-fixes-and-performance-improvements), but beware: it's quite long.
+
+- [New Event Selection Box](https://github.com/PostHog/posthog/pull/2394)
+
+![Events Box Screenshot](https://posthog.com/static/f0cb8a60445756b897447700d38f0ed5/2cefc/events-box.png)
+
+We upgraded our event selection box to include actions and events in one, as well as provide smarter recommendations of events and actions you might want to use of based frequently used in queries by you or your team.
+
+- [Improvements to posthog-js](https://github.com/PostHog/posthog-js)
+
+A new version of `posthog-js` is available and we recommend you to update if you've installed it via `npm`. Snippet users have access to the latest version by default.
+
+The new version includes a lot of bugfixes that improve our session recording feature, as well as is significantly lighter, having had [a lot of legacy code removed](https://github.com/PostHog/posthog-js/pull/128). 
+
+R.I.P. to the hundreds of lines of JavaScript that were removed - you will not be missed.
+
+- [Plugins are now available on Kubernetes deployments](https://github.com/PostHog/charts/pull/24)
+
+Following feedback from a user, we have now added support for [PostHog Plugins](https://posthog.com/docs/plugins/overview) to our Helm chart. 
+
+If you're using the chart to deploy PostHog, upgrading to the latest version will give you access to the new plugin server (Beta).
+
+- [Session Recording Improvements](https://github.com/PostHog/posthog/pulls?q=is%3Apr+is%3Aclosed+session)
+
+Out of the many improvements to session recording, there are some worth mentioning specifically:
+
+- Keyboard shortcuts for the session recording player (`spacebar` to pause/play, `f` to open player in full screen)
+- Ability to jump back/forward 8 seconds with the keyboard arrows (or player button)
+- Full-screen support for the session recording player without losing the controls bar
+- Pause/Play recording when clicking on the video
+- Skipping inactivity made clearer with an overlay over the player
+- The session recording player is now responsive to the client's screen size
+- Incomplete session recordings (i.e. "blank screens") are now hidden from the list 
+
 ### 1.17.0 - Tuesday 17 November 2020
 
 - [Sentry Integration](https://github.com/PostHog/posthog/pull/1833)
 
 ![Sentry Screenshot](https://posthog.com/static/85a8c81d33e2e3647657b389c0b12814/2cefc/sentry.png)
 
-An important part of devolping a great user experience is identifying, tracking, and fixing bugs. 
+An important part of developing a great user experience is identifying, tracking, and fixing bugs. 
 
-With our new [Sentry](https://sentry.io/) integration, you can leverage PostHog data to help your debugging, and Sentry exception data to track relevant UX metrics. As a two-way integration, it:
+With our new [Sentry](https://sentry.io/) integration, you can (i) leverage PostHog data to help your debugging (ie to see the user's event history or to watch a session recording), and (ii) use Sentry exception data to quickly spot if errors are affecting your product metrics (ie to see if errors are causing churned users).
+
+As a two-way integration, it:
 - Adds a direct link in Sentry to the profile of the person affected in PostHog
 - Sends an `$exception` event to PostHog with a direct link to Sentry
 

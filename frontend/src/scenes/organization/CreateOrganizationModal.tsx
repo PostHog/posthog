@@ -19,7 +19,9 @@ export function CreateOrganizationModal({
         if (setIsVisible) {
             setErrorMessage(null)
             setIsVisible(false)
-            if (inputRef.current) inputRef.current.setValue('')
+            if (inputRef.current) {
+                inputRef.current.setValue('')
+            }
         }
     }, [inputRef, setIsVisible])
 

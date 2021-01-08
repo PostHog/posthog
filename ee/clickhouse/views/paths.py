@@ -8,14 +8,14 @@ from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
 from ee.clickhouse.sql.events import ELEMENT_TAG_COUNT
 from posthog.api.paths import PathsViewSet
 from posthog.models import Event, Filter
+from posthog.models.filters.path_filter import PathFilter
 
 
 class ClickhousePathsViewSet(PathsViewSet):
     @action(methods=["GET"], detail=False)
-    def elements(self, request: request.Request):
+    def elements(self, request: request.Request, **kwargs):
 
-        team = request.user.team
-        assert team is not None
+        team = self.team
         response = sync_execute(ELEMENT_TAG_COUNT, {"team_id": team.pk, "limit": 20})
 
         resp = []
@@ -26,9 +26,9 @@ class ClickhousePathsViewSet(PathsViewSet):
 
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
     # To avoid unexpected results should convert date range to timestamps with timezone.
-    def list(self, request):
+    def list(self, request, **kwargs):
 
-        team = request.user.team
-        filter = Filter(request=request)
+        team = self.team
+        filter = PathFilter(request=request)
         resp = ClickhousePaths().run(filter=filter, team=team)
         return Response(resp)

@@ -22,10 +22,10 @@ def find_and_fire_hook(
     user_override: Optional[Team] = None,
     payload_override: Optional[dict] = None,
 ):
-    hooks = Hook.objects.select_related("user").filter(event=event_name, team=user_override)
+    hooks = Hook.objects.select_related("team").filter(event=event_name, team=user_override)
     if event_name == "action_performed":
         # action_performed is a resource_id-filterable hook
-        hooks = hooks.filter(models.Q(resource_id=instance.pk) | models.Q(resource_id__isnull=True))
+        hooks = hooks.filter(models.Q(resource_id=instance.pk))
     for hook in hooks:
         if hook.team.organization.is_feature_available("zapier"):
             hook.deliver_hook(instance, payload_override)

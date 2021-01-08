@@ -1,6 +1,6 @@
 import { BuiltLogic, kea } from 'kea'
 import { router } from 'kea-router'
-import { camelCaseToTitle, delay } from 'lib/utils'
+import { identifierToHuman, delay } from 'lib/utils'
 import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
 import posthog from 'posthog-js'
@@ -21,11 +21,10 @@ export enum Scene {
     FeatureFlags = 'featureFlags',
     OrganizationSettings = 'organizationSettings',
     OrganizationMembers = 'organizationMembers',
-    OrganizationInvites = 'organizationInvites',
     OrganizationCreateFirst = 'organizationCreateFirst',
     ProjectSettings = 'projectSettings',
     ProjectCreateFirst = 'projectCreateFirst',
-    InstanceStatus = 'instanceStatus',
+    SystemStatus = 'systemStatus',
     InstanceLicenses = 'instanceLicenses',
     MySettings = 'mySettings',
     Annotations = 'annotations',
@@ -58,13 +57,13 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
     [Scene.OrganizationSettings]: () =>
         import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
-    [Scene.OrganizationMembers]: () => import(/* webpackChunkName: 'organizationMembers' */ './organization/Members'),
-    [Scene.OrganizationInvites]: () => import(/* webpackChunkName: 'organizationInvites' */ './organization/Invites'),
+    [Scene.OrganizationMembers]: () =>
+        import(/* webpackChunkName: 'organizationMembers' */ './organization/TeamMembers'),
     [Scene.OrganizationCreateFirst]: () =>
         import(/* webpackChunkName: 'organizationCreateFirst' */ './organization/Create'),
     [Scene.ProjectSettings]: () => import(/* webpackChunkName: 'projectSettings' */ './project/Settings'),
     [Scene.ProjectCreateFirst]: () => import(/* webpackChunkName: 'projectCreateFirst' */ './project/Create'),
-    [Scene.InstanceStatus]: () => import(/* webpackChunkName: 'instanceStatus' */ './instance/SystemStatus'),
+    [Scene.SystemStatus]: () => import(/* webpackChunkName: 'systemStatus' */ './instance/SystemStatus'),
     [Scene.InstanceLicenses]: () => import(/* webpackChunkName: 'instanceLicenses' */ './instance/Licenses'),
     [Scene.MySettings]: () => import(/* webpackChunkName: 'mySettings' */ './me/Settings'),
     [Scene.Annotations]: () => import(/* webpackChunkName: 'annotations' */ './annotations'),
@@ -123,7 +122,7 @@ export const routes: Record<string, Scene> = {
     '/person_by_id/:id': Scene.Person,
     '/person/*': Scene.Person,
     '/persons': Scene.Persons,
-    '/cohorts/new': Scene.Persons,
+    '/cohorts/:id': Scene.Cohorts,
     '/cohorts': Scene.Cohorts,
     '/feature_flags': Scene.FeatureFlags,
     '/annotations': Scene.Annotations,
@@ -132,11 +131,10 @@ export const routes: Record<string, Scene> = {
     '/project/create': Scene.ProjectCreateFirst,
     '/organization/settings': Scene.OrganizationSettings,
     '/organization/members': Scene.OrganizationMembers,
-    '/organization/invites': Scene.OrganizationInvites,
     '/organization/billing': Scene.Billing,
     '/organization/create': Scene.OrganizationCreateFirst,
     '/instance/licenses': Scene.InstanceLicenses,
-    '/instance/status': Scene.InstanceStatus,
+    '/instance/status': Scene.SystemStatus,
     '/me/settings': Scene.MySettings,
     '/preflight': Scene.PreflightCheck,
     '/signup': Scene.Signup,
@@ -195,14 +193,14 @@ export const sceneLogic = kea<sceneLogicType>({
             },
         ],
     }),
-    selectors: () => ({
+    selectors: {
         sceneConfig: [
             (selectors) => [selectors.scene],
             (scene: Scene): SceneConfig => {
                 return sceneConfigurations[scene] ?? {}
             },
         ],
-    }),
+    },
     urlToAction: ({ actions }) => {
         const mapping: Record<string, (params: Params) => any> = {}
 
@@ -238,7 +236,7 @@ export const sceneLogic = kea<sceneLogicType>({
         },
         setScene: () => {
             posthog.capture('$pageview')
-            document.title = values.scene ? `${camelCaseToTitle(values.scene)} • PostHog` : 'PostHog'
+            document.title = values.scene ? `${identifierToHuman(values.scene)} • PostHog` : 'PostHog'
         },
         loadScene: async ({ scene, params = {} }: { scene: Scene; params: Params }, breakpoint) => {
             if (values.scene === scene) {
@@ -287,6 +285,9 @@ export const sceneLogic = kea<sceneLogicType>({
                                 ? others[Object.keys(others)[0]]
                                 : values.loadedScenes['404'].component,
                         logic: logic,
+                    }
+                    if (Object.keys(others).length > 1) {
+                        console.error('There are multiple exports for this scene. Showing 404 instead.')
                     }
                 }
                 actions.setLoadedScene(scene, loadedScene)

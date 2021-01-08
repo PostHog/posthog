@@ -93,7 +93,9 @@ export const funnelLogic = kea({
         peopleSorted: [
             () => [selectors.stepsWithCount, selectors.people],
             (steps, people) => {
-                if (!people) return null
+                if (!people) {
+                    return null
+                }
                 const score = (person) => {
                     return steps.reduce((val, step) => (step.people.indexOf(person.uuid) > -1 ? val + 1 : val), 0)
                 }
@@ -118,14 +120,16 @@ export const funnelLogic = kea({
         ],
     }),
 
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions, values, props }) => ({
         setSteps: async () => {
             if (values.stepsWithCount[0]?.people.length > 0) {
                 actions.loadPeople(values.stepsWithCount)
             }
         },
         setFilters: ({ refresh }) => {
-            if (refresh) actions.loadFunnel()
+            if (refresh) {
+                actions.loadFunnel()
+            }
             const cleanedParams = cleanFunnelParams(values.filters)
             actions.setAllFilters(cleanedParams)
         },
@@ -133,7 +137,9 @@ export const funnelLogic = kea({
             const cleanedParams = cleanFunnelParams(values.filters)
 
             actions.setAllFilters(cleanedParams)
-            actions.createInsight({ ...cleanedParams, insight: ViewType.FUNNELS })
+            if (!props.dashboardItemId) {
+                actions.createInsight({ ...cleanedParams, insight: ViewType.FUNNELS })
+            }
 
             const result = await pollFunnel(cleanedParams)
             actions.setSteps(result)

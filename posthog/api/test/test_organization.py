@@ -5,8 +5,7 @@ from django.test import tag
 from rest_framework import status
 
 from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User
-
-from .base import APIBaseTest
+from posthog.test.base import APIBaseTest
 
 
 class TestOrganizationAPI(APIBaseTest):
@@ -42,9 +41,9 @@ class TestSignup(APIBaseTest):
     CONFIG_USER_EMAIL = None
 
     @tag("skip_on_multitenancy")
-    @patch("posthog.api.team.settings.EE_AVAILABLE", False)
-    @patch("posthog.api.team.posthoganalytics.identify")
-    @patch("posthog.api.team.posthoganalytics.capture")
+    @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
+    @patch("posthog.api.organization.posthoganalytics.identify")
+    @patch("posthog.api.organization.posthoganalytics.capture")
     def test_api_sign_up(self, mock_capture, mock_identify):
         response = self.client.post(
             "/api/signup/",
@@ -95,8 +94,29 @@ class TestSignup(APIBaseTest):
         self.assertTrue(user.check_password("notsecure"))
 
     @tag("skip_on_multitenancy")
-    @patch("posthog.api.team.posthoganalytics.capture")
-    def test_sign_up_minimum_attrs(self, mock_capture):
+    def test_signup_disallowed_on_initiated_self_hosted(self):
+        with self.settings(MULTI_TENANCY=False):
+            response = self.client.post(
+                "/api/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"},
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            response = self.client.post(
+                "/api/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"},
+            )
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(
+                response.data,
+                {
+                    "attr": None,
+                    "code": "permission_denied",
+                    "detail": "This endpoint is unavailable on initiated self-hosted instances of PostHog.",
+                    "type": "authentication_error",
+                },
+            )
+
+    @tag("skip_on_multitenancy")
+    @patch("posthog.api.organization.posthoganalytics.capture")
+    def test_signup_minimum_attrs(self, mock_capture):
         response = self.client.post(
             "/api/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"},
         )

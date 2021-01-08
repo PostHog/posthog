@@ -50,24 +50,27 @@ def setup_periodic_tasks(sender, **kwargs):
     )
 
     if getattr(settings, "MULTI_TENANCY", False) or os.environ.get("SESSION_RECORDING_RETENTION_CRONJOB", False):
-
         sender.add_periodic_task(crontab(minute=0, hour="*/12"), run_session_recording_retention.s())
 
     # send weekly status report on non-PostHog Cloud instances
     if not getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
 
+    # Cloud (posthog-production) cron jobs
+    if getattr(settings, "MULTI_TENANCY", False):
+        sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())  # every day midnight UTC
+
     # send weekly email report (~ 8:00 SF / 16:00 UK / 17:00 EU)
     sender.add_periodic_task(crontab(day_of_week="mon", hour=15, minute=0), send_weekly_email_report.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    if not is_ee_enabled():
-        sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
-    else:
-        # ee enabled scheduled tasks
+    sender.add_periodic_task(90, check_cached_items.s(), name="check dashboard items")
+
+    if is_ee_enabled():
         sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
         sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
+        sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
 
     sender.add_periodic_task(60, calculate_cohort.s(), name="recalculate cohorts")
 
@@ -114,6 +117,25 @@ def clickhouse_row_count():
             rows = sync_execute(query)[0][0]
             g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
             g.send("clickhouse_{table}_table_row_count".format(table=table), rows)
+    else:
+        pass
+
+
+@app.task(ignore_result=True)
+def clickhouse_part_count():
+    if is_ee_enabled() and settings.EE_AVAILABLE:
+        from ee.clickhouse.client import sync_execute
+
+        QUERY = """
+            select table, count(1) freq
+            from system.parts
+            group by table
+            order by freq desc; 
+        """
+        rows = sync_execute(QUERY)
+        for (table, parts) in rows:
+            g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
+            g.send("clickhouse_{table}_table_parts_count".format(table=table), parts)
     else:
         pass
 
@@ -182,7 +204,7 @@ def check_cached_items():
 
 
 @app.task(ignore_result=True)
-def update_cache_item_task(key: str, cache_type: str, payload: dict) -> None:
+def update_cache_item_task(key: str, cache_type, payload: dict) -> None:
     from posthog.tasks.update_cache import update_cache_item
 
     update_cache_item(key, cache_type, payload)
@@ -206,3 +228,13 @@ def calculate_event_property_usage():
     from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage
 
     calculate_event_property_usage()
+
+
+@app.task(ignore_result=True)
+def calculate_billing_daily_usage():
+    try:
+        from multi_tenancy.tasks import compute_daily_usage_for_organizations  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        compute_daily_usage_for_organizations()

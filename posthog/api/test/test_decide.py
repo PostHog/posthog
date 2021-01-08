@@ -1,6 +1,5 @@
 import base64
 import json
-from unittest.mock import patch
 
 from posthog.models import FeatureFlag, Person, PersonalAPIKey
 
@@ -29,6 +28,7 @@ class TestDecide(BaseTest):
         self.team.save()
         response = self.client.get("/decide/", HTTP_ORIGIN="https://example.com").json()
         self.assertEqual(response["isAuthenticated"], True)
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
         self.assertEqual(response["editorParams"]["toolbarVersion"], "toolbar")
 
     def test_user_on_own_site_disabled(self):
@@ -66,6 +66,7 @@ class TestDecide(BaseTest):
         self.assertEqual(response["isAuthenticated"], True)
         self.assertEqual(response["sessionRecording"], False)
         self.assertEqual(response["editorParams"]["toolbarVersion"], "toolbar")
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
     def test_user_session_recording_opt_in(self):
         # :TRICKY: Test for regression around caching
@@ -76,7 +77,8 @@ class TestDecide(BaseTest):
         self.team.save()
 
         response = self._post_decide()
-        self.assertEqual(response["sessionRecording"], {"endpoint": "/s"})
+        self.assertEqual(response["sessionRecording"], {"endpoint": "/s/"})
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
     def test_user_session_recording_evil_site(self):
         self.team.app_urls = ["https://example.com"]
@@ -87,7 +89,7 @@ class TestDecide(BaseTest):
         self.assertEqual(response["sessionRecording"], False)
 
         response = self._post_decide(origin="https://example.com")
-        self.assertEqual(response["sessionRecording"], {"endpoint": "/s"})
+        self.assertEqual(response["sessionRecording"], {"endpoint": "/s/"})
 
     def test_feature_flags(self):
         self.team.app_urls = ["https://example.com"]
@@ -115,20 +117,20 @@ class TestDecide(BaseTest):
             key="filer-by-property-2",
             created_by=self.user,
         )
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(5):
             response = self._post_decide()
         self.assertEqual(response["featureFlags"][0], "beta-feature")
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(5):
             response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"})
         self.assertEqual(len(response["featureFlags"]), 0)
 
     def test_feature_flags_with_personal_api_key(self):
-        key = PersonalAPIKey(label="X", user=self.user, team=self.team)
+        key = PersonalAPIKey(label="X", user=self.user)
         key.save()
         Person.objects.create(team=self.team, distinct_ids=["example_id"])
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user,
         )
-        response = self._post_decide({"distinct_id": "example_id", "personal_api_key": key.value})
+        response = self._post_decide({"distinct_id": "example_id", "api_key": key.value, "project_id": self.team.id})
         self.assertEqual(len(response["featureFlags"]), 1)

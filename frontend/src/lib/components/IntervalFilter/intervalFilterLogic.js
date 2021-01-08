@@ -45,8 +45,12 @@ export const intervalFilterLogic = kea({
     }),
     urlToAction: ({ actions }) => ({
         '/insights': (_, { interval, date_from }) => {
-            if (interval) actions.setIntervalFilter(interval)
-            if (date_from) actions.setDateFrom(date_from)
+            if (interval) {
+                actions.setIntervalFilter(interval)
+            }
+            if (date_from) {
+                actions.setDateFrom(date_from)
+            }
         },
     }),
 })

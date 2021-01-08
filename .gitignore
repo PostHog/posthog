@@ -29,3 +29,4 @@ yalc.lock
 cypress/screenshots/*
 docker-compose.prod.yml
 .python-version
+*.isorted

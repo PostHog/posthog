@@ -7,22 +7,20 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.element import GET_ELEMENTS, GET_VALUES
 from posthog.api.element import ElementSerializer, ElementViewSet
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 
 
-class ClickhouseElement(ElementViewSet):
+class ClickhouseElementViewSet(ElementViewSet):
     @action(methods=["GET"], detail=False)
-    def stats(self, request: request.Request) -> response.Response:
+    def stats(self, request: request.Request, **kwargs) -> response.Response:
         filter = Filter(request=request)
-        team = request.user.team
-        assert team is not None
 
-        date_from, date_to = parse_timestamps(filter)
+        date_from, date_to, _ = parse_timestamps(filter, team_id=self.team.pk)
 
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, self.team.pk)
         result = sync_execute(
             GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters),
-            {"team_id": team.id, **prop_filter_params},
+            {"team_id": self.team.pk, **prop_filter_params},
         )
         return response.Response(
             [
@@ -36,12 +34,10 @@ class ClickhouseElement(ElementViewSet):
         )
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: request.Request) -> response.Response:
+    def values(self, request: request.Request, **kwargs) -> response.Response:
         key = request.GET.get("key")
         value = request.GET.get("value")
         select_regex = '[:|"]{}="(.*?)"'.format(key)
-        team = request.user.team
-        assert team is not None
 
         # Make sure key exists, otherwise could lead to sql injection lower down
         if key not in self.serializer_class.Meta.fields:
@@ -59,6 +55,6 @@ class ClickhouseElement(ElementViewSet):
                 filter_regex = select_regex
 
         result = sync_execute(
-            GET_VALUES.format(), {"team_id": team.id, "regex": select_regex, "filter_regex": filter_regex}
+            GET_VALUES.format(), {"team_id": self.team.id, "regex": select_regex, "filter_regex": filter_regex}
         )
         return response.Response([{"name": value[0]} for value in result])

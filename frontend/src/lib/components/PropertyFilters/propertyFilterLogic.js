@@ -5,7 +5,9 @@ import { objectsEqual } from 'lib/utils'
 import { router } from 'kea-router'
 
 export function parseProperties(input) {
-    if (Array.isArray(input) || !input) return input
+    if (Array.isArray(input) || !input) {
+        return input
+    }
     // Old style dict properties
     return Object.entries(input).map(([key, value]) => {
         key = key.split('__')
@@ -83,7 +85,9 @@ export const propertyFilterLogic = kea({
             const cleanedFilters = [...values.filters].filter((property) => property.key)
 
             // If the last item has a key, we need to add a new empty filter so the button appears
-            if (values.filters[values.filters.length - 1].key) actions.newFilter()
+            if (values.filters[values.filters.length - 1].key) {
+                actions.newFilter()
+            }
             if (props.onChange) {
                 if (cleanedFilters.length === 0) {
                     return props.onChange([])
@@ -129,7 +133,8 @@ export const propertyFilterLogic = kea({
         afterMount: () => {
             actions.newFilter()
             actions.loadPersonProperties()
-            if (props.endpoint !== 'person') {
+            // TODO: Supporting event properties in sessions is temporarily unsupported (context https://github.com/PostHog/posthog/issues/2735)
+            if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
                 actions.setProperties(userLogic.values.eventProperties)
             }
         },

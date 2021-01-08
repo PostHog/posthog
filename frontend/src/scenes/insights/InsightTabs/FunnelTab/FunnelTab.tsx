@@ -47,6 +47,7 @@ export function FunnelTab(): JSX.Element {
                     typeKey={`EditFunnel-action`}
                     hideMathSelector={true}
                     copy="Add funnel step"
+                    sortable
                 />
                 <hr />
                 <h4 className="secondary">Filters</h4>

@@ -14,6 +14,7 @@ from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INS
 from ee.idl.gen import events_pb2
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
+from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -57,6 +58,29 @@ def create_event(
     p = ClickhouseProducer()
 
     p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
+
+    if team.slack_incoming_webhook:
+        # Do a little bit of pre-filtering
+        if event in ActionStep.objects.filter(action__team_id=team.pk, action__post_to_slack=True).values_list(
+            "event", flat=True
+        ):
+            try:
+                celery.current_app.send_task(
+                    "ee.tasks.webhooks_ee.post_event_to_webhook_ee",
+                    (
+                        {
+                            "event": event,
+                            "properties": properties,
+                            "distinct_id": distinct_id,
+                            "timestamp": timestamp,
+                            "elements_list": elements,
+                        },
+                        team.pk,
+                        site_url,
+                    ),
+                )
+            except:
+                pass
 
     return str(event_uuid)
 
@@ -112,7 +136,9 @@ class ClickhouseEventSerializer(serializers.Serializer):
             prop_vals = [res.strip('"') for res in event[9]]
             return dict(zip(event[8], prop_vals))
         else:
-            props = json.loads(event[2])
+            # parse_constants gets called for any NaN, Infinity etc values
+            # we just want those to be returned as None
+            props = json.loads(event[2], parse_constant=lambda x: None)
             unpadded = {key: value.strip('"') if isinstance(value, str) else value for key, value in props.items()}
             return unpadded
 
@@ -137,13 +163,15 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return event[6]
 
 
-def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> Tuple[str, Dict]:
+def determine_event_conditions(
+    conditions: Dict[str, Union[str, List[str]]], long_date_from: bool = False
+) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
     for idx, (k, v) in enumerate(conditions.items()):
         if not isinstance(v, str):
             continue
-        if k == "after":
+        if k == "after" and not long_date_from:
             timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
             result += "AND timestamp > %(after)s"
             params.update({"after": timestamp})

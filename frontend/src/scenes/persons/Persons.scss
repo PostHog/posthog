@@ -1,0 +1,49 @@
+@import '~/vars';
+
+.person-header {
+    display: flex;
+    align-items: center;
+
+    svg {
+        height: 18px;
+    }
+
+    &.anonymous {
+        color: $text_muted;
+        svg {
+            color: $purple_300;
+        }
+    }
+
+    &.identified {
+        color: $text_default;
+        svg {
+            color: $purple_700;
+        }
+    }
+}
+
+.person-detail {
+    .person-header {
+        svg {
+            height: 24px;
+        }
+        font-weight: bold;
+        font-size: 16px;
+    }
+
+    .item-group {
+        margin-top: $default_spacing;
+        padding-left: 4px;
+
+        label {
+            font-weight: bold;
+        }
+    }
+
+    .extra-ids {
+        cursor: pointer;
+        margin-left: 4px;
+        color: $primary;
+    }
+}

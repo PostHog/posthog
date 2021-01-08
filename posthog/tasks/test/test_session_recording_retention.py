@@ -4,9 +4,9 @@ from unittest.mock import MagicMock, call, patch
 from django.utils.timezone import datetime, now
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest
 from posthog.models import SessionRecordingEvent, Team
 from posthog.tasks.session_recording_retention import session_recording_retention, session_recording_retention_scheduler
+from posthog.test.base import BaseTest
 
 threshold = now
 

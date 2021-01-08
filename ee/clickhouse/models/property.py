@@ -1,5 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 
+from django.utils import timezone
+
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.util import is_int, is_json
@@ -8,13 +10,16 @@ from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.property import Property
 from posthog.models.team import Team
+from posthog.utils import relative_date_parse
 
 
 def parse_prop_clauses(
-    filters: List[Property], team_id: int, prepend: str = "", table_name: str = ""
+    filters: List[Property], team_id: Optional[int], prepend: str = "global", table_name: str = ""
 ) -> Tuple[str, Dict]:
-    final = ""
-    params: Dict[str, Any] = {"team_id": team_id}
+    final = []
+    params: Dict[str, Any] = {}
+    if team_id is not None:
+        params["team_id"] = team_id
     if table_name != "":
         table_name += "."
 
@@ -23,22 +28,25 @@ def parse_prop_clauses(
             cohort = Cohort.objects.get(pk=prop.value)
             person_id_query, cohort_filter_params = format_filter_query(cohort)
             params = {**params, **cohort_filter_params}
-            final += "AND {table_name}distinct_id IN ({clause}) ".format(table_name=table_name, clause=person_id_query)
+            final.append(
+                "AND {table_name}distinct_id IN ({clause})".format(table_name=table_name, clause=person_id_query)
+            )
         elif prop.type == "person":
             filter_query, filter_params = prop_filter_json_extract(prop, idx, "{}person".format(prepend))
-            final += " AND {table_name}distinct_id IN ({filter_query})".format(
-                filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query), table_name=table_name
+            final.append(
+                "AND {table_name}distinct_id IN ({filter_query})".format(
+                    filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query), table_name=table_name
+                )
             )
             params.update(filter_params)
         else:
             filter_query, filter_params = prop_filter_json_extract(
                 prop, idx, prepend, prop_var="{}properties".format(table_name)
             )
-            final += " {filter_query} AND {table_name}team_id = %(team_id)s".format(
-                table_name=table_name, filter_query=filter_query
-            )
+
+            final.append(f"{filter_query} AND {table_name}team_id = %(team_id)s" if team_id else filter_query)
             params.update(filter_params)
-    return final, params
+    return " ".join(final), params
 
 
 def prop_filter_json_extract(
@@ -133,8 +141,16 @@ def prop_filter_json_extract(
 
 
 def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
+
+    parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
+    parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
+
     if value:
         return sync_execute(
-            SELECT_PROP_VALUES_SQL_WITH_FILTER, {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
+            SELECT_PROP_VALUES_SQL_WITH_FILTER.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
+            {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
         )
-    return sync_execute(SELECT_PROP_VALUES_SQL, {"team_id": team.pk, "key": key})
+    return sync_execute(
+        SELECT_PROP_VALUES_SQL.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
+        {"team_id": team.pk, "key": key},
+    )

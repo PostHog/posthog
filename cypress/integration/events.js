@@ -20,11 +20,4 @@ describe('Events', () => {
         cy.get('[data-attr=prop-val-0]').click({ force: true })
         cy.get('[data-attr=events-table]').should('exist')
     })
-
-    it('Filter by event', () => {
-        cy.get('[data-attr=event-filter-trigger]').click()
-        cy.get('[data-attr=event-name-box]').click()
-        cy.get('[data-attr=prop-val-0]').click({ force: true })
-        cy.get('[data-attr=events-table]').should('exist')
-    })
 })

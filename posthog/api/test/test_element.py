@@ -5,8 +5,7 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
 from posthog.models import Element, ElementGroup, Event, Team
-
-from .base import BaseTest
+from posthog.test.base import BaseTest
 
 
 def test_element_factory(create_event: Callable) -> Callable:
@@ -79,7 +78,7 @@ def test_element_factory(create_event: Callable) -> Callable:
                 elements=[Element(tag_name="img")],
             )
 
-            with self.assertNumQueries(6):
+            with self.assertNumQueries(7):
                 response = self.client.get("/api/element/stats/").json()
             self.assertEqual(response[0]["count"], 2)
             self.assertEqual(response[0]["hash"], event1.elements_hash)

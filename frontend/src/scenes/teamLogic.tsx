@@ -27,7 +27,9 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
     }),
     listeners: ({ values }) => ({
         deleteCurrentTeam: async () => {
-            if (values.currentTeam) api.delete(`api/projects/${values.currentTeam.id}`)
+            if (values.currentTeam) {
+                api.delete(`api/projects/${values.currentTeam.id}`)
+            }
         },
         createTeamSuccess: () => {
             window.location.href = '/project/settings'

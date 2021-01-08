@@ -61,16 +61,22 @@ export const featureFlagLogic = kea({
     reducers: () => ({
         featureFlags: {
             updateFeatureFlag: (state, featureFlag) => {
-                if (!featureFlag) return null
+                if (!featureFlag) {
+                    return null
+                }
                 return [...state].map((flag) => (flag.id === featureFlag.id ? featureFlag : flag))
             },
             updateFeatureFlagSuccess: (state) => state,
             createFeatureFlagSuccess: (state, { featureFlags }) => {
-                if (!featureFlags) return state
+                if (!featureFlags) {
+                    return state
+                }
                 return [featureFlags, ...state]
             },
             deleteFeatureFlag: (state, featureFlag) => {
-                if (!featureFlag) return null
+                if (!featureFlag) {
+                    return null
+                }
                 return [...state].filter((flag) => flag.id !== featureFlag.id)
             },
             deleteFeatureFlagSuccess: (state) => state,
@@ -84,7 +90,9 @@ export const featureFlagLogic = kea({
             }
         },
         createFeatureFlagSuccess: ({ featureFlags }) => {
-            if (!featureFlags) return null
+            if (!featureFlags) {
+                return null
+            }
             props.closeDrawer(), toast('Feature flag saved.')
         },
         deleteFeatureFlagSuccess: () => {

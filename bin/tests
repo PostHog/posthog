@@ -1,7 +1,7 @@
 #!/bin/bash
 set -x
 
-if ! command -v COMMAND &> /dev/null
+if ! command -v nodemon &> /dev/null
 then
     echo "Please install nodemon (npm install -g nodemon) to automatically run tests."
     exit

@@ -14,7 +14,9 @@ export const signupLogic = kea<signupLogicType>({
 
     listeners: {
         createAccountSuccess: ({ account }) => {
-            if (account) location.href = '/ingestion'
+            if (account) {
+                location.href = '/ingestion'
+            }
         },
     },
 })

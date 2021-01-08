@@ -2,17 +2,16 @@ import { hot } from 'react-hot-loader/root'
 
 import React, { useState, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { Layout } from 'antd'
+import { Alert, Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
 import { Sidebar } from '~/layout/Sidebar'
 import { MainNavigation, TopNavigation } from '~/layout/navigation'
 import { TopContent } from '~/layout/TopContent'
-import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 import { BillingToolbar } from 'lib/components/BillingToolbar'
 
 import { userLogic } from 'scenes/userLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { sceneLogic, Scene } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
@@ -20,6 +19,10 @@ import { UpgradeModal } from './UpgradeModal'
 import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from './organizationLogic'
+import { preflightLogic } from './PreflightCheck/logic'
+import { Link } from 'lib/components/Link'
+import { BackTo } from 'lib/components/BackTo'
+import { Papercups } from 'lib/components/Papercups'
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
@@ -31,13 +34,20 @@ function _App(): JSX.Element | null {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
+    const { preflight } = useValues(preflightLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
     // used for legacy navigation [Sidebar.js]
     const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
+    useEffect(() => {
+        if (scene === Scene.Signup && !preflight.cloud && preflight.initiated) {
+            // If user is on an initiated self-hosted instance, redirect away from signup
+            replace('/login')
+            return
+        }
+    }, [scene, preflight])
 
     useEffect(() => {
         if (user) {
@@ -48,10 +58,14 @@ function _App(): JSX.Element | null {
             }
             // Redirect to org/project creation if necessary
             if (!currentOrganizationLoading && !currentOrganization?.id) {
-                if (location.pathname !== '/organization/create') replace('/organization/create')
+                if (location.pathname !== '/organization/create') {
+                    replace('/organization/create')
+                }
                 return
             } else if (!currentTeamLoading && !currentTeam?.id) {
-                if (location.pathname !== '/project/create') replace('/project/create')
+                if (location.pathname !== '/project/create') {
+                    replace('/project/create')
+                }
                 return
             }
         }
@@ -67,10 +81,21 @@ function _App(): JSX.Element | null {
         }
     }, [scene, user, currentOrganization, currentOrganizationLoading, currentTeam, currentTeamLoading])
 
+    const SceneComponent = loadedScenes[scene]?.component || (() => <SceneLoading />)
+
+    const essentialElements = (
+        // Components that should always be mounted inside Layout
+        <>
+            {featureFlags['papercups-enabled'] && <Papercups user={user} />}
+            <Toast />
+        </>
+    )
+
     if (!user) {
         return sceneConfig.unauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <Scene {...params} /> <Toast />
+                <SceneComponent {...params} />
+                {essentialElements}
             </Layout>
         ) : null
     }
@@ -79,13 +104,15 @@ function _App(): JSX.Element | null {
         return (
             <Layout style={{ minHeight: '100vh' }}>
                 {featureFlags['navigation-1775'] ? <TopNavigation /> : null}
-                <Scene user={user} {...params} />
-                <Toast />
+                <SceneComponent user={user} {...params} />
+                {essentialElements}
             </Layout>
         )
     }
 
-    if (!currentOrganization?.id || !currentTeam?.id) return null
+    if (!currentOrganization?.id || !currentTeam?.id) {
+        return null
+    }
 
     return (
         <>
@@ -109,16 +136,24 @@ function _App(): JSX.Element | null {
                     {featureFlags['navigation-1775'] ? <TopNavigation /> : <TopContent />}
                     <Layout.Content className="main-app-content" data-attr="layout-content">
                         {!featureFlags['hide-billing-toolbar'] && <BillingToolbar />}
-                        {currentTeam &&
-                        !currentTeam.ingested_event &&
-                        !['project', 'organization', 'instance', 'my'].some((prefix) => scene.startsWith(prefix)) ? (
-                            <SendEventsOverlay />
-                        ) : (
-                            <Scene user={user} {...params} />
+                        {featureFlags['navigation-1775'] ? <BackTo /> : null}
+
+                        {currentTeam && !currentTeam.ingested_event && (
+                            <Alert
+                                type="warning"
+                                style={{ marginTop: featureFlags['navigation-1775'] ? '1rem' : 0 }}
+                                message={
+                                    <>
+                                        You haven't sent any events to this project yet. Grab{' '}
+                                        <Link to="/project/settings">a snippet or library</Link> to get started!
+                                    </>
+                                }
+                            />
                         )}
-                        <Toast />
+                        <SceneComponent user={user} {...params} />
                     </Layout.Content>
                 </Layout>
+                {essentialElements}
             </Layout>
             <CommandPalette />
         </>

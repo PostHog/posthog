@@ -26,7 +26,9 @@ const formatEvents = (events, newEvents, apiUrl) => {
             eventsFormatted.splice(index, 0, { date_break: moment(event.event.timestamp).format('LL') })
         }
     })
-    if (newEvents.length > 0) eventsFormatted.splice(0, 0, { new_events: true })
+    if (newEvents.length > 0) {
+        eventsFormatted.splice(0, 0, { new_events: true })
+    }
     return eventsFormatted
 }
 // props:
@@ -40,7 +42,8 @@ export const eventsTableLogic = kea({
         (props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all') +
         '-' +
         (props.apiUrl || 'events') +
-        (props.live ? '-live' : ''),
+        (props.live ? '-live' : '') +
+        props.key,
 
     actions: () => ({
         setProperties: (properties) => ({ properties }),

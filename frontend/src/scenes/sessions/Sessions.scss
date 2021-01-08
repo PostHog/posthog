@@ -1,0 +1,102 @@
+@import '~/vars';
+
+.sessions-player-button {
+    color: $success;
+    font-size: 16px;
+    margin-right: 5px;
+
+    &:visited * {
+        color: $text_muted;
+    }
+}
+
+.session-player {
+    padding: $default_spacing * 2 $default_spacing $default_spacing;
+    height: calc(
+        100vh - 48px - #{$default_spacing * 2}
+    ); // 24px (top & bottom, each) for .ant-drawer-body; + padding-top for this item
+
+    .player-container {
+        height: calc(100% - 30px);
+        position: relative;
+    }
+
+    .tag-wrapper {
+        margin-top: $default_spacing / 2;
+    }
+
+    .ant-row {
+        > .ant-col {
+            height: calc(100% - #{$default_spacing});
+        }
+    }
+
+    .url-info {
+        max-width: 50%;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        display: inline-block;
+        white-space: nowrap;
+    }
+
+    .sidebar {
+        overflow: auto;
+    }
+
+    .timeline {
+        display: flex;
+        align-items: stretch;
+        position: relative;
+
+        .line {
+            background-color: $border;
+            width: 2px;
+            margin-right: $default_spacing / 2;
+            border-radius: $radius;
+        }
+
+        .timeline-items {
+            width: calc(100% - 2px - #{$default_spacing / 2}); // 2px width of .line + margin
+
+            > div {
+                margin-bottom: $default_spacing / 2;
+                max-width: 100%;
+
+                &:before {
+                    height: 12px;
+                    width: 12px;
+                    border-radius: 50%;
+                    background-color: $border;
+                    content: '';
+                    display: inline-block;
+                    position: absolute;
+                    left: -5px;
+                    margin-top: 6px;
+                    cursor: pointer;
+                }
+
+                &.current {
+                    &:before {
+                        background-color: $blue_300 !important;
+                    }
+                }
+
+                &.current {
+                    .ant-tag {
+                        background-color: $blue_100;
+                        border-color: $blue_500;
+                        color: $blue_700;
+                    }
+                }
+
+                .ant-tag {
+                    max-width: 100%;
+                    overflow: hidden;
+                    white-space: nowrap;
+                    text-overflow: ellipsis;
+                    cursor: pointer;
+                }
+            }
+        }
+    }
+}

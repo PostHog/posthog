@@ -9,6 +9,7 @@ from rest_framework.request import Request
 from rest_framework.serializers import raise_errors_on_nested_writes
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import OrganizationMembership
 from posthog.permissions import OrganizationMemberPermissions, extract_organization
 
@@ -16,18 +17,20 @@ from posthog.permissions import OrganizationMemberPermissions, extract_organizat
 class OrganizationMemberObjectPermissions(BasePermission):
     """Require organization admin level to change object, allowing everyone read AND delete."""
 
-    message = "Your cannot edit other organization members or remove anyone but yourself."
+    message = "Your cannot edit other organization members."
 
-    def has_object_permission(self, request: Request, view, object: OrganizationMembership) -> bool:
+    def has_object_permission(self, request: Request, view, membership: OrganizationMembership) -> bool:
         if request.method in SAFE_METHODS:
             return True
-        if request.method == "DELETE" and object.user_id == request.user.id:
-            return True
-        organization = extract_organization(object)
-        return (
-            OrganizationMembership.objects.get(user_id=request.user.id, organization=organization).level
-            >= OrganizationMembership.Level.ADMIN
+        organization = extract_organization(membership)
+        requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
+            user_id=request.user.id, organization=organization
         )
+        try:
+            requesting_membership.validate_update(membership)
+        except exceptions.ValidationError:
+            return False
+        return True
 
 
 class OrganizationMemberSerializer(serializers.ModelSerializer):
@@ -38,8 +41,9 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrganizationMembership
         fields = ["membership_id", "user_id", "user_first_name", "user_email", "level", "joined_at", "updated_at"]
+        read_only_fields = ["user_id", "joined_at", "updated_at"]
 
-    def update(self, updated_membership, validated_data):
+    def update(self, updated_membership, validated_data, **kwargs):
         updated_membership = cast(OrganizationMembership, updated_membership)
         raise_errors_on_nested_writes("update", self, validated_data)
         requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
@@ -47,14 +51,14 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         )
         for attr, value in validated_data.items():
             if attr == "level":
-                requesting_membership.validate_level_change(updated_membership, value)
+                requesting_membership.validate_update(updated_membership, value)
             setattr(updated_membership, attr, value)
         updated_membership.save()
         return updated_membership
 
 
 class OrganizationMemberViewSet(
-    NestedViewSetMixin,
+    StructuredViewSetMixin,
     mixins.DestroyModelMixin,
     mixins.UpdateModelMixin,
     mixins.ListModelMixin,
@@ -65,18 +69,6 @@ class OrganizationMemberViewSet(
     queryset = OrganizationMembership.objects.all()
     lookup_field = "user_id"
     ordering = ["level", "-joined_at"]
-
-    def filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
-        parents_query_dict = self.get_parents_query_dict()
-        if parents_query_dict:
-            if parents_query_dict["organization_id"] == "@current":
-                parents_query_dict["organization_id"] = self.request.user.organization.id
-            try:
-                return queryset.filter(**parents_query_dict)
-            except ValueError:
-                raise exceptions.NotFound()
-        else:
-            return queryset
 
     def get_object(self):
         queryset = self.filter_queryset(self.get_queryset())

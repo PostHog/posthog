@@ -14,7 +14,9 @@ export function recurseSelector(elements, parts, index) {
     } else {
         parts = element.tag_name
     }
-    if (index === 10 || !elements[index + 1]) return parts
+    if (index === 10 || !elements[index + 1]) {
+        return parts
+    }
     return recurseSelector(elements, parts, index + 1)
 }
 
@@ -27,7 +29,7 @@ function elementsToAction(elements) {
     }
 }
 
-export async function createActionFromEvent(event, increment) {
+export async function createActionFromEvent(event, increment, recurse = createActionFromEvent) {
     let actionData = {
         steps: [
             {
@@ -45,18 +47,20 @@ export async function createActionFromEvent(event, increment) {
     } else {
         actionData.name = `${event.event} event`
     }
-    if (increment) actionData.name = actionData.name + ' ' + increment
+    if (increment) {
+        actionData.name = actionData.name + ' ' + increment
+    }
 
     if (event.properties.$event_type === 'submit') {
         actionData.steps[0].properties = [{ key: '$event_type', value: 'submit' }]
     }
 
-    let action = false
+    let action = {}
     try {
         action = await api.create('api/action', actionData)
     } catch (response) {
         if (response.detail === 'action-exists' && increment < 30) {
-            return createActionFromEvent(event, increment + 1)
+            return recurse(event, increment + 1, recurse)
         }
     }
     if (action.id) {

@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react'
 import { Layout, Modal } from 'antd'
-import { ProjectFilled, ApiFilled, ClockCircleFilled, DownOutlined } from '@ant-design/icons'
+import { ProjectFilled, ApiFilled, ClockCircleFilled, DownOutlined, MessageOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -18,7 +18,7 @@ import {
     IconInsights,
     IconPerson,
     IconToolbar,
-} from './icons'
+} from 'lib/components/icons'
 import { navigationLogic } from './navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 
@@ -139,6 +139,12 @@ function _MainNavigation(): JSX.Element {
                     />
                     <div className="divider" />
                     <MenuItem title="Plugins" icon={<ApiFilled />} identifier="plugins" to="/project/plugins" />
+                    <MenuItem
+                        title="Annotations"
+                        icon={<MessageOutlined />}
+                        identifier="annotations"
+                        to="/annotations"
+                    />
                     <MenuItem
                         title="Project"
                         icon={<ProjectFilled />}

@@ -1,21 +1,34 @@
 import json
 import warnings
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Union
 
 from django.core.cache import cache
 from django.db.models import Count, Func, Prefetch, Q, QuerySet
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
+from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.models import Event, Filter, Person, Team
+from posthog.api.routing import StructuredViewSetMixin
+from posthog.constants import TRENDS_LINEAR, TRENDS_TABLE
+from posthog.models import Event, Filter, Person
+from posthog.models.filters import RetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.utils import convert_property_value
+from posthog.queries.base import properties_to_Q
+from posthog.queries.lifecycle import LifecycleTrend
+from posthog.queries.retention import Retention
+from posthog.queries.stickiness import Stickiness
+from posthog.utils import convert_property_value, relative_date_parse
 
-from .base import CursorPagination as BaseCursorPagination
+
+class PersonCursorPagination(CursorPagination):
+    ordering = "-id"
+    page_size = 100
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -28,6 +41,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "name",
             "distinct_ids",
             "properties",
+            "is_identified",
             "created_at",
             "uuid",
         ]
@@ -38,11 +52,6 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         if len(person.distinct_ids) > 0:
             return person.distinct_ids[-1]
         return person.pk
-
-
-class CursorPagination(BaseCursorPagination):
-    ordering = "-id"
-    page_size = 100
 
 
 class PersonFilter(filters.FilterSet):
@@ -61,21 +70,27 @@ class PersonFilter(filters.FilterSet):
         fields = ["is_identified"]
 
 
-class PersonViewSet(viewsets.ModelViewSet):
+class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
-    pagination_class = CursorPagination
+    pagination_class = PersonCursorPagination
     filter_backends = [filters.DjangoFilterBackend]
     filterset_class = PersonFilter
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+
+    lifecycle_class = LifecycleTrend
+    retention_class = Retention
+    stickiness_class = Stickiness
 
     def paginate_queryset(self, queryset):
         if self.request.accepted_renderer.format == "csv" or not self.paginator:
             return None
         return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
-    def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
+    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         if request.GET.get("id"):
             ids = request.GET["id"].split(",")
             queryset = queryset.filter(id__in=ids)
@@ -87,7 +102,10 @@ class PersonViewSet(viewsets.ModelViewSet):
             contains = []
             for part in parts:
                 if ":" in part:
-                    queryset = queryset.filter(properties__has_key=part.split(":")[1])
+                    matcher, key = part.split(":")
+                    if matcher == "has":
+                        # Matches for example has:email or has:name
+                        queryset = queryset.filter(properties__has_key=key)
                 else:
                     contains.append(part)
             queryset = queryset.filter(
@@ -97,29 +115,25 @@ class PersonViewSet(viewsets.ModelViewSet):
         if request.GET.get("cohort"):
             queryset = queryset.filter(cohort__id=request.GET["cohort"])
         if request.GET.get("properties"):
-            queryset = queryset.filter(
-                Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(team_id=team.pk)
-            )
+            filter = Filter(data={"properties": json.loads(request.GET["properties"])})
+            queryset = queryset.filter(properties_to_Q(filter.properties, team_id=self.team_id))
 
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset
 
-    def destroy(self, request: request.Request, pk=None):  # type: ignore
-        team = request.user.team
-        person = Person.objects.get(team=team, pk=pk)
-        events = Event.objects.filter(team=team, distinct_id__in=person.distinct_ids)
+    def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
+        team_id = self.team_id
+        person = Person.objects.get(team_id=team_id, pk=pk)
+        events = Event.objects.filter(team_id=team_id, distinct_id__in=person.distinct_ids)
         events.delete()
         person.delete()
         return response.Response(status=204)
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        team = self.request.user.team
-        queryset = queryset.filter(team=team)
-        return self._filter_request(self.request, queryset, team)
+        return self._filter_request(self.request, super().get_queryset())
 
     @action(methods=["GET"], detail=False)
-    def by_distinct_id(self, request):
+    def by_distinct_id(self, request, **kwargs):
         """
         DEPRECATED in favor of /api/person/?distinct_id={id}
         """
@@ -134,7 +148,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         return PersonSerializer(person).data
 
     @action(methods=["GET"], detail=False)
-    def by_email(self, request):
+    def by_email(self, request, **kwargs):
         """
         DEPRECATED in favor of /api/person/?email={email}
         """
@@ -149,7 +163,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         return PersonSerializer(person).data
 
     @action(methods=["GET"], detail=False)
-    def properties(self, request: request.Request) -> response.Response:
+    def properties(self, request: request.Request, **kwargs) -> response.Response:
         result = self.get_properties(request)
 
         return response.Response(result)
@@ -168,7 +182,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         return [{"name": event["keys"], "count": event["count"]} for event in people]
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: request.Request) -> response.Response:
+    def values(self, request: request.Request, **kwargs) -> response.Response:
         people = self.get_queryset()
         key = "properties__{}".format(request.GET.get("key"))
         people = (
@@ -188,7 +202,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         )
 
     @action(methods=["GET"], detail=False)
-    def references(self, request: request.Request) -> response.Response:
+    def references(self, request: request.Request, **kwargs) -> response.Response:
         reference_id = request.GET.get("id", None)
         offset = request.GET.get("offset", None)
 
@@ -206,3 +220,96 @@ class PersonViewSet(viewsets.ModelViewSet):
             )
         else:
             return response.Response({})
+
+    @action(methods=["POST"], detail=True)
+    def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
+        people = Person.objects.filter(team_id=self.team_id, pk__in=request.data.get("ids"))
+        person = Person.objects.get(pk=pk, team_id=self.team_id)
+        person.merge_people([p for p in people])
+
+        return response.Response(PersonSerializer(person).data, status=201)
+
+    @action(methods=["GET"], detail=False)
+    def lifecycle(self, request: request.Request) -> response.Response:
+
+        team = request.user.team
+        if not team:
+            return response.Response(
+                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
+                status=400,
+            )
+
+        filter = Filter(request=request)
+        target_date = request.GET.get("target_date", None)
+        if target_date is None:
+            return response.Response(
+                {"message": "Missing parameter", "detail": "Must include specified date"}, status=400
+            )
+        target_date_parsed = relative_date_parse(target_date)
+        lifecycle_type = request.GET.get("lifecycle_type", None)
+        if lifecycle_type is None:
+            return response.Response(
+                {"message": "Missing parameter", "detail": "Must include lifecycle type"}, status=400
+            )
+
+        limit = int(request.GET.get("limit", 100))
+
+        next_url: Optional[str] = request.get_full_path()
+        people = self.lifecycle_class().get_people(
+            target_date=target_date_parsed, filter=filter, team_id=team.pk, lifecycle_type=lifecycle_type, limit=limit,
+        )
+        next_url = paginated_result(people, request, filter.offset)
+
+        return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
+
+    @action(methods=["GET"], detail=False)
+    def retention(self, request: request.Request) -> response.Response:
+
+        display = request.GET.get("display", None)
+        team = request.user.team
+        if not team:
+            return response.Response(
+                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
+                status=400,
+            )
+        filter = RetentionFilter(request=request)
+
+        if display == TRENDS_TABLE:
+            people = self.retention_class().people_in_period(filter, team)
+        else:
+            people = self.retention_class().people(filter, team)
+
+        next_url = paginated_result(people, request, filter.offset)
+
+        return response.Response({"result": people, "next": next_url})
+
+    @action(methods=["GET"], detail=False)
+    def stickiness(self, request: request.Request) -> response.Response:
+        team = request.user.team
+        if not team:
+            return response.Response(
+                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
+                status=400,
+            )
+        earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
+        filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=earliest_timestamp_func)
+        people = self.stickiness_class().people(filter, team)
+        next_url = paginated_result(people, request, filter.offset)
+        return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
+
+
+def paginated_result(
+    entites: Union[List[Dict[str, Any]], ReturnDict], request: request.Request, offset: int = 0
+) -> Optional[str]:
+    next_url: Optional[str] = request.get_full_path()
+    if len(entites) > 99 and next_url:
+        if "offset" in next_url:
+            next_url = next_url[1:]
+            next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
+        else:
+            next_url = request.build_absolute_uri(
+                "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
+            )
+    else:
+        next_url = None
+    return next_url
