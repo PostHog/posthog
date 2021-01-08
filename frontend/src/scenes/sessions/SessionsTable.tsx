@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space, Tooltip, Drawer } from 'antd'
+import { Table, Button, Spin, Space, Tooltip, Drawer, Divider } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -191,6 +191,8 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             ) : (
                 <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
             )}
+
+            <Divider />
 
             <div className="text-right mb">
                 <Tooltip title={playAllCTA}>
