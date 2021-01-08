@@ -105,7 +105,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             },
         },
         {
-            title: 'Duration',
+            title: 'Session duration',
             render: function RenderDuration(session: SessionType) {
                 return <span>{humanFriendlyDuration(session.length)}</span>
             },
@@ -156,7 +156,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                             }
                         >
                             <span>
-                                Play session
+                                Play recording
                                 <QuestionCircleOutlined style={{ marginLeft: 6 }} />
                             </span>
                         </Tooltip>
@@ -164,7 +164,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                         <Tooltip title={enableSessionRecordingCTA}>
                             <span>
                                 <PoweroffOutlined style={{ marginRight: 6 }} className="text-warning" />
-                                Play session
+                                Play recording
                             </span>
                         </Tooltip>
                     )}
