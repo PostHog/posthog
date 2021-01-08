@@ -179,6 +179,7 @@ export const sessionsTableLogic = kea<
 
             if (JSON.stringify(params.filters || {}) !== JSON.stringify(values.filters)) {
                 actions.setAllFilters(params.filters || [])
+                actions.applyFilters()
             }
         },
     }),

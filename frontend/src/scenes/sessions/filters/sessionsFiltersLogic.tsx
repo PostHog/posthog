@@ -10,8 +10,16 @@ export interface PersonProperty {
     count: number
 }
 
+export interface SavedFilter {
+    name: string
+    filters: Array<SessionsPropertyFilter>
+    id: string
+}
+
+type FilterPropertyType = SessionsPropertyFilter['type']
+
 export const sessionsFiltersLogic = kea<
-    sessionsFiltersLogicType<SessionsPropertyFilter, FilterSelector, PersonProperty>
+    sessionsFiltersLogicType<SessionsPropertyFilter, FilterSelector, PersonProperty, SavedFilter, FilterPropertyType>
 >({
     actions: () => ({
         openFilterSelect: (selector: FilterSelector) => ({ selector }),
@@ -19,7 +27,7 @@ export const sessionsFiltersLogic = kea<
         setAllFilters: (filters: Array<SessionsPropertyFilter>) => ({ filters }),
         updateFilter: (property: SessionsPropertyFilter, selector: FilterSelector) => ({ property, selector }),
         removeFilter: (selector: number) => ({ selector }),
-        dropdownSelected: (type: SessionsPropertyFilter['type'], id: string | number, label: string) => ({
+        dropdownSelected: (type: FilterPropertyType, id: string | number, label: string) => ({
             type,
             id,
             label,
@@ -65,6 +73,28 @@ export const sessionsFiltersLogic = kea<
                 })
                 return groups
             },
+        ],
+        savedFilters: [
+            () => [],
+            (): Array<SavedFilter> => [
+                {
+                    name: 'All sessions',
+                    filters: [],
+                    id: 'all',
+                },
+                {
+                    name: 'Sessions with recordings',
+                    filters: [{ type: 'recording', key: 'duration', value: 0, operator: 'gt' }],
+                    id: 'withrecordings',
+                },
+            ],
+        ],
+        activeFilter: [
+            (s) => [s.filters, s.savedFilters],
+            (filters: Array<SessionsPropertyFilter>, savedFilters: Array<SavedFilter>): SavedFilter | null =>
+                savedFilters.filter(
+                    (savedFilter) => JSON.stringify(savedFilter.filters) === JSON.stringify(filters)
+                )[0],
         ],
     },
     loaders: () => ({

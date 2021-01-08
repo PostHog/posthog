@@ -27,6 +27,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
 import { SessionsEditFiltersPanel } from 'scenes/sessions/filters/SessionsEditFiltersPanel'
+import { SavedFiltersDropdown } from 'scenes/sessions/filters/SavedFiltersDropdown'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -182,6 +183,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
 
                 {featureFlags['filter_by_session_props'] && <SessionsFilterBox />}
+                {featureFlags['filter_by_session_props'] && <SavedFiltersDropdown />}
             </Space>
 
             {featureFlags['filter_by_session_props'] ? (
