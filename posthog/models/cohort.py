@@ -61,6 +61,24 @@ class Cohort(models.Model):
 
     objects = CohortManager()
 
+    def get_analytics_metadata(self):
+        action_groups_count: int = 0
+        properties_groups_count: int = 0
+        for group in self.groups:
+            if group.get("action_id"):
+                action_groups_count += 1
+            elif group.get("properties"):
+                properties_groups_count += 1
+
+        return {
+            "name_length": len(self.name),
+            "person_count": self.people.count(),
+            "groups_count": self.groups.count(),
+            "action_groups_count": action_groups_count,
+            "properties_groups_count": properties_groups_count,
+            "deleted": self.deleted,
+        }
+
     def calculate_people(self, use_clickhouse=is_ee_enabled()):
         try:
             if not use_clickhouse:
@@ -87,7 +105,7 @@ class Cohort(models.Model):
                 self.last_calculation = timezone.now()
                 self.errors_calculating = 0
                 self.save()
-        except:
+        except Exception:
             self.is_calculating = False
             self.errors_calculating = F("errors_calculating") + 1
             self.save()
