@@ -3,7 +3,7 @@ SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC'
 """
 
 VOLUME_ACTIONS_SQL = """
-SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events {event_join} where team_id = {team_id} and {actions_query} {filters} AND {interval}(timestamp) >= {interval}(toDateTime(%(date_from)s)) AND timestamp <= toDateTime(%(date_to)s) GROUP BY {interval}({timestamp})
+SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events {event_join} where team_id = {team_id} and {actions_query} {filters} AND {interval}(timestamp) >= {interval}(toDateTime(%(date_from)s)) AND timestamp <= %(date_to)s GROUP BY {interval}({timestamp})
 """
 
 VOLUME_TOTAL_AGGREGATE_SQL = """
