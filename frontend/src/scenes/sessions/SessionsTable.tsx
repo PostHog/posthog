@@ -25,8 +25,8 @@ import { userLogic } from 'scenes/userLogic'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkButton } from 'lib/components/LinkButton'
-import { SessionsFilterBox } from 'scenes/sessions/SessionsFilterBox'
-import { SessionsEditFiltersPanel } from 'scenes/sessions/SessionsEditFiltersPanel'
+import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
+import { SessionsEditFiltersPanel } from 'scenes/sessions/filters/SessionsEditFiltersPanel'
 
 interface SessionsTableProps {
     personIds?: string[]

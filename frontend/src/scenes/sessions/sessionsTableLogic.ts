@@ -5,7 +5,7 @@ import { toParams } from 'lib/utils'
 import { sessionsTableLogicType } from 'types/scenes/sessions/sessionsTableLogicType'
 import { PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
-import { sessionsFiltersLogic } from 'scenes/sessions/sessionsFiltersLogic'
+import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 
 type Moment = moment.Moment
 

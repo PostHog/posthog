@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
 import { useActions } from 'kea'
 import { RecordingPropertyFilter } from '~/types'
-import { sessionsFiltersLogic } from 'scenes/sessions/sessionsFiltersLogic'
 import { Input, Select } from 'antd'
 import { Col } from 'antd'
 import { OperatorSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
+import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 
 interface Props {
     filter: RecordingPropertyFilter

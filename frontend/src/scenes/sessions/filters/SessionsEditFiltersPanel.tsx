@@ -1,13 +1,13 @@
 import React from 'react'
 import { Button, Card, Col, Row } from 'antd'
 import { useActions, useValues } from 'kea'
-import { sessionsFiltersLogic } from 'scenes/sessions/sessionsFiltersLogic'
 import { DownOutlined, PlusCircleOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
-import { EventPropertyFilter } from 'scenes/sessions/EventPropertyFilter'
 import { EventTypePropertyFilter, PersonPropertyFilter, RecordingPropertyFilter } from '~/types'
-import { PersonFilter } from 'scenes/sessions/UserFilter'
-import { DurationFilter } from 'scenes/sessions/DurationFilter'
+import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
+import { EventPropertyFilter } from 'scenes/sessions/filters/EventPropertyFilter'
+import { PersonFilter } from 'scenes/sessions/filters/UserFilter'
+import { DurationFilter } from 'scenes/sessions/filters/DurationFilter'
 
 interface Props {
     onSubmit: () => void

@@ -2,7 +2,7 @@ import React from 'react'
 import { useActions } from 'kea'
 import { PersonPropertyFilter } from '~/types'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
-import { sessionsFiltersLogic } from 'scenes/sessions/sessionsFiltersLogic'
+import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 
 interface Props {
     filter: PersonPropertyFilter

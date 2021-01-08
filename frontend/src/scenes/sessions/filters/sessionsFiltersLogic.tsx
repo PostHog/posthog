@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { sessionsFiltersLogicType } from 'types/scenes/sessions/sessionsFiltersLogicType'
+import { sessionsFiltersLogicType } from 'types/scenes/sessions/filters/sessionsFiltersLogicType'
 import { SessionsPropertyFilter } from '~/types'
 
 type FilterSelector = number | 'new'

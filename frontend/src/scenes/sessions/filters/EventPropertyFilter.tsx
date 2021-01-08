@@ -6,7 +6,7 @@ import { EventTypePropertyFilter } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
 import { Col } from 'antd'
-import { sessionsFiltersLogic } from 'scenes/sessions/sessionsFiltersLogic'
+import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 
 interface Props {
     filter: EventTypePropertyFilter
