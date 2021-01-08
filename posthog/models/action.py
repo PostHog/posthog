@@ -118,4 +118,5 @@ class Action(models.Model):
             "match_selector_count": self.steps.exclude(Q(selector="") | Q(selector__isnull=True)).count(),
             "match_url_count": self.steps.exclude(Q(url="") | Q(url__isnull=True)).count(),
             "has_properties": self.steps.exclude(properties=[]).exists(),
+            "deleted": self.deleted,
         }

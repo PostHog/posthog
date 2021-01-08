@@ -45,6 +45,7 @@ class TestCreateAction(BaseTest):
                 "match_selector_count": 1,
                 "match_url_count": 1,
                 "has_properties": False,
+                "deleted": False,
             },
         )
 
@@ -119,6 +120,7 @@ class TestCreateAction(BaseTest):
                 "match_url_count": 0,
                 "has_properties": True,
                 "updated_by_creator": False,
+                "deleted": False,
             },
         )
 
