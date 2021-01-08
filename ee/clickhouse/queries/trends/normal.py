@@ -28,7 +28,7 @@ class ClickhouseTrendsNormal:
         num_intervals, seconds_in_interval = get_time_diff(
             filter.interval or "day", filter.date_from, filter.date_to, team_id=team_id
         )
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
+        _, _, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
         props_to_filter = [*filter.properties, *entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
@@ -36,13 +36,11 @@ class ClickhouseTrendsNormal:
         aggregate_operation, join_condition, math_params = process_math(entity)
 
         params: Dict = {"team_id": team_id}
-        params = {**params, **prop_filter_params, **math_params}
+        params = {**params, **prop_filter_params, **math_params, **date_params}
         content_sql_params = {
             "interval": interval_annotation,
             "timestamp": "timestamp",
             "team_id": team_id,
-            "parsed_date_from": parsed_date_from,
-            "parsed_date_to": parsed_date_to,
             "filters": prop_filters,
             "event_join": join_condition,
             "aggregate_operation": aggregate_operation,
