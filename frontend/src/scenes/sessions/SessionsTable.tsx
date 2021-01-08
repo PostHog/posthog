@@ -181,12 +181,14 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 <DatePicker value={selectedDate} onChange={(date) => setFilters(properties, date)} allowClear={false} />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
 
-                <SessionsFilterBox />
+                {featureFlags['filter_by_session_props'] && <SessionsFilterBox />}
             </Space>
 
-            <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
-
-            {featureFlags['filter_by_session_props'] && <SessionsEditFiltersPanel onSubmit={applyFilters} />}
+            {featureFlags['filter_by_session_props'] ? (
+                <SessionsEditFiltersPanel onSubmit={applyFilters} />
+            ) : (
+                <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
+            )}
 
             <div className="text-right mb">
                 <Tooltip title={playAllCTA}>
