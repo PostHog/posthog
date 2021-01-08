@@ -24,8 +24,7 @@ class HookViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     Retrieve, create, update or destroy webhooks.
     """
 
-    queryset = Hook.objects.none()
-    serializer_class = HookSerializer
+    queryset = Hook.objects.all()
     ordering = "-created_at"
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     serializer_class = HookSerializer

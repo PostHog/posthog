@@ -7,6 +7,8 @@ from django.db import models
 from django.dispatch import receiver
 from django.utils import timezone
 
+from posthog.queries.base import properties_to_Q
+
 from .filters import Filter
 from .person import Person
 
@@ -43,9 +45,10 @@ class FeatureFlag(models.Model):
         return False
 
     def _match_distinct_id(self, distinct_id: str) -> bool:
+        filter = Filter(data=self.filters)
         return (
             Person.objects.filter(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
-            .filter(Filter(data=self.filters).properties_to_Q(team_id=self.team_id, is_person_query=True))
+            .filter(properties_to_Q(filter.properties, team_id=self.team_id, is_person_query=True))
             .exists()
         )
 
