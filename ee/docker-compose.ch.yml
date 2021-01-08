@@ -95,7 +95,6 @@ services:
         links:
             - db:db
             - redis:redis
-
     clickhouse:
         image: yandex/clickhouse-server
         ports:
