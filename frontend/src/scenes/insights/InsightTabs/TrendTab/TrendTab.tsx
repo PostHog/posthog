@@ -12,9 +12,13 @@ import { ViewType } from '../../insightLogic'
 import { LIFECYCLE } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-export function TrendTab(): JSX.Element {
-    const { filters } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.TRENDS }))
-    const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view: ViewType.TRENDS }))
+interface TrendTabProps {
+    view: string
+}
+
+export function TrendTab({ view }: TrendTabProps): JSX.Element {
+    const { filters } = useValues(trendsLogic({ dashboardItemId: null, view }))
+    const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
 
     return featureFlags['remove-shownas'] ? (

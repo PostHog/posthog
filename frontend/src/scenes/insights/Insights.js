@@ -177,17 +177,17 @@ function _Insights() {
                                 */}
                                         {featureFlags['remove-shownas']
                                             ? {
-                                                  [`${ViewType.TRENDS}`]: <TrendTab />,
-                                                  [`${ViewType.STICKINESS}`]: <TrendTab />,
-                                                  [`${ViewType.LIFECYCLE}`]: <TrendTab />,
-                                                  [`${ViewType.SESSIONS}`]: <SessionTab />,
+                                                  [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
+                                                  [`${ViewType.STICKINESS}`]: <TrendTab view={ViewType.STICKINESS} />,
+                                                  [`${ViewType.LIFECYCLE}`]: <TrendTab view={ViewType.LIFECYCLE} />,
+                                                  [`${ViewType.SESSIONS}`]: <SessionTab view={ViewType.SESSIONS} />,
                                                   [`${ViewType.FUNNELS}`]: <FunnelTab />,
                                                   [`${ViewType.RETENTION}`]: <RetentionTab />,
                                                   [`${ViewType.PATHS}`]: <PathTab />,
                                               }[activeView]
                                             : {
-                                                  [`${ViewType.TRENDS}`]: <TrendTab />,
-                                                  [`${ViewType.SESSIONS}`]: <SessionTab />,
+                                                  [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
+                                                  [`${ViewType.SESSIONS}`]: <SessionTab view={ViewType.SESSIONS} />,
                                                   [`${ViewType.FUNNELS}`]: <FunnelTab />,
                                                   [`${ViewType.RETENTION}`]: <RetentionTab />,
                                                   [`${ViewType.PATHS}`]: <PathTab />,
