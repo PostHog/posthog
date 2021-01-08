@@ -72,8 +72,8 @@ class Cohort(models.Model):
 
         return {
             "name_length": len(self.name),
-            "person_count": self.people.count(),
-            "groups_count": self.groups.count(),
+            "person_count_precalc": self.people.count(),
+            "groups_count": len(self.groups),
             "action_groups_count": action_groups_count,
             "properties_groups_count": properties_groups_count,
             "deleted": self.deleted,
