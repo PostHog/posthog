@@ -72,7 +72,7 @@ services:
         build:
             context: ../
             dockerfile: production.Dockerfile
-        command: ./bin/plugin-server
+        command: ./bin/docker-plugin-server
         volumes:
             - ..:/code
         environment:
