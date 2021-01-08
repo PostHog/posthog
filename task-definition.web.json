@@ -96,7 +96,7 @@
                 },
                 {
                     "name": "DEPLOYMENT",
-                    "value": "Production ECS"
+                    "value": "Posthog Cloud"
                 }
             ],
             "secrets": [
