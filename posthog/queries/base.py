@@ -5,9 +5,12 @@ from dateutil.relativedelta import relativedelta
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from posthog.models import Entity, Event, Filter, Team
+from posthog.models.entity import Entity
+from posthog.models.event import Event
+from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
 from posthog.models.property import Property
+from posthog.models.team import Team
 from posthog.utils import get_compare_period_dates
 
 """

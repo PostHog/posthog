@@ -13,7 +13,6 @@ from django.forms.models import model_to_dict
 from django.utils import timezone
 
 from posthog.ee import is_ee_enabled
-from posthog.queries.base import properties_to_Q
 
 from .action import Action
 from .action_step import ActionStep
@@ -190,6 +189,8 @@ class EventManager(models.QuerySet):
         )
 
     def query_db_by_action(self, action, order_by="-timestamp", start=None, end=None) -> models.QuerySet:
+        from posthog.queries.base import properties_to_Q
+
         events = self
         any_step = Q()
         steps = action.steps.all()

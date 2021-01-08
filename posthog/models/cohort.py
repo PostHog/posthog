@@ -11,7 +11,6 @@ from django.utils import timezone
 from sentry_sdk import capture_exception
 
 from posthog.ee import is_ee_enabled
-from posthog.queries.base import properties_to_Q
 
 from .action import Action
 from .event import Event
@@ -107,6 +106,8 @@ class Cohort(models.Model):
         return Person.objects.filter(self._people_filter(), team=self.team)
 
     def _people_filter(self, extra_filter=None):
+        from posthog.queries.base import properties_to_Q
+
         filters = Q()
         for group in self.groups:
             if group.get("action_id"):
