@@ -6,6 +6,7 @@ import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined, EllipsisOutlined } from '@ant-design/icons'
 import { sortableContainer, sortableElement, sortableHandle } from 'react-sortable-hoc'
+import posthog from 'posthog-js'
 
 const DragHandle = sortableHandle(() => (
     <span className="action-filter-drag-handle">
@@ -50,13 +51,15 @@ export function ActionFilter({
     }, [filters])
 
     function onSortEnd({ oldIndex, newIndex }) {
-        console.log('sortEnd', oldIndex, newIndex)
         const move = (arr, from, to) => {
             const clone = [...arr]
             Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
             return clone.map((child, order) => ({ ...child, order }))
         }
         setFilters(toFilters(move(localFilters, oldIndex, newIndex)))
+        if (oldIndex !== newIndex) {
+            posthog.capture('funnel step reordered')
+        }
     }
 
     return (
