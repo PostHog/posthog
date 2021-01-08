@@ -164,7 +164,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         self._calculate_action(action)
         posthoganalytics.capture(
             request.user.distinct_id,
-            "action created",
+            "action updated",
             {**action.get_analytics_metadata(), "updated_by_creator": request.user == action.created_by},
         )
         return Response(self.serializer_class(action, context={"request": request}).data)

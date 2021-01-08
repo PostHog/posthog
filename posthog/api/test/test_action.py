@@ -1,39 +1,25 @@
-from datetime import datetime
-from json import dumps as jdumps
-from unittest.mock import call, patch
+from unittest.mock import patch
 
-from freezegun import freeze_time
-
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from posthog.models import (
-    Action,
-    ActionStep,
-    Cohort,
-    Element,
-    Entity,
-    Event,
-    Filter,
-    Person,
-    Team,
-)
-from posthog.test.base import BaseTest, TransactionBaseTest
+from posthog.models import Action, ActionStep, Element, Event
+from posthog.test.base import BaseTest
 
 
 @patch("posthog.tasks.calculate_action.calculate_action.delay")
 class TestCreateAction(BaseTest):
     TESTS_API = True
 
-    def test_create_and_update_action(self, patch_delay):
+    @patch("posthoganalytics.capture")
+    def test_create_and_update_action(self, patch_capture, *args):
         Event.objects.create(
             team=self.team,
             event="$autocapture",
-            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div"),],
+            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div")],
         )
         response = self.client.post(
             "/api/action/",
             data={
                 "name": "user signed up",
-                "steps": [{"text": "sign up", "selector": "div > button", "url": "/signup", "isNew": "asdf",}],
+                "steps": [{"text": "sign up", "selector": "div > button", "url": "/signup", "isNew": "asdf"}],
             },
             content_type="application/json",
             HTTP_ORIGIN="http://testserver",
@@ -43,6 +29,24 @@ class TestCreateAction(BaseTest):
         self.assertEqual(action.team, self.team)
         self.assertEqual(action.steps.get().selector, "div > button")
         self.assertEqual(response["steps"][0]["text"], "sign up")
+
+        # Assert analytics are sent
+        patch_capture.assert_called_with(
+            self.user.distinct_id,
+            "action created",
+            {
+                "post_to_slack": False,
+                "name_length": 14,
+                "custom_slack_message_format": False,
+                "event_count_precalc": 0,
+                "step_count": 1,
+                "match_text_count": 1,
+                "match_href_count": 0,
+                "match_selector_count": 1,
+                "match_url_count": 1,
+                "has_properties": False,
+            },
+        )
 
         # test no actions with same name
         user2 = self._create_user("tim2")
@@ -64,6 +68,7 @@ class TestCreateAction(BaseTest):
             properties={"$browser": "Chrome"},
             elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div"),],
         )
+
         response = self.client.patch(
             "/api/action/%s/" % action.pk,
             data={
@@ -97,6 +102,25 @@ class TestCreateAction(BaseTest):
         self.assertEqual(steps[1].href, "/a-new-link")
         self.assertEqual(action.events.get(), event2)
         self.assertEqual(action.events.count(), 1)
+
+        # Assert analytics are sent
+        patch_capture.assert_called_with(
+            user2.distinct_id,
+            "action updated",
+            {
+                "post_to_slack": False,
+                "name_length": 16,
+                "custom_slack_message_format": False,
+                "event_count_precalc": 0,
+                "step_count": 2,
+                "match_text_count": 1,
+                "match_href_count": 1,
+                "match_selector_count": 1,
+                "match_url_count": 0,
+                "has_properties": True,
+                "updated_by_creator": False,
+            },
+        )
 
         # test queries
         with self.assertNumQueries(7):

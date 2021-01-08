@@ -111,7 +111,7 @@ class Action(models.Model):
             "post_to_slack": self.post_to_slack,
             "name_length": len(self.name),
             "custom_slack_message_format": self.slack_message_format != "",
-            "event_count": self.events.count(),
+            "event_count_precalc": self.events.count(),  # `precalc` because events are computed async
             "step_count": self.steps.count(),
             "match_text_count": self.steps.exclude(Q(text="") | Q(text__isnull=True)).count(),
             "match_href_count": self.steps.exclude(Q(href="") | Q(href__isnull=True)).count(),
