@@ -23,10 +23,8 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SessionsPlay } from './SessionsPlay'
 import { userLogic } from 'scenes/userLogic'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
-import { SessionRecordingFilters } from 'scenes/sessions/SessionRecordingFilters'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkButton } from 'lib/components/LinkButton'
-import { SessionActionFilters } from 'scenes/sessions/SessionActionFilters'
 import { SessionsFilterBox } from 'scenes/sessions/SessionsFilterBox'
 import { SessionsEditFiltersPanel } from 'scenes/sessions/SessionsEditFiltersPanel'
 
@@ -59,11 +57,9 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         selectedDate,
         properties,
         sessionRecordingId,
-        duration,
         firstRecordingId,
-        actionFilter,
     } = useValues(logic)
-    const { fetchNextSessions, previousDay, nextDay, setFilters, updateActionFilter, applyFilters } = useActions(logic)
+    const { fetchNextSessions, previousDay, nextDay, setFilters, applyFilters } = useActions(logic)
     const { user } = useValues(userLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -182,29 +178,15 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             {!isPersonPage && <PageHeader title="Sessions" />}
             <Space className="mb-05">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
-                <DatePicker
-                    value={selectedDate}
-                    onChange={(date) => setFilters(properties, date, duration, actionFilter)}
-                    allowClear={false}
-                />
+                <DatePicker value={selectedDate} onChange={(date) => setFilters(properties, date)} allowClear={false} />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
 
                 <SessionsFilterBox />
             </Space>
 
-            {featureFlags['filter_by_session_props'] && user?.is_multi_tenancy && (
-                <SessionActionFilters actionFilter={actionFilter} updateActionFilter={updateActionFilter} />
-            )}
-
-            {featureFlags['filter_by_session_props'] && (
-                <SessionRecordingFilters
-                    duration={duration}
-                    onChange={(newDuration) => setFilters(properties, selectedDate, newDuration, actionFilter)}
-                />
-            )}
             <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
 
-            <SessionsEditFiltersPanel onSubmit={applyFilters} />
+            {featureFlags['filter_by_session_props'] && <SessionsEditFiltersPanel onSubmit={applyFilters} />}
 
             <div className="text-right mb">
                 <Tooltip title={playAllCTA}>
@@ -222,11 +204,6 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 </Tooltip>
             </div>
 
-            {actionFilter && !featureFlags['filter_by_session_props'] && (
-                <p className="text-muted">
-                    Showing only sessions where <b>{actionFilter.name}</b> occurred
-                </p>
-            )}
             <Table
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
