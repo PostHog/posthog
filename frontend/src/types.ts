@@ -191,6 +191,8 @@ interface CohortPropertyFilter extends BasePropertyFilter {
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: 'recording'
+    key: 'duration'
+    value: number
     operator: 'lt' | 'gt'
 }
 
