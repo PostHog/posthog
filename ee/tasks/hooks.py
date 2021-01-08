@@ -4,8 +4,6 @@ import requests
 from celery.task import Task
 from django.core.serializers.json import DjangoJSONEncoder
 
-from ee.models.hook import Hook
-
 
 class DeliverHook(Task):
     max_retries = 3
@@ -20,6 +18,8 @@ class DeliverHook(Task):
             )
             if response.status_code == 410 and hook_id:
                 # Delete hook on our side if it's gone on Zapier's
+                from ee.models.hook import Hook
+
                 Hook.objects.filter(id=hook_id).delete()
                 return
             if response.status_code >= 500:
