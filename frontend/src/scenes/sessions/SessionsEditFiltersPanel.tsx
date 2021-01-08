@@ -5,14 +5,19 @@ import { sessionsFiltersLogic } from 'scenes/sessions/sessionsFiltersLogic'
 import { DownOutlined, PlusCircleOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
 import { EventPropertyFilter } from 'scenes/sessions/EventPropertyFilter'
-import { EventTypePropertyFilter, PersonPropertyFilter } from '~/types'
+import { EventTypePropertyFilter, PersonPropertyFilter, RecordingPropertyFilter } from '~/types'
 import { PersonFilter } from 'scenes/sessions/UserFilter'
+import { DurationFilter } from 'scenes/sessions/DurationFilter'
 
 interface Props {
     onSubmit: () => void
 }
 
 const SECTIONS: Record<string, { label: string; description: string }> = {
+    recording: {
+        label: 'Recording filters',
+        description: 'Find sessions with recordings matching the following',
+    },
     person: {
         label: 'User property filters',
         description: 'Find sessions where user properties match the following',
@@ -64,6 +69,9 @@ export function SessionsEditFiltersPanel({ onSubmit }: Props): JSX.Element {
                                 )}
                                 {item.type === 'person' && (
                                     <PersonFilter filter={item as PersonPropertyFilter} selector={selector} />
+                                )}
+                                {item.type === 'recording' && item.key === 'duration' && (
+                                    <DurationFilter filter={item as RecordingPropertyFilter} selector={selector} />
                                 )}
                             </Row>
                             <CloseButton onClick={() => removeFilter(selector)} style={{ marginLeft: 8 }} />

@@ -1,5 +1,11 @@
 import React from 'react'
-import { AimOutlined, SearchOutlined, UsergroupAddOutlined, ContainerOutlined } from '@ant-design/icons'
+import {
+    AimOutlined,
+    SearchOutlined,
+    UsergroupAddOutlined,
+    ContainerOutlined,
+    PlaySquareOutlined,
+} from '@ant-design/icons'
 import { Button } from 'antd'
 import { SelectBox, SelectBoxItem, SelectedItem } from 'lib/components/SelectBox'
 import { useActions, useValues } from 'kea'
@@ -145,6 +151,27 @@ export function SessionsFilterBox(): JSX.Element {
             getLabel: (item: SelectedItem) => item.name,
         })
     }
+
+    groups.unshift({
+        name: (
+            <>
+                <PlaySquareOutlined /> Recording property
+            </>
+        ),
+        dataSource: [{ key: 'duration', name: 'Recording duration', value: 'duration' }],
+        renderInfo: function recordingProperty({ item }) {
+            return (
+                <>
+                    <PlaySquareOutlined /> Recording property
+                    <br />
+                    <h3>{item.name}</h3>
+                </>
+            )
+        },
+        type: 'recording',
+        getValue: (item: SelectedItem) => item.value,
+        getLabel: (item: SelectedItem) => item.name,
+    })
 
     return (
         <>

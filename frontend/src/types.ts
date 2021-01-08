@@ -164,7 +164,6 @@ interface BasePropertyFilter {
 }
 
 export type PropertyOperator =
-    | undefined
     | 'exact'
     | 'is_not'
     | 'icontains'
@@ -190,7 +189,7 @@ interface CohortPropertyFilter extends BasePropertyFilter {
     type: 'cohort'
 }
 
-interface RecordingPropertyFilter extends BasePropertyFilter {
+export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: 'recording'
     operator: 'lt' | 'gt'
 }
