@@ -2,4 +2,4 @@
 
 This folder contains a custom `package.json` which installs the latest [`posthog-plugin-server`](https://github.com/PostHog/posthog-plugin-server) package.
 
-The plugin server is started by running `bin/start-plugin-server`.
+The plugin server is started by running `bin/plugin-server`.

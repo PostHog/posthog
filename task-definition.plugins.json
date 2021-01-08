@@ -160,7 +160,7 @@
                 }
             ],
             "entryPoint": ["sh", "-c"],
-            "command": ["./bin/start-plugin-server"]
+            "command": ["./bin/plugin-server"]
         }
     ],
     "requiresCompatibilities": ["FARGATE"],
