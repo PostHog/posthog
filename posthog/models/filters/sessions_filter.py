@@ -17,4 +17,4 @@ class SessionsFilter(SessionsFiltersMixin, DurationMixin, DurationOperatorMixin,
 
     @property
     def limit_by_recordings(self) -> bool:
-        return self.duration_operator is not None
+        return self.duration_filter_property is not None

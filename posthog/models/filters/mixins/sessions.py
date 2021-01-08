@@ -7,6 +7,7 @@ from posthog.constants import (
     SESSIONS_FILTER_COHORT_TYPE,
     SESSIONS_FILTER_EVENT_TYPE,
     SESSIONS_FILTER_PERSON_TYPE,
+    SESSIONS_FILTER_RECORDING_TYPE,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
 )
@@ -81,6 +82,17 @@ class SessionsFiltersMixin(BaseParamMixin):
             for filter in self._all_filters
             if filter["type"] in [SESSIONS_FILTER_COHORT_TYPE, SESSIONS_FILTER_PERSON_TYPE]
         ]
+
+    @cached_property
+    def duration_filter_property(self) -> Optional[Property]:
+        return next(
+            (
+                Property(**filter)
+                for filter in self._all_filters
+                if filter["type"] == SESSIONS_FILTER_RECORDING_TYPE and filter["key"] == "duration"
+            ),
+            None,
+        )
 
     @cached_property
     def _all_filters(self) -> List[Dict]:
