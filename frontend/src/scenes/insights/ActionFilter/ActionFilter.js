@@ -4,10 +4,14 @@ import { useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
-import { PlusCircleOutlined } from '@ant-design/icons'
+import { PlusCircleOutlined, EllipsisOutlined } from '@ant-design/icons'
 import { sortableContainer, sortableElement, sortableHandle } from 'react-sortable-hoc'
 
-const DragHandle = sortableHandle(() => <span className="action-filter-drag-handle">::</span>)
+const DragHandle = sortableHandle(() => (
+    <span className="action-filter-drag-handle">
+        <EllipsisOutlined />
+    </span>
+))
 const SortableActionFilterRow = sortableElement(({ logic, filter, filterIndex, hideMathSelector }) => (
     <div className="draggable-action-filter">
         <DragHandle />
