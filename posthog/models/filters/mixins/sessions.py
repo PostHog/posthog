@@ -59,11 +59,6 @@ class ActionFilterMixin(BaseParamMixin):
 
 class SessionsFiltersMixin(BaseParamMixin):
     @cached_property
-    def _all_filters(self) -> List[Dict]:
-        _props = self._data.get("filters")
-        return json.loads(_props) if isinstance(_props, str) else _props
-
-    @cached_property
     def action_filters(self) -> List[Entity]:
         TYPE_MAPPING = {
             SESSIONS_FILTER_ACTION_TYPE: TREND_FILTER_TYPE_ACTIONS,
@@ -80,9 +75,18 @@ class SessionsFiltersMixin(BaseParamMixin):
         return self.action_filters[0] if len(self.action_filters) > 0 else None
 
     @cached_property
-    def person_filter_properties(self) -> Optional[Property]:
+    def person_filter_properties(self) -> List[Property]:
         return [
             Property(**filter)
             for filter in self._all_filters
             if filter["type"] in [SESSIONS_FILTER_COHORT_TYPE, SESSIONS_FILTER_PERSON_TYPE]
         ]
+
+    @cached_property
+    def _all_filters(self) -> List[Dict]:
+        _props = self._data.get("filters")
+        return json.loads(_props) if isinstance(_props, str) else _props
+
+    @include_dict
+    def filters_to_dict(self):
+        return {"filters": self._all_filters}
