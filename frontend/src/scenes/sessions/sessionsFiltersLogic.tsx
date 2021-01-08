@@ -1,10 +1,18 @@
 import { kea } from 'kea'
+import api from 'lib/api'
 import { sessionsFiltersLogicType } from 'types/scenes/sessions/sessionsFiltersLogicType'
 import { SessionsPropertyFilter } from '~/types'
 
 type FilterSelector = number | 'new'
 
-export const sessionsFiltersLogic = kea<sessionsFiltersLogicType<SessionsPropertyFilter, FilterSelector>>({
+export interface PersonProperty {
+    name: string
+    count: number
+}
+
+export const sessionsFiltersLogic = kea<
+    sessionsFiltersLogicType<SessionsPropertyFilter, FilterSelector, PersonProperty>
+>({
     actions: () => ({
         openFilterSelect: (selector: FilterSelector) => ({ selector }),
         closeFilterSelect: true,
@@ -59,13 +67,29 @@ export const sessionsFiltersLogic = kea<sessionsFiltersLogicType<SessionsPropert
             },
         ],
     },
+    loaders: () => ({
+        personProperties: [
+            [] as Array<PersonProperty>,
+            {
+                loadPersonProperties: async (): Promise<Array<PersonProperty>> =>
+                    await api.get('api/person/properties'),
+            },
+        ],
+    }),
     listeners: ({ actions, values }) => ({
         dropdownSelected: ({ type, id, label }) => {
             if (values.openFilter !== null) {
-                if (type === 'action_type' || type === 'cohort') {
-                    actions.updateFilter({ type, value: id, key: 'id', label }, values.openFilter)
+                if (type === 'action_type' || type === 'event_type' || type === 'cohort') {
+                    actions.updateFilter({ type, key: 'id', value: id, label }, values.openFilter)
+                } else if (type === 'person') {
+                    actions.updateFilter({ type, key: id, value: null, label, operator: 'exact' }, values.openFilter)
                 }
             }
+        },
+    }),
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.loadPersonProperties()
         },
     }),
 })

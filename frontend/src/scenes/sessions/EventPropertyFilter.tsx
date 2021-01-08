@@ -52,7 +52,15 @@ export function EventPropertyFilter({ filter, selector }: Props): JSX.Element {
                     propkey={property.key}
                     operator={property.operator}
                     value={property.value}
-                    onChange={() => {}}
+                    onChange={(operator, value) => {
+                        updateFilter(
+                            {
+                                ...filter,
+                                properties: [{ ...property, operator, value }],
+                            },
+                            selector
+                        )
+                    }}
                 />
             )}
         </>

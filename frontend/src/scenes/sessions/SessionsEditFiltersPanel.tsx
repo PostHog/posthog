@@ -5,13 +5,18 @@ import { sessionsFiltersLogic } from 'scenes/sessions/sessionsFiltersLogic'
 import { DownOutlined, PlusCircleOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
 import { EventPropertyFilter } from 'scenes/sessions/EventPropertyFilter'
-import { EventTypePropertyFilter } from '~/types'
+import { EventTypePropertyFilter, PersonPropertyFilter } from '~/types'
+import { PersonFilter } from 'scenes/sessions/UserFilter'
 
 interface Props {
     onSubmit: () => void
 }
 
 const SECTIONS: Record<string, { label: string; description: string }> = {
+    person: {
+        label: 'User property filters',
+        description: 'Find sessions where user properties match the following',
+    },
     action_type: {
         label: 'Action filters',
         description: 'Find sessions where user has done a given action',
@@ -56,6 +61,9 @@ export function SessionsEditFiltersPanel({ onSubmit }: Props): JSX.Element {
                                 </Col>
                                 {['event_type', 'action_type'].includes(item.type) && (
                                     <EventPropertyFilter filter={item as EventTypePropertyFilter} selector={selector} />
+                                )}
+                                {item.type === 'person' && (
+                                    <PersonFilter filter={item as PersonPropertyFilter} selector={selector} />
                                 )}
                             </Row>
                             <CloseButton onClick={() => removeFilter(selector)} style={{ marginLeft: 8 }} />

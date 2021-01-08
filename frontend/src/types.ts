@@ -181,7 +181,7 @@ interface EventPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
-interface PersonPropertyFilter extends BasePropertyFilter {
+export interface PersonPropertyFilter extends BasePropertyFilter {
     type: 'person'
     operator: PropertyOperator
 }
