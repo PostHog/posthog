@@ -11,6 +11,7 @@ from django.utils import timezone
 from sentry_sdk import capture_exception
 
 from posthog.ee import is_ee_enabled
+from posthog.queries.base import properties_to_Q
 
 from .action import Action
 from .event import Event
@@ -129,7 +130,7 @@ class Cohort(models.Model):
                 filters |= Q(persondistinctid__distinct_id__in=events)
             elif group.get("properties"):
                 filter = Filter(data=group)
-                filters |= Q(filter.properties_to_Q(team_id=self.team_id, is_person_query=True))
+                filters |= Q(properties_to_Q(filter.properties, team_id=self.team_id, is_person_query=True))
         return filters
 
 

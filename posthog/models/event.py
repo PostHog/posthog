@@ -13,6 +13,7 @@ from django.forms.models import model_to_dict
 from django.utils import timezone
 
 from posthog.ee import is_ee_enabled
+from posthog.queries.base import properties_to_Q
 
 from .action import Action
 from .action_step import ActionStep
@@ -199,7 +200,7 @@ class EventManager(models.QuerySet):
             subquery = (
                 Event.objects.add_person_id(team_id=action.team_id)
                 .filter(
-                    Filter(data={"properties": step.properties}).properties_to_Q(team_id=action.team_id),
+                    properties_to_Q(step.properties, team_id=action.team_id),
                     pk=OuterRef("id"),
                     **self.filter_by_event(step),
                     **self.filter_by_element(model_to_dict(step), team_id=action.team_id),
