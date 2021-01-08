@@ -12,11 +12,6 @@ fi
 
 cd plugins
 
-if [ $? -ne 0 ]; then
-    echo "Yarn failed!"
-    exit 1
-fi
-
 while true; do
   # Run: posthog-plugin-server
   yarn start
