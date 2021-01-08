@@ -141,7 +141,15 @@ export const funnelLogic = kea({
                 actions.createInsight({ ...cleanedParams, insight: ViewType.FUNNELS })
             }
 
-            const result = await pollFunnel(cleanedParams)
+            let result
+            insightLogic.actions.startQuery()
+            try {
+                result = await pollFunnel(cleanedParams)
+            } catch (e) {
+                insightLogic.actions.endQuery(ViewType.FUNNELS, e)
+                return []
+            }
+            insightLogic.actions.endQuery(ViewType.FUNNELS)
             actions.setSteps(result)
         },
         saveFunnelInsight: async ({ name }) => {

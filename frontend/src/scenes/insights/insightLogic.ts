@@ -15,7 +15,8 @@ InsighLogic maintains state for changing between insight features
 This includes handling the urls and view state
 */
 
-const SHOW_TIMEOUT_MESSAGE_AFTER = 3000
+const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
+const SHOW_TIMEOUT_MESSAGE_FUNNELS = 30000
 
 export const insightLogic = kea<insightLogicType>({
     actions: () => ({
@@ -95,9 +96,12 @@ export const insightLogic = kea<insightLogicType>({
             values.timeout && clearTimeout(values.timeout)
             const view = values.activeView
             actions.setTimeout(
-                setTimeout(() => {
-                    view == values.activeView && actions.setShowTimeoutMessage(true)
-                }, SHOW_TIMEOUT_MESSAGE_AFTER)
+                setTimeout(
+                    () => {
+                        view == values.activeView && actions.setShowTimeoutMessage(true)
+                    },
+                    view === ViewType.FUNNELS ? SHOW_TIMEOUT_MESSAGE_FUNNELS : SHOW_TIMEOUT_MESSAGE_AFTER
+                )
             )
             actions.setIsLoading(true)
         },

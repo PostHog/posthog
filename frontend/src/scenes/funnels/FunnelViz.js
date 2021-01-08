@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react'
 import FunnelGraph from 'funnel-graph-js'
 import { Loading, humanFriendlyDuration } from 'lib/utils'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 import './FunnelViz.scss'
 
@@ -10,6 +10,7 @@ export function FunnelViz({ steps: stepsParam, dashboardItemId, cachedResults })
     const [steps, setSteps] = useState(stepsParam)
     const logic = funnelVizLogic({ dashboardItemId, cachedResults })
     const { results: stepsResult, resultsLoading: funnelLoading } = useValues(logic)
+    const { loadResults: loadFunnel } = useActions(logic)
 
     function buildChart() {
         if (!steps || steps.length === 0) {
@@ -46,6 +47,8 @@ export function FunnelViz({ steps: stepsParam, dashboardItemId, cachedResults })
     useEffect(() => {
         if (stepsParam) {
             buildChart()
+        } else {
+            loadFunnel()
         }
 
         window.addEventListener('resize', buildChart)
