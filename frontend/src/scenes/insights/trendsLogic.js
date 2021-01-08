@@ -69,11 +69,6 @@ function filterClientSideParams(filters) {
         ...newFilters
     } = filters
 
-    newFilters['insight'] =
-        ((newFilters['insight'] === ViewType.STICKINESS || newFilters['insight'] === ViewType.LIFECYCLE) &&
-            ViewType.TRENDS) ||
-        newFilters['insight']
-
     return newFilters
 }
 
