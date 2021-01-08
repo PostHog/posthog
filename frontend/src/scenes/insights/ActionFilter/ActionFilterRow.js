@@ -321,7 +321,7 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
                                 }
                                 placement="right"
                             >
-                                {name}
+                                <div style={{ height: '100%', width: '100%' }}>{name}</div>
                             </Tooltip>
                         </Select.Option>
                     )
@@ -346,7 +346,7 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
                                 }
                                 placement="right"
                             >
-                                {name}
+                                <div style={{ height: '100%', width: '100%' }}>{name}</div>
                             </Tooltip>
                         </Select.Option>
                     )
