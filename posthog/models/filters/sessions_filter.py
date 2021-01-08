@@ -4,7 +4,6 @@ from django.http import HttpRequest
 
 from posthog.models import Filter
 from posthog.models.filters.mixins.sessions import (
-    ActionFilterMixin,
     DistinctIdMixin,
     DurationMixin,
     DurationOperatorMixin,
