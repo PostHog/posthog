@@ -54,14 +54,19 @@ def _capture_ee(
             for index, el in enumerate(elements)
         ]
 
-    team = Team.objects.only(
-        "slack_incoming_webhook",
-        "event_names",
-        "event_properties",
-        "event_names_with_usage",
-        "event_properties_with_usage",
-        "anonymize_ips",
-    ).get(pk=team_id)
+    team = (
+        Team.objects.only(
+            "slack_incoming_webhook",
+            "event_names",
+            "event_properties",
+            "event_names_with_usage",
+            "event_properties_with_usage",
+            "anonymize_ips",
+            "organization_id",
+        )
+        .select_related("organization")
+        .get(pk=team_id)
+    )
 
     if not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
