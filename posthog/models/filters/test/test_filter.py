@@ -8,7 +8,8 @@ from freezegun.api import freeze_time
 
 from posthog.models import Cohort, Element, Event, Filter, Person
 from posthog.models.team import Team
-from posthog.test.base import BaseTest, properties_to_Q
+from posthog.queries.base import properties_to_Q
+from posthog.test.base import BaseTest
 
 
 class TestFilter(BaseTest):

@@ -198,10 +198,12 @@ class EventManager(models.QuerySet):
             return self.none()
 
         for step in steps:
+            step_filter = Filter(data={"properties": step.properties})
+
             subquery = (
                 Event.objects.add_person_id(team_id=action.team_id)
                 .filter(
-                    properties_to_Q(step.properties, team_id=action.team_id),
+                    properties_to_Q(step_filter.properties, team_id=action.team_id),
                     pk=OuterRef("id"),
                     **self.filter_by_event(step),
                     **self.filter_by_element(model_to_dict(step), team_id=action.team_id),
