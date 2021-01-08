@@ -1,8 +1,9 @@
 import json
 from typing import Any, Dict, List, Optional, Union
 
+import posthoganalytics
 from django.core.cache import cache
-from django.db.models import Count, Exists, OuterRef, Prefetch, QuerySet, functions
+from django.db.models import Count, Exists, OuterRef, Prefetch, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
@@ -115,7 +116,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             name=request.data["name"],
             team_id=self.team_id,
             deleted=False,
-            defaults={"post_to_slack": request.data.get("post_to_slack", False), "created_by": request.user,},
+            defaults={"post_to_slack": request.data.get("post_to_slack", False), "created_by": request.user},
         )
         if not created:
             return Response(data={"detail": "action-exists", "id": action.pk}, status=400)
@@ -123,9 +124,11 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if request.data.get("steps"):
             for step in request.data["steps"]:
                 ActionStep.objects.create(
-                    action=action, **{key: value for key, value in step.items() if key not in ("isNew", "selection")}
+                    action=action, **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
                 )
+
         self._calculate_action(action)
+        posthoganalytics.capture(request.user.distinct_id, "action created", action.get_analytics_metadata())
         return Response(self.serializer_class(action, context={"request": request}).data)
 
     def _calculate_action(self, action: Action) -> None:
@@ -150,7 +153,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 else:
                     ActionStep.objects.create(
                         action=action,
-                        **{key: value for key, value in step.items() if key not in ("isNew", "selection")}
+                        **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
                     )
 
         serializer = ActionSerializer(action, context={"request": request})
@@ -159,6 +162,11 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         serializer.update(action, request.data)
         action.is_calculating = True
         self._calculate_action(action)
+        posthoganalytics.capture(
+            request.user.distinct_id,
+            "action created",
+            {**action.get_analytics_metadata(), "updated_by_creator": request.user == action.created_by},
+        )
         return Response(self.serializer_class(action, context={"request": request}).data)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -251,7 +259,6 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         offset = int(request.GET.get("offset", 0))
 
         def _calculate_people(events: QuerySet, offset: int):
-            shown_as = request.GET.get("shown_as")
             events = events.values("person_id").distinct()
 
             if request.GET.get("breakdown_type") == "cohort" and request.GET.get("breakdown_value") != "all":
@@ -274,7 +281,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     )
                 )
 
-            people = Person.objects.filter(team=team, id__in=[p["person_id"] for p in events[offset : offset + 100]],)
+            people = Person.objects.filter(team=team, id__in=[p["person_id"] for p in events[offset : offset + 100]])
 
             people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
