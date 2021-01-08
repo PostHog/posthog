@@ -48,24 +48,39 @@ export function TimeOut(): JSX.Element {
                 <li>Reduce the date range of your query</li>
                 <li>Remove some filters</li>
                 {!user?.is_multi_tenancy && <li>Increase the size of your database</li>}
-                {!user?.is_multi_tenancy && (
+                {!user?.is_multi_tenancy && user?.ee_enabled && (
                     <li>
-                        <a href="https://posthog.com/pricing?o=enterprise" rel="noopener noreferrer" target="_blank">
+                        <a
+                            data-attr="insight-timeout-upgrade-to-clickhouse"
+                            href="https://posthog.com/pricing?o=enterprise"
+                            rel="noopener noreferrer"
+                            target="_blank"
+                        >
                             Upgrade your database to Clickhouse
                         </a>
                     </li>
                 )}
                 <li>
-                    <a href="https://github.com/PostHog/posthog.com/issues/new">Raise an issue in our repo</a>
+                    <a data-attr="insight-timeout-raise-issue" href="https://github.com/PostHog/posthog.com/issues/new">
+                        Raise an issue in our repo
+                    </a>
                 </li>
                 <li>
                     Get in touch with us{' '}
-                    <a href="https://posthog.com/slack" rel="noopener noreferrer" target="_blank">
+                    <a
+                        data-attr="insight-timeout-slack"
+                        href="https://posthog.com/slack"
+                        rel="noopener noreferrer"
+                        target="_blank"
+                    >
                         on slack
                     </a>
                 </li>
                 <li>
-                    Email us <a href="mailto:hey@posthog.com">hey@posthog.com</a>
+                    Email us{' '}
+                    <a data-attr="insight-timeout-email" href="mailto:hey@posthog.com">
+                        hey@posthog.com
+                    </a>
                 </li>
             </ol>
         </div>
@@ -79,16 +94,26 @@ export function ErrorMessage(): JSX.Element {
             Please try again later or:
             <ol>
                 <li>
-                    <a href="https://github.com/PostHog/posthog.com/issues/new">Raise an issue in our repo</a>
+                    <a data-attr="insight-error-raise-issue" href="https://github.com/PostHog/posthog.com/issues/new">
+                        Raise an issue in our repo
+                    </a>
                 </li>
                 <li>
                     Get in touch with us{' '}
-                    <a href="https://posthog.com/slack" rel="noopener noreferrer" target="_blank">
+                    <a
+                        data-attr="insight-error-slack"
+                        href="https://posthog.com/slack"
+                        rel="noopener noreferrer"
+                        target="_blank"
+                    >
                         on slack
                     </a>
                 </li>
                 <li>
-                    Email us <a href="mailto:hey@posthog.com">hey@posthog.com</a>
+                    Email us{' '}
+                    <a data-attr="insight-error-email" href="mailto:hey@posthog.com">
+                        hey@posthog.com
+                    </a>
                 </li>
             </ol>
         </div>

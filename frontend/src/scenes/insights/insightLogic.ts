@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import { toParams, fromParams } from 'lib/utils'
+import posthog from 'posthog-js'
 import { insightLogicType } from 'types/scenes/insights/insightLogicType'
 
 export const ViewType = {
@@ -14,7 +15,7 @@ InsighLogic maintains state for changing between insight features
 This includes handling the urls and view state
 */
 
-const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
+const SHOW_TIMEOUT_MESSAGE_AFTER = 3000
 
 export const insightLogic = kea<insightLogicType>({
     actions: () => ({
@@ -27,6 +28,7 @@ export const insightLogic = kea<insightLogicType>({
         setMaybeShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
         setShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
         setShowErrorMessage: (showErrorMessage: boolean) => ({ showErrorMessage }),
+        setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setTimeout: (timeout) => ({ timeout }),
     }),
 
@@ -70,6 +72,12 @@ export const insightLogic = kea<insightLogicType>({
             },
         ],
         timeout: [null, { setTimeout: (_, { timeout }) => timeout }],
+        isLoading: [
+            false,
+            {
+                setIsLoading: (_, { isLoading }) => isLoading,
+            },
+        ],
         /*
         allfilters is passed to components that are shared between the different insight features
         */
@@ -82,14 +90,29 @@ export const insightLogic = kea<insightLogicType>({
     }),
     listeners: ({ actions, values }) => ({
         startQuery: () => {
+            actions.setShowTimeoutMessage(false)
+            actions.setShowErrorMessage(false)
             values.timeout && clearTimeout(values.timeout)
-            actions.setTimeout(setTimeout(() => actions.setMaybeShowTimeoutMessage(true), SHOW_TIMEOUT_MESSAGE_AFTER))
+            const view = values.activeView
+            actions.setTimeout(
+                setTimeout(() => {
+                    view == values.activeView && actions.setShowTimeoutMessage(true)
+                }, SHOW_TIMEOUT_MESSAGE_AFTER)
+            )
+            actions.setIsLoading(true)
         },
-        endQuery: ({ view }) => {
+        endQuery: ({ view, exception }) => {
             clearTimeout(values.timeout)
             if (view === values.activeView) {
                 actions.setShowTimeoutMessage(values.maybeShowTimeoutMessage)
                 actions.setShowErrorMessage(values.maybeShowErrorMessage)
+                actions.setIsLoading(false)
+                if (values.maybeShowTimeoutMessage) {
+                    posthog.capture('insight timeout message shown', { insight: values.activeView, ...exception })
+                }
+                if (values.maybeShowErrorMessage) {
+                    posthog.capture('insight error message shown', { insight: values.activeView, ...exception })
+                }
             }
         },
         setActiveView: () => {

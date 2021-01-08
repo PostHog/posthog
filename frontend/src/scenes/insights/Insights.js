@@ -99,7 +99,7 @@ function _Insights() {
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
     const { user } = useValues(userLogic)
-    const { activeView, allFilters, showTimeoutMessage, showErrorMessage } = useValues(insightLogic)
+    const { isLoading, activeView, allFilters, showTimeoutMessage, showErrorMessage } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
 
     return (
@@ -235,19 +235,31 @@ function _Insights() {
                                 >
                                     <div>
                                         {showErrorMessage ? <ErrorMessage /> : showTimeoutMessage && <TimeOut />}
-                                        {
+                                        <div
+                                            style={{
+                                                display:
+                                                    !isLoading && (showErrorMessage || showTimeoutMessage)
+                                                        ? 'none'
+                                                        : 'block',
+                                            }}
+                                        >
                                             {
-                                                [`${ViewType.TRENDS}`]: (
-                                                    <TrendInsight view={ViewType.TRENDS} key={ViewType.TRENDS} />
-                                                ),
-                                                [`${ViewType.SESSIONS}`]: (
-                                                    <TrendInsight view={ViewType.SESSIONS} key={ViewType.SESSIONS} />
-                                                ),
-                                                [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                [`${ViewType.PATHS}`]: <Paths />,
-                                            }[activeView]
-                                        }
+                                                {
+                                                    [`${ViewType.TRENDS}`]: (
+                                                        <TrendInsight view={ViewType.TRENDS} key={ViewType.TRENDS} />
+                                                    ),
+                                                    [`${ViewType.SESSIONS}`]: (
+                                                        <TrendInsight
+                                                            view={ViewType.SESSIONS}
+                                                            key={ViewType.SESSIONS}
+                                                        />
+                                                    ),
+                                                    [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                                    [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                                    [`${ViewType.PATHS}`]: <Paths />,
+                                                }[activeView]
+                                            }
+                                        </div>
                                     </div>
                                 </Card>
                                 {activeView === ViewType.FUNNELS && (
