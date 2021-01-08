@@ -12,9 +12,9 @@ const DragHandle = sortableHandle(() => (
         <EllipsisOutlined />
     </span>
 ))
-const SortableActionFilterRow = sortableElement(({ logic, filter, filterIndex, hideMathSelector }) => (
+const SortableActionFilterRow = sortableElement(({ logic, filter, filterIndex, hideMathSelector, filterCount }) => (
     <div className="draggable-action-filter">
-        <DragHandle />
+        {filterCount > 1 && <DragHandle />}
         <ActionFilterRow
             logic={logic}
             filter={filter}
@@ -50,6 +50,7 @@ export function ActionFilter({
     }, [filters])
 
     function onSortEnd({ oldIndex, newIndex }) {
+        console.log('sortEnd', oldIndex, newIndex)
         const move = (arr, from, to) => {
             const clone = [...arr]
             Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
@@ -71,6 +72,7 @@ export function ActionFilter({
                                 index={index}
                                 filterIndex={index}
                                 hideMathSelector={hideMathSelector}
+                                filterCount={localFilters.length}
                             />
                         ))}
                     </SortableContainer>
