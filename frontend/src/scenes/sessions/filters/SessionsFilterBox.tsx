@@ -155,14 +155,14 @@ export function SessionsFilterBox(): JSX.Element {
     groups.unshift({
         name: (
             <>
-                <PlaySquareOutlined /> Recording property
+                <PlaySquareOutlined /> Recording properties
             </>
         ),
         dataSource: [{ key: 'duration', name: 'Recording duration', value: 'duration' }],
         renderInfo: function recordingProperty({ item }) {
             return (
                 <>
-                    <PlaySquareOutlined /> Recording property
+                    <PlaySquareOutlined /> Recording properties
                     <br />
                     <h3>{item.name}</h3>
                 </>
