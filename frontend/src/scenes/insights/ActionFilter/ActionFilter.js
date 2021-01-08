@@ -4,13 +4,18 @@ import { useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
-import { PlusCircleOutlined } from '@ant-design/icons'
+import { PlusCircleOutlined, EllipsisOutlined } from '@ant-design/icons'
 import { sortableContainer, sortableElement, sortableHandle } from 'react-sortable-hoc'
+import posthog from 'posthog-js'
 
-const DragHandle = sortableHandle(() => <span className="action-filter-drag-handle">::</span>)
-const SortableActionFilterRow = sortableElement(({ logic, filter, filterIndex, hideMathSelector }) => (
+const DragHandle = sortableHandle(() => (
+    <span className="action-filter-drag-handle">
+        <EllipsisOutlined />
+    </span>
+))
+const SortableActionFilterRow = sortableElement(({ logic, filter, filterIndex, hideMathSelector, filterCount }) => (
     <div className="draggable-action-filter">
-        <DragHandle />
+        {filterCount > 1 && <DragHandle />}
         <ActionFilterRow
             logic={logic}
             filter={filter}
@@ -52,6 +57,9 @@ export function ActionFilter({
             return clone.map((child, order) => ({ ...child, order }))
         }
         setFilters(toFilters(move(localFilters, oldIndex, newIndex)))
+        if (oldIndex !== newIndex) {
+            posthog.capture('funnel step reordered')
+        }
     }
 
     return (
@@ -67,6 +75,7 @@ export function ActionFilter({
                                 index={index}
                                 filterIndex={index}
                                 hideMathSelector={hideMathSelector}
+                                filterCount={localFilters.length}
                             />
                         ))}
                     </SortableContainer>
