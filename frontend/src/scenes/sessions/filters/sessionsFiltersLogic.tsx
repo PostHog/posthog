@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
+import { toast } from 'react-toastify'
 import { sessionsFiltersLogicType } from 'types/scenes/sessions/filters/sessionsFiltersLogicType'
 import { SessionsPropertyFilter } from '~/types'
 
@@ -11,9 +12,11 @@ export interface PersonProperty {
 }
 
 export interface SavedFilter {
+    id: string | number
     name: string
-    filters: Array<SessionsPropertyFilter>
-    id: string
+    filters: {
+        properties: Array<SessionsPropertyFilter>
+    }
 }
 
 type FilterPropertyType = SessionsPropertyFilter['type']
@@ -32,6 +35,7 @@ export const sessionsFiltersLogic = kea<
             id,
             label,
         }),
+        createSessionsFilter: (name: string) => ({ name }),
     }),
     reducers: {
         filters: [
@@ -75,25 +79,26 @@ export const sessionsFiltersLogic = kea<
             },
         ],
         savedFilters: [
-            () => [],
-            (): Array<SavedFilter> => [
+            (s) => [s.customFilters],
+            (customFilters): Array<SavedFilter> => [
                 {
-                    name: 'All sessions',
-                    filters: [],
                     id: 'all',
+                    name: 'All sessions',
+                    filters: { properties: [] },
                 },
                 {
-                    name: 'Sessions with recordings',
-                    filters: [{ type: 'recording', key: 'duration', value: 0, operator: 'gt' }],
                     id: 'withrecordings',
+                    name: 'Sessions with recordings',
+                    filters: { properties: [{ type: 'recording', key: 'duration', value: 0, operator: 'gt' }] },
                 },
+                ...customFilters,
             ],
         ],
         activeFilter: [
             (s) => [s.filters, s.savedFilters],
             (filters: Array<SessionsPropertyFilter>, savedFilters: Array<SavedFilter>): SavedFilter | null =>
                 savedFilters.filter(
-                    (savedFilter) => JSON.stringify(savedFilter.filters) === JSON.stringify(filters)
+                    (savedFilter) => JSON.stringify(savedFilter.filters.properties) === JSON.stringify(filters)
                 )[0],
         ],
     },
@@ -103,6 +108,15 @@ export const sessionsFiltersLogic = kea<
             {
                 loadPersonProperties: async (): Promise<Array<PersonProperty>> =>
                     await api.get('api/person/properties'),
+            },
+        ],
+        customFilters: [
+            [] as Array<SavedFilter>,
+            {
+                loadCustomFilters: async (): Promise<Array<SavedFilter>> => {
+                    const { results } = await api.get('api/sessions_filter')
+                    return results
+                },
             },
         ],
     }),
@@ -118,10 +132,17 @@ export const sessionsFiltersLogic = kea<
                 }
             }
         },
+        createSessionsFilter: async ({ name }) => {
+            await api.create('api/sessions_filter', { name, filters: { properties: values.filters } })
+
+            actions.loadCustomFilters()
+            toast('Filter saved')
+        },
     }),
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadPersonProperties()
+            actions.loadCustomFilters()
         },
     }),
 })

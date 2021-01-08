@@ -1,7 +1,11 @@
 import React, { useState } from 'react'
 import { Button, Input } from 'antd'
 
-export function SaveFilter(): JSX.Element {
+interface Props {
+    onSubmit: (name: string) => void
+}
+
+export function SaveFilter({ onSubmit }: Props): JSX.Element {
     const [name, setName] = useState('')
 
     return (
@@ -9,6 +13,7 @@ export function SaveFilter(): JSX.Element {
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
+                    onSubmit(name)
                 }}
             >
                 <div className="mb">
@@ -25,7 +30,7 @@ export function SaveFilter(): JSX.Element {
                     <Button
                         type="primary"
                         htmlType="submit"
-                        disabled={name.length === 0}
+                        disabled={name.length < 2}
                         data-attr="save-sessions-filter"
                         style={{ marginTop: '1rem' }}
                     >

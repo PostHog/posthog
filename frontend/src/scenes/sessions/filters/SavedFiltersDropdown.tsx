@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { SaveOutlined } from '@ant-design/icons'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { Button, Dropdown, Menu } from 'antd'
@@ -13,18 +13,19 @@ export function SavedFiltersDropdown(): JSX.Element {
     const [saveVisible, setSaveVisible] = useState(false)
 
     const { activeFilter, savedFilters } = useValues(sessionsFiltersLogic)
+    const { createSessionsFilter } = useActions(sessionsFiltersLogic)
 
     return (
         <>
             <Dropdown
                 overlay={
-                    <Menu selectedKeys={activeFilter ? [activeFilter.id] : undefined}>
+                    <Menu selectedKeys={activeFilter ? [activeFilter.id.toString()] : undefined}>
                         {savedFilters.map((savedFilter) => (
-                            <Menu.Item key={savedFilter.id}>
+                            <Menu.Item key={savedFilter.id.toString()}>
                                 <Link
                                     to={`/sessions?${toParams({
                                         ...router.values.searchParams,
-                                        filters: savedFilter.filters,
+                                        filters: savedFilter.filters.properties,
                                     })}`}
                                 >
                                     {savedFilter.name}
@@ -51,7 +52,12 @@ export function SavedFiltersDropdown(): JSX.Element {
                 visible={saveVisible}
                 destroyOnClose={true}
             >
-                <SaveFilter />
+                <SaveFilter
+                    onSubmit={(name) => {
+                        createSessionsFilter(name)
+                        setSaveVisible(false)
+                    }}
+                />
             </Drawer>
         </>
     )
