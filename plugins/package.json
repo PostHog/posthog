@@ -4,7 +4,7 @@
     "license": "MIT",
     "private": true,
     "dependencies": {
-        "posthog-plugin-server": "0.6.1"
+        "posthog-plugin-server": "0.6.2"
     },
     "scripts": {
         "start": "posthog-plugin-server"

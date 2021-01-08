@@ -172,11 +172,13 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        result: Dict[str, Any] = {
-            "result": sessions.Sessions().run(filter=SessionsFilter(request=request), team=self.team)
-        }
+        result: Dict[str, Any] = {"result": self.calculate_session(request)}
 
         return Response(result)
+
+    @cached_function()
+    def calculate_session(self, request: request.Request) -> List[Dict[str, Any]]:
+        return sessions.Sessions().run(filter=SessionsFilter(request=request), team=self.team)
 
     # ******************************************
     # /insight/funnel
