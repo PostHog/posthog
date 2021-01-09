@@ -67,6 +67,7 @@
         svg {
             max-height: 28px;
             max-width: 28px;
+            font-size: 28px;
         }
 
         .menu-title {
@@ -152,6 +153,24 @@
 
         &.hide {
             opacity: 0;
+        }
+    }
+}
+
+.all-dashboard-list {
+    .ant-menu-item {
+        .menu-item {
+            display: flex;
+            align-items: center;
+
+            &.menu-item-active {
+                color: $primary;
+            }
+        }
+
+        svg {
+            margin-right: 10px;
+            font-size: 16px;
         }
     }
 }

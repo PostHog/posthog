@@ -84,7 +84,7 @@ function _MainNavigation(): JSX.Element {
     const { setMenuCollapsed, collapseMenu, setToolbarModalOpen } = useActions(navigationLogic)
     const navRef = useRef<HTMLDivElement | null>(null)
     const [canScroll, setCanScroll] = useState(false)
-    const { pinnedDashboards } = useValues(dashboardsModel)
+    const { pinnedDashboards, dashboards } = useValues(dashboardsModel)
 
     useEscapeKey(collapseMenu, [menuCollapsed])
 
@@ -118,6 +118,21 @@ function _MainNavigation(): JSX.Element {
                         />
                     </Menu.Item>
                 ))}
+            </Menu.ItemGroup>
+            <Menu.ItemGroup title="All dashboards" key="all" className="all-dashboard-list">
+                <Menu.Item key="all-dashboards" style={{ margin: 0 }}>
+                    {dashboards.map(
+                        (item: DashboardType) =>
+                            !item.pinned && (
+                                <MenuItem
+                                    title={item.name}
+                                    icon={<IconDashboard />}
+                                    identifier={`dashboard-${item.id}`}
+                                    to={`/dashboard/${item.id}`}
+                                />
+                            )
+                    )}
+                </Menu.Item>
             </Menu.ItemGroup>
         </Menu>
     )
