@@ -1,6 +1,13 @@
 import React, { useRef, useState, useEffect } from 'react'
-import { Layout, Modal } from 'antd'
-import { ProjectFilled, ApiFilled, ClockCircleFilled, DownOutlined, MessageOutlined } from '@ant-design/icons'
+import { Layout, Menu, Modal, Popover } from 'antd'
+import {
+    ProjectFilled,
+    ApiFilled,
+    ClockCircleFilled,
+    DownOutlined,
+    MessageOutlined,
+    PushpinOutlined,
+} from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -21,6 +28,8 @@ import {
 } from 'lib/components/icons'
 import { navigationLogic } from './navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
+import { dashboardsModel } from '~/models'
+import { DashboardType } from '~/types'
 
 // to show the right page in the sidebar
 const sceneOverride: Record<string, string> = {
@@ -75,6 +84,7 @@ function _MainNavigation(): JSX.Element {
     const { setMenuCollapsed, collapseMenu, setToolbarModalOpen } = useActions(navigationLogic)
     const navRef = useRef<HTMLDivElement | null>(null)
     const [canScroll, setCanScroll] = useState(false)
+    const { pinnedDashboards } = useValues(dashboardsModel)
 
     useEscapeKey(collapseMenu, [menuCollapsed])
 
@@ -94,6 +104,23 @@ function _MainNavigation(): JSX.Element {
     useEffect(() => {
         setCanScroll(calcCanScroll(navRef.current))
     }, [navRef])
+
+    const PinnedDashboards = (
+        <Menu style={{ border: 0 }}>
+            <Menu.ItemGroup title="Pinned dashboards" key="pinned">
+                {pinnedDashboards.map((item: DashboardType) => (
+                    <Menu.Item key={item.id} style={{ margin: 0 }}>
+                        <MenuItem
+                            title={item.name}
+                            icon={<PushpinOutlined />}
+                            identifier={`dashboard-${item.id}`}
+                            to={`/dashboard/${item.id}`}
+                        />
+                    </Menu.Item>
+                ))}
+            </Menu.ItemGroup>
+        </Menu>
+    )
 
     return (
         <>
@@ -117,7 +144,16 @@ function _MainNavigation(): JSX.Element {
                             <img src={lgLogo} className="logo-lg" alt="" />
                         </Link>
                     </div>
-                    <MenuItem title="Dashboards" icon={<IconDashboard />} identifier="dashboards" to="/dashboard" />
+                    <Popover content={PinnedDashboards} placement="right" trigger="hover">
+                        <div>
+                            <MenuItem
+                                title="Dashboards"
+                                icon={<IconDashboard />}
+                                identifier="dashboards"
+                                to="/dashboard"
+                            />
+                        </div>
+                    </Popover>
                     <MenuItem
                         title="Insights"
                         icon={<IconInsights />}
