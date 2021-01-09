@@ -7,7 +7,11 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import (
     DROP_EVENTS_TABLE_SQL,
     DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL,
+    DROP_EVENTS_WITH_DENORMALIZED_PROPS_MV_SQL,
+    DROP_EVENTS_WITH_DENORMALIZED_PROPS_SQL,
     EVENTS_TABLE_SQL,
+    EVENTS_WITH_DENORMALIZED_PROPS,
+    EVENTS_WITH_DENORMALIZED_PROPS_MV,
     EVENTS_WITH_PROPS_TABLE_SQL,
 )
 from ee.clickhouse.sql.person import (
@@ -52,10 +56,14 @@ class ClickhouseTestMixin:
 
     def _destroy_event_tables(self):
         sync_execute(DROP_EVENTS_TABLE_SQL)
+        sync_execute(DROP_EVENTS_WITH_DENORMALIZED_PROPS_SQL)
+        sync_execute(DROP_EVENTS_WITH_DENORMALIZED_PROPS_MV_SQL)
         sync_execute(DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL)
 
     def _create_event_tables(self):
         sync_execute(EVENTS_TABLE_SQL)
+        sync_execute(EVENTS_WITH_DENORMALIZED_PROPS)
+        sync_execute(EVENTS_WITH_DENORMALIZED_PROPS_MV)
         sync_execute(EVENTS_WITH_PROPS_TABLE_SQL)
 
     @contextmanager
