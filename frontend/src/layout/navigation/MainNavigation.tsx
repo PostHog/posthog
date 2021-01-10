@@ -123,13 +123,7 @@ function _MainNavigation(): JSX.Element {
                         ))}
                         {!pinnedDashboards.length && (
                             <Menu.Item className="pinned-empty-state">
-                                <span>
-                                    You don't have pinned dashboards yet.{' '}
-                                    <Link to="/dashboard" style={{ color: 'var(--primary)' }}>
-                                        Pin some dashboards
-                                    </Link>{' '}
-                                    for easy access.
-                                </span>
+                                <span>You don't have pinned dashboards yet. Pin some dashboards for easy access.</span>
                             </Menu.Item>
                         )}
                     </Menu.ItemGroup>
@@ -154,7 +148,11 @@ function _MainNavigation(): JSX.Element {
                 <Menu.Item className="text-center" style={{ height: 'initial' }}>
                     <span className="text-muted">You don't have any dashboards yet.</span>
                     <div>
-                        <Link to="/dashboard?new=true" style={{ color: 'var(--primary)' }}>
+                        <Link
+                            to="/dashboard?new"
+                            style={{ color: 'var(--primary)' }}
+                            data-attr="create-dashboard-pinned-overlay"
+                        >
                             <PlusOutlined />
                             Create your first dashboard now
                         </Link>
@@ -186,7 +184,7 @@ function _MainNavigation(): JSX.Element {
                             <img src={lgLogo} className="logo-lg" alt="" />
                         </Link>
                     </div>
-                    <Popover content={PinnedDashboards} placement="right" trigger="hover" visible>
+                    <Popover content={PinnedDashboards} placement="right" trigger="hover">
                         <div>
                             <MenuItem
                                 title="Dashboards"
