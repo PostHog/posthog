@@ -65,10 +65,8 @@ class Cohort(models.Model):
         action_groups_count: int = 0
         properties_groups_count: int = 0
         for group in self.groups:
-            if group.get("action_id"):
-                action_groups_count += 1
-            elif group.get("properties"):
-                properties_groups_count += 1
+            action_groups_count += 1 if group.get("action_id") else 0
+            properties_groups_count += 1 if group.get("properties") else 0
 
         return {
             "name_length": len(self.name),

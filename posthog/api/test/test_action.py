@@ -9,7 +9,7 @@ class TestCreateAction(BaseTest):
     TESTS_API = True
 
     @patch("posthoganalytics.capture")
-    def test_create_and_update_action(self, patch_capture, *args):
+    def test_create_action(self, patch_capture, *args):
         Event.objects.create(
             team=self.team,
             event="$autocapture",
@@ -31,7 +31,7 @@ class TestCreateAction(BaseTest):
         self.assertEqual(response["steps"][0]["text"], "sign up")
 
         # Assert analytics are sent
-        patch_capture.assert_called_with(
+        patch_capture.assert_called_once_with(
             self.user.distinct_id,
             "action created",
             {
@@ -49,7 +49,9 @@ class TestCreateAction(BaseTest):
             },
         )
 
-        # test no actions with same name
+    def test_cant_create_action_with_the_same_name(self, *args):
+
+        Action.objects.create(name="user signed up", team=self.team)
         user2 = self._create_user("tim2")
         self.client.force_login(user2)
 
@@ -62,7 +64,14 @@ class TestCreateAction(BaseTest):
         ).json()
         self.assertEqual(response["detail"], "action-exists")
 
-        # test update
+    @patch("posthoganalytics.capture")
+    def test_update_action(self, patch_capture, *args):
+
+        user = self._create_user("test_user_update")
+        self.client.force_login(user)
+
+        action = Action.objects.create(name="user signed up", team=self.team)
+        ActionStep.objects.create(action=action, text="sign me up!")
         event2 = Event.objects.create(
             team=self.team,
             event="$autocapture",
@@ -95,7 +104,9 @@ class TestCreateAction(BaseTest):
             content_type="application/json",
             HTTP_ORIGIN="http://testserver",
         ).json()
-        action = Action.objects.get()
+        self.assertEqual(response["name"], "user signed up 2")
+
+        action.refresh_from_db()
         action.calculate_events()
         steps = action.steps.all().order_by("id")
         self.assertEqual(action.name, "user signed up 2")
@@ -106,7 +117,7 @@ class TestCreateAction(BaseTest):
 
         # Assert analytics are sent
         patch_capture.assert_called_with(
-            user2.distinct_id,
+            user.distinct_id,
             "action updated",
             {
                 "post_to_slack": False,
@@ -125,8 +136,8 @@ class TestCreateAction(BaseTest):
         )
 
         # test queries
-        with self.assertNumQueries(7):
-            response = self.client.get("/api/action/")
+        with self.assertNumQueries(6):
+            self.client.get("/api/action/")
 
         # test remove steps
         response = self.client.patch(
