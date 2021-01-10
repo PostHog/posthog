@@ -157,20 +157,39 @@
     }
 }
 
-.all-dashboard-list {
-    .ant-menu-item {
-        .menu-item {
-            display: flex;
-            align-items: center;
+.pinned-dashboards {
+    border: 0;
 
-            &.menu-item-active {
-                color: $primary;
+    .all-dashboard-list {
+        .ant-menu-item {
+            .menu-item {
+                display: flex;
+                align-items: center;
+
+                &.menu-item-active {
+                    color: $primary;
+                }
+            }
+
+            svg {
+                margin-right: 10px;
+                font-size: 16px;
             }
         }
+    }
 
-        svg {
-            margin-right: 10px;
-            font-size: 16px;
+    .pinned-empty-state {
+        height: initial;
+        padding-left: 16px;
+        text-align: left;
+
+        span {
+            color: $text_muted;
+            max-width: 200px;
+            display: inline-block;
+            text-align: left;
+            line-height: 1.5em;
+            white-space: initial;
         }
     }
 }
