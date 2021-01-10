@@ -121,6 +121,29 @@ function _MainNavigation(): JSX.Element {
                                 />
                             </Menu.Item>
                         ))}
+                        {!pinnedDashboards.length && (
+                            <Menu.Item
+                                className="text-center"
+                                style={{ height: 'initial', paddingLeft: 16, textAlign: 'left' }}
+                            >
+                                <span
+                                    className="text-muted"
+                                    style={{
+                                        maxWidth: 200,
+                                        display: 'inline-block',
+                                        textAlign: 'left',
+                                        lineHeight: '1.5em',
+                                        whiteSpace: 'initial',
+                                    }}
+                                >
+                                    You don't have pinned dashboards yet.{' '}
+                                    <Link to="/dashboard" style={{ color: 'var(--primary)' }}>
+                                        Pin some dashboards
+                                    </Link>{' '}
+                                    for easy access.
+                                </span>
+                            </Menu.Item>
+                        )}
                     </Menu.ItemGroup>
                     {dashboards.length > pinnedDashboards.length && (
                         <Menu.ItemGroup title="All dashboards" key="all" className="all-dashboard-list">
@@ -140,17 +163,15 @@ function _MainNavigation(): JSX.Element {
                     )}
                 </>
             ) : (
-                <>
-                    <Menu.Item className="text-center" style={{ height: 'initial' }}>
-                        <span className="text-muted">You don't have any dashboards yet.</span>
-                        <div>
-                            <Link to="/dashboard?new=true" style={{ color: 'var(--primary)' }}>
-                                <PlusOutlined />
-                                Create your first dashboard now
-                            </Link>
-                        </div>
-                    </Menu.Item>
-                </>
+                <Menu.Item className="text-center" style={{ height: 'initial' }}>
+                    <span className="text-muted">You don't have any dashboards yet.</span>
+                    <div>
+                        <Link to="/dashboard?new=true" style={{ color: 'var(--primary)' }}>
+                            <PlusOutlined />
+                            Create your first dashboard now
+                        </Link>
+                    </div>
+                </Menu.Item>
             )}
         </Menu>
     )
@@ -177,7 +198,7 @@ function _MainNavigation(): JSX.Element {
                             <img src={lgLogo} className="logo-lg" alt="" />
                         </Link>
                     </div>
-                    <Popover content={PinnedDashboards} placement="right" trigger="hover" visible>
+                    <Popover content={PinnedDashboards} placement="right" trigger="hover">
                         <div>
                             <MenuItem
                                 title="Dashboards"
