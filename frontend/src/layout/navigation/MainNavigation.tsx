@@ -7,6 +7,7 @@ import {
     DownOutlined,
     MessageOutlined,
     PushpinOutlined,
+    PlusOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -107,33 +108,50 @@ function _MainNavigation(): JSX.Element {
 
     const PinnedDashboards = (
         <Menu style={{ border: 0 }}>
-            <Menu.ItemGroup title="Pinned dashboards" key="pinned">
-                {pinnedDashboards.map((item: DashboardType) => (
-                    <Menu.Item key={item.id} style={{ margin: 0 }}>
-                        <MenuItem
-                            title={item.name}
-                            icon={<PushpinOutlined />}
-                            identifier={`dashboard-${item.id}`}
-                            to={`/dashboard/${item.id}`}
-                        />
-                    </Menu.Item>
-                ))}
-            </Menu.ItemGroup>
-            <Menu.ItemGroup title="All dashboards" key="all" className="all-dashboard-list">
-                <Menu.Item key="all-dashboards" style={{ margin: 0 }}>
-                    {dashboards.map(
-                        (item: DashboardType) =>
-                            !item.pinned && (
+            {dashboards.length ? (
+                <>
+                    <Menu.ItemGroup title="Pinned dashboards" key="pinned">
+                        {pinnedDashboards.map((item: DashboardType) => (
+                            <Menu.Item key={`pinned-${item.id}`} style={{ margin: 0 }}>
                                 <MenuItem
                                     title={item.name}
-                                    icon={<IconDashboard />}
+                                    icon={<PushpinOutlined />}
                                     identifier={`dashboard-${item.id}`}
                                     to={`/dashboard/${item.id}`}
                                 />
-                            )
+                            </Menu.Item>
+                        ))}
+                    </Menu.ItemGroup>
+                    {dashboards.length > pinnedDashboards.length && (
+                        <Menu.ItemGroup title="All dashboards" key="all" className="all-dashboard-list">
+                            {dashboards
+                                .filter((item: DashboardType) => !item.pinned)
+                                .map((item: DashboardType) => (
+                                    <Menu.Item key={`dashboard-${item.id}`} style={{ margin: 0 }}>
+                                        <MenuItem
+                                            title={item.name}
+                                            icon={<IconDashboard />}
+                                            identifier={`dashboard-${item.id}`}
+                                            to={`/dashboard/${item.id}`}
+                                        />
+                                    </Menu.Item>
+                                ))}
+                        </Menu.ItemGroup>
                     )}
-                </Menu.Item>
-            </Menu.ItemGroup>
+                </>
+            ) : (
+                <>
+                    <Menu.Item className="text-center" style={{ height: 'initial' }}>
+                        <span className="text-muted">You don't have any dashboards yet.</span>
+                        <div>
+                            <Link to="/dashboard?new=true" style={{ color: 'var(--primary)' }}>
+                                <PlusOutlined />
+                                Create your first dashboard now
+                            </Link>
+                        </div>
+                    </Menu.Item>
+                </>
+            )}
         </Menu>
     )
 
@@ -159,7 +177,7 @@ function _MainNavigation(): JSX.Element {
                             <img src={lgLogo} className="logo-lg" alt="" />
                         </Link>
                     </div>
-                    <Popover content={PinnedDashboards} placement="right" trigger="hover">
+                    <Popover content={PinnedDashboards} placement="right" trigger="hover" visible>
                         <div>
                             <MenuItem
                                 title="Dashboards"
