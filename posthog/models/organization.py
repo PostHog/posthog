@@ -24,6 +24,7 @@ class OrganizationManager(models.Manager):
         with transaction.atomic():
             organization = Organization.objects.create(**kwargs)
             team = Team.objects.create(organization=organization, **(team_fields or {}))
+            organization_membership: Optional[OrganizationMembership] = None
             if user is not None:
                 organization_membership = OrganizationMembership.objects.create(
                     organization=organization, user=user, level=OrganizationMembership.Level.OWNER
@@ -31,8 +32,6 @@ class OrganizationManager(models.Manager):
                 user.current_organization = organization
                 user.current_team = team
                 user.save()
-            else:
-                organization_membership = None
         return organization, organization_membership, team
 
 
