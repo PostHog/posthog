@@ -12,7 +12,8 @@
                 "SELF_CAPTURE": true,
                 "SECRET_KEY": {
                     "generator": "secret"
-                }
+                },
+                "DEPLOYMENT": "Heroku Review App"
             },
             "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],
             "formation": {
@@ -65,6 +66,7 @@
     "env": {
         "SECRET_KEY": {
             "generator": "secret"
-        }
+        },
+        "DEPLOYMENT": "Heroku"
     }
 }
