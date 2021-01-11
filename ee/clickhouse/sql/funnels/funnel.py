@@ -6,7 +6,7 @@ SELECT max_step, count(1), groupArray(100)(id) FROM (
             {steps}
         ) as max_step
     FROM 
-        events_with_denormalized_props
+        events_with_denormalized_props events
     JOIN (
         SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s
     ) as pid
