@@ -215,12 +215,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
         <div>
             <Row gutter={8} className="mt">
                 <Col>
-                    <Button
-                        data-attr={'trend-element-subject-' + index}
-                        ref={node}
-                        onClick={onClick}
-                        className="ant-btn-md"
-                    >
+                    <Button data-attr={'trend-element-subject-' + index} ref={node} onClick={onClick}>
                         {name || 'Select action'}
                         <DownOutlined style={{ fontSize: 10 }} />
                     </Button>
