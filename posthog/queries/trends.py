@@ -3,7 +3,6 @@ import datetime
 from itertools import accumulate
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import numpy as np
 import pandas as pd
 from django.db import connection
 from django.db.models import (
@@ -22,12 +21,11 @@ from django.db.models import (
     Value,
     functions,
 )
-from django.db.models.expressions import F, RawSQL, Subquery
+from django.db.models.expressions import ExpressionWrapper, F, RawSQL, Subquery
+from django.db.models.fields import DateTimeField
 from django.db.models.functions import Cast
-from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
-from django.db.models.sql.query import Query
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE, TRENDS_PIE, TRENDS_TABLE
 from posthog.models import (
     Action,
     ActionStep,
@@ -45,7 +43,7 @@ from posthog.utils import append_data
 
 from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
 
-FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "M"}
+FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "MS"}
 
 MATH_TO_AGGREGATE_FUNCTION: Dict[str, Callable] = {
     "sum": Sum,
@@ -92,8 +90,6 @@ def build_dataframe(aggregates: QuerySet, interval: str, breakdown: Optional[str
         )
     if interval == "week":
         dataframe["date"] = dataframe["date"].apply(lambda x: x - pd.offsets.Week(weekday=6))
-    elif interval == "month":
-        dataframe["date"] = dataframe["date"].apply(lambda x: x - pd.offsets.MonthEnd(n=1))
     return dataframe
 
 
@@ -149,7 +145,9 @@ def get_interval_annotation(key: str) -> Dict[str, Any]:
         "minute": functions.TruncMinute("timestamp"),
         "hour": functions.TruncHour("timestamp"),
         "day": functions.TruncDay("timestamp"),
-        "week": functions.TruncWeek("timestamp"),
+        "week": functions.TruncWeek(
+            ExpressionWrapper(F("timestamp") + datetime.timedelta(days=1), output_field=DateTimeField())
+        ),
         "month": functions.TruncMonth("timestamp"),
     }
     func = map.get(key)
@@ -340,7 +338,8 @@ class Trends(LifecycleTrend, BaseQuery):
         formatted_entities: List[Dict[str, Any]] = []
         for _, item in items.items():
             formatted_data = append_data(dates_filled=list(item.items()), interval=filter.interval)
-            formatted_data.update({"aggregated_value": get_aggregate_total(filtered_events, entity)})
+            if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
+                formatted_data.update({"aggregated_value": get_aggregate_total(filtered_events, entity)})
             formatted_entities.append(formatted_data)
         return formatted_entities
 

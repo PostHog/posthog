@@ -83,6 +83,10 @@
                 {
                     "name": "EMAIL_DEFAULT_FROM",
                     "value": "hey@posthog.com"
+                },
+                {
+                    "name": "DEPLOYMENT",
+                    "value": "Posthog Cloud"
                 }
             ],
             "secrets": [
