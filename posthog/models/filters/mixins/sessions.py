@@ -66,7 +66,7 @@ class SessionsFiltersMixin(BaseParamMixin):
     @cached_property
     def _all_filters(self) -> List[Dict]:
         _props = self._data.get("filters")
-        return json.loads(_props) if isinstance(_props, str) else _props
+        return json.loads(_props) if isinstance(_props, str) else _props or []
 
     @include_dict
     def filters_to_dict(self):
