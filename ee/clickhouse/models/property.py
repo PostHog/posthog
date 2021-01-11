@@ -64,11 +64,11 @@ def prop_filter_json_extract(
     prop: Property, idx: int, prepend: str = "", prop_var: str = "properties", allow_denormalized_props: bool = False
 ) -> Tuple[str, Dict[str, Any]]:
     # Once all queries are migrated over we can get rid of allow_denormalized_props
-    is_denormalized = prop.key in settings.CLICKHOUSE_DENORMALIZED_PROPERTIES and allow_denormalized_props
+    is_denormalized = prop.key.lower() in settings.CLICKHOUSE_DENORMALIZED_PROPERTIES and allow_denormalized_props
     json_extract = "trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, %(k{prepend}_{idx})s))".format(
         idx=idx, prepend=prepend, prop_var=prop_var
     )
-    denormalized = "properties_{}".format(prop.key)
+    denormalized = "properties_{}".format(prop.key.lower())
     operator = prop.operator
     if operator == "is_not":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}

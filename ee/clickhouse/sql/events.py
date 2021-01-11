@@ -134,7 +134,10 @@ CREATE TABLE {table_name}_with_denormalized_props
     distinct_id VARCHAR,
     elements_chain VARCHAR,
     created_at DateTime64(6, 'UTC'),
-    properties_test_prop VARCHAR
+    properties_issampledevent VARCHAR,
+    properties_currentscreen VARCHAR,
+    properties_objectname VARCHAR,
+    properties_test_prop VARCHAR,
     {extra_fields}
 ) ENGINE = {engine}
 
@@ -155,6 +158,9 @@ team_id,
 distinct_id,
 elements_chain,
 created_at,
+trim(BOTH '\"' FROM JSONExtractRaw(properties, 'issampledevent')) properties_issampledevent,
+trim(BOTH '\"' FROM JSONExtractRaw(properties, 'currentscreen')) properties_currentscreen,
+trim(BOTH '\"' FROM JSONExtractRaw(properties, 'objectname')) properties_objectname,
 trim(BOTH '\"' FROM JSONExtractRaw(properties, 'test_prop')) properties_test_prop,
 _timestamp,
 _offset
