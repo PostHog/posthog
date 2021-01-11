@@ -1,20 +1,8 @@
 from typing import Type, cast
-from unittest.mock import Mock, patch
-from uuid import uuid4
 
 from ee.api.test.base import APITransactionLicensedTest
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models.hook import Hook
-from posthog.models import Action, ActionStep
-from posthog.models.event import Event
-
-
-def _create_event(**kwargs) -> Event:
-    pk = uuid4()
-    kwargs.update({"event_uuid": pk})
-    create_event(**kwargs)
-    return Event(pk=str(pk))
 
 
 class TestHooksAPI(ClickhouseTestMixin, APITransactionLicensedTest):
@@ -65,14 +53,3 @@ class TestHooksAPI(ClickhouseTestMixin, APITransactionLicensedTest):
         Hook.objects.create(id=hook_id, user=self.user, team=self.team, resource_id=20)
         response = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hook_id}")
         self.assertEqual(response.status_code, 204)
-
-    @patch("ee.models.hook.find_and_fire_hook")
-    @patch("ee.models.hook.deliver_hook_wrapper")
-    def test_action_on_perform_hook_fired_once(self, mock_deliver_hook_wrapper: Mock, mock_find_and_fire_hook: Mock):
-        hook_id = "abc123"
-        Hook.objects.create(id=hook_id, user=self.user, team=self.team, resource_id=8)
-        action = Action.objects.create(name="anything", team=self.team)
-        ActionStep.objects.create(action=action)
-        _create_event(event="asdfghjkl", team=self.team, distinct_id="whatever")
-        mock_find_and_fire_hook.assert_called_once()
-        mock_deliver_hook_wrapper.assert_called_once()
