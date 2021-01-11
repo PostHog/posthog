@@ -50,7 +50,7 @@ def get_earliest_timestamp(team_id: int) -> datetime:
 
 def get_time_diff(
     interval: str, start_time: Optional[datetime], end_time: Optional[datetime], team_id: int
-) -> Tuple[int, int]:
+) -> Tuple[int, int, bool]:
 
     _start_time = start_time or get_earliest_timestamp(team_id)
     _end_time = end_time or timezone.now()
@@ -64,7 +64,9 @@ def get_time_diff(
     }
 
     diff = _end_time - _start_time
-    return int(diff.total_seconds() / time_diffs[interval]) + 1, time_diffs[interval]
+    round_interval = diff.total_seconds() < time_diffs[interval]
+
+    return int(diff.total_seconds() / time_diffs[interval]) + 1, time_diffs[interval], round_interval
 
 
 PERIOD_TRUNC_MINUTE = "toStartOfMinute"

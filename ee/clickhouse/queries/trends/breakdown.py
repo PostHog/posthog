@@ -56,7 +56,7 @@ class ClickhouseTrendsBreakdown:
         # process params
         params: Dict[str, Any] = {"team_id": team_id}
         interval_annotation = get_trunc_func_ch(filter.interval)
-        num_intervals, seconds_in_interval = get_time_diff(
+        num_intervals, seconds_in_interval, _ = get_time_diff(
             filter.interval or "day", filter.date_from, filter.date_to, team_id
         )
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
