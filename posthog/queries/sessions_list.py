@@ -71,10 +71,6 @@ class SessionsList(BaseSessions):
                         ({base_query}) as count
                     GROUP BY 1
                 ) as sessions
-                LEFT OUTER JOIN
-                    posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id AND posthog_persondistinctid.team_id = %s
-                LEFT OUTER JOIN
-                    posthog_person ON posthog_person.id = posthog_persondistinctid.person_id
                 ORDER BY
                     start_time DESC
             ) as ordered_sessions
