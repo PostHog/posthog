@@ -18,7 +18,7 @@ class TestSessionRecording(BaseTest):
             organization, _, team = Organization.objects.bootstrap(
                 self.user, team_fields={"session_recording_opt_in": True}
             )
-            _, _, team2 = Team.objects.create(organization=organization, session_recording_opt_in=False)
+            team2 = Team.objects.create(organization=organization, session_recording_opt_in=False)
 
             session_recording_retention_scheduler()
 
