@@ -19,6 +19,7 @@ from posthog.models.action import Action
 from posthog.models.event import EventManager
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.queries.base import properties_to_Q
 from posthog.queries.session_recording import SessionRecording
 from posthog.utils import convert_property_value, flatten, relative_date_parse
 
@@ -131,7 +132,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.filter_by_action(Action.objects.get(pk=value))  # type: ignore
             elif key == "properties":
                 filter = Filter(data={"properties": json.loads(value)})
-                queryset = queryset.filter(filter.properties_to_Q(team_id=self.team_id))
+                queryset = queryset.filter(properties_to_Q(filter.properties, team_id=self.team_id))
         return queryset
 
     def _prefetch_events(self, events: List[Event]) -> List[Event]:

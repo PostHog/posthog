@@ -12,7 +12,7 @@ from psycopg2 import sql
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import Action, Entity, Event, Filter, Person, Team
 from posthog.models.utils import namedtuplefetchall
-from posthog.queries.base import BaseQuery
+from posthog.queries.base import BaseQuery, properties_to_Q
 
 
 class Funnel(BaseQuery):
@@ -46,8 +46,8 @@ class Funnel(BaseQuery):
                         else {}
                     ),
                 )
-                .filter(self._filter.properties_to_Q(team_id=self._team.pk))
-                .filter(step.properties_to_Q(team_id=self._team.pk))
+                .filter(properties_to_Q(self._filter.properties, team_id=self._team.pk))
+                .filter(properties_to_Q(step.properties, team_id=self._team.pk))
             )
             with connection.cursor() as cursor:
                 event_string = cursor.mogrify(*event.query.sql_with_params())

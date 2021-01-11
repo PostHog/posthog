@@ -46,3 +46,9 @@ class TestHooksAPI(APITransactionLicensedTest):
             },
             cast(dict, response.data),
         )
+
+    def test_delete_hook(self):
+        hook_id = "abc123"
+        Hook.objects.create(id=hook_id, user=self.user, team=self.team, resource_id=20)
+        response = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hook_id}")
+        self.assertEqual(response.status_code, 204)

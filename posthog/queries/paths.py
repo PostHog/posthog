@@ -7,6 +7,7 @@ from django.db.models.functions import Lag
 
 from posthog.models import Event, Filter, Team
 from posthog.models.filters.path_filter import PathFilter
+from posthog.queries.base import properties_to_Q
 from posthog.utils import request_to_date_query
 
 from .base import BaseQuery
@@ -63,7 +64,7 @@ class Paths(BaseQuery):
                 if event is None
                 else Q()
             )
-            .filter(filter.properties_to_Q(team_id=team.pk) if filter and filter.properties else Q())
+            .filter(properties_to_Q(filter.properties, team_id=team.pk) if filter and filter.properties else Q())
             .annotate(
                 previous_timestamp=Window(
                     expression=Lag("timestamp", default=None),

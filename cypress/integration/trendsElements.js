@@ -29,7 +29,7 @@ describe('Trends actions & events', () => {
         cy.get('[data-attr=math-property-selector-0]').should('not.exist')
 
         // Test that the math selector dropdown is shown on hover
-        cy.get('[data-attr=math-selector-0]').trigger('mouseover')
+        cy.get('[data-attr=math-selector-0]').click()
         cy.get('[data-attr=math-total-0]').should('be.visible')
 
         // Use `force = true` because clicking the element without dragging the mouse makes the dropdown disappear
@@ -42,7 +42,7 @@ describe('Trends actions & events', () => {
         cy.get('[data-attr=new-prop-filter-0-\\$pageview-filter]').click()
         cy.get('[data-attr=property-filter-dropdown]').click()
         cy.get('[data-attr=prop-filter-event-1]').click({ force: true })
-        cy.get('#rc_select_6').click()
+        cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
