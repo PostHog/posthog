@@ -297,8 +297,7 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
     return (
         <Select
             style={{ width: 150 }}
-            defaultValue={'total'}
-            value={math}
+            value={math || 'total'}
             onChange={(value) => onMathSelect(index, value)}
             data-attr={`math-selector-${index}`}
         >
