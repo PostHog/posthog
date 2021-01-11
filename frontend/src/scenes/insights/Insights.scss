@@ -28,6 +28,20 @@
         .illustration-main {
             color: $danger;
         }
+
+        h3 {
+            color: $danger;
+        }
+    }
+
+    &.timeout-message {
+        .illustration-main {
+            color: $warning;
+        }
+
+        h3 {
+            color: $warning;
+        }
     }
 
     .illustration-main {
@@ -38,7 +52,6 @@
 
     h3 {
         text-align: center;
-        color: $danger;
     }
 
     ol {

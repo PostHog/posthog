@@ -3,7 +3,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
 import imgEmptyLineGraph from 'public/empty-line-graph.svg'
 import imgEmptyLineGraphDark from 'public/empty-line-graph-dark.svg'
-import { QuestionCircleOutlined } from '@ant-design/icons'
+import { QuestionCircleOutlined, LoadingOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { IllustrationDanger } from 'lib/components/icons'
 
@@ -42,29 +42,40 @@ export function LineGraphEmptyState({ color }: { color: string }): JSX.Element {
 export function TimeOut(): JSX.Element {
     const { user } = useValues(userLogic)
     return (
-        <div style={{}}>
-            <h3 className="l3">Looks like things are a little slow</h3>
-            Your query is taking a long time to complete. Here are some things you can try:
+        <div className="insight-empty-state timeout-message">
+            <div className="illustration-main">
+                <LoadingOutlined spin />
+            </div>
+            <h3 className="l3">Looks like things are a little slow...</h3>
+            Your query is taking a long time to complete. <b>We are still working on it.</b> However, here are some
+            things you can try to speed things up and make sure you get results promptly:
             <ol>
                 <li>Reduce the date range of your query</li>
                 <li>Remove some filters</li>
                 {!user?.is_multi_tenancy && <li>Increase the size of your database</li>}
-                {!user?.is_multi_tenancy && user?.ee_enabled && (
+                {!user?.is_multi_tenancy && !user?.ee_enabled && (
                     <li>
                         <a
                             data-attr="insight-timeout-upgrade-to-clickhouse"
-                            href="https://posthog.com/pricing?o=enterprise"
-                            rel="noopener noreferrer"
+                            href="https://posthog.com/pricing?o=enterprise&utm_medium=in-product&utm_campaign=insight-timeout-empty-state"
+                            rel="noopener"
                             target="_blank"
                         >
-                            Upgrade your database to Clickhouse
-                        </a>
+                            Upgrade your database
+                        </a>{' '}
+                        to enterprise (runs database on Clickhouse which can handle huge amounts of data very fast)
                     </li>
                 )}
                 <li>
-                    <a data-attr="insight-timeout-raise-issue" href="https://github.com/PostHog/posthog.com/issues/new">
-                        Raise an issue in our repo
-                    </a>
+                    <a
+                        data-attr="insight-timeout-raise-issue"
+                        href="https://github.com/PostHog/posthog/issues/new?labels=bug&template=bug_report.md"
+                        target="_blank"
+                        rel="noreferrer noopener"
+                    >
+                        Raise an issue
+                    </a>{' '}
+                    in our GitHub repository.
                 </li>
                 <li>
                     Get in touch with us{' '}
@@ -74,14 +85,16 @@ export function TimeOut(): JSX.Element {
                         rel="noopener noreferrer"
                         target="_blank"
                     >
-                        on slack
+                        on Slack
                     </a>
+                    .
                 </li>
                 <li>
-                    Email us{' '}
+                    Email us at{' '}
                     <a data-attr="insight-timeout-email" href="mailto:hey@posthog.com">
                         hey@posthog.com
                     </a>
+                    .
                 </li>
             </ol>
         </div>
@@ -127,7 +140,10 @@ export function ErrorMessage(): JSX.Element {
                     </li>
                     <li>
                         Email us at{' '}
-                        <a data-attr="insight-error-email" href="mailto:hey@posthog.com">
+                        <a
+                            data-attr="insight-error-email"
+                            href="mailto:hey@posthog.com?subject=Insight%20graph%20error"
+                        >
                             hey@posthog.com
                         </a>
                         .
