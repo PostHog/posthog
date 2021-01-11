@@ -43,19 +43,24 @@ export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
     const { user } = useValues(userLogic)
     return (
         <div className="insight-empty-state timeout-message">
-            {isLoading && (
-                <div className="illustration-main">
-                    <LoadingOutlined spin />
-                </div>
-            )}
-            <h3 className="l3">Looks like things are a little slow...</h3>
+            <div className="illustration-main">{isLoading ? <LoadingOutlined spin /> : <IllustrationDanger />}</div>
+
+            <h3 className="l3">
+                {isLoading ? (
+                    <>Looks like things are a little slow...</>
+                ) : (
+                    <>Your query took a long time to complete. </>
+                )}
+            </h3>
             {isLoading ? (
                 <>
                     Your query is taking a long time to complete. <b>We're still working on it.</b> However, here are
                     some things you can try to speed it up:
                 </>
             ) : (
-                <>Your query took a long time to complete. Here are some things you can try to speed it up:</>
+                <>
+                    Here are some things you can try to speed up your query and <b>try again</b>:
+                </>
             )}
             <ol>
                 <li>Reduce the date range of your query</li>
