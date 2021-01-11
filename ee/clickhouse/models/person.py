@@ -40,20 +40,18 @@ if settings.EE_AVAILABLE and is_ee_enabled():
 
     @receiver(post_save, sender=Person)
     def person_created(sender, instance: Person, created, **kwargs):
-        create_person(
-            team_id=instance.team.pk,
-            properties=instance.properties,
-            uuid=str(instance.uuid),
-            is_identified=instance.is_identified,
-        )
+        # Leaving this function around since we will be using it in the near future
+        pass
 
     @receiver(post_save, sender=PersonDistinctId)
     def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
-        create_person_distinct_id(instance.pk, instance.team.pk, instance.distinct_id, str(instance.person.uuid))
+        # Leaving this function around since we will be using it in the near future
+        pass
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
-        delete_person(instance.uuid)
+        # Leaving this function around since we will be using it in the near future
+        pass
 
 
 def create_person(
