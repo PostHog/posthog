@@ -28,38 +28,43 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                 filters={filters}
                 setFilters={(payload): void => setFilters(payload)}
                 typeKey="trends"
-                hideMathSelector={filters.shown_as === LIFECYCLE}
+                hideMathSelector={false}
                 copy="Add graph series"
                 disabled={filters.shown_as === LIFECYCLE && (filters.events?.length || filters.actions?.length)}
+                singleFilter={true}
             />
-            <hr />
-            <h4 className="secondary">Filters</h4>
-            <PropertyFilters pageKey="trends-filters" />
-            {filters.insight === ViewType.TRENDS && <hr />}
-            {filters.insight === ViewType.TRENDS && (
-                <h4 className="secondary">
-                    Break down by
-                    <Tooltip
-                        placement="right"
-                        title="Use breakdown to see the volume of events for each variation of that property. For example, breaking down by $current_url will give you the event volume for each url your users have visited."
-                    >
-                        <InfoCircleOutlined className="info-indicator" />
-                    </Tooltip>
-                </h4>
+            {filters.insight !== ViewType.LIFECYCLE && (
+                <>
+                    <hr />
+                    <h4 className="secondary">Filters</h4>
+                    <PropertyFilters pageKey="trends-filters" />
+                </>
             )}
             {filters.insight === ViewType.TRENDS && (
-                <Row>
-                    <BreakdownFilter
-                        filters={filters}
-                        onChange={(breakdown, breakdown_type): void => setFilters({ breakdown, breakdown_type })}
-                    />
-                    {filters.breakdown && (
-                        <CloseButton
-                            onClick={(): void => setFilters({ breakdown: false, breakdown_type: null })}
-                            style={{ marginTop: 1, marginLeft: 10 }}
+                <>
+                    <hr />
+                    <h4 className="secondary">
+                        Break down by
+                        <Tooltip
+                            placement="right"
+                            title="Use breakdown to see the volume of events for each variation of that property. For example, breaking down by $current_url will give you the event volume for each url your users have visited."
+                        >
+                            <InfoCircleOutlined className="info-indicator" />
+                        </Tooltip>
+                    </h4>
+                    <Row>
+                        <BreakdownFilter
+                            filters={filters}
+                            onChange={(breakdown, breakdown_type): void => setFilters({ breakdown, breakdown_type })}
                         />
-                    )}
-                </Row>
+                        {filters.breakdown && (
+                            <CloseButton
+                                onClick={(): void => setFilters({ breakdown: false, breakdown_type: null })}
+                                style={{ marginTop: 1, marginLeft: 10 }}
+                            />
+                        )}
+                    </Row>
+                </>
             )}
         </>
     ) : (

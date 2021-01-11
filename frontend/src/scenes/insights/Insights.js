@@ -138,6 +138,13 @@ function _Insights() {
                         }}
                     >
                         <TabPane tab={<span data-attr="insight-trends-tab">Trends</span>} key={ViewType.TRENDS} />
+                        <TabPane tab={<span data-attr="insight-funnels-tab">Funnels</span>} key={ViewType.FUNNELS} />
+                        <TabPane tab={<span data-attr="insight-sessions-tab">Sessions</span>} key={ViewType.SESSIONS} />
+                        <TabPane
+                            tab={<span data-attr="insight-retention-tab">Retention</span>}
+                            key={ViewType.RETENTION}
+                        />
+                        <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS} />
                         {featureFlags['remove-shownas'] && (
                             <TabPane
                                 tab={<span data-attr="insight-stickiness-tab">Stickiness</span>}
@@ -150,13 +157,6 @@ function _Insights() {
                                 key={ViewType.LIFECYCLE}
                             />
                         )}
-                        <TabPane tab={<span data-attr="insight-sessions-tab">Sessions</span>} key={ViewType.SESSIONS} />
-                        <TabPane tab={<span data-attr="insight-funnels-tab">Funnels</span>} key={ViewType.FUNNELS} />
-                        <TabPane
-                            tab={<span data-attr="insight-retention-tab">Retention</span>}
-                            key={ViewType.RETENTION}
-                        />
-                        <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS} />
                     </Tabs>
                 </Row>
                 <Row gutter={16}>

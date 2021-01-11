@@ -5,7 +5,15 @@ import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
 
-export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector, copy = '', disabled = false }) {
+export function ActionFilter({
+    setFilters,
+    filters,
+    typeKey,
+    hideMathSelector,
+    copy = '',
+    disabled = false,
+    singleFilter = false,
+}) {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
     const { localFilters } = useValues(logic)
@@ -27,20 +35,23 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector, c
                         index={index}
                         key={index}
                         hideMathSelector={hideMathSelector}
+                        singleFilter={singleFilter}
                     />
                 ))}
-            <div className="mt">
-                <Button
-                    type="primary"
-                    onClick={() => addFilter()}
-                    style={{ marginTop: '0.5rem' }}
-                    data-attr="add-action-event-button"
-                    icon={<PlusCircleOutlined />}
-                    disabled={disabled}
-                >
-                    {copy || 'Action or event'}
-                </Button>
-            </div>
+            {!singleFilter && (
+                <div className="mt">
+                    <Button
+                        type="primary"
+                        onClick={() => addFilter()}
+                        style={{ marginTop: '0.5rem' }}
+                        data-attr="add-action-event-button"
+                        icon={<PlusCircleOutlined />}
+                        disabled={disabled}
+                    >
+                        {copy || 'Action or event'}
+                    </Button>
+                </div>
+            )}
         </div>
     )
 }
