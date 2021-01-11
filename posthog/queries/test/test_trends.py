@@ -4,7 +4,7 @@ from datetime import datetime
 from freezegun import freeze_time
 
 from posthog.constants import TRENDS_LIFECYCLE, TRENDS_TABLE
-from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
+from posthog.models import Action, ActionStep, Cohort, Event, Filter, Organization, Person
 from posthog.queries.trends import Trends
 from posthog.test.base import APIBaseTest, BaseTest
 from posthog.utils import relative_date_parse
@@ -18,7 +18,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             person = person_factory(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
             )
-            secondTeam = Team.objects.create(api_token="token456")
+            _, _, secondTeam = Organization.objects.bootstrap(self.user, team_fields={"api_token": "token456"})
 
             freeze_without_time = ["2019-12-24", "2020-01-01", "2020-01-02"]
             freeze_with_time = [

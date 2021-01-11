@@ -60,6 +60,11 @@ class TeamManager(models.Manager):
 
         return team
 
+    def create(self, *args, **kwargs) -> "Team":
+        if kwargs.get("organization") is None and kwargs.get("organization_id") is None:
+            raise ValueError("Creating organization-less projects is prohibited")
+        return super().create(*args, **kwargs)
+
     def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
         if not token:
             return None
