@@ -23,12 +23,14 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
 
     return featureFlags['remove-shownas'] ? (
         <>
-            <h4 className="secondary">{'Actions & Events'}</h4>
+            <h4 className="secondary">
+                {filters.insight === ViewType.LIFECYCLE ? 'Target Action/Event' : 'Actions & Events'}
+            </h4>
             <ActionFilter
                 filters={filters}
                 setFilters={(payload): void => setFilters(payload)}
-                typeKey="trends"
-                hideMathSelector={false}
+                typeKey={'trends_' + view}
+                hideMathSelector={filters.shown_as === LIFECYCLE}
                 copy="Add graph series"
                 disabled={filters.shown_as === LIFECYCLE && (filters.events?.length || filters.actions?.length)}
                 singleFilter={true}
