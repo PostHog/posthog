@@ -71,7 +71,7 @@ class TestHooksAPI(ClickhouseTestMixin, APITransactionLicensedTest):
     def test_action_on_perform_hook_fired_once(self, mock_deliver_hook_wrapper: Mock, mock_find_and_fire_hook: Mock):
         hook_id = "abc123"
         Hook.objects.create(id=hook_id, user=self.user, team=self.team, resource_id=8)
-        action = Action.objects.create("anything")
+        action = Action.objects.create(name="anything", team=self.team)
         ActionStep.objects.create(action=action)
         _create_event(event="asdfghjkl", team=self.team, distinct_id="whatever")
         mock_find_and_fire_hook.assert_called_once()
