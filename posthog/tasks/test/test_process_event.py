@@ -42,7 +42,7 @@ def test_process_event_factory(
             self.team.ingested_event = True  # avoid sending `first team event ingested` to PostHog
             self.team.save()
 
-            with self.assertNumQueries(32 if settings.EE_AVAILABLE else 28):  # extra queries to check for hooks
+            with self.assertNumQueries(33 if settings.EE_AVAILABLE else 28):  # extra queries to check for hooks
                 process_event(
                     2,
                     "",
