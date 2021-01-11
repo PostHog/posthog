@@ -684,7 +684,7 @@ def test_process_event_factory(
             self.assertEqual(person.properties["email"], "someone@gmail.com")
 
         def test_distinct_team_leakage(self) -> None:
-            team2 = Organization.objects.bootstrap(self.user)[2]
+            team2 = Organization.objects.bootstrap(None)[2]
             Person.objects.create(team=team2, distinct_ids=["2"], properties={"email": "team2@gmail.com"})
             Person.objects.create(team=self.team, distinct_ids=["1", "2"])
 

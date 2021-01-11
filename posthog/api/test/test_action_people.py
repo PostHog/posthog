@@ -17,7 +17,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             sign_up_action = action_factory(team=self.team, name="sign up")
 
             person = person_factory(team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"])
-            secondTeam = Organization.objects.bootstrap(team_fields={"api_token": "token456"})[2]
+            secondTeam = Organization.objects.bootstrap(None, team_fields={"api_token": "token456"})[2]
 
             freeze_without_time = ["2019-12-24", "2020-01-01", "2020-01-02"]
             freeze_with_time = [

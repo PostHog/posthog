@@ -131,7 +131,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(result), 2)
 
     def test_prop_cohort_with_negation(self):
-        team2 = Organization.objects.bootstrap(self.user)[2]
+        team2 = Organization.objects.bootstrap(None)[2]
 
         _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
 

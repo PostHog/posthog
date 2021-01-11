@@ -175,7 +175,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                     distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item3"]}
                 )
 
-                team2 = Organization.objects.bootstrap(self.user)[2]
+                team2 = Organization.objects.bootstrap(None)[2]
                 event_factory(distinct_id="bla", event="random event", team=team2, properties={"random_prop": "abcd"})
                 response = self.client.get("/api/event/values/?key=random_prop").json()
 

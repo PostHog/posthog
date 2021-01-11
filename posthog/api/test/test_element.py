@@ -31,7 +31,7 @@ def test_element_factory(create_event: Callable) -> Callable:
                 event="$autocapture",
                 elements=[Element(tag_name="a", href="https://posthog.com/about", text="click here")],
             )
-            team2 = Organization.objects.bootstrap(self.user)[2]
+            team2 = Organization.objects.bootstrap(None)[2]
             create_event(team=team2, distinct_id="test", event="$autocapture", elements=[Element(tag_name="bla")])
             response = self.client.get("/api/element/values/?key=tag_name").json()
             self.assertEqual(response[0]["name"], "a")

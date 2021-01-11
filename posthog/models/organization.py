@@ -27,9 +27,10 @@ class OrganizationManager(models.Manager):
                 organization=organization, user=user, level=OrganizationMembership.Level.OWNER
             )
             team = Team.objects.create(organization=organization, **(team_fields or {}))
-            user.current_organization = organization
-            user.current_team = team
-            user.save()
+            if user is not None:
+                user.current_organization = organization
+                user.current_team = team
+                user.save()
         return organization, organization_membership, team
 
 

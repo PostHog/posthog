@@ -13,7 +13,7 @@ def test_calculate_event_property_usage(create_event: Callable) -> Callable:
             self.team.event_names = ["$pageview", "custom event"]
             self.team.event_properties = ["$current_url", "team_id", "value"]
             self.team.save()
-            team2 = Organization.objects.bootstrap(self.user)[2]
+            team2 = Organization.objects.bootstrap(None)[2]
             with freeze_time("2020-08-01"):
                 # ignore stuff older than 30 days
                 DashboardItem.objects.create(

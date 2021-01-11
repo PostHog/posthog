@@ -28,7 +28,7 @@ class TestTeamEnterpriseAPI(APILicensedTest):
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
     def test_no_delete_team_not_belonging_to_organization(self):
-        team_1 = Organization.objects.bootstrap(self.user)[2]
+        team_1 = Organization.objects.bootstrap(None)[2]
         response = self.client.delete(f"/api/projects/{team_1.id}")
         self.assertEqual(response.status_code, 404)
         self.assertTrue(Team.objects.filter(id=team_1.id).exists())

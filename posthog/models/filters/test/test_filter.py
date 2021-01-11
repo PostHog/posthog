@@ -194,7 +194,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             )
 
             # test for leakage
-            _, _, team2 = Organization.objects.bootstrap(self.user)
+            _, _, team2 = Organization.objects.bootstrap(None)
             person_team2 = person_factory(
                 team_id=team2.pk, distinct_ids=["person_team_2"], properties={"group": "another group"}
             )

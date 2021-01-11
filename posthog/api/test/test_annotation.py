@@ -71,7 +71,7 @@ class TestAPIAnnotation(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_creating_annotation(self, mock_capture):
-        team2 = Organization.objects.bootstrap(self.user)[2]
+        team2 = Organization.objects.bootstrap(None)[2]
 
         self.client.force_login(self.user)
 
