@@ -72,6 +72,7 @@
         "reselect": "^4.0.0",
         "rrweb": "^0.9.11",
         "sass": "^1.26.2",
+        "ts-node": "^9.1.1",
         "zxcvbn": "^4.4.2"
     },
     "devDependencies": {
@@ -119,8 +120,6 @@
         "react-hot-loader": "^4.12.21",
         "sass-loader": "^10.0.1",
         "style-loader": "^1.2.1",
-        "ts-jest": "^26.4.4",
-        "ts-node": "^9.1.1",
         "typescript": "^3.9.0",
         "webpack": "^4.44.1",
         "webpack-cli": "^3.3.12",
