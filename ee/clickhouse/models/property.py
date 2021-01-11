@@ -15,7 +15,11 @@ from posthog.utils import relative_date_parse
 
 
 def parse_prop_clauses(
-    filters: List[Property], team_id: Optional[int], prepend: str = "global", table_name: str = ""
+    filters: List[Property],
+    team_id: Optional[int],
+    prepend: str = "global",
+    table_name: str = "",
+    allow_denormalized_props: bool = False,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -33,7 +37,9 @@ def parse_prop_clauses(
                 "AND {table_name}distinct_id IN ({clause})".format(table_name=table_name, clause=person_id_query)
             )
         elif prop.type == "person":
-            filter_query, filter_params = prop_filter_json_extract(prop, idx, "{}person".format(prepend))
+            filter_query, filter_params = prop_filter_json_extract(
+                prop, idx, "{}person".format(prepend), allow_denormalized_props=allow_denormalized_props
+            )
             final.append(
                 "AND {table_name}distinct_id IN ({filter_query})".format(
                     filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query), table_name=table_name
@@ -42,7 +48,11 @@ def parse_prop_clauses(
             params.update(filter_params)
         else:
             filter_query, filter_params = prop_filter_json_extract(
-                prop, idx, prepend, prop_var="{}properties".format(table_name)
+                prop,
+                idx,
+                prepend,
+                prop_var="{}properties".format(table_name),
+                allow_denormalized_props=allow_denormalized_props,
             )
 
             final.append(f"{filter_query} AND {table_name}team_id = %(team_id)s" if team_id else filter_query)
@@ -51,9 +61,10 @@ def parse_prop_clauses(
 
 
 def prop_filter_json_extract(
-    prop: Property, idx: int, prepend: str = "", prop_var: str = "properties"
+    prop: Property, idx: int, prepend: str = "", prop_var: str = "properties", allow_denormalized_props: bool = False
 ) -> Tuple[str, Dict[str, Any]]:
-    is_denormalized = prop.key in settings.CLICKHOUSE_DENORMALIZED_PROPERTIES
+    # Once all queries are migrated over we can get rid of allow_denormalized_props
+    is_denormalized = prop.key in settings.CLICKHOUSE_DENORMALIZED_PROPERTIES and allow_denormalized_props
     json_extract = "trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, %(k{prepend}_{idx})s))".format(
         idx=idx, prepend=prepend, prop_var=prop_var
     )
