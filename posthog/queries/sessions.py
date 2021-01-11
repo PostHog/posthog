@@ -10,7 +10,7 @@ from django.utils.timezone import now
 
 from posthog.constants import SESSION_AVG
 from posthog.models import Event, Filter, Team
-from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter
+from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter, properties_to_Q
 from posthog.utils import append_data, friendly_time
 
 DIST_LABELS = [
@@ -35,7 +35,7 @@ class BaseSessions(BaseQuery):
         return (
             Event.objects.filter(team=team)
             .add_person_id(team.pk)
-            .filter(filter.properties_to_Q(team_id=team.pk))
+            .filter(properties_to_Q(filter.properties, team_id=team.pk))
             .order_by("-timestamp")
         )
 
