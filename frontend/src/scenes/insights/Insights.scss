@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .graph-container {
     position: absolute;
     width: 100%;
@@ -16,5 +18,30 @@
     }
     hr {
         margin: 1rem 0;
+    }
+}
+
+.insight-empty-state {
+    padding-top: $default_spacing * 2;
+    padding-bottom: $default_spacing * 2;
+    &.error-message {
+        .illustration-main {
+            color: $danger;
+        }
+    }
+
+    .illustration-main {
+        font-size: 6rem;
+        line-height: 1.1em;
+        text-align: center;
+    }
+
+    h3 {
+        text-align: center;
+        color: $danger;
+    }
+
+    ol {
+        margin-top: $default_spacing / 2;
     }
 }

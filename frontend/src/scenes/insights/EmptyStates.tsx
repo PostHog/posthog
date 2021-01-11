@@ -5,6 +5,7 @@ import imgEmptyLineGraph from 'public/empty-line-graph.svg'
 import imgEmptyLineGraphDark from 'public/empty-line-graph-dark.svg'
 import { QuestionCircleOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
+import { IllustrationDanger } from 'lib/components/icons'
 
 export function LineGraphEmptyState({ color }: { color: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -42,7 +43,7 @@ export function TimeOut(): JSX.Element {
     const { user } = useValues(userLogic)
     return (
         <div style={{}}>
-            <h2>Looks like things are a little slow</h2>
+            <h3 className="l3">Looks like things are a little slow</h3>
             Your query is taking a long time to complete. Here are some things you can try:
             <ol>
                 <li>Reduce the date range of your query</li>
@@ -89,33 +90,50 @@ export function TimeOut(): JSX.Element {
 
 export function ErrorMessage(): JSX.Element {
     return (
-        <div style={{}}>
-            <h2>There was an error while completing this query</h2>
-            Please try again later or:
-            <ol>
-                <li>
-                    <a data-attr="insight-error-raise-issue" href="https://github.com/PostHog/posthog.com/issues/new">
-                        Raise an issue in our repo
-                    </a>
-                </li>
-                <li>
-                    Get in touch with us{' '}
-                    <a
-                        data-attr="insight-error-slack"
-                        href="https://posthog.com/slack"
-                        rel="noopener noreferrer"
-                        target="_blank"
-                    >
-                        on slack
-                    </a>
-                </li>
-                <li>
-                    Email us{' '}
-                    <a data-attr="insight-error-email" href="mailto:hey@posthog.com">
-                        hey@posthog.com
-                    </a>
-                </li>
-            </ol>
+        <div className="insight-empty-state error-message">
+            <div className="illustration-main">
+                <IllustrationDanger />
+            </div>
+            <h3 className="l3">There was an error completing this query</h3>
+            <div className="mt">
+                We apologize for this unexpected situation. There are a few things you can do:
+                <ol>
+                    <li>
+                        First and foremost you can <b>try again</b>. We recommended you wait a few moments before doing
+                        so.
+                    </li>
+                    <li>
+                        <a
+                            data-attr="insight-error-raise-issue"
+                            href="https://github.com/PostHog/posthog/issues/new?labels=bug&template=bug_report.md"
+                            target="_blank"
+                            rel="noreferrer noopener"
+                        >
+                            Raise an issue
+                        </a>{' '}
+                        in our GitHub repository.
+                    </li>
+                    <li>
+                        Get in touch with us{' '}
+                        <a
+                            data-attr="insight-error-slack"
+                            href="https://posthog.com/slack"
+                            rel="noopener noreferrer"
+                            target="_blank"
+                        >
+                            on Slack
+                        </a>
+                        .
+                    </li>
+                    <li>
+                        Email us at{' '}
+                        <a data-attr="insight-error-email" href="mailto:hey@posthog.com">
+                            hey@posthog.com
+                        </a>
+                        .
+                    </li>
+                </ol>
+            </div>
         </div>
     )
 }

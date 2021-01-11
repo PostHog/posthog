@@ -305,3 +305,17 @@ export function IconText({ style }: { style?: CSSProperties }): JSX.Element {
         </svg>
     )
 }
+
+export function IllustrationDanger({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M16 2.11495C8.33206 2.11495 2.1157 8.33095 2.1157 16C2.1157 23.6691 8.33206 29.8851 16 29.8851C23.6679 29.8851 29.8843 23.6691 29.8843 16C29.8843 8.33095 23.6679 2.11495 16 2.11495ZM0 16C0 7.16367 7.16282 0 16 0C24.8372 0 32 7.16367 32 16C32 24.8363 24.8372 32 16 32C7.16282 32 0 24.8363 0 16Z"
+                fill="currentcolor"
+            />
+            <path d="M14 6H17.7025V20.3251H14V6ZM17.7025 22.6171V25.4821H14V22.6171H17.7025Z" fill="currentcolor" />
+        </svg>
+    )
+}
