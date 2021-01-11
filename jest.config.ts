@@ -1,3 +1,8 @@
+import { pathsToModuleNameMapper } from 'ts-jest/utils'
+import { readConfigFile } from 'typescript'
+import { readFileSync } from 'fs'
+const { config: tsconfig } = readConfigFile('./tsconfig.json', (path) => readFileSync(path, 'utf8'))
+
 /*
  * For a detailed explanation regarding each configuration property and type check, visit:
  * https://jestjs.io/docs/en/configuration.html
@@ -81,7 +86,7 @@ export default {
     // ],
 
     // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
-    // moduleNameMapper: {},
+    moduleNameMapper: pathsToModuleNameMapper(tsconfig.compilerOptions.paths /*, { prefix: '<rootDir>/' } */),
 
     // An array of regexp pattern strings, matched against all module paths before considered 'visible' to the module loader
     // modulePathIgnorePatterns: [],
@@ -93,7 +98,7 @@ export default {
     // notifyMode: "failure-change",
 
     // A preset that is used as a base for Jest's configuration
-    // preset: undefined,
+    preset: 'ts-jest/presets/js-with-ts',
 
     // Run tests from one or more projects
     // projects: undefined,
@@ -138,7 +143,7 @@ export default {
     // snapshotSerializers: [],
 
     // The test environment that will be used for testing
-    // testEnvironment: "jest-environment-jsdom",
+    testEnvironment: 'node',
 
     // Options that will be passed to the testEnvironment
     // testEnvironmentOptions: {},
