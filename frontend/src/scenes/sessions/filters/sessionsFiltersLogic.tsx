@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
+import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
 import { sessionsFiltersLogicType } from 'types/scenes/sessions/filters/sessionsFiltersLogicType'
 import { SessionsPropertyFilter } from '~/types'
 
@@ -89,7 +90,7 @@ export const sessionsFiltersLogic = kea<
                 {
                     id: 'withrecordings',
                     name: 'Sessions with recordings',
-                    filters: { properties: [{ type: 'recording', key: 'duration', value: 0, operator: 'gt' }] },
+                    filters: { properties: [SESSIONS_WITH_RECORDINGS_FILTER] },
                 },
                 ...customFilters,
             ],
