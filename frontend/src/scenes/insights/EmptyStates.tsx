@@ -39,20 +39,28 @@ export function LineGraphEmptyState({ color }: { color: string }): JSX.Element {
     )
 }
 
-export function TimeOut(): JSX.Element {
+export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
     const { user } = useValues(userLogic)
     return (
         <div className="insight-empty-state timeout-message">
-            <div className="illustration-main">
-                <LoadingOutlined spin />
-            </div>
+            {isLoading && (
+                <div className="illustration-main">
+                    <LoadingOutlined spin />
+                </div>
+            )}
             <h3 className="l3">Looks like things are a little slow...</h3>
-            Your query is taking a long time to complete. <b>We are still working on it.</b> However, here are some
-            things you can try to speed things up and make sure you get results promptly:
+            {isLoading ? (
+                <>
+                    Your query is taking a long time to complete. <b>We're still working on it.</b> However, here are
+                    some things you can try to speed it up:
+                </>
+            ) : (
+                <>Your query took a long time to complete. Here are some things you can try to speed it up:</>
+            )}
             <ol>
                 <li>Reduce the date range of your query</li>
                 <li>Remove some filters</li>
-                {!user?.is_multi_tenancy && <li>Increase the size of your database</li>}
+                {!user?.is_multi_tenancy && <li>Increase the size of your database instance</li>}
                 {!user?.is_multi_tenancy && !user?.ee_enabled && (
                     <li>
                         <a

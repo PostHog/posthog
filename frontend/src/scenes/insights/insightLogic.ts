@@ -16,7 +16,7 @@ This includes handling the urls and view state
 */
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
-const SHOW_TIMEOUT_MESSAGE_FUNNELS = 30000
+const SHOW_TIMEOUT_MESSAGE_FUNNELS = 3000
 
 export const insightLogic = kea<insightLogicType>({
     actions: () => ({

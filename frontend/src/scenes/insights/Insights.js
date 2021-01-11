@@ -234,7 +234,11 @@ function _Insights() {
                                     headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
                                 >
                                     <div>
-                                        {showErrorMessage ? <ErrorMessage /> : showTimeoutMessage && <TimeOut />}
+                                        {showErrorMessage ? (
+                                            <ErrorMessage />
+                                        ) : (
+                                            showTimeoutMessage && <TimeOut isLoading={isLoading} />
+                                        )}
                                         <div
                                             style={{
                                                 display:
