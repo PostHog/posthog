@@ -110,23 +110,20 @@ function _MainNavigation(): JSX.Element {
         <Menu className="pinned-dashboards">
             {dashboards.length ? (
                 <>
-                    <Menu.ItemGroup title="Pinned dashboards" key="pinned">
-                        {pinnedDashboards.map((item: DashboardType) => (
-                            <Menu.Item key={`pinned-${item.id}`} style={{ margin: 0 }}>
-                                <MenuItem
-                                    title={item.name}
-                                    icon={<PushpinOutlined />}
-                                    identifier={`dashboard-${item.id}`}
-                                    to={`/dashboard/${item.id}`}
-                                />
-                            </Menu.Item>
-                        ))}
-                        {!pinnedDashboards.length && (
-                            <Menu.Item className="pinned-empty-state">
-                                <span>You don't have pinned dashboards yet. Pin some dashboards for easy access.</span>
-                            </Menu.Item>
-                        )}
-                    </Menu.ItemGroup>
+                    {pinnedDashboards.length && (
+                        <Menu.ItemGroup title="Pinned dashboards" key="pinned">
+                            {pinnedDashboards.map((item: DashboardType) => (
+                                <Menu.Item key={`pinned-${item.id}`} style={{ margin: 0 }}>
+                                    <MenuItem
+                                        title={item.name}
+                                        icon={<PushpinOutlined />}
+                                        identifier={`dashboard-${item.id}`}
+                                        to={`/dashboard/${item.id}`}
+                                    />
+                                </Menu.Item>
+                            ))}
+                        </Menu.ItemGroup>
+                    )}
                     {dashboards.length > pinnedDashboards.length && (
                         <Menu.ItemGroup title="All dashboards" key="all" className="all-dashboard-list">
                             {dashboards
