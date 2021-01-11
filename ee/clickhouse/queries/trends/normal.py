@@ -6,7 +6,13 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import parse_response, process_math
-from ee.clickhouse.queries.util import get_earliest_timestamp, get_time_diff, get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.queries.util import (
+    date_from_clause,
+    get_earliest_timestamp,
+    get_time_diff,
+    get_trunc_func_ch,
+    parse_timestamps,
+)
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
 from ee.clickhouse.sql.trends.volume import (
@@ -28,7 +34,7 @@ class ClickhouseTrendsNormal:
         num_intervals, seconds_in_interval, round_interval = get_time_diff(
             filter.interval or "day", filter.date_from, filter.date_to, team_id=team_id
         )
-        _, _, date_params = parse_timestamps(filter=filter, team_id=team_id)
+        _, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
         props_to_filter = [*filter.properties, *entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
@@ -39,7 +45,8 @@ class ClickhouseTrendsNormal:
         params = {**params, **prop_filter_params, **math_params, **date_params}
         content_sql_params = {
             "interval": interval_annotation,
-            "date_from_clause": self._date_from_clause(interval_annotation, round_interval),
+            "parsed_date_from": date_from_clause(interval_annotation, round_interval),
+            "parsed_date_to": parsed_date_to,
             "timestamp": "timestamp",
             "team_id": team_id,
             "filters": prop_filters,
@@ -97,12 +104,6 @@ class ClickhouseTrendsNormal:
             params = {"event": entity.id}
 
         return params, content_sql_params
-
-    def _date_from_clause(self, interval_annotation: str, round_interval: bool) -> str:
-        if round_interval:
-            return "{interval}(timestamp) >= {interval}(toDateTime(%(date_from)s))".format(interval=interval_annotation)
-        else:
-            return "timestamp >= %(date_from)s"
 
     def _determine_single_aggregate_query(self, filter: Filter, entity: Entity) -> str:
         if entity.type == TREND_FILTER_TYPE_ACTIONS:

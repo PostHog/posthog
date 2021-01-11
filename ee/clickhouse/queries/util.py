@@ -64,7 +64,7 @@ def get_time_diff(
     }
 
     diff = _end_time - _start_time
-    round_interval = diff.total_seconds() < time_diffs[interval]
+    round_interval = diff.total_seconds() >= time_diffs[interval] * 2
 
     return int(diff.total_seconds() / time_diffs[interval]) + 1, time_diffs[interval], round_interval
 
@@ -93,3 +93,10 @@ def get_trunc_func_ch(period: Optional[str]) -> str:
         return PERIOD_TRUNC_MONTH
     else:
         raise ValueError(f"Period {period} is unsupported.")
+
+
+def date_from_clause(interval_annotation: str, round_interval: bool) -> str:
+    if round_interval:
+        return "AND {interval}(timestamp) >= {interval}(toDateTime(%(date_from)s))".format(interval=interval_annotation)
+    else:
+        return "AND timestamp >= %(date_from)s"
