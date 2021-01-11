@@ -1,10 +1,11 @@
 import copy
 import datetime
 from itertools import accumulate
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+from django.db import connection
 from django.db.models import (
     Avg,
     BooleanField,
@@ -21,11 +22,12 @@ from django.db.models import (
     Value,
     functions,
 )
-from django.db.models.expressions import RawSQL, Subquery
+from django.db.models.expressions import F, RawSQL, Subquery
 from django.db.models.functions import Cast
-from django.utils.timezone import now
+from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
+from django.db.models.sql.query import Query
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE
 from posthog.models import (
     Action,
     ActionStep,
@@ -37,11 +39,35 @@ from posthog.models import (
     Person,
     Team,
 )
+from posthog.models.utils import Percentile
+from posthog.queries.lifecycle import LifecycleTrend
 from posthog.utils import append_data
 
 from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
 
 FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "M"}
+
+MATH_TO_AGGREGATE_FUNCTION: Dict[str, Callable] = {
+    "sum": Sum,
+    "avg": Avg,
+    "min": Min,
+    "max": Max,
+    "median": lambda expr: Percentile(0.5, expr),
+    "p90": lambda expr: Percentile(0.9, expr),
+    "p95": lambda expr: Percentile(0.95, expr),
+    "p99": lambda expr: Percentile(0.99, expr),
+}
+
+MATH_TO_AGGREGATE_STRING: Dict[str, str] = {
+    "sum": "SUM({math_prop})",
+    "avg": "AVG({math_prop})",
+    "min": "MIN({math_prop})",
+    "max": "MAX({math_prop})",
+    "median": "percentile_disc(0.5) WITHIN GROUP (ORDER BY {math_prop})",
+    "p90": "percentile_disc(0.9) WITHIN GROUP (ORDER BY {math_prop})",
+    "p95": "percentile_disc(0.95) WITHIN GROUP (ORDER BY {math_prop})",
+    "p99": "percentile_disc(0.99) WITHIN GROUP (ORDER BY {math_prop})",
+}
 
 
 def build_dataframe(aggregates: QuerySet, interval: str, breakdown: Optional[str] = None) -> pd.DataFrame:
@@ -156,7 +182,7 @@ def add_person_properties_annotations(team_id: int, breakdown: str) -> Dict[str,
 
 def aggregate_by_interval(
     filtered_events: QuerySet, team_id: int, entity: Entity, filter: Filter, breakdown: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> Tuple[Dict[str, Any], QuerySet]:
     interval = filter.interval if filter.interval else "day"
     interval_annotation = get_interval_annotation(interval)
     values = [interval]
@@ -191,18 +217,59 @@ def aggregate_by_interval(
         breakdown=breakdown,
     )
 
-    return dates_filled
+    return dates_filled, filtered_events
+
+
+def get_aggregate_total(query: QuerySet, entity: Entity) -> int:
+    entity_total = 0
+    if entity.math == "dau":
+        _query, _params = query.query.sql_with_params()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT count(DISTINCT person_id) FROM ({}) as aggregates".format(_query), _params)
+            entity_total = cursor.fetchall()[0][0]
+    elif entity.math in MATH_TO_AGGREGATE_FUNCTION:
+        query = query.annotate(
+            math_prop=Cast(
+                RawSQL('"posthog_event"."properties"->>%s', (entity.math_property,)), output_field=FloatField(),
+            )
+        )
+        query = query.extra(
+            where=['jsonb_typeof("posthog_event"."properties"->%s) = \'number\''], params=[entity.math_property],
+        )
+        _query, _params = query.query.sql_with_params()
+        with connection.cursor() as cursor:
+            agg_func = MATH_TO_AGGREGATE_STRING[entity.math].format(math_prop="math_prop")
+            cursor.execute("SELECT {} FROM ({}) as aggregates".format(agg_func, _query), (_params))
+            entity_total = cursor.fetchall()[0][0]
+    else:
+        entity_total = len(query)
+    return entity_total
+
+
+def get_aggregate_breakdown_total(
+    filtered_events: QuerySet, filter: Filter, entity: Entity, team_id: int, breakdown_value: Union[str, int]
+) -> int:
+    if len(filtered_events) == 0:
+        return 0
+
+    breakdown_filter: Dict[str, Union[bool, str, int]] = {}
+    if filter.breakdown_type == "cohort":
+        breakdown_filter = {"cohort_{}".format(breakdown_value): True}
+    else:
+        breakdown_filter = {"properties__{}".format(filter.breakdown): breakdown_value}
+    filtered_events = filtered_events.filter(**breakdown_filter)
+
+    return get_aggregate_total(filtered_events, entity)
 
 
 def process_math(query: QuerySet, entity: Entity) -> QuerySet:
-    math_to_aggregate_function = {"sum": Sum, "avg": Avg, "min": Min, "max": Max}
     if entity.math == "dau":
         # In daily active users mode count only up to 1 event per user per day
         query = query.annotate(count=Count("person_id", distinct=True))
-    elif entity.math in math_to_aggregate_function:
+    elif entity.math in MATH_TO_AGGREGATE_FUNCTION:
         # Run relevant aggregate function on specified event property, casting it to a double
         query = query.annotate(
-            count=math_to_aggregate_function[entity.math](
+            count=MATH_TO_AGGREGATE_FUNCTION[entity.math](
                 Cast(RawSQL('"posthog_event"."properties"->>%s', (entity.math_property,)), output_field=FloatField(),)
             )
         )
@@ -233,10 +300,13 @@ def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optiona
     return ret_dict
 
 
-class Trends(BaseQuery):
+class Trends(LifecycleTrend, BaseQuery):
     def _serialize_entity(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
+
         if filter.breakdown:
             result = self._serialize_breakdown(entity, filter, team_id)
+        elif filter.shown_as == TRENDS_LIFECYCLE:
+            result = self._serialize_lifecycle(entity, filter, team_id)
         else:
             result = self._format_normal_query(entity, filter, team_id)
 
@@ -247,29 +317,37 @@ class Trends(BaseQuery):
 
         return serialized_data
 
-    def _set_default_dates(self, filter: Filter, team_id: int) -> None:
+    def _set_default_dates(self, filter: Filter, team_id: int) -> Filter:
         # format default dates
         if not filter.date_from:
-            filter._date_from = (
-                Event.objects.filter(team_id=team_id)
-                .order_by("timestamp")[0]
-                .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-                .isoformat()
+            return Filter(
+                data={
+                    **filter._data,
+                    "date_from": Event.objects.filter(team_id=team_id)
+                    .order_by("timestamp")[0]
+                    .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+                    .isoformat(),
+                }
             )
+        return filter
 
     def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
         events = events.filter(filter_events(team_id, filter, entity))
-        items = aggregate_by_interval(filtered_events=events, team_id=team_id, entity=entity, filter=filter,)
+        items, filtered_events = aggregate_by_interval(
+            filtered_events=events, team_id=team_id, entity=entity, filter=filter,
+        )
         formatted_entities: List[Dict[str, Any]] = []
         for _, item in items.items():
-            formatted_entities.append(append_data(dates_filled=list(item.items()), interval=filter.interval))
+            formatted_data = append_data(dates_filled=list(item.items()), interval=filter.interval)
+            formatted_data.update({"aggregated_value": get_aggregate_total(filtered_events, entity)})
+            formatted_entities.append(formatted_data)
         return formatted_entities
 
     def _serialize_breakdown(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
         events = events.filter(filter_events(team_id, filter, entity))
-        items = aggregate_by_interval(
+        items, filtered_events = aggregate_by_interval(
             filtered_events=events,
             team_id=team_id,
             entity=entity,
@@ -281,7 +359,15 @@ class Trends(BaseQuery):
             new_dict = append_data(dates_filled=list(item.items()), interval=filter.interval)
             if value != "Total":
                 new_dict.update(breakdown_label(entity, value))
+            new_dict.update(
+                {
+                    "aggregated_value": get_aggregate_breakdown_total(
+                        filtered_events, filter, entity, team_id, new_dict["breakdown_value"]
+                    )
+                }
+            )
             formatted_entities.append(new_dict)
+
         return formatted_entities
 
     def _format_serialized(self, entity: Entity, result: List[Dict[str, Any]]):
@@ -314,7 +400,7 @@ class Trends(BaseQuery):
             actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)
         actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
 
-        self._set_default_dates(filter, team.pk)
+        filter = self._set_default_dates(filter, team.pk)
 
         result = []
         for entity in filter.entities:

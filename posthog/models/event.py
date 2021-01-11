@@ -18,7 +18,7 @@ from .action import Action
 from .action_step import ActionStep
 from .element import Element
 from .element_group import ElementGroup
-from .filter import Filter
+from .filters import Filter
 from .person import Person, PersonDistinctId
 from .team import Team
 from .utils import namedtuplefetchall
@@ -126,6 +126,14 @@ class EventManager(models.QuerySet):
                     filter["match_{}__gt".format(index)] = F("match_{}".format(index - 1))
         return (subqueries, filter)
 
+    def earliest_timestamp(self, team_id: int):
+        return (
+            self.filter(team_id=team_id)
+            .order_by("timestamp")[0]
+            .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+            .isoformat()
+        )
+
     def filter_by_element(self, filters: Dict, team_id: int):
         groups = ElementGroup.objects.filter(team_id=team_id)
 
@@ -181,6 +189,8 @@ class EventManager(models.QuerySet):
         )
 
     def query_db_by_action(self, action, order_by="-timestamp", start=None, end=None) -> models.QuerySet:
+        from posthog.queries.base import properties_to_Q
+
         events = self
         any_step = Q()
         steps = action.steps.all()
@@ -188,10 +198,12 @@ class EventManager(models.QuerySet):
             return self.none()
 
         for step in steps:
+            step_filter = Filter(data={"properties": step.properties})
+
             subquery = (
                 Event.objects.add_person_id(team_id=action.team_id)
                 .filter(
-                    Filter(data={"properties": step.properties}).properties_to_Q(team_id=action.team_id),
+                    properties_to_Q(step_filter.properties, team_id=action.team_id),
                     pk=OuterRef("id"),
                     **self.filter_by_event(step),
                     **self.filter_by_element(model_to_dict(step), team_id=action.team_id),
@@ -208,13 +220,13 @@ class EventManager(models.QuerySet):
 
         return events
 
-    def filter_by_action(self, action, order_by="-id") -> models.QuerySet:
+    def filter_by_action(self, action: Action, order_by: str = "-id") -> models.QuerySet:
         events = self.filter(action=action).add_person_id(team_id=action.team_id)
         if order_by:
             events = events.order_by(order_by)
         return events
 
-    def filter_by_event_with_people(self, event, team_id, order_by="-id") -> models.QuerySet:
+    def filter_by_event_with_people(self, event, team_id: int, order_by: str = "-id") -> models.QuerySet:
         events = self.filter(team_id=team_id).filter(event=event).add_person_id(team_id=team_id)
         if order_by:
             events = events.order_by(order_by)

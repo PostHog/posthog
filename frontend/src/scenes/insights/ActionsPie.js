@@ -16,14 +16,14 @@ export function ActionsPie({ dashboardItemId, view, filters: filtersParam, color
 
     function updateData() {
         const data = results
-        data.sort((a, b) => b.count - a.count)
+        data.sort((a, b) => b.aggregated_value - a.aggregated_value)
 
         const colorList = getChartColors(color)
 
         setData([
             {
                 labels: data.map((item) => item.label),
-                data: data.map((item) => item.data && item.data.reduce((prev, d) => prev + d, 0)),
+                data: data.map((item) => item.aggregated_value),
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,
                 hoverBorderColor: colorList,
@@ -32,7 +32,7 @@ export function ActionsPie({ dashboardItemId, view, filters: filtersParam, color
                 borderWidth: 1,
             },
         ])
-        setTotal(data.reduce((prev, item) => prev + item.count, 0))
+        setTotal(data.reduce((prev, item) => prev + item.aggregated_value, 0))
     }
 
     useEffect(() => {

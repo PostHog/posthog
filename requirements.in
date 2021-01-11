@@ -11,7 +11,9 @@ clickhouse-driver==0.1.4
 defusedxml==0.6.0
 dj-database-url==0.5.0
 Django==3.0.11
+django-axes==5.9.0
 django-cors-headers==3.5.0
+django-deprecate-fields==0.1.0
 django-extensions==3.0.9
 django-filter==2.4.0
 django-loginas==0.3.9

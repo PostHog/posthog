@@ -9,6 +9,9 @@ interface InlineProps {
     explicitValue?: string
     description?: string
     isValueSensitive?: boolean
+    tooltipMessage?: string
+    iconStyle?: Record<string, string | number>
+    iconPosition?: 'end' | 'start'
 }
 
 interface InputProps {
@@ -23,20 +26,30 @@ export function CopyToClipboardInline({
     explicitValue,
     description,
     isValueSensitive = false,
+    tooltipMessage = 'Click to copy',
+    iconStyle = {},
+    iconPosition = 'end',
     ...props
 }: InlineProps): JSX.Element {
     return (
-        <Tooltip title="Click to copy">
+        <Tooltip title={tooltipMessage}>
             <span
                 className={isValueSensitive ? 'ph-no-capture ' + rrwebBlockClass : ''}
-                style={{ cursor: 'pointer' }}
+                style={{
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    flexDirection: iconPosition === 'end' ? 'row' : 'row-reverse',
+                }}
                 onClick={() => {
                     copyToClipboard(explicitValue ?? children.toString(), description)
                 }}
                 {...props}
             >
-                {children}
-                <CopyOutlined style={{ marginLeft: 4 }} />
+                <span style={iconPosition === 'start' ? { flexGrow: 1 } : {}}>{children}</span>
+                <CopyOutlined
+                    style={iconPosition === 'end' ? { marginLeft: 4, ...iconStyle } : { marginRight: 4, ...iconStyle }}
+                />
             </span>
         </Tooltip>
     )

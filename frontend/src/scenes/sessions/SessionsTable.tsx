@@ -1,7 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space, Tooltip } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { Table, Button, Spin, Space, Tooltip, Drawer } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -9,16 +8,43 @@ import { SessionDetails } from './SessionDetails'
 import { DatePicker } from 'antd'
 import moment from 'moment'
 import { SessionType } from '~/types'
-import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
-import SessionsPlayerButton from './SessionsPlayerButton'
+import {
+    CaretLeftOutlined,
+    CaretRightOutlined,
+    PoweroffOutlined,
+    QuestionCircleOutlined,
+    ArrowLeftOutlined,
+    PlaySquareOutlined,
+} from '@ant-design/icons'
+import { SessionsPlayerButton, sessionPlayerUrl } from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
-import SessionsPlayerDrawer from 'scenes/sessions/SessionsPlayerDrawer'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SessionsPlay } from './SessionsPlay'
+import { userLogic } from 'scenes/userLogic'
+import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
+import { SessionRecordingFilters } from 'scenes/sessions/SessionRecordingFilters'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { LinkButton } from 'lib/components/LinkButton'
+import { SessionActionFilters } from 'scenes/sessions/SessionActionFilters'
 
 interface SessionsTableProps {
     personIds?: string[]
     isPersonPage?: boolean
+}
+
+function SessionPlayerDrawer({ isPersonPage = false }: { isPersonPage: boolean }): JSX.Element {
+    const { closeSessionPlayer } = useActions(sessionsTableLogic)
+    return (
+        <Drawer destroyOnClose visible width="100%" onClose={closeSessionPlayer}>
+            <>
+                <a onClick={closeSessionPlayer}>
+                    <ArrowLeftOutlined /> Back to {isPersonPage ? 'persons' : 'sessions'}
+                </a>
+                <SessionsPlay />
+            </>
+        </Drawer>
+    )
 }
 
 export function SessionsTable({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
@@ -31,8 +57,28 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         selectedDate,
         properties,
         sessionRecordingId,
+        duration,
+        firstRecordingId,
+        actionFilter,
     } = useValues(logic)
-    const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
+    const { fetchNextSessions, previousDay, nextDay, setFilters, updateActionFilter } = useActions(logic)
+    const { user } = useValues(userLogic)
+    const { shareFeedbackCommand } = useActions(commandPaletteLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const enableSessionRecordingCTA = (
+        <>
+            Session recording is turned off for this project. Go to{' '}
+            <Link to="/project/settings#session-recording"> project settings</Link> to enable.
+        </>
+    )
+
+    const playAllCTA =
+        firstRecordingId === null
+            ? user?.team?.session_recording_opt_in
+                ? 'No recordings found for this date'
+                : enableSessionRecordingCTA
+            : undefined
 
     const columns = [
         {
@@ -98,12 +144,28 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         {
             title: (
                 <span>
-                    <Tooltip title="Enable session recording from Project > Settings">
-                        <span>
-                            Play session
-                            <InfoCircleOutlined style={{ marginLeft: 6 }} />
-                        </span>
-                    </Tooltip>
+                    {user?.team?.session_recording_opt_in ? (
+                        <Tooltip
+                            title={
+                                <>
+                                    Replay sessions as if you were in front of your users. Not seeing a recording you're
+                                    expecting? <a onClick={() => shareFeedbackCommand()}>Let us know</a>.
+                                </>
+                            }
+                        >
+                            <span>
+                                Play session
+                                <QuestionCircleOutlined style={{ marginLeft: 6 }} />
+                            </span>
+                        </Tooltip>
+                    ) : (
+                        <Tooltip title={enableSessionRecordingCTA}>
+                            <span>
+                                <PoweroffOutlined style={{ marginRight: 6 }} className="text-warning" />
+                                Play session
+                            </span>
+                        </Tooltip>
+                    )}
                 </span>
             ),
             render: function RenderEndPoint(session: SessionType) {
@@ -115,17 +177,50 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
 
     return (
         <div className="events" data-attr="events-table">
-            {!isPersonPage && <PageHeader title="Sessions By Day" />}
+            {!isPersonPage && <PageHeader title="Sessions" />}
             <Space className="mb-05">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
                 <DatePicker
                     value={selectedDate}
-                    onChange={(date) => setFilters(properties, date, sessionRecordingId)}
+                    onChange={(date) => setFilters(properties, date, duration, actionFilter)}
                     allowClear={false}
                 />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
             </Space>
-            <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} />
+
+            {featureFlags['filter_by_session_props'] && user?.is_multi_tenancy && (
+                <SessionActionFilters actionFilter={actionFilter} updateActionFilter={updateActionFilter} />
+            )}
+
+            {featureFlags['filter_by_session_props'] && (
+                <SessionRecordingFilters
+                    duration={duration}
+                    onChange={(newDuration) => setFilters(properties, selectedDate, newDuration, actionFilter)}
+                />
+            )}
+            <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
+
+            <div className="text-right mb">
+                <Tooltip title={playAllCTA}>
+                    <span>
+                        <LinkButton
+                            to={firstRecordingId ? sessionPlayerUrl(firstRecordingId) : '#'}
+                            icon={<PlaySquareOutlined />}
+                            type="primary"
+                            data-attr="play-all-recordings"
+                            disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled
+                        >
+                            Play all
+                        </LinkButton>
+                    </span>
+                </Tooltip>
+            </div>
+
+            {actionFilter && !featureFlags['filter_by_session_props'] && (
+                <p className="text-muted">
+                    Showing only sessions where <b>{actionFilter.name}</b> occurred
+                </p>
+            )}
             <Table
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
@@ -144,7 +239,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                     expandRowByClick: true,
                 }}
             />
-            {!!sessionRecordingId && <SessionsPlayerDrawer />}
+            {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} />}
             <div style={{ marginTop: '5rem' }} />
             <div
                 style={{

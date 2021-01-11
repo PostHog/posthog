@@ -3,7 +3,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { EntityTypes } from '../trendsLogic'
 import { userLogic } from 'scenes/userLogic'
 
-function toLocalFilters(filters) {
+export function toLocalFilters(filters) {
     return [
         ...(filters[EntityTypes.ACTIONS] || []),
         ...(filters[EntityTypes.EVENTS] || []),
@@ -13,7 +13,7 @@ function toLocalFilters(filters) {
         .map((filter, order) => ({ ...filter, order }))
 }
 
-function toFilters(localFilters) {
+export function toFilters(localFilters) {
     const filters = localFilters.map((filter, index) => ({
         ...filter,
         order: index,
@@ -44,12 +44,13 @@ export const entityFilterLogic = kea({
             math_property: filter.math_property,
             index: filter.index,
         }),
-        updateFilter: (filter) => ({ type: filter.type, index: filter.index, value: filter.value, name: filter.name }),
+        updateFilter: (filter) => ({ type: filter.type, index: filter.index, id: filter.id, name: filter.name }),
         removeLocalFilter: (filter) => ({ value: filter.value, type: filter.type, index: filter.index }),
         addFilter: true,
         updateFilterProperty: (filter) => ({ properties: filter.properties, index: filter.index }),
         setFilters: (filters) => ({ filters }),
         setLocalFilters: (filters) => ({ filters }),
+        setEntityFilterVisibility: (index, value) => ({ index, value }),
     }),
 
     reducers: ({ props }) => ({
@@ -63,6 +64,12 @@ export const entityFilterLogic = kea({
             toLocalFilters(props.filters),
             {
                 setLocalFilters: (_, { filters }) => toLocalFilters(filters),
+            },
+        ],
+        entityFilterVisible: [
+            {},
+            {
+                setEntityFilterVisibility: (state, { index, value }) => ({ ...state, [index]: value }),
             },
         ],
     }),
@@ -81,9 +88,9 @@ export const entityFilterLogic = kea({
     }),
 
     listeners: ({ actions, values, props }) => ({
-        updateFilter: ({ type, index, name, value }) => {
+        updateFilter: ({ type, index, name, id }) => {
             actions.setFilters(
-                values.localFilters.map((filter, i) => (i === index ? { ...filter, id: value, name, type } : filter))
+                values.localFilters.map((filter, i) => (i === index ? { ...filter, id, name, type } : filter))
             )
             !props.singleMode && actions.selectFilter(null)
         },
@@ -101,13 +108,17 @@ export const entityFilterLogic = kea({
             actions.setFilters(values.localFilters.filter((_, i) => i !== index))
         },
         addFilter: () => {
-            actions.setFilters([
-                ...values.localFilters,
-                { id: null, type: EntityTypes.NEW_ENTITY, order: values.localFilters.length },
-            ])
+            if (values.localFilters.length > 0) {
+                const lastFilter = values.localFilters[values.localFilters.length - 1]
+                const order = lastFilter.order + 1
+                actions.setFilters([...values.localFilters, { ...lastFilter, order }])
+                actions.setEntityFilterVisibility(order, values.entityFilterVisible[lastFilter.order])
+            } else {
+                actions.setFilters([{ id: null, type: EntityTypes.NEW_ENTITY, order: 0 }])
+            }
         },
         setFilters: ({ filters }) => {
-            props.setFilters(toFilters(filters))
+            props.setFilters(toFilters(filters), filters)
         },
     }),
     events: ({ actions, props, values }) => ({

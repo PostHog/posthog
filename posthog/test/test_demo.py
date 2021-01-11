@@ -10,11 +10,9 @@ class TestDemo(BaseTest):
         demo_team = Team.objects.get(name__icontains="demo")
         self.assertEqual(Event.objects.count(), 192)
         self.assertEqual(Person.objects.count(), 100)
-        self.assertEqual(
-            Action.objects.count(), 4,
-        )  # TODO: Releasing 1694-dashboards should change this to 3 (Pageviews action is removed)
+        self.assertEqual(Action.objects.count(), 3)
 
         action_event_counts = [action.events.count() for action in Action.objects.all()]
-        self.assertCountEqual(action_event_counts, [2, 9, 100, 145])
+        self.assertCountEqual(action_event_counts, [2, 9, 100])
 
         self.assertIn("$pageview", demo_team.event_names)

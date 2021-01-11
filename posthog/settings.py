@@ -10,9 +10,11 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
+import base64
 import os
 import shutil
 import sys
+from datetime import timedelta
 from distutils.util import strtobool
 from typing import Dict, List, Sequence
 from urllib.parse import urlparse
@@ -24,6 +26,8 @@ from kombu import Exchange, Queue
 from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
+
+from posthog.constants import RDBMS
 
 
 def get_env(key):
@@ -138,25 +142,18 @@ if CLICKHOUSE_SECURE:
 CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
 
 IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
+
+# Kafka configs
 KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
-
-LOG_TO_WAL = get_bool_from_env("LOG_TO_WAL", True)
-
-
-_kafka_hosts = KAFKA_URL.split(",")
-
-KAFKA_HOSTS_LIST = []
-for host in _kafka_hosts:
-    url = urlparse(host)
-    KAFKA_HOSTS_LIST.append(url.netloc)
+KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
+KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
 
-POSTGRES = "postgres"
-CLICKHOUSE = "clickhouse"
+PRIMARY_DB = os.environ.get("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
-PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)  # type: str
+EE_AVAILABLE = False
 
-if PRIMARY_DB == CLICKHOUSE:
+if PRIMARY_DB == RDBMS.CLICKHOUSE:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
 else:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
@@ -183,9 +180,20 @@ STATSD_HOST = os.environ.get("STATSD_HOST")
 STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
 STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "")
 
+# django-axes settings to lockout after too many attempts
+AXES_ENABLED = get_bool_from_env("AXES_ENABLED", True)
+AXES_FAILURE_LIMIT = int(os.environ.get("AXES_FAILURE_LIMIT", 5))
+AXES_COOLOFF_TIME = timedelta(minutes=15)
+AXES_LOCKOUT_TEMPLATE = "too_many_failed_logins.html"
+AXES_META_PRECEDENCE_ORDER = [
+    "HTTP_X_FORWARDED_FOR",
+    "REMOTE_ADDR",
+]
+
 # Application definition
 
 INSTALLED_APPS = [
+    "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -198,6 +206,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "social_django",
     "django_filters",
+    "axes",
 ]
 
 
@@ -213,13 +222,12 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    "axes.middleware.AxesMiddleware",
 ]
 
 if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
-
-EE_AVAILABLE = False
 
 # Append Enterprise Edition as an app if available
 try:
@@ -230,6 +238,7 @@ else:
     HOOK_EVENTS: Dict[str, str] = {}
     INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
+    MIDDLEWARE.append("ee.clickhouse.middleware.CHQueries")
     EE_AVAILABLE = True
 
 # Use django-extensions if it exists
@@ -272,6 +281,7 @@ SOCIAL_AUTH_POSTGRES_JSONFIELD = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
 
 AUTHENTICATION_BACKENDS = (
+    "axes.backends.AxesBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
     "social_core.backends.google.GoogleOAuth2",
@@ -295,16 +305,17 @@ SOCIAL_AUTH_STORAGE = "social_django.models.DjangoStorage"
 SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = ["invite_id", "user_name", "company_name", "email_opt_in"]
 
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
-SOCIAL_AUTH_GITHUB_KEY = os.environ.get("SOCIAL_AUTH_GITHUB_KEY", "")
-SOCIAL_AUTH_GITHUB_SECRET = os.environ.get("SOCIAL_AUTH_GITHUB_SECRET", "")
+SOCIAL_AUTH_GITHUB_KEY = os.environ.get("SOCIAL_AUTH_GITHUB_KEY")
+SOCIAL_AUTH_GITHUB_SECRET = os.environ.get("SOCIAL_AUTH_GITHUB_SECRET")
 
 SOCIAL_AUTH_GITLAB_SCOPE = ["read_user"]
-SOCIAL_AUTH_GITLAB_KEY = os.environ.get("SOCIAL_AUTH_GITLAB_KEY", "")
-SOCIAL_AUTH_GITLAB_SECRET = os.environ.get("SOCIAL_AUTH_GITLAB_SECRET", "")
+SOCIAL_AUTH_GITLAB_KEY = os.environ.get("SOCIAL_AUTH_GITLAB_KEY")
+SOCIAL_AUTH_GITLAB_SECRET = os.environ.get("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL = os.environ.get("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
-SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
-SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
+
+# See https://docs.djangoproject.com/en/3.1/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
+DISABLE_SERVER_SIDE_CURSORS = get_bool_from_env("USING_PGBOUNCER", False)
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
@@ -316,6 +327,8 @@ else:
 
 if DATABASE_URL:
     DATABASES = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=600)}
+    if DISABLE_SERVER_SIDE_CURSORS:
+        DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 elif os.environ.get("POSTHOG_DB_NAME"):
     DATABASES = {
         "default": {
@@ -326,6 +339,7 @@ elif os.environ.get("POSTHOG_DB_NAME"):
             "HOST": os.environ.get("POSTHOG_POSTGRES_HOST", "localhost"),
             "PORT": os.environ.get("POSTHOG_POSTGRES_PORT", "5432"),
             "CONN_MAX_AGE": 0,
+            "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
         }
     }
     DATABASE_URL = "postgres://{}{}{}{}:{}/{}".format(
@@ -341,8 +355,6 @@ else:
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
 
-# See https://docs.djangoproject.com/en/3.1/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
-DISABLE_SERVER_SIDE_CURSORS = get_bool_from_env("USING_PGBOUNCER", False)
 
 # Broker
 
@@ -372,7 +384,7 @@ CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 
-if PRIMARY_DB == CLICKHOUSE:
+if PRIMARY_DB == RDBMS.CLICKHOUSE:
     try:
         from ee.apps import EnterpriseConfig  # noqa: F401
     except ImportError:
@@ -386,7 +398,7 @@ CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
 CELERY_IGNORE_RESULT = True  # only applies to delay(), must do @shared_task(ignore_result=True) for apply_async
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
-CACHED_RESULTS_TTL = 24 * 60 * 60  # how long to keep cached results for
+CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
@@ -453,6 +465,7 @@ EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
 EMAIL_USE_TLS = get_bool_from_env("EMAIL_USE_TLS", False)
 EMAIL_USE_SSL = get_bool_from_env("EMAIL_USE_SSL", False)
 DEFAULT_FROM_EMAIL = os.environ.get("EMAIL_DEFAULT_FROM", os.environ.get("DEFAULT_FROM_EMAIL", "root@localhost"))
+EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO")
 
 MULTI_TENANCY = False  # overriden by posthog-production
 
@@ -474,6 +487,14 @@ if TEST:
 
     celery.current_app.conf.CELERY_ALWAYS_EAGER = True
     celery.current_app.conf.CELERY_EAGER_PROPAGATES_EXCEPTIONS = True
+
+
+def add_recorder_js_headers(headers, path, url):
+    if url.endswith("/recorder.js"):
+        headers["Cache-Control"] = "max-age=31536000, public"
+
+
+WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
 if DEBUG and not TEST:
     print_warning(
@@ -525,6 +546,6 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler",},},
     "root": {"handlers": ["console"], "level": "WARNING",},
     "loggers": {
-        "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": False,},
+        "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
     },
 }

@@ -13,6 +13,7 @@ style files without adding already imported styles. */
     --warning: #{$warning};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
+    --text-default: #{$text_default};
     --muted: #{$text_muted};
     // Used for graph series
     --blue: #{$blue_500};
@@ -105,6 +106,14 @@ style files without adding already imported styles. */
 
 .mt {
     margin-top: $default_spacing;
+}
+
+.mb-2 {
+    margin-bottom: $default_spacing * 2;
+}
+
+.mt-2 {
+    margin-top: $default_spacing * 2;
 }
 
 .mb-05 {

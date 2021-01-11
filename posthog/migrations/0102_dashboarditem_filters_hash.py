@@ -4,7 +4,7 @@ import hashlib
 
 from django.db import migrations, models
 
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 
 
 def generate_cache_key(stringified: str) -> str:

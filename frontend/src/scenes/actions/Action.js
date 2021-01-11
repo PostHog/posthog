@@ -1,6 +1,5 @@
 import React from 'react'
 import { ActionEdit } from './ActionEdit'
-import { ActionEdit as ActionEditV2 } from './ActionEditV2'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { userLogic } from 'scenes/userLogic'
@@ -9,7 +8,6 @@ import api from 'lib/api'
 import { kea } from 'kea'
 import { Spin } from 'antd'
 import { hot } from 'react-hot-loader/root'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { EventsTable } from 'scenes/events'
 
@@ -67,15 +65,8 @@ let actionLogic = kea({
     }),
 })
 
-const EditComponent = (props) => {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    return (
-        <>
-            {!featureFlags['actions-ux-201012'] && <ActionEdit {...props} />}
-            {featureFlags['actions-ux-201012'] && <ActionEditV2 {...props} />}
-        </>
-    )
+function EditComponent(props) {
+    return <ActionEdit {...props} />
 }
 
 export const Action = hot(_Action)

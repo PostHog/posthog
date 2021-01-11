@@ -11,7 +11,6 @@ from . import (
     element,
     event,
     feature_flag,
-    funnel,
     insight,
     organization,
     organization_invite,
@@ -35,15 +34,15 @@ router = DefaultRouterPlusPlus()
 # legacy endpoints (to be removed eventually)
 router.register(r"annotation", annotation.AnnotationsViewSet)
 router.register(r"feature_flag", feature_flag.FeatureFlagViewSet)
-router.register(r"funnel", funnel.FunnelViewSet)
 router.register(r"dashboard", dashboard.DashboardsViewSet)
 router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"cohort", cohort.CohortViewSet)
-router.register(r"plugin", plugin.PluginViewSet)
 router.register(r"plugin_config", plugin.PluginConfigViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
+# nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet)
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet)
+organizations_router.register(r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"])
 organizations_router.register(
     r"members", organization_member.OrganizationMemberViewSet, "organization_members", ["organization_id"],
 )
@@ -53,7 +52,7 @@ organizations_router.register(
 
 if is_ee_enabled():
     try:
-        from ee.clickhouse.views.actions import ClickhouseActionsViewSet
+        from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet
         from ee.clickhouse.views.element import ClickhouseElementViewSet
         from ee.clickhouse.views.events import ClickhouseEventsViewSet
         from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
@@ -64,17 +63,21 @@ if is_ee_enabled():
         print(e)
     else:
         # legacy endpoints (to be removed eventually)
-        router.register(r"action", ClickhouseActionsViewSet, basename="action")
+        router.register(r"action", LegacyClickhouseActionsViewSet, basename="action")
         router.register(r"event", ClickhouseEventsViewSet, basename="event")
         router.register(r"insight", ClickhouseInsightsViewSet, basename="insight")
         router.register(r"person", ClickhousePersonViewSet, basename="person")
         router.register(r"paths", ClickhousePathsViewSet, basename="paths")
         router.register(r"element", ClickhouseElementViewSet, basename="element")
+        # nested endpoints
+        projects_router.register(r"actions", ClickhouseActionsViewSet, "project_actions", ["team_id"])
 else:
     # legacy endpoints (to be removed eventually)
     router.register(r"insight", insight.InsightViewSet)
-    router.register(r"action", action.ActionViewSet)
+    router.register(r"action", action.LegacyActionViewSet)
     router.register(r"person", person.PersonViewSet)
     router.register(r"event", event.EventViewSet)
     router.register(r"paths", paths.PathsViewSet, basename="paths")
     router.register(r"element", element.ElementViewSet)
+    # nested endpoints
+    projects_router.register(r"actions", action.ActionViewSet, "project_actions", ["team_id"])

@@ -5,7 +5,8 @@ from rest_framework_extensions.mixins import NestedViewSetMixin
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
 
-from posthog.models import Organization, Team
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 
 
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):

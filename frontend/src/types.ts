@@ -1,5 +1,6 @@
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { PluginConfigSchema } from 'posthog-plugins'
+import { PluginConfigSchema } from '@posthog/plugin-scaffold'
+import { PluginInstallationType } from 'scenes/plugins/types'
 export interface UserType {
     anonymize_data: boolean
     distinct_id: string
@@ -19,6 +20,9 @@ export interface UserType {
     plugin_access: PluginAccess
     has_password: boolean
     is_multi_tenancy: boolean
+    is_staff: boolean
+    is_debug: boolean
+    is_impersonated: boolean
     email_service_available: boolean
 }
 
@@ -98,13 +102,14 @@ export interface TeamType {
 
 export interface ActionType {
     count?: number
-    created_at?: string
+    created_at: string
     deleted?: boolean
-    id?: number
+    id: number
     is_calculating?: boolean
-    name?: string
+    name: string
     post_to_slack?: boolean
     steps?: ActionStepType[]
+    created_by: Record<string, any>
 }
 
 export interface ActionStepType {
@@ -156,7 +161,11 @@ export interface Entity {
     id: string | number
     name: string
     order: number
-    type: string
+    type: 'actions' | 'events'
+}
+
+export interface EntityWithProperties extends Entity {
+    properties: Record<string, any>
 }
 
 export interface PersonType {
@@ -165,6 +174,7 @@ export interface PersonType {
     name: string
     distinct_ids: string[]
     properties: Record<string, any>
+    is_identified: boolean
     created_at?: string
 }
 
@@ -177,12 +187,11 @@ export interface CohortType {
     is_calculating?: boolean
     last_calculation?: string
     name?: string
-    groups?: Record<string, any>[]
+    groups: Record<string, any>[]
 }
 
 export interface InsightHistory {
     id: number
-    type: string
     filters: Record<string, any>
     name?: string
     createdAt: string
@@ -236,11 +245,28 @@ export interface BillingSubscription {
     stripe_checkout_session: string
 }
 
+export interface DashboardItemType {
+    id: number
+    name: string
+    filters: Record<string, any>
+    filters_hash: string
+    order: number
+    deleted: boolean
+    saved: boolean
+    created_at: string
+    layouts: Record<string, any>
+    color: string
+    last_refresh: string
+    refreshing: boolean
+    created_by: Record<string, any>
+    is_sample: boolean
+}
+
 export interface DashboardType {
     id: number
     name: string
     pinned: string
-    items: []
+    items: DashboardItemType[]
     created_at: string
     created_by: number
     is_shared: boolean
@@ -262,11 +288,13 @@ export interface OrganizationInviteType {
 
 export interface PluginType {
     id: number
+    plugin_type: PluginInstallationType
     name: string
-    description: string
-    url: string
-    tag: string
+    description?: string
+    url?: string
+    tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
+    source?: string
     error?: PluginErrorType
 }
 

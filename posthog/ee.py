@@ -1,7 +1,7 @@
 from django.conf import settings
 
+from posthog.constants import RDBMS
 
-# add all conditions to check here
+
 def is_ee_enabled() -> bool:
-    flag_enabled = settings.PRIMARY_DB == settings.CLICKHOUSE
-    return flag_enabled
+    return settings.EE_AVAILABLE and settings.PRIMARY_DB == RDBMS.CLICKHOUSE

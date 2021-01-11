@@ -6,6 +6,7 @@ import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilt
 import { cohortsModel } from '../../models/cohortsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
+import { LIFECYCLE, STICKINESS } from 'lib/constants'
 
 const { TabPane } = Tabs
 
@@ -138,16 +139,16 @@ export function BreakdownFilter({ filters, onChange }) {
                     }}
                 />
             }
-            trigger="click"
+            trigger={shown_as === STICKINESS || shown_as === LIFECYCLE ? 'none' : 'click'}
             placement="bottomLeft"
         >
             <Tooltip
-                title={shown_as == 'Stickiness' && 'Break down by is not yet available in combination with Stickiness'}
+                title={shown_as === STICKINESS && 'Break down by is not yet available in combination with Stickiness'}
             >
                 <Button
                     shape="round"
                     type={breakdown ? 'primary' : 'default'}
-                    disabled={shown_as == 'Stickiness'}
+                    disabled={shown_as === STICKINESS || shown_as === LIFECYCLE}
                     data-attr="add-breakdown-button"
                 >
                     {label || 'Add breakdown'}

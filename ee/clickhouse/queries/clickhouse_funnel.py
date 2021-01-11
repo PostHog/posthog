@@ -12,7 +12,7 @@ from ee.clickhouse.sql.funnels.funnel import FUNNEL_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.funnel import Funnel
@@ -55,12 +55,16 @@ class ClickhouseFunnel(Funnel):
         prop_filters, prop_filter_params = parse_prop_clauses(self._filter.properties, self._team.pk, prepend="global")
 
         # format default dates
+        data = {}
         if not self._filter._date_from:
-            self._filter._date_from = relative_date_parse("-7d")
+            data.update({"date_from": relative_date_parse("-7d")})
         if not self._filter._date_to:
-            self._filter._date_to = timezone.now()
+            data.update({"date_to": timezone.now()})
+        self._filter = Filter(data={**self._filter._data, **data})
 
-        parsed_date_from, parsed_date_to = parse_timestamps(filter=self._filter, table="events.")
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(
+            filter=self._filter, table="events.", team_id=self._team.pk
+        )
         self.params: Dict = {
             "team_id": self._team.pk,
             "events": [],  # purely a speed optimization, don't need this for filtering
@@ -86,7 +90,7 @@ class ClickhouseFunnel(Funnel):
 
         for step in reversed(self._filter.entities):
             # Clickhouse step order starts at one, hence the +1
-            result_step = [x for x in results if step.order + 1 == x[0]]  # type: ignore
+            result_step = [x for x in results if step.order + 1 == x[0]]
             if len(result_step) > 0:
                 total_people += result_step[0][1]
                 relevant_people += result_step[0][2]

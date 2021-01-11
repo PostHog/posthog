@@ -4,6 +4,7 @@ import { Button, Checkbox, Spin } from 'antd'
 import { CheckOutlined, WarningOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import api from 'lib/api'
+import posthog from 'posthog-js'
 
 export function OptInPlugins(): JSX.Element {
     const { userUpdateRequest } = useActions(userLogic)
@@ -14,7 +15,7 @@ export function OptInPlugins(): JSX.Element {
     useEffect(() => {
         async function setStatus(): Promise<void> {
             try {
-                const response = await api.get('api/plugin/status')
+                const response = await api.get('api/organizations/@current/plugins/status')
                 setServerStatus(response.status)
             } catch (e) {
                 setServerStatus('offline')
@@ -68,7 +69,7 @@ export function OptInPlugins(): JSX.Element {
             )}
             <div style={{ marginBottom: 20 }}>
                 <Checkbox checked={optIn} onChange={() => setOptIn(!optIn)} disabled={serverStatus !== 'online'}>
-                    I understand the risks and wish to try this beta feature now for <b>{user?.team.name}</b>.
+                    I understand the risks and wish to try this beta feature now for <b>{user?.team?.name}</b>.
                 </Checkbox>
             </div>
             <div>
@@ -76,7 +77,10 @@ export function OptInPlugins(): JSX.Element {
                     type="primary"
                     disabled={!optIn || serverStatus !== 'online'}
                     data-attr="enable-plugins"
-                    onClick={() => userUpdateRequest({ team: { plugins_opt_in: true } })}
+                    onClick={() => {
+                        userUpdateRequest({ team: { plugins_opt_in: true } })
+                        posthog.capture('plugins enabled for project')
+                    }}
                 >
                     Enable plugins for this project
                 </Button>

@@ -37,6 +37,7 @@ export function InstalledPlugins(): JSX.Element {
                                     name={plugin.name}
                                     url={plugin.url}
                                     description={plugin.description}
+                                    pluginType={plugin.plugin_type}
                                     pluginConfig={plugin.pluginConfig}
                                     error={plugin.error}
                                 />

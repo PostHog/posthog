@@ -8,8 +8,9 @@ from google.protobuf.json_format import MessageToJson
 from kafka import KafkaProducer as KP
 
 from ee.clickhouse.client import async_execute, sync_execute
+from ee.kafka_client import helper
 from ee.settings import KAFKA_ENABLED
-from posthog.settings import IS_HEROKU, KAFKA_HOSTS, TEST
+from posthog.settings import IS_HEROKU, KAFKA_BASE64_KEYS, KAFKA_HOSTS, TEST
 from posthog.utils import SingletonDecorator
 
 
@@ -28,10 +29,12 @@ class _KafkaProducer:
     def __init__(self):
         if TEST:
             self.producer = TestKafkaProducer()
-        elif not IS_HEROKU:
-            self.producer = KP(bootstrap_servers=KAFKA_HOSTS)
-        else:
+        elif IS_HEROKU:
             self.producer = kafka_helper.get_kafka_producer(value_serializer=lambda d: d)
+        elif KAFKA_BASE64_KEYS:
+            self.producer = helper.get_kafka_producer(value_serializer=lambda d: d)
+        else:
+            self.producer = KP(bootstrap_servers=KAFKA_HOSTS)
 
     @staticmethod
     def json_serializer(d):

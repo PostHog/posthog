@@ -5,7 +5,6 @@ from django.test import tag
 from rest_framework import status
 
 from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User
-from posthog.settings import MULTI_TENANCY
 from posthog.test.base import APIBaseTest
 
 
@@ -42,9 +41,9 @@ class TestSignup(APIBaseTest):
     CONFIG_USER_EMAIL = None
 
     @tag("skip_on_multitenancy")
-    @patch("posthog.api.team.settings.EE_AVAILABLE", False)
-    @patch("posthog.api.team.posthoganalytics.identify")
-    @patch("posthog.api.team.posthoganalytics.capture")
+    @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
+    @patch("posthog.api.organization.posthoganalytics.identify")
+    @patch("posthog.api.organization.posthoganalytics.capture")
     def test_api_sign_up(self, mock_capture, mock_identify):
         response = self.client.post(
             "/api/signup/",
@@ -116,7 +115,7 @@ class TestSignup(APIBaseTest):
             )
 
     @tag("skip_on_multitenancy")
-    @patch("posthog.api.team.posthoganalytics.capture")
+    @patch("posthog.api.organization.posthoganalytics.capture")
     def test_signup_minimum_attrs(self, mock_capture):
         response = self.client.post(
             "/api/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"},

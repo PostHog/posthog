@@ -7,19 +7,20 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.element import GET_ELEMENTS, GET_VALUES
 from posthog.api.element import ElementSerializer, ElementViewSet
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 
 
 class ClickhouseElementViewSet(ElementViewSet):
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:
         filter = Filter(request=request)
-        date_from, date_to = parse_timestamps(filter)
+
+        date_from, date_to, _ = parse_timestamps(filter, team_id=self.team.pk)
 
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, self.team.pk)
         result = sync_execute(
             GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters),
-            {"team_id": self.team.id, **prop_filter_params},
+            {"team_id": self.team.pk, **prop_filter_params},
         )
         return response.Response(
             [

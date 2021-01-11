@@ -8,7 +8,7 @@ import { toast } from 'react-toastify'
 export const dashboardsModel = kea({
     actions: () => ({
         delayedDeleteDashboard: (id) => ({ id }),
-        setLastVisitedDashboardId: (id) => ({ id }),
+        setLastDashboardId: (id) => ({ id }),
         // this is moved out of dashboardLogic, so that you can click "undo" on a item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
         updateDashboardItem: (item) => ({ item }),
@@ -72,10 +72,11 @@ export const dashboardsModel = kea({
             pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             unpinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
         },
-        lastVisitedDashboardId: [
+        lastDashboardId: [
             null,
+            { persist: true },
             {
-                setLastVisitedDashboardId: (_, { id }) => id,
+                setLastDashboardId: (_, { id }) => id,
             },
         ],
     }),
@@ -147,6 +148,6 @@ export const dashboardsModel = kea({
     }),
 
     urlToAction: ({ actions }) => ({
-        '/dashboard/:id': ({ id }) => actions.setLastVisitedDashboardId(parseInt(id)),
+        '/dashboard/:id': ({ id }) => actions.setLastDashboardId(parseInt(id)),
     }),
 })

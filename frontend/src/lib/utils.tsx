@@ -215,14 +215,16 @@ export function formatLabel(
     label: string,
     action: {
         math: string
+        math_property?: string
         properties?: { operator: string; value: any }[]
     }
 ): string {
-    const math = 'Total'
     if (action.math === 'dau') {
         label += ` (${action.math.toUpperCase()}) `
+    } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math)) {
+        label += ` (${action.math} of ${action.math_property}) `
     } else {
-        label += ` (${math}) `
+        label += ' (Total) '
     }
     if (action?.properties?.length) {
         label += ` (${action.properties
@@ -233,6 +235,7 @@ export function formatLabel(
 }
 
 export function deletePersonData(person: Record<string, any>, callback: () => void): void {
+    // DEPRECATED: Remove after releasing PersonsV2 (persons-2353)
     if (window.confirm('Are you sure you want to delete this user? This cannot be undone')) {
         api.delete('api/person/' + person.id).then(() => {
             toast('Person succesfully deleted.')
@@ -244,6 +247,7 @@ export function deletePersonData(person: Record<string, any>, callback: () => vo
 }
 
 export function savePersonData(person: Record<string, any>): void {
+    // DEPRECATED: Remove after releasing PersonsV2 (persons-2353)
     api.update('api/person/' + person.id, person).then(() => {
         toast('Person Updated')
     })
@@ -367,13 +371,13 @@ export function stripHTTP(url: string): string {
     return url
 }
 
-export function isURL(string: string): boolean {
-    if (!string) {
+export function isURL(input: any): boolean {
+    if (!input || typeof input !== 'string') {
         return false
     }
     // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
     const regexp = /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
-    return !!string.match?.(regexp)
+    return !!input.match?.(regexp)
 }
 
 export function isEmail(string: string): boolean {
@@ -639,4 +643,16 @@ export function colorForString(s: string): string {
     Returns a color name for a given string, where the color will always be the same for the same string.
     */
     return lightColors[hashCodeForString(s) % lightColors.length]
+}
+
+export function midEllipsis(input: string, maxLength: number): string {
+    /* Truncates a string (`input`) in the middle. `maxLength` represents the desired maximum length of the output string
+     excluding the ... */
+    if (input.length <= maxLength) {
+        return input
+    }
+
+    const middle = Math.ceil(input.length / 2)
+    const excess = Math.ceil((input.length - maxLength) / 2)
+    return `${input.substring(0, middle - excess)}...${input.substring(middle + excess)}`
 }

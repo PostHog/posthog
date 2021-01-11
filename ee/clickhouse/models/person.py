@@ -31,7 +31,7 @@ from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog import settings
 from posthog.ee import is_ee_enabled
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
@@ -129,6 +129,10 @@ def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QueryS
     return Person.objects.filter(
         team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id__in=distinct_ids
     )
+
+
+def get_persons_by_uuids(team_id: int, uuids: List[str]) -> QuerySet:
+    return Person.objects.filter(team_id=team_id, uuid__in=uuids)
 
 
 def merge_people(team_id: int, target: Dict, old_id: UUID, old_props: Dict) -> None:

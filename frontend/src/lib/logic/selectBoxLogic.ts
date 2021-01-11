@@ -29,6 +29,7 @@ const scrollDownIntoView = (key: string): void => {
 export const searchItems = (sources: SelectedItem[], search: string): SelectedItem[] => {
     return new Fuse(sources, {
         keys: ['name'],
+        threshold: 0.3,
     })
         .search(search)
         .map((result) => result.item)

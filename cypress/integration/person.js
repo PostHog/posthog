@@ -27,7 +27,6 @@ describe('Person Show All Distinct Checks', () => {
         cy.contains('smith.nunez@gmail.com').click()
         cy.get('[data-cy="show-more-distinct-id"]').should('exist')
         cy.get('[data-cy="show-more-distinct-id"]').click()
-        cy.get('[data-cy="show-more-distinct-id"]').should('not.exist')
     })
 
     it('Should have no Show All Distinct Id Button', () => {

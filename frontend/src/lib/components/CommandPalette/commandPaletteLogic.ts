@@ -32,6 +32,8 @@ import {
     LogoutOutlined,
     PlusOutlined,
     LineChartOutlined,
+    ApiOutlined,
+    DatabaseOutlined,
 } from '@ant-design/icons'
 import { DashboardType } from '~/types'
 import api from 'lib/api'
@@ -40,6 +42,7 @@ import { userLogic } from 'scenes/userLogic'
 import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import posthog from 'posthog-js'
+import { debugCHQueries } from './DebugCHQueries'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -136,6 +139,7 @@ export const commandPaletteLogic = kea<
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
         deregisterScope: (scope: string) => ({ scope }),
+        shareFeedbackCommand: (instruction?: string) => ({ instruction }),
     },
     reducers: {
         isPaletteShown: [
@@ -257,6 +261,30 @@ export const commandPaletteLogic = kea<
                     })
                 }
             }
+        },
+        shareFeedbackCommand: ({ instruction = "What's on your mind?" }) => {
+            actions.showPalette()
+            actions.activateFlow({
+                scope: 'Sharing Feedback',
+                instruction,
+                icon: CommentOutlined,
+                resolver: (argument) => ({
+                    icon: SendOutlined,
+                    display: 'Send',
+                    executor: !argument?.length
+                        ? undefined
+                        : () => {
+                              posthog.capture('palette feedback', { message: argument })
+                              return {
+                                  resolver: {
+                                      icon: CheckOutlined,
+                                      display: 'Message Sent!',
+                                      executor: true,
+                                  },
+                              }
+                          },
+                }),
+            })
         },
     }),
     selectors: {
@@ -531,6 +559,22 @@ export const commandPaletteLogic = kea<
                         },
                     },
                     {
+                        icon: ApiOutlined,
+                        display: 'Go to Plugins',
+                        synonyms: ['integrations'],
+                        executor: () => {
+                            push('/project/plugins')
+                        },
+                    },
+                    {
+                        icon: DatabaseOutlined,
+                        display: 'Go to System Status Page',
+                        synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
+                        executor: () => {
+                            push('/instance/status')
+                        },
+                    },
+                    {
                         icon: PlusOutlined,
                         display: 'Create Action',
                         executor: () => {
@@ -545,6 +589,23 @@ export const commandPaletteLogic = kea<
                         },
                     },
                 ],
+            }
+
+            const debugClickhouseQueries: Command = {
+                key: 'debug-clickhouse-queries',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver:
+                    userLogic.values.user?.is_staff ||
+                    userLogic.values.user?.is_debug ||
+                    userLogic.values.user?.is_impersonated
+                        ? {
+                              icon: PlusOutlined,
+                              display: 'Debug ClickHouse Queries',
+                              executor: () => {
+                                  debugCHQueries()
+                              },
+                          }
+                        : [],
             }
 
             const calculator: Command = {
@@ -627,7 +688,7 @@ export const commandPaletteLogic = kea<
                                     display: `Create Key "${argument}"`,
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
-                                        push('/my/settings', {}, 'personal-api-keys')
+                                        push('/me/settings', {}, 'personal-api-keys')
                                     },
                                 }
                             }
@@ -718,6 +779,7 @@ export const commandPaletteLogic = kea<
 
             actions.registerCommand(goTo)
             actions.registerCommand(openUrls)
+            actions.registerCommand(debugClickhouseQueries)
             actions.registerCommand(calculator)
             actions.registerCommand(createPersonalApiKey)
             actions.registerCommand(createDashboard)
@@ -726,6 +788,7 @@ export const commandPaletteLogic = kea<
         beforeUnmount: () => {
             actions.deregisterCommand('go-to')
             actions.deregisterCommand('open-urls')
+            actions.deregisterCommand('debug-clickhouse-queries')
             actions.deregisterCommand('calculator')
             actions.deregisterCommand('create-personal-api-key')
             actions.deregisterCommand('create-dashboard')

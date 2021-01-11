@@ -11,3 +11,10 @@ export interface PluginRepositoryEntry {
 export interface PluginTypeWithConfig extends PluginType {
     pluginConfig: PluginConfigType
 }
+
+export enum PluginInstallationType {
+    Local = 'local',
+    Custom = 'custom',
+    Repository = 'repository',
+    Source = 'source',
+}

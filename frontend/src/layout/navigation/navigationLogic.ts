@@ -104,7 +104,6 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
     }),
     events: ({ actions }) => ({
         afterMount: () => {
-            systemStatusLogic.actions.loadSystemStatus()
             actions.loadLatestVersion()
         },
     }),

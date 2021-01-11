@@ -10,17 +10,29 @@ import { hot } from 'react-hot-loader/root'
 import { SessionsTable } from '../sessions/SessionsTable'
 import { PageHeader } from 'lib/components/PageHeader'
 import { EventsTable } from 'scenes/events'
+import { MergePerson } from './MergePerson'
+import { PersonV2 } from './PersonV2'
+import { useValues } from 'kea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 const { TabPane } = Tabs
 
 const confirm = Modal.confirm
 export const Person = hot(_Person)
-function _Person({ _: distinctId, id }) {
+
+function _Person(props) {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags['persons-2353'] ? <PersonV2 /> : <PersonV1 {...props} />
+}
+
+function PersonV1({ _: distinctId, id }) {
     const { innerWidth } = window
     const isScreenSmall = innerWidth < 700
     const { push } = router.actions
 
     const [person, setPerson] = useState(null)
     const [personChanged, setPersonChanged] = useState(false)
+    const [mergeModalOpen, setMergeModalOpen] = useState(false)
     const [activeTab, setActiveTab] = useState('events')
 
     useEffect(() => {
@@ -94,6 +106,21 @@ function _Person({ _: distinctId, id }) {
             >
                 {isScreenSmall ? <DeleteOutlined /> : 'Delete all data on this person'}
             </Button>
+
+            <Button
+                onClick={() => {
+                    posthog.capture('merge person modal opened')
+                    setMergeModalOpen(true)
+                }}
+                className="float-right"
+                style={{ marginRight: '10px' }}
+            >
+                Merge person
+            </Button>
+            {mergeModalOpen && (
+                <MergePerson person={person} onPersonChange={setPerson} closeModal={() => setMergeModalOpen(false)} />
+            )}
+
             <Button
                 className="float-right"
                 onClick={() => showConfirm('save', "Are you sure you want to update this person's properties?")}
@@ -102,7 +129,7 @@ function _Person({ _: distinctId, id }) {
             >
                 Save updated data
             </Button>
-            <PageHeader title={`Person ${person.properties.name?.first || person.name || person.properties.email}`} />
+            <PageHeader title={person.properties.name?.first || person.name || person.properties.email} />
             <div style={{ maxWidth: 750 }}>
                 <PersonTable
                     properties={{
@@ -142,9 +169,17 @@ function _Person({ _: distinctId, id }) {
                 />
             </Tabs>
             {activeTab === 'events' ? (
-                <EventsTable isPersonPage={true} fixedFilters={{ person_id: person.id }} />
+                <EventsTable
+                    pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
+                    isPersonPage={true}
+                    fixedFilters={{ person_id: person.id }}
+                />
             ) : (
-                <SessionsTable personIds={person.distinct_ids} isPersonPage={true} />
+                <SessionsTable
+                    key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
+                    personIds={person.distinct_ids}
+                    isPersonPage={true}
+                />
             )}
         </div>
     ) : null

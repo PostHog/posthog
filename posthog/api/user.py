@@ -1,4 +1,3 @@
-import functools
 import json
 import os
 import secrets
@@ -14,11 +13,13 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
-from rest_framework import exceptions, serializers
+from loginas.utils import is_impersonated_session
+from rest_framework import serializers
 
 from posthog.auth import authenticate_secondarily
+from posthog.ee import is_ee_enabled
 from posthog.email import is_email_available
-from posthog.models import Event, Team, User
+from posthog.models import Team, User
 from posthog.models.organization import Organization
 from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api, reload_plugins_on_workers
 from posthog.version import VERSION
@@ -146,9 +147,17 @@ def user(request):
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
             "posthog_version": VERSION,
             "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
-            "ee_available": user.ee_available,
+            "is_staff": user.is_staff,
+            "ee_available": settings.EE_AVAILABLE,
+            "ee_enabled": is_ee_enabled(),
             "email_service_available": is_email_available(with_absolute_urls=True),
-            "plugin_access": {"install": can_install_plugins_via_api(), "configure": can_configure_plugins_via_api()},
+            "is_debug": getattr(settings, "DEBUG", False),
+            "is_staff": user.is_staff,
+            "is_impersonated": is_impersonated_session(request),
+            "plugin_access": {
+                "install": can_install_plugins_via_api(user.organization),
+                "configure": can_configure_plugins_via_api(user.organization),
+            },
         }
     )
 

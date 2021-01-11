@@ -9,11 +9,35 @@ import { prompt } from 'lib/logic/prompt'
 import moment from 'moment'
 
 const saveToDashboardModalLogic = kea({
+    connect: {
+        values: [dashboardsModel, ['dashboards', 'lastDashboardId']],
+    },
+
     actions: () => ({
         addNewDashboard: true,
+        setDashboardId: (id) => ({ id }),
     }),
 
-    listeners: ({ props }) => ({
+    reducers: {
+        _dashboardId: [null, { setDashboardId: (_, { id }) => id }],
+    },
+
+    selectors: ({ props }) => ({
+        dashboardId: [
+            (s) => [s._dashboardId, s.lastDashboardId, s.dashboards],
+            (_dashboardId, lastDashboardId, dashboards) =>
+                _dashboardId ||
+                props.fromDashboard ||
+                lastDashboardId ||
+                (dashboards.length > 0 ? dashboards[0].id : null),
+        ],
+    }),
+
+    listeners: ({ actions }) => ({
+        setDashboardId: ({ id }) => {
+            dashboardsModel.actions.setLastDashboardId(id)
+        },
+
         addNewDashboard: async () => {
             prompt({ key: `saveToDashboardModalLogic-new-dashboard` }).actions.prompt({
                 title: 'New dashboard',
@@ -25,30 +49,29 @@ const saveToDashboardModalLogic = kea({
         },
 
         [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
-            props.setDashboardId && props.setDashboardId(dashboard.id)
+            actions.setDashboardId(dashboard.id)
         },
     }),
 })
+
 const radioStyle = {
     display: 'block',
-    height: '30px',
-    lineHeight: '30px',
+    overflow: 'hidden',
+    whiteSpace: 'normal',
 }
+
 export function SaveToDashboardModal({
     closeModal,
     name: initialName,
-    type,
     filters,
     fromItem,
     fromDashboard,
     fromItemName,
     annotations,
 }) {
-    const { dashboards, lastVisitedDashboardId } = useValues(dashboardsModel)
-    const [dashboardId, setDashboardId] = useState(
-        fromDashboard || lastVisitedDashboardId || (dashboards.length > 0 ? dashboards[0].id : null)
-    )
-    const { addNewDashboard } = useActions(saveToDashboardModalLogic({ setDashboardId }))
+    const logic = saveToDashboardModalLogic({ fromDashboard })
+    const { dashboards, dashboardId } = useValues(logic)
+    const { addNewDashboard, setDashboardId } = useActions(logic)
     const [name, setName] = useState(fromItemName || initialName || '')
     const [visible, setVisible] = useState(true)
     const [newItem, setNewItem] = useState(!fromItem)
@@ -58,9 +81,8 @@ export function SaveToDashboardModal({
     async function save(event) {
         event.preventDefault()
         if (newItem) {
-            const response = await api.create('api/dashboard_item', {
+            const response = await api.create('api/insight', {
                 filters,
-                type,
                 name,
                 dashboard: dashboardId,
             })
@@ -76,7 +98,7 @@ export function SaveToDashboardModal({
                 }
             }
         } else {
-            await api.update(`api/dashboard_item/${fromItem}`, { filters, type })
+            await api.update(`api/insight/${fromItem}`, { filters })
         }
         toast(
             <div data-attr="success-toast">

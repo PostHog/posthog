@@ -4,30 +4,22 @@ import { toast } from 'react-toastify'
 import { Spin } from 'antd'
 import api from 'lib/api'
 import { router } from 'kea-router'
+import { cohortsModel } from '~/models'
 
 export const cohortLogic = kea({
-    key: (props) => props.id || 'new',
+    key: (props) => props.cohort.id || 'new',
+    connect: [cohortsModel],
+
     actions: () => ({
         saveCohort: (cohort) => ({ cohort }),
         setCohort: (cohort) => ({ cohort }),
         checkIsFinished: (cohort) => ({ cohort }),
         setToastId: (toastId) => ({ toastId }),
         setPollTimeout: (pollTimeout) => ({ pollTimeout }),
+        setLastSavedAt: (lastSavedAt) => ({ lastSavedAt }),
     }),
 
-    loaders: () => ({
-        personProperties: {
-            loadPersonProperties: async () => {
-                const properties = await api.get('api/person/properties')
-                return properties.map((property) => ({
-                    label: property.name,
-                    value: property.name,
-                }))
-            },
-        },
-    }),
-
-    reducers: () => ({
+    reducers: ({ props }) => ({
         pollTimeout: [
             null,
             {
@@ -35,7 +27,7 @@ export const cohortLogic = kea({
             },
         ],
         cohort: [
-            null,
+            props.cohort,
             {
                 setCohort: (_, { cohort }) => cohort,
             },
@@ -46,14 +38,22 @@ export const cohortLogic = kea({
                 setToastId: (_, { toastId }) => toastId,
             },
         ],
+        lastSavedAt: [
+            false,
+            {
+                setLastSavedAt: (_, { lastSavedAt }) => lastSavedAt,
+            },
+        ],
     }),
 
     listeners: ({ sharedListeners }) => ({
         saveCohort: async ({ cohort }) => {
-            if (cohort.id) {
+            if (cohort.id !== 'new') {
                 cohort = await api.update('api/cohort/' + cohort.id, cohort)
+                cohortsModel.actions.updateCohort(cohort)
             } else {
                 cohort = await api.create('api/cohort', cohort)
+                cohortsModel.actions.createCohort(cohort)
             }
             sharedListeners.pollIsFinished(cohort)
         },
@@ -63,7 +63,7 @@ export const cohortLogic = kea({
         },
     }),
 
-    sharedListeners: ({ actions, values, props }) => ({
+    sharedListeners: ({ actions, values }) => ({
         pollIsFinished: (cohort) => {
             if (cohort.is_calculating) {
                 if (!values.toastId) {
@@ -86,7 +86,9 @@ export const cohortLogic = kea({
                     },
                     autoClose: 5000,
                 })
-                props.onChange(cohort.id)
+                actions.setLastSavedAt(new Date().toISOString())
+                actions.setCohort(cohort)
+                cohortsModel.actions.updateCohort(cohort)
                 actions.setToastId(null)
             }
         },
@@ -94,11 +96,9 @@ export const cohortLogic = kea({
 
     events: ({ values, actions, props }) => ({
         afterMount: async () => {
-            if (props.id) {
-                const cohort = await api.get('api/cohort/' + props.id)
-                return actions.setCohort(cohort)
+            if (!props.cohort.id) {
+                actions.setCohort({ groups: router.values.location.pathname.indexOf('cohorts/new') > -1 ? [{}] : [] })
             }
-            actions.setCohort({ groups: router.values.location.pathname.indexOf('cohorts/new') > -1 ? [{}] : [] })
         },
         beforeUnmount: () => {
             clearTimeout(values.pollTimeout)

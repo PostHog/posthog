@@ -1,0 +1,10 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+ 
+<form class="form-signin" method="post" action="/login">
+    <h2>Too many failed login attempts</h2>
+
+    Please try again in 15 minutes or contact support.
+</form>
+{% endblock %}

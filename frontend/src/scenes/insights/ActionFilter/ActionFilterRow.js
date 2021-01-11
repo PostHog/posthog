@@ -1,12 +1,14 @@
-import React, { useRef, useState } from 'react'
+import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
+import { Button, Tooltip, Dropdown, Menu, Col, Row, Select } from 'antd'
 import { EntityTypes } from '../trendsLogic'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
-import { Button, Tooltip, Dropdown, Menu, Col, Row } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { userLogic } from 'scenes/userLogic'
 import { DownOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
+import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
+import './ActionFilterRow.scss'
 
 const MATHS = {
     total: {
@@ -75,6 +77,50 @@ const MATHS = {
         ),
         onProperty: true,
     },
+    median: {
+        name: 'Median',
+        description: (
+            <>
+                Event property median (50th percentile).
+                <br />
+                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 150.
+            </>
+        ),
+        onProperty: true,
+    },
+    p90: {
+        name: '90th percentile',
+        description: (
+            <>
+                Event property 90th percentile.
+                <br />
+                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 190.
+            </>
+        ),
+        onProperty: true,
+    },
+    p95: {
+        name: '95th percentile',
+        description: (
+            <>
+                Event property 95th percentile.
+                <br />
+                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 195.
+            </>
+        ),
+        onProperty: true,
+    },
+    p99: {
+        name: '99th percentile',
+        description: (
+            <>
+                Event property 90th percentile.
+                <br />
+                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 199.
+            </>
+        ),
+        onProperty: true,
+    },
 }
 const MATH_ENTRIES = Object.entries(MATHS)
 
@@ -92,10 +138,17 @@ const determineFilterLabel = (visible, filter) => {
 
 export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
     const node = useRef()
-    const { selectedFilter, entities } = useValues(logic)
-    const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty } = useActions(logic)
+    const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
+    const {
+        selectFilter,
+        updateFilterMath,
+        removeLocalFilter,
+        updateFilterProperty,
+        setEntityFilterVisibility,
+    } = useActions(logic)
     const { eventProperties, eventPropertiesNumerical } = useValues(userLogic)
-    const [entityFilterVisible, setEntityFilterVisible] = useState(false)
+
+    const visible = entityFilterVisible[filter.order]
 
     let entity, name, value
     let math = filter.math
@@ -156,17 +209,12 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                         {name || 'Select action'}
                         <DownOutlined style={{ fontSize: 10 }} />
                     </Button>
-                    {dropDownCondition() && (
-                        <ActionFilterDropdown
-                            logic={logic}
-                            onClickOutside={(e) => {
-                                if (node.current.contains(e.target)) {
-                                    return
-                                }
-                                selectFilter(null)
-                            }}
-                        />
-                    )}
+                    <ActionFilterDropdown
+                        open={dropDownCondition()}
+                        logic={logic}
+                        openButtonRef={node}
+                        onClose={() => selectFilter(null)}
+                    />
                 </Col>
                 <Col>
                     {!hideMathSelector && (
@@ -195,10 +243,10 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                 <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
                 <Button
                     className="ant-btn-md"
-                    onClick={() => setEntityFilterVisible(!entityFilterVisible)}
+                    onClick={() => setEntityFilterVisibility(filter.order, !visible)}
                     data-attr={'show-prop-filter-' + index}
                 >
-                    {determineFilterLabel(entityFilterVisible, filter)}
+                    {determineFilterLabel(visible, filter)}
                 </Button>
                 <CloseButton
                     onClick={onClose}
@@ -211,7 +259,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                 />
             </div>
 
-            {entityFilterVisible && (
+            {visible && (
                 <div className="ml">
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
@@ -276,44 +324,48 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
 }
 
 function MathPropertySelector(props) {
-    const applicableProperties = props.properties.filter(
-        ({ value }) => value[0] !== '$' && value !== 'distinct_id' && value !== 'token'
-    )
-
-    const overlay = () => {
-        return (
-            <Menu onClick={({ item }) => props.onMathPropertySelect(props.index, item.props['data-value'])}>
-                {applicableProperties.map(({ value, label }) => {
-                    return (
-                        <Menu.Item
-                            key={`math-property-${value}-${props.index}`}
-                            data-attr={`math-property-${value}-${props.index}`}
-                            data-value={value}
-                        >
-                            <Tooltip
-                                title={
-                                    <>
-                                        Calculate {MATHS[props.math].name.toLowerCase()} from property{' '}
-                                        <code>{label}</code>. Note that only {props.name} occurences where{' '}
-                                        <code>{label}</code> is set and a number will be taken into account.
-                                    </>
-                                }
-                                placement="right"
-                            >
-                                {label}
-                            </Tooltip>
-                        </Menu.Item>
-                    )
-                })}
-            </Menu>
-        )
-    }
+    const applicableProperties = props.properties
+        .filter(({ value }) => value[0] !== '$' && value !== 'distinct_id' && value !== 'token')
+        .sort((a, b) => (a.value + '').localeCompare(b.value))
 
     return (
-        <Dropdown overlay={overlay}>
-            <Button data-attr={`math-property-selector-${props.index}`} style={{ marginTop: 8 }}>
-                {props.mathProperty || 'Select property'} <DownOutlined />
-            </Button>
-        </Dropdown>
+        <SelectGradientOverflow
+            showSearch
+            style={{ width: 150 }}
+            onChange={(_, payload) => props.onMathPropertySelect(props.index, payload && payload.value)}
+            className="property-select"
+            value={props.mathProperty}
+            onSearch={(input) => {
+                setInput(input)
+                if (!optionsCache[input] && !isOperatorFlag(operator)) {
+                    loadPropertyValues(input)
+                }
+            }}
+            data-attr="math-property-select"
+            dropdownMatchSelectWidth={350}
+            placeholder={'Select property'}
+        >
+            {applicableProperties.map(({ value, label }) => (
+                <Select.Option
+                    key={`math-property-${value}-${props.index}`}
+                    value={value}
+                    data-attr={`math-property-${value}-${props.index}`}
+                >
+                    <Tooltip
+                        title={
+                            <>
+                                Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>.
+                                Note that only {props.name} occurences where <code>{label}</code> is set and a number
+                                will be taken into account.
+                            </>
+                        }
+                        placement="right"
+                        overlayStyle={{ zIndex: 9999999999 }}
+                    >
+                        {label}
+                    </Tooltip>
+                </Select.Option>
+            ))}
+        </SelectGradientOverflow>
     )
 }

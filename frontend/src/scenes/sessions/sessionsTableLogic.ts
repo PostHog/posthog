@@ -3,7 +3,7 @@ import api from 'lib/api'
 import moment from 'moment'
 import { toParams } from 'lib/utils'
 import { sessionsTableLogicType } from 'types/scenes/sessions/sessionsTableLogicType'
-import { PropertyFilter, SessionType } from '~/types'
+import { EntityWithProperties, PropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
 import { eventWithTime } from 'rrweb/typings/types'
 
@@ -11,32 +11,26 @@ type Moment = moment.Moment
 
 type SessionRecordingId = string
 
-type Params = {
+interface Params {
     date?: string
     properties?: any
+    duration?: any
     sessionRecordingId?: SessionRecordingId
+    actionFilter?: EntityWithProperties
 }
 
-const buildURL = (selectedDateURLparam?: string, sessionRecordingId?: SessionRecordingId | null): [string, Params] => {
-    const today = moment().startOf('day').format('YYYY-MM-DD')
-    const params: Params = {}
-
-    const { properties } = router.values.searchParams // eslint-disable-line
-    if (selectedDateURLparam !== today) {
-        params.date = selectedDateURLparam
-    }
-    if (properties) {
-        params.properties = properties
-    }
-    if (sessionRecordingId) {
-        params.sessionRecordingId = sessionRecordingId
-    }
-
-    return [router.values.location.pathname, params]
-}
+export type RecordingDurationFilter = ['lt' | 'gt', number | null, 's' | 'm' | 'h']
 
 export const sessionsTableLogic = kea<
-    sessionsTableLogicType<Moment, SessionType, SessionRecordingId, eventWithTime, PropertyFilter>
+    sessionsTableLogicType<
+        Moment,
+        SessionType,
+        SessionRecordingId,
+        eventWithTime,
+        PropertyFilter,
+        RecordingDurationFilter,
+        EntityWithProperties
+    >
 >({
     props: {} as {
         personIds?: string[]
@@ -52,21 +46,16 @@ export const sessionsTableLogic = kea<
                     offset: 0,
                     distinct_id: props.personIds ? props.personIds[0] : '',
                     properties: values.properties,
+                    action_filter: values.actionFilter || undefined,
+                    ...values.durationFilter,
                 })
                 await breakpoint(10)
-                const response = await api.get(`api/insight/session/?${params}`)
+                const response = await api.get(`api/event/sessions/?${params}`)
                 breakpoint()
                 if (response.offset) {
                     actions.setNextOffset(response.offset)
                 }
                 return response.result
-            },
-        },
-        sessionPlayerData: {
-            loadSessionPlayer: async (sessionRecordingId: SessionRecordingId): Promise<eventWithTime[]> => {
-                const params = toParams({ session_recording_id: sessionRecordingId })
-                const response = await api.get(`api/event/session_recording?${params}`)
-                return response.result.snapshots
             },
         },
     }),
@@ -76,9 +65,15 @@ export const sessionsTableLogic = kea<
         appendNewSessions: (sessions) => ({ sessions }),
         previousDay: true,
         nextDay: true,
-        setFilters: (properties: Array<PropertyFilter>, selectedDate: Moment | null) => ({ properties, selectedDate }),
+        setFilters: (
+            properties: Array<PropertyFilter>,
+            selectedDate: Moment | null,
+            duration: RecordingDurationFilter | null,
+            actionFilter: EntityWithProperties | null
+        ) => ({ properties, selectedDate, duration, actionFilter }),
+        setSessionRecordingId: (sessionRecordingId: SessionRecordingId) => ({ sessionRecordingId }),
+        updateActionFilter: (actionFilter: EntityWithProperties | null) => ({ actionFilter }),
         closeSessionPlayer: true,
-        setPlayerSpeed: (speed: number) => ({ speed }),
     }),
     reducers: {
         sessions: {
@@ -94,6 +89,12 @@ export const sessionsTableLogic = kea<
             },
         ],
         selectedDate: [null as null | Moment, { setFilters: (_, { selectedDate }) => selectedDate }],
+        duration: [
+            null as RecordingDurationFilter | null,
+            {
+                setFilters: (_, { duration }) => duration,
+            },
+        ],
         properties: [
             [] as PropertyFilter[],
             {
@@ -103,60 +104,52 @@ export const sessionsTableLogic = kea<
         sessionRecordingId: [
             null as SessionRecordingId | null,
             {
-                loadSessionPlayer: (_, sessionRecordingId) => sessionRecordingId,
+                setSessionRecordingId: (_, { sessionRecordingId }) => sessionRecordingId,
                 closeSessionPlayer: () => null,
             },
         ],
-        sessionPlayerData: [
-            null as null | eventWithTime[],
+        actionFilter: [
+            null as EntityWithProperties | null,
             {
-                closeSessionPlayer: () => null,
-            },
-        ],
-        sessionsPlayerSpeed: [
-            1,
-            { persist: true },
-            {
-                setPlayerSpeed: (_, { speed }) => speed,
+                setFilters: (_, { actionFilter }) => actionFilter,
             },
         ],
     },
     selectors: {
         selectedDateURLparam: [(s) => [s.selectedDate], (selectedDate) => selectedDate?.format('YYYY-MM-DD')],
+        durationFilter: [
+            (selectors) => [selectors.duration],
+            (duration: RecordingDurationFilter | null) => {
+                if (!duration) {
+                    return undefined
+                }
+
+                const multipliers = { s: 1, m: 60, h: 3600 }
+                const seconds = (duration[1] || 0) * multipliers[duration[2]]
+                return { duration_operator: duration[0], duration: seconds }
+            },
+        ],
         orderedSessionRecordingIds: [
             (selectors) => [selectors.sessions],
             (sessions: SessionType[]): SessionRecordingId[] =>
-                sessions.flatMap((session) => session.session_recording_ids),
+                Array.from(new Set(sessions.flatMap((session) => session.session_recording_ids))),
         ],
-        sessionRecordingNavigation: [
-            (selectors) => [selectors.orderedSessionRecordingIds, selectors.sessionRecordingId],
-            (
-                recordings: SessionRecordingId[],
-                recordingId: SessionRecordingId | null
-            ): { next?: SessionRecordingId; prev?: SessionRecordingId } => {
-                if (recordingId === null) {
-                    return {}
-                }
-                const index = recordings.indexOf(recordingId)
-                const result: { next?: SessionRecordingId; prev?: SessionRecordingId } = {}
-                if (index !== -1 && index < recordings.length - 1) {
-                    result.next = recordings[index + 1]
-                }
-                if (index > 0) {
-                    result.prev = recordings[index - 1]
-                }
-                return result
-            },
+        firstRecordingId: [
+            (selectors) => [selectors.orderedSessionRecordingIds],
+            (ids: SessionRecordingId[]): SessionRecordingId | null => ids[0] || null,
         ],
     },
-    listeners: ({ values, actions }) => ({
+    listeners: ({ values, actions, props }) => ({
         fetchNextSessions: async (_, breakpoint) => {
             const params = toParams({
                 date_from: values.selectedDateURLparam,
                 date_to: values.selectedDateURLparam,
                 offset: values.nextOffset,
+                distinct_id: props.personIds ? props.personIds[0] : '',
+                properties: values.properties,
+                ...values.durationFilter,
             })
-            const response = await api.get(`api/insight/session/?${params}`)
+            const response = await api.get(`api/event/sessions/?${params}`)
             breakpoint()
             if (response.offset) {
                 actions.setNextOffset(response.offset)
@@ -165,53 +158,77 @@ export const sessionsTableLogic = kea<
             }
             actions.appendNewSessions(response.result)
         },
+        updateActionFilter: ({ actionFilter }) => {
+            actions.setFilters(values.properties, values.selectedDate, values.duration, actionFilter)
+        },
         setFilters: () => {
             actions.setNextOffset(null)
             actions.loadSessions(true)
         },
         previousDay: () => {
-            actions.setFilters(values.properties, moment(values.selectedDate).add(-1, 'day'))
+            actions.setFilters(
+                values.properties,
+                moment(values.selectedDate).add(-1, 'day'),
+                values.duration,
+                values.actionFilter
+            )
         },
         nextDay: () => {
-            actions.setFilters(values.properties, moment(values.selectedDate).add(1, 'day'))
+            actions.setFilters(
+                values.properties,
+                moment(values.selectedDate).add(1, 'day'),
+                values.duration,
+                values.actionFilter
+            )
         },
     }),
-    actionToUrl: ({ values }) => ({
-        setFilters: () => buildURL(values.selectedDateURLparam, values.sessionRecordingId),
-        loadSessionPlayer: () => buildURL(values.selectedDateURLparam, values.sessionRecordingId),
-        closeSessionPlayer: () => buildURL(values.selectedDateURLparam, null),
-    }),
+    actionToUrl: ({ values }) => {
+        const buildURL = (overrides: Partial<Params> = {}): [string, Params] => {
+            const today = moment().startOf('day').format('YYYY-MM-DD')
+
+            const { properties } = router.values.searchParams // eslint-disable-line
+
+            const params: Params = {
+                date: values.selectedDateURLparam !== today ? values.selectedDateURLparam : undefined,
+                properties: properties || undefined,
+                duration: values.duration || undefined,
+                sessionRecordingId: values.sessionRecordingId || undefined,
+                actionFilter: values.actionFilter || undefined,
+                ...overrides,
+            }
+
+            return [router.values.location.pathname, params]
+        }
+
+        return {
+            setFilters: () => buildURL(),
+            setSessionRecordingId: () => buildURL(),
+            closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),
+        }
+    },
     urlToAction: ({ actions, values }) => ({
-        '/sessions': (_: any, params: Params) => {
+        '*': (_: any, params: Params) => {
             const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
 
-            if (JSON.stringify(params.properties || []) !== JSON.stringify(values.properties)) {
-                actions.setFilters(params.properties || [], newDate)
+            if (
+                JSON.stringify(params.properties || []) !== JSON.stringify(values.properties) ||
+                JSON.stringify(params.duration || {}) !== JSON.stringify(values.duration || {}) ||
+                JSON.stringify(params.actionFilter || {}) !== JSON.stringify(values.actionFilter || {}) ||
+                !values.selectedDate ||
+                values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD')
+            ) {
+                actions.setFilters(
+                    params.properties || [],
+                    newDate,
+                    params.duration || null,
+                    params.actionFilter || null
+                )
             } else if (values.sessions.length === 0) {
                 actions.loadSessions(true)
             }
-            if (params.sessionRecordingId !== (values.sessionRecordingId || undefined)) {
-                if (params.sessionRecordingId) {
-                    actions.loadSessionPlayer(params.sessionRecordingId)
-                } else {
-                    actions.closeSessionPlayer()
-                }
-            }
-        },
-        '/person/*': (_: any, params: Params) => {
-            const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
-            if (
-                !values.selectedDate ||
-                values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD') ||
-                params.sessionRecordingId !== values.sessionRecordingId
-            ) {
-                actions.setFilters(params.properties || [], newDate)
-            }
 
-            if (params.sessionRecordingId) {
-                actions.loadSessionPlayer(params.sessionRecordingId)
-            } else {
-                actions.closeSessionPlayer()
+            if (params.sessionRecordingId && params.sessionRecordingId !== values.sessionRecordingId) {
+                actions.setSessionRecordingId(params.sessionRecordingId)
             }
         },
     }),

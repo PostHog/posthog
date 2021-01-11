@@ -50,7 +50,12 @@ function PreflightItem({ name, status, caption, failedState }) {
             {status === true && <CheckSquareFilled style={{ fontSize: 20, color: textColor }} />}
             {status !== true && status !== false && <LoadingOutlined style={{ fontSize: 20, color: textColor }} />}
             <span style={{ color: textColor, paddingLeft: 8 }}>
-                {name} {caption && status === false && <div style={{ fontSize: 12 }}>{caption}</div>}
+                {name}{' '}
+                {caption && status === false && (
+                    <div data-attr="caption" style={{ fontSize: 12 }}>
+                        {caption}
+                    </div>
+                )}
             </span>
         </Col>
     )
@@ -236,7 +241,7 @@ function PreflightCheck() {
                     </Card>
                     {state.mode && (
                         <>
-                            <div className="space-top text-center">
+                            <div className="space-top text-center" data-attr="preflightStatus">
                                 {isReady ? (
                                     <b style={{ color: green.primary }}>All systems go!</b>
                                 ) : (
