@@ -7,6 +7,8 @@ import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insight
 import { Moment } from 'moment'
 import { retentionTableLogicType } from 'types/scenes/retention/retentionTableLogicType'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from 'lib/constants'
+import { actionsModel } from '~/models'
+import { ActionType } from '~/types'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -75,6 +77,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     }),
     connect: {
         actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
+        values: [actionsModel, ['actions']],
     },
     actions: () => ({
         setFilters: (filters) => ({ filters }),
@@ -110,6 +113,12 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             },
         ],
     }),
+    selectors: {
+        actionsLookup: [
+            (selectors) => [selectors.actions],
+            (actions: ActionType[]) => Object.assign({}, ...actions.map((action) => ({ [action.id]: action.name }))),
+        ],
+    },
     events: ({ actions, props }) => ({
         afterMount: () => props.dashboardItemId && actions.loadResults(),
     }),

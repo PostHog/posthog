@@ -1,10 +1,8 @@
 import json
-from typing import Optional
 
 import requests
 from celery.task import Task
 from django.core.serializers.json import DjangoJSONEncoder
-from rest_hooks.utils import get_hook_model
 
 
 class DeliverHook(Task):
@@ -20,7 +18,8 @@ class DeliverHook(Task):
             )
             if response.status_code == 410 and hook_id:
                 # Delete hook on our side if it's gone on Zapier's
-                Hook = get_hook_model()
+                from ee.models.hook import Hook
+
                 Hook.objects.filter(id=hook_id).delete()
                 return
             if response.status_code >= 500:

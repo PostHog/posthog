@@ -8,6 +8,7 @@ from freezegun.api import freeze_time
 
 from posthog.models import Cohort, Element, Event, Filter, Person
 from posthog.models.team import Team
+from posthog.queries.base import properties_to_Q
 from posthog.test.base import BaseTest
 
 
@@ -45,7 +46,7 @@ class TestSelectors(BaseTest):
         )
         event2 = Event.objects.create(team=self.team, event="$autocapture")
         filter = Filter(data={"properties": [{"key": "selector", "value": "div > a", "type": "element"}]})
-        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
+        events = Event.objects.filter(properties_to_Q(filter.properties, team_id=self.team.pk))
         self.assertEqual(events.count(), 1)
 
 
@@ -325,7 +326,7 @@ def _filter_events(filter: Filter, team: Team, person_query: Optional[bool] = Fa
     if person_query:
         events = events.add_person_id(team.pk)
 
-    events = events.filter(filter.properties_to_Q(team_id=team.pk))
+    events = events.filter(properties_to_Q(filter.properties, team_id=team.pk))
     if order_by:
         events = events.order_by(order_by)
     return events.values()
@@ -344,7 +345,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_events, Event.o
 
         matched_person = (
             Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
-            .filter(filter.properties_to_Q(team_id=self.team.pk, is_person_query=True))
+            .filter(properties_to_Q(filter.properties, team_id=self.team.pk, is_person_query=True))
             .exists()
         )
         self.assertTrue(matched_person)

@@ -21,7 +21,7 @@ export function RetentionTab(): JSX.Element {
     const returningNode = useRef<HTMLElement>(null)
     const [open, setOpen] = useState<boolean>(false)
     const [returningOpen, setReturningOpen] = useState<boolean>(false)
-    const { filters } = useValues(retentionTableLogic({ dashboardItemId: null }))
+    const { filters, actionsLookup } = useValues(retentionTableLogic({ dashboardItemId: null }))
     const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
 
     const entityLogic = entityFilterLogic({
@@ -74,7 +74,9 @@ export function RetentionTab(): JSX.Element {
                 onClick={(): void => setOpen(!open)}
                 style={{ marginRight: 8 }}
             >
-                {filters.target_entity?.name || 'Select action'}
+                {filters.target_entity?.name ||
+                    (filters.target_entity.id && actionsLookup[filters.target_entity.id]) ||
+                    'Select action'}
                 <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} />
             </Button>
             <Select
@@ -109,7 +111,9 @@ export function RetentionTab(): JSX.Element {
                 data-attr="retention-returning-action"
                 onClick={(): void => setReturningOpen(!returningOpen)}
             >
-                {filters.returning_entity?.name || 'Select action'}
+                {filters.returning_entity?.name ||
+                    (filters.returning_entity.id && actionsLookup[filters.returning_entity.id]) ||
+                    'Select action'}
                 <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} />
             </Button>
             <ActionFilterDropdown
