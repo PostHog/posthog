@@ -74,6 +74,7 @@ services:
             context: ../
             dockerfile: production.Dockerfile
         command: ./bin/docker-plugin-server
+        restart: on-failure
         volumes:
             - ..:/code
         environment:
@@ -92,6 +93,8 @@ services:
         depends_on:
             - db
             - redis
+            - clickhouse
+            - kafka
         links:
             - db:db
             - redis:redis

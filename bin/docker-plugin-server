@@ -1,23 +1,5 @@
 #!/bin/bash
 
-# On _Heroku_, the $WEB_CONCURRENCY env contains suggested number of workers per dyno.
-# Unfortunately we are running a NodeJS app, yet get the value for the "python" buildpack.
-# Thus instead of using this env directly, calculate the real concurrency from $DYNO_RAM.
-# Python: https://github.com/heroku/heroku-buildpack-python/blob/main/vendor/WEB_CONCURRENCY.sh
-# NodeJS: https://devcenter.heroku.com/articles/node-concurrency#common-runtime
-if [[ -n "${DYNO_RAM}" ]]; then
-  # One worker for 512MB of RAM, rounding up
-  export WORKER_CONCURRENCY=$(( ($DYNO_RAM - 1) / 512 + 1 ))
-fi
-
 cd plugins
 
-while true; do
-  # Run: posthog-plugin-server
-  yarn start
-  echo ""
-  echo "🔴 Plugin server crashed!"
-  echo "⌛️ Waiting 2 seconds before restarting!"
-  echo ""
-  sleep 2
-done
+yarn start
