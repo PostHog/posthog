@@ -302,9 +302,10 @@ else:
     extend_api_router(router, projects_router=projects_router)
 
 
-def opt_slash_path(route: str, view: Callable) -> URLPattern:
+def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
     """Catches path with or without trailing slash, taking into account query param and hash."""
-    return re_path(fr"^{route}/?(?:[?#].*)?$", view)
+    # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
+    return re_path(fr"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
 
 
 urlpatterns = [
