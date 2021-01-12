@@ -743,6 +743,21 @@ def test_process_event_factory(
             self.assertListEqual(self.team.event_properties, ["price", "name", "$ip"])
             self.assertListEqual(self.team.event_properties_numerical, ["price"])
 
+        def test_event_name_dict_fails(self) -> None:
+            with self.assertRaises(TypeError) as e:
+                process_event(
+                    "xxx",
+                    "",
+                    "",
+                    {"event": {"event name": "as object"}, "properties": {"price": 299.99, "name": "AirPods Pro"},},
+                    self.team.pk,
+                    now().isoformat(),
+                    now().isoformat(),
+                )
+            self.assertEqual(
+                str(e.exception), "Event must be a string",
+            )
+
     return TestProcessEvent
 
 
