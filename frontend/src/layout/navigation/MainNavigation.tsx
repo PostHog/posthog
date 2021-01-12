@@ -81,8 +81,10 @@ const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.
 
 export const MainNavigation = hot(_MainNavigation)
 function _MainNavigation(): JSX.Element {
-    const { menuCollapsed, toolbarModalOpen } = useValues(navigationLogic)
-    const { setMenuCollapsed, collapseMenu, setToolbarModalOpen } = useActions(navigationLogic)
+    const { menuCollapsed, toolbarModalOpen, pinnedDashboardsVisible } = useValues(navigationLogic)
+    const { setMenuCollapsed, collapseMenu, setToolbarModalOpen, setPinnedDashboardsVisible } = useActions(
+        navigationLogic
+    )
     const navRef = useRef<HTMLDivElement | null>(null)
     const [canScroll, setCanScroll] = useState(false)
     const { pinnedDashboards, dashboards } = useValues(dashboardsModel)
@@ -119,6 +121,7 @@ function _MainNavigation(): JSX.Element {
                                         icon={<PushpinOutlined />}
                                         identifier={`dashboard-${item.id}`}
                                         to={`/dashboard/${item.id}`}
+                                        onClick={() => setPinnedDashboardsVisible(false)}
                                     />
                                 </Menu.Item>
                             ))}
@@ -135,6 +138,7 @@ function _MainNavigation(): JSX.Element {
                                             icon={<IconDashboard />}
                                             identifier={`dashboard-${item.id}`}
                                             to={`/dashboard/${item.id}`}
+                                            onClick={() => setPinnedDashboardsVisible(false)}
                                         />
                                     </Menu.Item>
                                 ))}
@@ -187,6 +191,8 @@ function _MainNavigation(): JSX.Element {
                         trigger="hover"
                         arrowPointAtCenter
                         overlayClassName="pinned-dashboards-popover"
+                        onVisibleChange={(visible) => setPinnedDashboardsVisible(visible)}
+                        visible={pinnedDashboardsVisible}
                     >
                         <div>
                             <MenuItem
@@ -194,6 +200,7 @@ function _MainNavigation(): JSX.Element {
                                 icon={<IconDashboard />}
                                 identifier="dashboards"
                                 to="/dashboard"
+                                onClick={() => setPinnedDashboardsVisible(false)}
                             />
                         </div>
                     </Popover>
