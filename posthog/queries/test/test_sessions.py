@@ -40,7 +40,7 @@ def sessions_test_factory(sessions, event_factory):
             self.assertEqual(response[0]["labels"][1], "Sun. 15 January")
             self.assertEqual(response[0]["days"][0], "2012-01-14")
             self.assertEqual(response[0]["days"][1], "2012-01-15")
-            self.assertEqual(response[0]["chartLabel"], "Average Duration of Session (minutes)")
+            self.assertEqual(response[0]["chartLabel"], "Average Session Length (minutes)")
 
         def test_sessions_avg_length_interval(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):

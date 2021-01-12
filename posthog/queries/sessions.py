@@ -164,12 +164,12 @@ class Sessions(BaseSessions):
 
         time_series_data.update(
             {
-                "label": "Average Duration of Session ({})".format(avg_split[1]),
+                "label": "Average Session Length ({})".format(avg_split[1]),
                 "count": int(avg_split[0]),
                 "aggregated_value": int(avg_split[0]),
             }
         )
-        time_series_data.update({"chartLabel": "Average Duration of Session ({})".format(label)})
+        time_series_data.update({"chartLabel": "Average Session Length ({})".format(label)})
         result = [time_series_data]
         return result
 
@@ -200,9 +200,13 @@ class Sessions(BaseSessions):
 
 
 def scale_time_series(data: List[float]) -> Tuple[List, str]:
-    avg = sum(data) / len([value for value in data if value > 0])
-    minutes, _ = divmod(avg, 60.0)
-    hours, _ = divmod(minutes, 60.0)
+    _len = len([value for value in data if value > 0])
+    if _len == 0:
+        return data, "seconds"
+
+    avg = sum(data) / _len
+    minutes = avg // 60.0
+    hours = minutes // 60.0
 
     if hours > 0:
         return [round(value / 3600, 2) for value in data], "hours"

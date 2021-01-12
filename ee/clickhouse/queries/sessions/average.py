@@ -72,7 +72,7 @@ class ClickhouseSessionsAvg:
         avg_split = avg_formatted.split(" ")
         time_series_data = {}
         time_series_data.update(
-            {"label": "Average Duration of Session ({})".format(avg_split[1]), "count": int(avg_split[0]),}
+            {"label": "Average Session Length ({})".format(avg_split[1]), "count": int(avg_split[0]),}
         )
-        time_series_data.update({"chartLabel": "Average Duration of Session ({})".format(avg_split[1])})
+        time_series_data.update({"chartLabel": "Average Session Length ({})".format(avg_split[1])})
         return time_series_data
