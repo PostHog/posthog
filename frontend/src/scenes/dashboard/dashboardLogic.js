@@ -31,7 +31,7 @@ export const dashboardLogic = kea({
         enableWobblyDragging: true,
         disableDragging: true,
         refreshDashboardItem: (id) => ({ id }),
-        reportUsage: (payload) => payload,
+        reportUsage: (payload) => payload, // Reports usage via `posthog.capture`
     }),
 
     loaders: ({ props, actions }) => ({
@@ -399,7 +399,7 @@ export const dashboardLogic = kea({
             }
         },
         reportUsage: async (payload, breakpoint) => {
-            await breakpoint(5000) // Only send the event if the user stayed for more than 5s
+            await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
             const { created_at, name, is_shared, pinned } = payload
             const properties = {
                 created_at,

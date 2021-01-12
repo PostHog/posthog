@@ -335,8 +335,8 @@ export const trendsLogic = kea({
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)
                 } else {
-                    /* Edge case when opening a trends graph from a dashboard or sometimes when it's loaded
-                     already set, `setAllFilters` action is not triggered, and therefore usage is not reported */
+                    /* Edge case when opening a trends graph from a dashboard or sometimes when trends are loaded
+                    with filters already set, `setAllFilters` action is not triggered, and therefore usage is not reported */
                     actions.reportUsage(values.filters)
                 }
 

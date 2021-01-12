@@ -88,6 +88,8 @@ export const insightLogic = kea<insightLogicType>({
             actions.setNotFirstLoad()
         },
         reportUsage: async (filters: FilterType, breakpoint) => {
+            await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
+
             // Reports `insight viewed` event
             const { insight, display, interval, date_from, date_to } = filters
             const properties: Record<string, any> = {
@@ -103,8 +105,6 @@ export const insightLogic = kea<insightLogicType>({
             }
 
             properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
-
-            await breakpoint(5000)
 
             // Custom properties for each insight
             if (insight === 'TRENDS') {
@@ -128,8 +128,6 @@ export const insightLogic = kea<insightLogicType>({
             } else if (insight === 'PATHS') {
                 properties.path_type = filters.path_type
             }
-
-            console.log(properties)
 
             posthog.capture('insight viewed', properties)
         },
