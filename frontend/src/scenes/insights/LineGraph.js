@@ -142,13 +142,13 @@ export function LineGraph({
                       ...datasets.map((dataset, index) => {
                           let datasetCopy = Object.assign({}, dataset)
                           let data = [...dataset.data]
-                          let labels = [...dataset.labels]
+                          let _labels = [...dataset.labels]
                           let days = [...dataset.days]
                           data.pop()
-                          labels.pop()
+                          _labels.pop()
                           days.pop()
                           datasetCopy.data = data
-                          datasetCopy.labels = labels
+                          datasetCopy.labels = _labels
                           datasetCopy.days = days
                           return processDataset(datasetCopy, index)
                       }),
@@ -164,8 +164,8 @@ export function LineGraph({
 
                           datasetCopy.data =
                               datasetCopy.data.length > 2
-                                  ? datasetCopy.data.map((datum, index) =>
-                                        index === datasetLength - 1 || index === datasetLength - 2 ? datum : null
+                                  ? datasetCopy.data.map((datum, idx) =>
+                                        idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
                                     )
                                   : datasetCopy.data
                           return processDataset(datasetCopy, index)
@@ -203,9 +203,10 @@ export function LineGraph({
                               titleFontColor: '#ffffff',
                               labelFontSize: 23,
                               cornerRadius: 4,
-                              fontSize: 16,
+                              fontSize: 12,
                               footerSpacing: 0,
                               titleSpacing: 0,
+                              footerFontStyle: 'italic',
                               callbacks: {
                                   label: function (tooltipItem, data) {
                                       let entityData = data.datasets[tooltipItem.datasetIndex]
@@ -222,6 +223,7 @@ export function LineGraph({
                                           (percentage ? '%' : '')
                                       )
                                   },
+                                  footer: () => 'Click to see users related to the datapoint',
                               },
                           },
                           hover: {
@@ -327,17 +329,17 @@ export function LineGraph({
                         return
                     }
 
-                    const leftExtent = myLineChart.current.scales['x-axis-0'].left
-                    const rightExtent = myLineChart.current.scales['x-axis-0'].right
+                    const _leftExtent = myLineChart.current.scales['x-axis-0'].left
+                    const _rightExtent = myLineChart.current.scales['x-axis-0'].right
                     const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
-                    const delta = rightExtent - leftExtent
-                    const interval = delta / (ticks - 1)
-                    if (offsetX < leftExtent - interval / 2) {
+                    const delta = _rightExtent - _leftExtent
+                    const _interval = delta / (ticks - 1)
+                    if (offsetX < _leftExtent - _interval / 2) {
                         return
                     }
-                    const index = mapRange(offsetX, leftExtent - interval / 2, rightExtent + interval / 2, 0, ticks)
+                    const index = mapRange(offsetX, _leftExtent - _interval / 2, _rightExtent + _interval / 2, 0, ticks)
                     if (index >= 0 && index < ticks && offsetY >= topExtent - 30) {
-                        setLeft(index * interval + leftExtent)
+                        setLeft(index * _interval + _leftExtent)
                         setLabelIndex(index)
                     }
                 }
