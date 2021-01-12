@@ -49,7 +49,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         Break down by
                         <Tooltip
                             placement="right"
-                            title="Use breakdown to see the aggreagtion (total volume, active users, etc.) for each variation of that property. For example, breaking down by $current_url with total volume selected will give you the event volume for each url your users have visited."
+                            title="Use breakdown to see the aggregation (total volume, active users, etc.) for each value of that property. For example, breaking down by Current URL with total volume will give you the event volume for each URL your users have visited."
                         >
                             <InfoCircleOutlined className="info-indicator" />
                         </Tooltip>
@@ -88,7 +88,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                 Break down by
                 <Tooltip
                     placement="right"
-                    title="Use breakdown to see the aggreagtion (total volume, active users, etc.) for each variation of that property. For example, breaking down by $current_url with total volume selected will give you the event volume for each url your users have visited."
+                    title="Use breakdown to see the aggregation (total volume, active users, etc.) for each value of that property. For example, breaking down by Current URL with total volume will give you the event volume for each URL your users have visited."
                 >
                     <InfoCircleOutlined className="info-indicator" />
                 </Tooltip>
