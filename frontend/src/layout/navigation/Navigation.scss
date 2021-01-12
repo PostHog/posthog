@@ -10,7 +10,7 @@
             width: 100vw;
             min-height: 100vh;
             background: rgba(0, 0, 0, 0.3);
-            z-index: 1031;
+            z-index: $z_mobile_nav_overlay;
             opacity: 100;
         }
         transition: opacity 0.3s;
@@ -155,6 +155,10 @@
             opacity: 0;
         }
     }
+}
+
+.pinned-dashboards-popover {
+    z-index: $z_pinned_dashboards_popup;
 }
 
 .pinned-dashboards {

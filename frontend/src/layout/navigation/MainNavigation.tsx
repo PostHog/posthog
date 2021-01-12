@@ -181,7 +181,13 @@ function _MainNavigation(): JSX.Element {
                             <img src={lgLogo} className="logo-lg" alt="" />
                         </Link>
                     </div>
-                    <Popover content={PinnedDashboards} placement="right" trigger="hover">
+                    <Popover
+                        content={PinnedDashboards}
+                        placement="right"
+                        trigger="hover"
+                        arrowPointAtCenter={false}
+                        overlayClassName="pinned-dashboards-popover"
+                    >
                         <div>
                             <MenuItem
                                 title="Dashboards"
