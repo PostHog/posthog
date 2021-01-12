@@ -19,7 +19,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 // If value is `null` the component has been unmounted, we cancel the report if the timeout hasn't elapsed
                 return
             }
-            await breakpoint(1500)
+            await breakpoint(500)
 
             for (const annotation of annotations) {
                 /* Report one event per annotation */
@@ -37,7 +37,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
         },
         reportPersonDetailViewed: async ({ person }, breakpoint) => {
-            await breakpoint(5000)
+            await breakpoint(500)
 
             let custom_properties_count = 0
             let posthog_properties_count = 0
