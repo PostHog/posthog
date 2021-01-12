@@ -1,6 +1,6 @@
 {
     "compilerOptions": {
-        "baseUrl": "./frontend",
+        "baseUrl": "./frontend/",
         "paths": {
             "lib/*": ["./src/lib/*"],
             "scenes/*": ["./src/scenes/*"],
