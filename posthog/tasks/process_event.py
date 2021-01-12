@@ -1,7 +1,7 @@
 import datetime
 import json
 from numbers import Number
-from typing import Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 import posthoganalytics
 from celery import shared_task
@@ -65,7 +65,7 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
         new_person.merge_people([old_person])
 
 
-def sanitize_event_name(event: any) -> str:
+def sanitize_event_name(event: Any) -> str:
     if isinstance(event, str):
         return event[0:200]
     else:
@@ -78,8 +78,6 @@ def sanitize_event_name(event: any) -> str:
 def store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
     # In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
     save = False
-    if not isinstance(event, str) and not isinstance(event, bytes):
-        raise TypeError("Event must be a string")
     if not team.ingested_event:
         # First event for the team captured
         for user in team.organization.members.all():
