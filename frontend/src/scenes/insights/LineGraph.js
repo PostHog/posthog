@@ -152,7 +152,7 @@ export function LineGraph({
                           datasetCopy.days = days
                           return processDataset(datasetCopy, index)
                       }),
-                      ...datasets.map((dataset) => {
+                      ...datasets.map((dataset, index) => {
                           let datasetCopy = Object.assign({}, dataset)
                           let datasetLength = datasetCopy.data.length
                           datasetCopy.dotted = true
@@ -168,7 +168,7 @@ export function LineGraph({
                                         idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
                                     )
                                   : datasetCopy.data
-                          return processDataset(datasetCopy, idx)
+                          return processDataset(datasetCopy, index)
                       }),
                   ]
                 : datasets.map((dataset, index) => processDataset(dataset, index))
