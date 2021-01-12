@@ -13,7 +13,7 @@ export const ViewType = {
     PATHS: 'PATHS',
 }
 interface FilterType {
-    insight: 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS'
+    insight: 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
     display?:
         | 'ActionsLineGraph'
         | 'ActionsLineGraphCumulative'
@@ -29,7 +29,7 @@ interface FilterType {
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     breakdown_type?: 'cohort' | 'person' | 'event'
-    shown_as?: 'Volume' | 'Stickiness' | 'Lifecycle'
+    shown_as?: 'Volume' | 'Stickiness' | 'Lifecycle' // DEPRECATED: Remove when releasing `remove-shownas`
     session?: string
     period?: string
     retentionType?: 'retention_recurring' | 'retention_first_time'
@@ -93,7 +93,20 @@ export const insightLogic = kea<insightLogicType>({
             await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
 
             // Reports `insight viewed` event
-            const { insight, display, interval, date_from, date_to } = filters
+            const { display, interval, date_from, date_to, shown_as } = filters
+
+            // DEPRECATED: Remove when releasing `remove-shownas`
+            // Support for legacy `shown_as` property in a way that ensures standardized data reporting
+            let { insight } = filters
+            const SHOWN_AS_MAPPING: Record<string, 'TRENDS' | 'LIFECYCLE' | 'STICKINESS'> = {
+                Volume: 'TRENDS',
+                Lifecycle: 'LIFECYCLE',
+                Stickiness: 'STICKINESS',
+            }
+            if (shown_as) {
+                insight = SHOWN_AS_MAPPING[shown_as]
+            }
+
             const properties: Record<string, any> = {
                 is_first_component_load: values.isFirstLoad,
                 insight,
@@ -111,7 +124,6 @@ export const insightLogic = kea<insightLogicType>({
             // Custom properties for each insight
             if (insight === 'TRENDS') {
                 properties.breakdown_type = filters.breakdown_type
-                properties.shown_as = filters.shown_as
             } else if (insight === 'SESSIONS') {
                 properties.session_distribution = filters.session
             } else if (insight === 'FUNNELS') {
