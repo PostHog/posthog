@@ -1,7 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Select, Tooltip } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { Select } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -26,15 +25,7 @@ export function ChartFilter(props) {
     const pieDisabled = filters.session || filters.insight === ViewType.RETENTION
     const defaultDisplay = filters.retentionType ? ACTIONS_TABLE : ACTIONS_LINE_GRAPH_LINEAR
 
-    return [
-        (!filters.display ||
-            filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-            filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && (
-            <Tooltip key="1" placement="right" title="Click on a point to see users related to the datapoint">
-                <InfoCircleOutlined className="info-indicator" />
-            </Tooltip>
-        ),
-
+    return (
         <Select
             key="2"
             defaultValue={displayMap[filters.display || defaultDisplay]}
@@ -65,6 +56,6 @@ export function ChartFilter(props) {
             <Select.Option value={ACTIONS_BAR_CHART} disabled={filters.session || filters.retentionType}>
                 Bar
             </Select.Option>
-        </Select>,
-    ]
+        </Select>
+    )
 }
