@@ -35,7 +35,7 @@ services:
             SECRET_KEY: 'alsdfjiosdajfklalsdjkf'
             DEBUG: 'true'
             PRIMARY_DB: 'clickhouse'
-            HAND_OFF_INGESTION: 'true'
+            PLUGIN_SERVER_INGESTION_HANDOFF: 'true'
         depends_on:
             - db
             - redis

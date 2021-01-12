@@ -107,7 +107,7 @@ def handle_timestamp(data: dict, now: datetime.datetime, sent_at: Optional[datet
     return now_datetime
 
 
-if is_ee_enabled() and not settings.HAND_OFF_INGESTION:
+if is_ee_enabled() and not settings.PLUGIN_SERVER_INGESTION_HANDOFF:
 
     def process_event_ee(
         distinct_id: str,
