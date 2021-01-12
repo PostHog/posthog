@@ -36,11 +36,13 @@ export const toolbarLogic = kea<toolbarLogicType>({
 
     listeners: ({ values, props }) => ({
         authenticate: () => {
+            posthog.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
             window.location.href = `${values.apiURL}authorize_and_redirect/?redirect=${encodedUrl}`
             clearSessionToolbarToken()
         },
         logout: () => {
+            posthog.capture('toolbar logout')
             clearSessionToolbarToken()
         },
         processUserIntent: async () => {
@@ -52,7 +54,7 @@ export const toolbarLogic = kea<toolbarLogicType>({
         },
     }),
 
-    events: ({ props, actions }) => ({
+    events: ({ props, actions, values }) => ({
         async afterMount() {
             if (props.instrument) {
                 posthog.identify((props as EditorProps).distinctId || null, { email: props.userEmail })
@@ -61,6 +63,7 @@ export const toolbarLogic = kea<toolbarLogicType>({
             if (props.userIntent) {
                 actions.processUserIntent()
             }
+            posthog.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
         },
     }),
 })

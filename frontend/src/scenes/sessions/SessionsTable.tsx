@@ -26,6 +26,7 @@ import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPalett
 import { SessionRecordingFilters } from 'scenes/sessions/SessionRecordingFilters'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkButton } from 'lib/components/LinkButton'
+import { SessionActionFilters } from 'scenes/sessions/SessionActionFilters'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -58,8 +59,9 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         sessionRecordingId,
         duration,
         firstRecordingId,
+        actionFilter,
     } = useValues(logic)
-    const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
+    const { fetchNextSessions, previousDay, nextDay, setFilters, updateActionFilter } = useActions(logic)
     const { user } = useValues(userLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -180,19 +182,23 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
                 <DatePicker
                     value={selectedDate}
-                    onChange={(date) => setFilters(properties, date, duration)}
+                    onChange={(date) => setFilters(properties, date, duration, actionFilter)}
                     allowClear={false}
                 />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
             </Space>
 
+            {featureFlags['filter_by_session_props'] && user?.is_multi_tenancy && (
+                <SessionActionFilters actionFilter={actionFilter} updateActionFilter={updateActionFilter} />
+            )}
+
             {featureFlags['filter_by_session_props'] && (
                 <SessionRecordingFilters
                     duration={duration}
-                    onChange={(newDuration) => setFilters(properties, selectedDate, newDuration)}
+                    onChange={(newDuration) => setFilters(properties, selectedDate, newDuration, actionFilter)}
                 />
             )}
-            <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} />
+            <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
 
             <div className="text-right mb">
                 <Tooltip title={playAllCTA}>
@@ -210,6 +216,11 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 </Tooltip>
             </div>
 
+            {actionFilter && !featureFlags['filter_by_session_props'] && (
+                <p className="text-muted">
+                    Showing only sessions where <b>{actionFilter.name}</b> occurred
+                </p>
+            )}
             <Table
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"

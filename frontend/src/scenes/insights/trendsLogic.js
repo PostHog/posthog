@@ -138,7 +138,7 @@ export const trendsLogic = kea({
         results: {
             __default: [],
             loadResults: async (refresh = false, breakpoint) => {
-                if (values.results.length === 0 && props.cachedResults) {
+                if (props.cachedResults && !refresh) {
                     return props.cachedResults
                 }
                 let response
@@ -221,9 +221,40 @@ export const trendsLogic = kea({
                 filters.people_action ? actions.find((a) => a.id === parseInt(filters.people_action)) : null,
         ],
         peopleDay: [() => [selectors.filters], (filters) => filters.people_day],
+
+        sessionsPageParams: [
+            () => [selectors.filters, selectors.people],
+            (filters, people) => {
+                if (!people) {
+                    return {}
+                }
+
+                const { action, day, breakdown_value } = people
+                const properties = [...filters.properties, ...action.properties]
+                if (filters.breakdown) {
+                    properties.push({ key: filters.breakdown, value: breakdown_value, type: filters.breakdown_type })
+                }
+
+                return {
+                    date: day,
+                    actionFilter: {
+                        ...action,
+                        properties,
+                    },
+                }
+            },
+        ],
+
+        peopleModalURL: [
+            () => [selectors.sessionsPageParams],
+            (params) => ({
+                sessions: `/sessions?${toAPIParams(params)}`,
+                recordings: `/sessions?${toAPIParams({ ...params, duration: ['gt', 0, 'm'] })}`,
+            }),
+        ],
     }),
 
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions, values, props }) => ({
         [actions.setDisplay]: async ({ display }) => {
             actions.setFilters({ display })
         },
@@ -276,10 +307,12 @@ export const trendsLogic = kea({
             actions.setAllFilters(values.filters)
         },
         loadResultsSuccess: () => {
-            actions.createInsight({
-                ...values.filters,
-                insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
-            })
+            if (!props.dashboardItemId) {
+                actions.createInsight({
+                    ...values.filters,
+                    insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
+                })
+            }
         },
     }),
 

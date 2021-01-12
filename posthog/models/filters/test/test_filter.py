@@ -6,8 +6,8 @@ from django.db.models import Q
 from django.utils import timezone
 from freezegun.api import freeze_time
 
-from posthog.models import Cohort, Element, Event, Filter, Person
-from posthog.models.team import Team
+from posthog.models import Cohort, Element, Event, Filter, Organization, Person, Team
+from posthog.queries.base import properties_to_Q
 from posthog.test.base import BaseTest
 
 
@@ -30,9 +30,10 @@ class TestFilter(BaseTest):
                 "compare": True,
                 "interval": "",
                 "actions": [],
+                "date_from": "2020-01-01T20:00:00Z",
             }
-        ).to_dict()
-        self.assertEqual(list(filter.keys()), ["events", "display", "compare", "insight"])
+        )
+        self.assertCountEqual(list(filter.to_dict().keys()), ["events", "display", "compare", "insight", "date_from"])
 
 
 class TestSelectors(BaseTest):
@@ -44,7 +45,7 @@ class TestSelectors(BaseTest):
         )
         event2 = Event.objects.create(team=self.team, event="$autocapture")
         filter = Filter(data={"properties": [{"key": "selector", "value": "div > a", "type": "element"}]})
-        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
+        events = Event.objects.filter(properties_to_Q(filter.properties, team_id=self.team.pk))
         self.assertEqual(events.count(), 1)
 
 
@@ -193,7 +194,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             )
 
             # test for leakage
-            team2 = Team.objects.create()
+            _, _, team2 = Organization.objects.bootstrap(None)
             person_team2 = person_factory(
                 team_id=team2.pk, distinct_ids=["person_team_2"], properties={"group": "another group"}
             )
@@ -324,7 +325,7 @@ def _filter_events(filter: Filter, team: Team, person_query: Optional[bool] = Fa
     if person_query:
         events = events.add_person_id(team.pk)
 
-    events = events.filter(filter.properties_to_Q(team_id=team.pk))
+    events = events.filter(properties_to_Q(filter.properties, team_id=team.pk))
     if order_by:
         events = events.order_by(order_by)
     return events.values()
@@ -343,7 +344,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_events, Event.o
 
         matched_person = (
             Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
-            .filter(filter.properties_to_Q(team_id=self.team.pk, is_person_query=True))
+            .filter(properties_to_Q(filter.properties, team_id=self.team.pk, is_person_query=True))
             .exists()
         )
         self.assertTrue(matched_person)

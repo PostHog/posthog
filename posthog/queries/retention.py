@@ -14,7 +14,7 @@ from posthog.models.entity import Entity
 from posthog.models.filters import RetentionFilter
 from posthog.models.person import Person
 from posthog.models.utils import namedtuplefetchall
-from posthog.queries.base import BaseQuery
+from posthog.queries.base import BaseQuery, properties_to_Q
 
 
 class Retention(BaseQuery):
@@ -43,11 +43,9 @@ class Retention(BaseQuery):
         data = []
         days = []
         total_intervals = filter.total_intervals
-        labels_format = "%a. %-d %B"
         days_format = "%Y-%m-%d"
 
-        if filter.interval == "hour" or filter.interval == "minute":
-            labels_format += ", %H:%M"
+        if filter.period == "Hour":
             days_format += " %H:%M:%S"
 
         for interval_number in range(total_intervals):
@@ -86,7 +84,7 @@ class Retention(BaseQuery):
         trunc, fields = self._get_trunc_func("timestamp", period)
 
         if is_first_time_retention:
-            filtered_events = events.filter(filter.properties_to_Q(team_id=team.pk))
+            filtered_events = events.filter(properties_to_Q(filter.properties, team_id=team.pk))
             first_date = (
                 filtered_events.filter(entity_condition)
                 .values("person_id", "event", "action")
@@ -101,7 +99,9 @@ class Retention(BaseQuery):
                 .union(first_date.values_list("first_date", "person_id", "event", "action"))
             )
         else:
-            filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
+            filtered_events = events.filter(filter.date_filter_Q).filter(
+                properties_to_Q(filter.properties, team_id=team.pk)
+            )
             first_date = (
                 filtered_events.filter(entity_condition)
                 .annotate(first_date=trunc)
@@ -187,33 +187,24 @@ class Retention(BaseQuery):
 
         events = Event.objects.filter(team_id=team.pk).add_person_id(team.pk)
 
-        reference_date_from = filter.date_from
-        reference_date_to = filter.date_from + filter.period_increment
-        date_from = filter.date_from + filter.selected_interval * filter.period_increment
-        date_to = date_from + filter.period_increment
-
-        filter._date_from = date_from.isoformat()
-        filter._date_to = date_to.isoformat()
-
-        filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
-
-        filter._date_from = reference_date_from.isoformat()
-        filter._date_to = reference_date_to.isoformat()
+        filtered_events = events.filter(filter.recurring_date_filter_Q()).filter(
+            properties_to_Q(filter.properties, team_id=team.pk)
+        )
 
         inner_events = (
             Event.objects.filter(team_id=team.pk)
-            .filter(filter.properties_to_Q(team_id=team.pk))
+            .filter(properties_to_Q(filter.properties, team_id=team.pk))
             .add_person_id(team.pk)
             .filter(**{"person_id": OuterRef("id")})
             .filter(entity_condition)
             .values("person_id")
             .annotate(first_date=Min(trunc))
-            .filter(filter.custom_date_filter_Q("first_date"))
+            .filter(filter.reference_date_filter_Q("first_date"))
             .distinct()
             if is_first_time_retention
             else Event.objects.filter(team_id=team.pk)
-            .filter(filter.date_filter_Q)
-            .filter(filter.properties_to_Q(team_id=team.pk))
+            .filter(filter.reference_date_filter_Q())
+            .filter(properties_to_Q(filter.properties, team_id=team.pk))
             .add_person_id(team.pk)
             .filter(**{"person_id": OuterRef("id")})
             .filter(entity_condition)
@@ -244,7 +235,10 @@ class Retention(BaseQuery):
 
     def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
 
-        filter._date_from = (filter.date_from + filter.selected_interval * filter.period_increment).isoformat()
+        new_data = filter._data
+        new_data.update({"total_intervals": filter.total_intervals - filter.selected_interval})
+        filter = RetentionFilter(data=new_data)
+
         format_fields, params = self._determine_query_params(filter, team)
 
         final_query = """
@@ -287,7 +281,7 @@ class Retention(BaseQuery):
     def process_people_in_period(
         self, filter: RetentionFilter, vals, people_dict: Dict[str, ReturnDict]
     ) -> List[Dict[str, Any]]:
-        marker_length = filter.total_intervals - filter.selected_interval
+        marker_length = filter.total_intervals
         result = []
         for val in vals:
             result.append(

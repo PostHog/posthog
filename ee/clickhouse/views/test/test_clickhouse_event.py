@@ -1,7 +1,13 @@
+from datetime import timedelta
+from unittest.mock import Mock, patch
 from uuid import uuid4
+
+from django.utils import timezone
+from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.api.test.base import TransactionBaseTest
 from posthog.api.test.test_event import test_event_api_factory
 from posthog.models import Action, ActionStep, Event, Person
 
@@ -28,3 +34,16 @@ class ClickhouseTestEventApi(
 ):
     def test_live_action_events(self):
         pass
+
+    @patch("ee.clickhouse.views.events.sync_execute")
+    def test_optimize_query(self, patch_sync_execute):
+        #  For ClickHouse we normally only query the last day,
+        # but if a user doesn't have many events we still want to return events that are older
+        patch_sync_execute.return_value = [("event", "d", "{}", timezone.now(), "d", "d", "d")]
+        response = self.client.get("/api/event/").json()
+        self.assertEqual(len(response["results"]), 1)
+        self.assertEqual(patch_sync_execute.call_count, 2)
+
+        patch_sync_execute.return_value = [("event", "d", "{}", timezone.now(), "d", "d", "d") for _ in range(0, 100)]
+        response = self.client.get("/api/event/").json()
+        self.assertEqual(patch_sync_execute.call_count, 3)

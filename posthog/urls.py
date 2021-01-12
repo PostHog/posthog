@@ -39,8 +39,6 @@ from .views import health, preflight_check, stats, system_status
 
 
 def home(request, **kwargs):
-    if request.path.endswith(".map") or request.path.endswith(".map.js"):
-        return redirect("/static%s" % request.path)
     return render_template("index.html", request)
 
 

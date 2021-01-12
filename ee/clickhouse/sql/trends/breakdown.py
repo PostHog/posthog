@@ -28,7 +28,7 @@ SELECT groupArray(day_start), groupArray(count), breakdown_value FROM (
 
 BREAKDOWN_AGGREGATE_QUERY_SQL = """
 SELECT {aggregate_operation} as total, {breakdown_value} as breakdown_value
-FROM 
+FROM
 events e {event_join} {breakdown_filter}
 GROUP BY breakdown_value
 """
@@ -54,7 +54,7 @@ SELECT groupArray(day_start), groupArray(count) FROM (
 
 BREAKDOWN_AGGREGATE_DEFAULT_SQL = """
 SELECT {aggregate_operation} as total
-FROM 
+FROM
 events e {event_join} {breakdown_filter}
 """
 
@@ -63,7 +63,6 @@ WHERE team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_
 """
 
 BREAKDOWN_PERSON_PROP_JOIN_SQL = """
-INNER JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid ON e.distinct_id = pid.distinct_id
 INNER JOIN (
     SELECT * FROM (
         SELECT

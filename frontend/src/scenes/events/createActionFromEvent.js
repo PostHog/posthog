@@ -29,7 +29,7 @@ function elementsToAction(elements) {
     }
 }
 
-export async function createActionFromEvent(event, increment) {
+export async function createActionFromEvent(event, increment, recurse = createActionFromEvent) {
     let actionData = {
         steps: [
             {
@@ -55,12 +55,12 @@ export async function createActionFromEvent(event, increment) {
         actionData.steps[0].properties = [{ key: '$event_type', value: 'submit' }]
     }
 
-    let action = false
+    let action = {}
     try {
         action = await api.create('api/action', actionData)
     } catch (response) {
         if (response.detail === 'action-exists' && increment < 30) {
-            return createActionFromEvent(event, increment + 1)
+            return recurse(event, increment + 1, recurse)
         }
     }
     if (action.id) {

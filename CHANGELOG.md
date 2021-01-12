@@ -12,23 +12,7 @@ With the ability to run tasks in specified time intervals, you can now setup plu
 
 Some metrics you might want to keep track of are, for example, server performance, GitHub activities (e.g. stars ⭐ ), engagement with your project's social media profiles, and anything else you can think of!
 
-Here's an example to give you an idea:
-
-```js
-async function runEveryMinute({ config }) {
-    const url = `https://api.github.com/repos/PostHog/posthog`
-    const response = await fetch(url)
-    const metrics = await response.json()
-    posthog.capture('github metrics', {
-        stars: metrics.stargazers_count,
-        open_issues: metrics.open_issues_count,
-        forks: metrics.forks_count,
-        subscribers: metrics.subscribers_count
-    })
-}
-```
-
-You can learn more about scheduled plugins on the [PR that created them](https://github.com/PostHog/posthog-plugin-server/pull/63), as well as our docs for [building your own plugin](/docs/plugins/build).
+You can learn more about scheduled plugins on the [PR that created them](https://github.com/PostHog/posthog-plugin-server/pull/63), as well as our docs for [building your own plugin](https://posthog.com/docs/plugins/build).
 
 > **Note:** Plugins are a Beta feature currently only available on self-hosted instances. We are working to make it available on PostHog Cloud soon.
 
@@ -49,8 +33,6 @@ To use it, select 'Shown As' -> 'Lifecycle' when in the 'Trends' tab.
 See the image above? That's our event processing time before and after the new compression scheme!
 
 By using gzip-based compression, we have now significantly improved performance both on the client and server, making event processing faster, as well as decreasing the number of session recordings that are lost. Be on the lookout for more green play buttons on your 'Sessions' page now.
-
-Also, while on the topic of session recording, have you been keeping up with the [updates to our player](#session-recording-player-ux-improvements)?
 
 > If you installed `posthog-js` via `npm`, you should update to version 1.8.0 to get access to this update. Snippet users have access to the latest version by default.
 
@@ -88,7 +70,7 @@ R.I.P. to the hundreds of lines of JavaScript that were removed - you will not b
 
 - [Plugins are now available on Kubernetes deployments](https://github.com/PostHog/charts/pull/24)
 
-Following feedback from a user, we have now added support for [PostHog Plugins](/docs/plugins/overview) to our Helm chart. 
+Following feedback from a user, we have now added support for [PostHog Plugins](https://posthog.com/docs/plugins/overview) to our Helm chart. 
 
 If you're using the chart to deploy PostHog, upgrading to the latest version will give you access to the new plugin server (Beta).
 

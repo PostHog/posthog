@@ -1,9 +1,7 @@
 ---
 name: Bug report
-about: Create a report to help us improve
-title: ''
+about: Something not working as expected? Let us look into it
 labels: bug
-
 ---
 
 ## Bug description
@@ -17,14 +15,14 @@ labels: bug
 
 ## How to reproduce
 
-1. 
-2. 
-3. 
+1.
+2.
+3.
 
 ## Environment
 
-- PostHog cloud or self-managed?
-- PostHog version/commit
+- [ ] PostHog Cloud
+- [ ] self-hosted PostHog, version/commit: _please provide_
 
 ## Additional context
 

@@ -13,7 +13,7 @@
     "homepage": "https://github.com/posthog/posthog#readme",
     "license": "MIT",
     "engines": {
-        "node": "14.x"
+        "node": ">=14"
     },
     "scripts": {
         "copy-scripts": "cp node_modules/posthog-js/dist/array.js* frontend/dist/; cp node_modules/rrweb/dist/rrweb.min.js frontend/dist/recorder.js",
@@ -33,8 +33,9 @@
     "dependencies": {
         "@babel/core": "^7.10.4",
         "@babel/runtime": "^7.10.4",
-        "@mariusandra/query-selector-shadow-dom": "0.7.2-posthog.2",
-        "@mariusandra/simmerjs": "0.7.1-posthog.1",
+        "@papercups-io/chat-widget": "^1.1.5",
+        "@posthog/plugin-scaffold": "0.2.6",
+        "@posthog/simmerjs": "0.7.2-posthog.2",
         "@sentry/browser": "^5.27.2",
         "antd": "^4.1.1",
         "babel-preset-nano-react-app": "^0.1.0",
@@ -51,11 +52,11 @@
         "kea-router": "^0.5.1",
         "kea-window-values": "^0.0.1",
         "moment": "^2.24.0",
-        "posthog-js": "1.8.0",
+        "posthog-js": "1.8.3",
         "posthog-js-lite": "^0.0.3",
-        "posthog-plugins": "0.1.3",
         "posthog-react-rrweb-player": "^1.0.11",
         "prop-types": "^15.7.2",
+        "query-selector-shadow-dom": "0.8.0",
         "react": "^16.13.1",
         "react-dom": "^16.12.0",
         "react-draggable": "^4.2.0",
@@ -64,6 +65,7 @@
         "react-monaco-editor": "^0.40.0",
         "react-redux": "^7.2.0",
         "react-shadow": "^18.4.2",
+        "react-sortable-hoc": "^1.11.0",
         "react-syntax-highlighter": "^13.5.1",
         "react-toastify": "^5.5.0",
         "redux": "^4.0.5",

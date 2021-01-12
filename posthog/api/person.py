@@ -19,6 +19,7 @@ from posthog.models import Event, Filter, Person
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.queries.base import properties_to_Q
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
@@ -114,9 +115,8 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if request.GET.get("cohort"):
             queryset = queryset.filter(cohort__id=request.GET["cohort"])
         if request.GET.get("properties"):
-            queryset = queryset.filter(
-                Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(team_id=self.team_id)
-            )
+            filter = Filter(data={"properties": json.loads(request.GET["properties"])})
+            queryset = queryset.filter(properties_to_Q(filter.properties, team_id=self.team_id))
 
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset
@@ -291,7 +291,8 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
                 status=400,
             )
-        filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=Event.objects.earliest_timestamp)
+        earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
+        filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=earliest_timestamp_func)
         people = self.stickiness_class().people(filter, team)
         next_url = paginated_result(people, request, filter.offset)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})

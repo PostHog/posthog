@@ -113,11 +113,11 @@ export function LineGraph({
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
-        const color = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index]
+        const borderColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index]
 
         return {
-            borderColor: color,
-            backgroundColor: (type === 'bar' || type === 'doughnut') && color,
+            borderColor,
+            backgroundColor: (type === 'bar' || type === 'doughnut') && borderColor,
             fill: false,
             borderWidth: 1,
             pointHitRadius: 8,

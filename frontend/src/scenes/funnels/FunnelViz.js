@@ -1,15 +1,14 @@
 import React, { useRef, useEffect, useState } from 'react'
 import FunnelGraph from 'funnel-graph-js'
 import { Loading, humanFriendlyDuration } from 'lib/utils'
-import PropTypes from 'prop-types'
 import { useValues, useActions } from 'kea'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 import './FunnelViz.scss'
 
-export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId, cachedResults }) {
-    const container = useRef()
+export function FunnelViz({ steps: stepsParam, dashboardItemId, cachedResults }) {
+    const container = useRef(null)
     const [steps, setSteps] = useState(stepsParam)
-    const logic = funnelVizLogic({ funnelId, dashboardItemId, cachedResults })
+    const logic = funnelVizLogic({ dashboardItemId, cachedResults })
     const { results: stepsResult, resultsLoading: funnelLoading } = useValues(logic)
     const { loadResults: loadFunnel } = useActions(logic)
 
@@ -38,9 +37,11 @@ export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId, cached
         graph.container = container.current
         graph.graphContainer = document.createElement('div')
         graph.graphContainer.classList.add('svg-funnel-js__container')
-        graph.container.appendChild(graph.graphContainer)
 
-        graph.draw()
+        if (graph.container) {
+            graph.container.appendChild(graph.graphContainer)
+            graph.draw()
+        }
     }
 
     useEffect(() => {
@@ -65,8 +66,9 @@ export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId, cached
     useEffect(() => {
         if (stepsResult && !stepsParam) {
             setSteps(stepsResult)
+            buildChart()
         }
-    }, [stepsResult])
+    }, [stepsResult, funnelLoading])
 
     return !funnelLoading ? (
         steps && steps.length > 0 ? (
@@ -82,9 +84,4 @@ export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId, cached
     ) : (
         <Loading />
     )
-}
-
-FunnelViz.propTypes = {
-    funnel: PropTypes.object,
-    funnelId: PropTypes.number,
 }

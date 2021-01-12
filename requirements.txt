@@ -46,7 +46,7 @@ iso8601==0.1.12           # via infi.clickhouse-orm
 kafka-helper==0.2         # via -r requirements.in
 kafka-python==2.0.1       # via -r requirements.in
 kombu==4.6.8              # via -r requirements.in, celery
-lxml==4.6.1               # via toronado
+lxml==4.6.2               # via toronado
 lzstring==1.0.4           # via -r requirements.in
 monotonic==1.5            # via posthoganalytics
 numpy==1.18.1             # via -r requirements.in, pandas

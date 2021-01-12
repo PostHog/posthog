@@ -1,6 +1,8 @@
 import json
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
+from django.utils.timezone import now
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -13,6 +15,7 @@ from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording
 from ee.clickhouse.queries.sessions.list import SESSIONS_LIST_DEFAULT_LIMIT, ClickhouseSessionsList
+from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
 from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
@@ -32,34 +35,46 @@ class ClickhouseEventsViewSet(EventViewSet):
                 distinct_to_person[distinct_id] = person
         return distinct_to_person
 
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        team = self.team
-        filter = Filter(request=request)
-        if request.GET.get("after"):
-            filter._date_from = request.GET["after"]
-        if request.GET.get("before"):
-            filter._date_to = request.GET["before"]
+    def _query_events_list(self, filter: Filter, team: Team, request: Request, long_date_from: bool = False) -> List:
         limit = "LIMIT 101"
-        conditions, condition_params = determine_event_conditions(request.GET.dict())
+        conditions, condition_params = determine_event_conditions(
+            {
+                "after": (now() - timedelta(days=1)).isoformat(),
+                "before": (now() + timedelta(seconds=5)).isoformat(),
+                **request.GET.dict(),
+            },
+            long_date_from,
+        )
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+
         if request.GET.get("action_id"):
             action = Action.objects.get(pk=request.GET["action_id"])
             if action.steps.count() == 0:
-                return Response({"next": False, "results": []})
+                return []
             action_query, params = format_action_filter(action)
             prop_filters += " AND {}".format(action_query)
             prop_filter_params = {**prop_filter_params, **params}
 
         if prop_filters != "":
-            query_result = sync_execute(
+            return sync_execute(
                 SELECT_EVENT_WITH_PROP_SQL.format(conditions=conditions, limit=limit, filters=prop_filters),
                 {"team_id": team.pk, **condition_params, **prop_filter_params},
             )
         else:
-            query_result = sync_execute(
+            return sync_execute(
                 SELECT_EVENT_WITH_ARRAY_PROPS_SQL.format(conditions=conditions, limit=limit),
                 {"team_id": team.pk, **condition_params},
             )
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        team = self.team
+        filter = Filter(request=request)
+
+        query_result = self._query_events_list(filter, team, request)
+
+        # Retry the query without the 1 day optimization
+        if len(query_result) < 100 and not request.GET.get("after"):
+            query_result = self._query_events_list(filter, team, request, long_date_from=True)
 
         result = ClickhouseEventSerializer(
             query_result[0:100], many=True, context={"people": self._get_people(query_result, team),},
@@ -82,10 +97,7 @@ class ClickhouseEventsViewSet(EventViewSet):
         return Response({"next": next_url, "results": result})
 
     def retrieve(self, request: Request, pk: Optional[int] = None, *args: Any, **kwargs: Any) -> Response:
-
-        # TODO: implement getting elements
-        team = self.team
-        query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": team.pk, "event_id": pk},)
+        query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk},)
         result = ClickhouseEventSerializer(query_result[0], many=False).data
 
         return Response(result)

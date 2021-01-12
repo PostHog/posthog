@@ -63,7 +63,11 @@ def _send_email(
             records.append(record)
 
             email_message = mail.EmailMultiAlternatives(
-                subject=subject, body=txt_body, to=[dest["recipient"]], headers=headers,
+                subject=subject,
+                body=txt_body,
+                to=[dest["recipient"]],
+                headers=headers,
+                reply_to=settings.EMAIL_REPLY_TO,
             )
 
             email_message.attach_alternative(html_body, "text/html")

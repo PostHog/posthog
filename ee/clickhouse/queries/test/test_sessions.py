@@ -17,5 +17,5 @@ class TestClickhouseSessions(ClickhouseTestMixin, sessions_test_factory(Clickhou
     pass
 
 
-class TestClickhouseSessionsList(ClickhouseTestMixin, sessions_list_test_factory(ClickhouseSessionsList, _create_event)):  # type: ignore
+class TestClickhouseSessionsList(ClickhouseTestMixin, sessions_list_test_factory(ClickhouseSessionsList, _create_event, action_filter_enabled=True)):  # type: ignore
     pass

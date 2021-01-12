@@ -9,6 +9,9 @@ class Plugin(models.Model):
         REPOSITORY = "repository", "repository"  # same, but originating from our plugins.json repository
         SOURCE = "source", "source"  # coded inside the browser (versioned via plugin_source_version)
 
+    organization: models.ForeignKey = models.ForeignKey(
+        "posthog.Organization", on_delete=models.CASCADE, related_name="plugins", related_query_name="plugin"
+    )
     plugin_type: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=PluginType.choices, default=None
     )
@@ -50,3 +53,14 @@ class PluginAttachment(models.Model):
     file_name: models.CharField = models.CharField(max_length=200)
     file_size: models.IntegerField = models.IntegerField()
     contents: models.BinaryField = models.BinaryField()
+
+
+class PluginStorage(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["plugin_config_id", "key"], name="posthog_unique_plugin_storage_key")
+        ]
+
+    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
+    key: models.CharField = models.CharField(max_length=200)
+    value: models.TextField = models.TextField(blank=True, null=True)
