@@ -223,7 +223,7 @@ export function LineGraph({
                                           (percentage ? '%' : '')
                                       )
                                   },
-                                  footer: () => 'Click on a point to see users related to the datapoint',
+                                  footer: () => 'Click to see users related to the datapoint',
                               },
                           },
                           hover: {
