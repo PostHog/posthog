@@ -212,8 +212,8 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 columns={columns}
                 loading={sessionsLoading}
                 expandable={{
-                    expandedRowRender: function renderExpand({ events }) {
-                        return <SessionDetails events={events} />
+                    expandedRowRender: function renderExpand(session) {
+                        return <SessionDetails key={session.global_session_id} session={session} />
                     },
                     rowExpandable: () => true,
                     expandRowByClick: true,

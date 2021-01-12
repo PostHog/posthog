@@ -1,14 +1,31 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Table } from 'antd'
-import { humanFriendlyDiff, humanFriendlyDetailedTime } from '~/lib/utils'
+import { humanFriendlyDiff, humanFriendlyDetailedTime, toParams } from '~/lib/utils'
 import { EventDetails } from 'scenes/events'
 import { Property } from 'lib/components/Property'
 import { eventToName } from 'lib/utils'
-import { EventType } from '~/types'
+import { EventType, SessionType } from '~/types'
+import api from 'lib/api'
 
-export function SessionDetails({ events }: { events: EventType[] | undefined }): JSX.Element {
+export function SessionDetails({ session }: { session: SessionType }): JSX.Element {
+    const [events, setEvents] = useState(session.events || [])
+    const [eventsLoading, setEventsLoading] = useState(session.events === undefined)
+
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(50)
+
+    async function loadSessionEvents(): Promise<void> {
+        const params = { distinct_id: session.distinct_id, date_from: session.start_time, date_to: session.end_time }
+        const response = await api.get(`api/event/session_events?${toParams(params)}`)
+        setEvents(response.result)
+        setEventsLoading(false)
+    }
+
+    useEffect(() => {
+        if (eventsLoading) {
+            loadSessionEvents()
+        }
+    }, [])
 
     const columns = [
         {
@@ -40,7 +57,7 @@ export function SessionDetails({ events }: { events: EventType[] | undefined }):
             title: 'Time Elapsed from Previous',
             render: function RenderElapsed({ timestamp }: EventType, _: any, index: number) {
                 const realIndex = (page - 1) * pageSize + index
-                const lastEvent = realIndex > 0 ? events?.[realIndex - 1] : null
+                const lastEvent = realIndex > 0 ? events[realIndex - 1] : null
                 return <span>{lastEvent ? humanFriendlyDiff(lastEvent.timestamp, timestamp) : 0}</span>
             },
         },
@@ -57,7 +74,7 @@ export function SessionDetails({ events }: { events: EventType[] | undefined }):
             columns={columns}
             rowKey="id"
             dataSource={events}
-            loading={events === undefined}
+            loading={eventsLoading}
             pagination={{
                 pageSize: pageSize,
                 hideOnSinglePage: !events || events.length < 10,

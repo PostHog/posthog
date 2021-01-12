@@ -18,7 +18,7 @@ from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import Element, ElementGroup, Event, Filter, Person, PersonDistinctId
 from posthog.models.action import Action
 from posthog.models.event import EventManager
-from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.models.filters.sessions_filter import SessionEventsFilter, SessionsFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.base import properties_to_Q
 from posthog.queries.session_recording import SessionRecording
@@ -297,6 +297,13 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             session for i, session in enumerate(result["result"]) if result["result"][i]["distinct_id"] in person_ids
         ]
         return result
+
+    @action(methods=["GET"], detail=False)
+    def session_events(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        from posthog.queries.sessions_list import SessionsListEvents
+
+        filter = SessionEventsFilter(request=request)
+        return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
 
     # ******************************************
     # /event/session_recording

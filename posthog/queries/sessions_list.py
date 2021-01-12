@@ -9,9 +9,10 @@ from django.db.models.query import Prefetch
 from django.utils.timezone import now
 
 from posthog.api.element import ElementSerializer
+from posthog.api.event import EventSerializer
 from posthog.models import Element, ElementGroup, Event, Team
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.models.filters.sessions_filter import SessionEventsFilter, SessionsFilter
 from posthog.queries.base import BaseQuery, properties_to_Q
 from posthog.queries.session_recording import filter_sessions_by_recordings
 from posthog.queries.sessions import BaseSessions, Query, QueryParams
@@ -33,7 +34,7 @@ MAX_SESSION_DURATION = timedelta(hours=8)
 
 
 class SessionsList(BaseQuery):
-    def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> List[Session]:
         limit = int(kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
         offset = filter.offset
 
@@ -51,9 +52,15 @@ class SessionsList(BaseQuery):
         )
 
 
-# class SessionsListEvents(BaseQuery):
-#     def run(self, filter: SessionsFilter, team: Team):
-#         events = base_events_query(filter, team).filter(distinct_id=filter.distinct_id, )
+class SessionsListEvents(BaseQuery):
+    def run(self, filter: SessionEventsFilter, team: Team) -> List[Dict[str, Any]]:
+        events = (
+            Event.objects.filter(team=team)
+            .filter(filter.date_filter_Q)
+            .filter(distinct_id=filter.distinct_id)
+            .order_by("timestamp")
+        )
+        return EventSerializer(events, many=True, context={"people": None}).data
 
 
 class SessionListBuilder:

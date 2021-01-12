@@ -270,7 +270,7 @@ export interface EventType {
 export interface SessionType {
     distinct_id: string
     event_count: number
-    events: EventType[]
+    events?: EventType[]
     global_session_id: string
     length: number
     properties: Record<string, any>
