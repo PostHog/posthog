@@ -200,7 +200,7 @@ class Sessions(BaseSessions):
 
 
 def scale_time_series(data: List[float]) -> Tuple[List, str]:
-    avg = sum(data) / len(data)
+    avg = sum(data) / len([value for value in data if value > 0])
     minutes, _ = divmod(avg, 60.0)
     hours, _ = divmod(minutes, 60.0)
 
