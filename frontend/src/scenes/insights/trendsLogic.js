@@ -330,7 +330,9 @@ export const trendsLogic = kea({
             if (
                 !searchParams.insight ||
                 searchParams.insight === ViewType.TRENDS ||
-                searchParams.insight === ViewType.SESSIONS
+                searchParams.insight === ViewType.SESSIONS ||
+                searchParams.insight === ViewType.STICKINESS ||
+                searchParams.insight === ViewType.LIFECYCLE
             ) {
                 if (props.dashboardItemId) {
                     return // don't use the URL if on the dashboard
@@ -360,6 +362,13 @@ export const trendsLogic = kea({
                             order: 0,
                         },
                     ]
+                }
+
+                if (searchParams.insight === ViewType.STICKINESS) {
+                    cleanSearchParams['shown_as'] = 'Stickiness'
+                }
+                if (searchParams.insight === ViewType.LIFECYCLE) {
+                    cleanSearchParams['shown_as'] = 'Lifecycle'
                 }
 
                 if (searchParams.insight === ViewType.SESSIONS && !searchParams.session) {
