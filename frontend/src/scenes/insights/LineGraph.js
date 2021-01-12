@@ -117,7 +117,7 @@ export function LineGraph({
 
         return {
             borderColor,
-            backgroundColor: (type === 'bar' || type === 'doughnut') && color,
+            backgroundColor: (type === 'bar' || type === 'doughnut') && borderColor,
             fill: false,
             borderWidth: 1,
             pointHitRadius: 8,
