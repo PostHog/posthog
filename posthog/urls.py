@@ -11,7 +11,7 @@ from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
-from django.urls import include, path, re_path, reverse
+from django.urls import URLPattern, include, path, re_path, reverse
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
 from loginas.utils import is_impersonated_session, restore_original_login
@@ -302,9 +302,9 @@ else:
     extend_api_router(router, projects_router=projects_router)
 
 
-def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> str:
+def opt_slash_path(route: str, view: Callable) -> URLPattern:
     """Catches path with or without trailing slash, taking into account query param and hash."""
-    return re_path(route=fr"^{route}/?(?:[?#].*)?$", view=view, name=name)
+    return re_path(fr"^{route}/?(?:[?#].*)?$", view)
 
 
 urlpatterns = [
