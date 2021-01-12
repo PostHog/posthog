@@ -132,7 +132,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def repository(self, request: request.Request, **kwargs):
         if not can_install_plugins_via_api(self.organization):
             raise ValidationError("Plugin installation via the web is disabled!")
-        url = "https://raw.githubusercontent.com/PostHog/plugins/main/repository.json"
+        url = "https://raw.githubusercontent.com/PostHog/plugin-repository/main/repository.json"
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
 

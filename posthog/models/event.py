@@ -253,6 +253,8 @@ class EventManager(models.QuerySet):
                 relations = []
                 for action in event.actions:
                     relations.append(action.events.through(action_id=action.pk, event_id=event.pk))
+                    if is_ee_enabled():
+                        continue  # avoiding duplication here - in EE hooks are handled by webhooks_ee.py
                     action.on_perform(event)
                     if action.post_to_slack:
                         should_post_webhook = True

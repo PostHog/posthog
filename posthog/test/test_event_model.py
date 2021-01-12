@@ -1,7 +1,7 @@
 from unittest.mock import call, patch
 
-from posthog.models import Action, ActionStep, Element, ElementGroup, Event, Person, Team
-from posthog.models.event import Selector, SelectorPart
+from posthog.models import Action, ActionStep, Element, ElementGroup, Event, Organization, Person
+from posthog.models.event import Selector
 from posthog.test.base import BaseTest
 
 
@@ -96,7 +96,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             # make sure other teams' data doesn't get mixed in
-            team2 = Team.objects.create()
+            team2 = Organization.objects.bootstrap(None)[2]
             _create_event(
                 event="$autocapture",
                 team=team2,
@@ -124,7 +124,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url", selector="a")
             ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url-2")
 
-            team2 = Team.objects.create()
+            team2 = Organization.objects.bootstrap(None)[2]
             event1 = _create_event(
                 team=self.team,
                 event="$autocapture",
@@ -346,7 +346,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 event="user signed up", distinct_id="anonymous_user", team=self.team
             )
 
-            team2 = Team.objects.create()
+            team2 = Organization.objects.bootstrap(None)[2]
             person2 = _create_person(distinct_ids=["anonymous_user2"], team=team2)
 
             events = _get_events_for_action(action_watch_movie)
@@ -407,7 +407,7 @@ class TestElementGroup(BaseTest):
         self.assertEqual(group1.hash, group2.hash)
 
         # Test no team leakage
-        team2 = Team.objects.create()
+        team2 = Organization.objects.bootstrap(None)[2]
         group3 = ElementGroup.objects.create(team=team2, elements=elements)
         group3_duplicate = ElementGroup.objects.create(team_id=team2.pk, elements=elements)
         self.assertNotEqual(group2, group3)

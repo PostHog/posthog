@@ -13,7 +13,7 @@
     "homepage": "https://github.com/posthog/posthog#readme",
     "license": "MIT",
     "engines": {
-        "node": "14.x"
+        "node": ">=14"
     },
     "scripts": {
         "copy-scripts": "cp node_modules/posthog-js/dist/array.js* frontend/dist/; cp node_modules/rrweb/dist/rrweb.min.js frontend/dist/recorder.js",
@@ -52,7 +52,7 @@
         "kea-router": "^0.5.1",
         "kea-window-values": "^0.0.1",
         "moment": "^2.24.0",
-        "posthog-js": "1.8.0",
+        "posthog-js": "1.8.3",
         "posthog-js-lite": "^0.0.3",
         "posthog-react-rrweb-player": "^1.0.11",
         "prop-types": "^15.7.2",

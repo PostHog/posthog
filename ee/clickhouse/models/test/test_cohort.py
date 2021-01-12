@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.cohort import format_filter_query, format_person_query, get_person_ids_by_cohort_id
+from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -12,8 +12,8 @@ from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.event import Event
 from posthog.models.filters import Filter
+from posthog.models.organization import Organization
 from posthog.models.person import Person
-from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.test.base import BaseTest
 
@@ -131,7 +131,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(result), 2)
 
     def test_prop_cohort_with_negation(self):
-        team2 = Team.objects.create()
+        team2 = Organization.objects.bootstrap(None)[2]
 
         _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
 

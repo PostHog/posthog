@@ -6,8 +6,7 @@ from django.db.models import Q
 from django.utils import timezone
 from freezegun.api import freeze_time
 
-from posthog.models import Cohort, Element, Event, Filter, Person
-from posthog.models.team import Team
+from posthog.models import Cohort, Element, Event, Filter, Organization, Person, Team
 from posthog.queries.base import properties_to_Q
 from posthog.test.base import BaseTest
 
@@ -195,7 +194,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             )
 
             # test for leakage
-            team2 = Team.objects.create()
+            _, _, team2 = Organization.objects.bootstrap(None)
             person_team2 = person_factory(
                 team_id=team2.pk, distinct_ids=["person_team_2"], properties={"group": "another group"}
             )
