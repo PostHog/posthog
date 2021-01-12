@@ -128,6 +128,18 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             )
             return sign_up
 
+        def test_custom_event_values(self):
+            events = ["test", "new event", "another event"]
+            for event in events:
+                event_factory(
+                    distinct_id="bla",
+                    event=event,
+                    team=self.team,
+                    properties={"random_prop": "don't include", "some other prop": "with some text"},
+                )
+            response = self.client.get("/api/event/values/?key=custom_event").json()
+            self.assertListEqual(sorted(events), sorted([event["name"] for event in response]))
+
         def test_event_property_values(self):
 
             with freeze_time("2020-01-10"):
