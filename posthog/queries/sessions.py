@@ -154,6 +154,8 @@ class Sessions(BaseSessions):
         values = [(key, round(value[0])) if len(value) > 0 else (key, 0) for key, value in df_dates.iterrows()]
 
         time_series_data = append_data(values, interval=filter.interval, math=None)
+        scaled_data, label = scale_time_series(time_series_data["data"])
+        time_series_data.update({"data": scaled_data})
         # calculate average
         totals = [sum(x) for x in list(zip(*time_series_avg))[2:4]]
         overall_average = (totals[0] / totals[1]) if totals else 0
@@ -167,7 +169,7 @@ class Sessions(BaseSessions):
                 "aggregated_value": int(avg_split[0]),
             }
         )
-        time_series_data.update({"chartLabel": "Average Duration of Session (seconds)"})
+        time_series_data.update({"chartLabel": "Average Duration of Session ({})".format(label)})
         result = [time_series_data]
         return result
 
@@ -195,3 +197,16 @@ class Sessions(BaseSessions):
             for index in range(len(DIST_LABELS))
         ]
         return result
+
+
+def scale_time_series(data: List[float]) -> Tuple[List, str]:
+    avg = sum(data) / len(data)
+    minutes, _ = divmod(avg, 60.0)
+    hours, _ = divmod(minutes, 60.0)
+
+    if hours > 0:
+        return [round(value / 3600, 2) for value in data], "hours"
+    elif minutes > 0:
+        return [round(value / 60, 2) for value in data], "minutes"
+    else:
+        return data, "seconds"
