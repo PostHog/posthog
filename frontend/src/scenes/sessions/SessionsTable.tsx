@@ -116,27 +116,18 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         {
             title: 'Start Point',
             render: function RenderStartPoint(session: SessionType) {
-                return (
-                    <span>
-                        {session.events.length !== 0 && session.events[0].properties?.$current_url
-                            ? stripHTTP(session.events[0].properties.$current_url)
-                            : 'N/A'}
-                    </span>
-                )
+                const url = session.start_url || (session.events && session.events[0].properties?.$current_url)
+                return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
         },
         {
             title: 'End Point',
             render: function RenderEndPoint(session: SessionType) {
-                return (
-                    <span>
-                        {session.events.length !== 0 &&
-                        session.events[session.events.length - 1].properties?.$current_url
-                            ? stripHTTP(session.events[session.events.length - 1].properties.$current_url)
-                            : 'N/A'}
-                    </span>
-                )
+                const url =
+                    session.end_url ||
+                    (session.events && session.events[session.events.length - 1].properties?.$current_url)
+                return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
         },
