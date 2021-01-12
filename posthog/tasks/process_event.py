@@ -67,6 +67,8 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
 def store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
     # In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
     save = False
+    if not isinstance(event, str) and not isinstance(event, bytes):
+        raise TypeError("Event must be a string")
     if not team.ingested_event:
         # First event for the team captured
         for user in team.organization.members.all():
