@@ -1,4 +1,5 @@
 import datetime
+import json
 from numbers import Number
 from typing import Dict, Optional, Tuple, Union
 
@@ -62,6 +63,16 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
 
     if old_person and new_person and old_person != new_person:
         new_person.merge_people([old_person])
+
+
+def sanitize_event_name(event: str) -> str:
+    if isinstance(event, str):
+        return event[0:200]
+    else:
+        try:
+            return json.dumps(event)[0:200]
+        except TypeError:
+            return str(event)[0:200]
 
 
 def store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
@@ -132,6 +143,7 @@ def _capture(
     if not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
 
+    event = sanitize_event_name(event)
     Event.objects.create(
         event=event,
         distinct_id=distinct_id,
