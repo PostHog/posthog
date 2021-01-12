@@ -164,23 +164,26 @@
 .pinned-dashboards {
     border: 0;
 
-    .all-dashboard-list {
-        .ant-menu-item {
-            border-radius: $radius;
+    .ant-menu-item-group-title {
+        padding-left: 0px;
+    }
 
-            .menu-item {
-                display: flex;
-                align-items: center;
-            }
+    .ant-menu-item {
+        border-radius: $radius;
+        padding-left: 8px;
 
-            svg {
-                margin-right: 10px;
-                font-size: 16px;
-            }
+        .menu-item {
+            display: flex;
+            align-items: center;
+        }
 
-            &.ant-menu-item-active {
-                background-color: $bg_mid;
-            }
+        svg {
+            margin-right: 10px;
+            font-size: 16px;
+        }
+
+        &.ant-menu-item-active {
+            background-color: $bg_mid;
         }
     }
 
