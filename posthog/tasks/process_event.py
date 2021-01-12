@@ -65,7 +65,7 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
         new_person.merge_people([old_person])
 
 
-def sanitize_event_name(event: str) -> str:
+def sanitize_event_name(event: any) -> str:
     if isinstance(event, str):
         return event[0:200]
     else:
