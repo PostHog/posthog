@@ -694,10 +694,10 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                             "properties": [],
                         },
                         "label": "event_name",
-                        "count": 4.0,
-                        "data": [1.0, 2.0, 1.0, 0.0],
-                        "labels": ["Sun. 1 November", "Sun. 8 November", "Sun. 15 November", "Sun. 22 November"],
-                        "days": ["2020-11-01", "2020-11-08", "2020-11-15", "2020-11-22"],
+                        "count": 3.0,
+                        "data": [2.0, 1.0, 0.0],
+                        "labels": ["Sun. 8 November", "Sun. 15 November", "Sun. 22 November"],
+                        "days": ["2020-11-08", "2020-11-15", "2020-11-22"],
                     }
                 ],
             )
