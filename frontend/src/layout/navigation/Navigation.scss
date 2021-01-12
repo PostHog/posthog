@@ -166,18 +166,20 @@
 
     .all-dashboard-list {
         .ant-menu-item {
+            border-radius: $radius;
+
             .menu-item {
                 display: flex;
                 align-items: center;
-
-                &.menu-item-active {
-                    color: $primary;
-                }
             }
 
             svg {
                 margin-right: 10px;
                 font-size: 16px;
+            }
+
+            &.ant-menu-item-active {
+                background-color: $bg_mid;
             }
         }
     }

@@ -185,7 +185,7 @@ function _MainNavigation(): JSX.Element {
                         content={PinnedDashboards}
                         placement="right"
                         trigger="hover"
-                        arrowPointAtCenter={false}
+                        arrowPointAtCenter
                         overlayClassName="pinned-dashboards-popover"
                     >
                         <div>
