@@ -6,7 +6,13 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import parse_response, process_math
-from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.queries.util import (
+    date_from_clause,
+    get_earliest_timestamp,
+    get_time_diff,
+    get_trunc_func_ch,
+    parse_timestamps,
+)
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
 from ee.clickhouse.sql.trends.volume import (
@@ -25,10 +31,10 @@ class ClickhouseTrendsNormal:
     def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
 
         interval_annotation = get_trunc_func_ch(filter.interval)
-        num_intervals, seconds_in_interval = get_time_diff(
+        num_intervals, seconds_in_interval, round_interval = get_time_diff(
             filter.interval or "day", filter.date_from, filter.date_to, team_id=team_id
         )
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
+        _, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
         props_to_filter = [*filter.properties, *entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
@@ -36,13 +42,13 @@ class ClickhouseTrendsNormal:
         aggregate_operation, join_condition, math_params = process_math(entity)
 
         params: Dict = {"team_id": team_id}
-        params = {**params, **prop_filter_params, **math_params}
+        params = {**params, **prop_filter_params, **math_params, **date_params}
         content_sql_params = {
             "interval": interval_annotation,
+            "parsed_date_from": date_from_clause(interval_annotation, round_interval),
+            "parsed_date_to": parsed_date_to,
             "timestamp": "timestamp",
             "team_id": team_id,
-            "parsed_date_from": parsed_date_from,
-            "parsed_date_to": parsed_date_to,
             "filters": prop_filters,
             "event_join": join_condition,
             "aggregate_operation": aggregate_operation,
@@ -77,7 +83,6 @@ class ClickhouseTrendsNormal:
                 result = sync_execute(final_query, params)
             except:
                 result = []
-
             parsed_results = []
             for _, stats in enumerate(result):
                 parsed_result = parse_response(stats, filter)

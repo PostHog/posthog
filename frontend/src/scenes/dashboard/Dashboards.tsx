@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Card, Col, Drawer, Row, Spin } from 'antd'
@@ -15,8 +15,8 @@ export const Dashboards = hot(_Dashboards)
 function _Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard } = useActions(dashboardsModel)
-    const { dashboards } = useValues(dashboardsLogic)
-    const [openNewDashboard, setOpenNewDashboard] = useState(false)
+    const { setNewDashboardDrawer } = useActions(dashboardsLogic)
+    const { dashboards, newDashboardDrawer } = useValues(dashboardsLogic)
 
     return (
         <div>
@@ -24,7 +24,7 @@ function _Dashboards(): JSX.Element {
             <div className="mb text-right">
                 <Button
                     data-attr={'new-dashboard'}
-                    onClick={() => setOpenNewDashboard(true)}
+                    onClick={() => setNewDashboardDrawer(true)}
                     type="primary"
                     icon={<PlusOutlined />}
                 >
@@ -32,17 +32,16 @@ function _Dashboards(): JSX.Element {
                 </Button>
             </div>
 
-            {openNewDashboard && (
-                <Drawer
-                    title={'New Dashboard'}
-                    width={400}
-                    onClose={() => setOpenNewDashboard(false)}
-                    destroyOnClose={true}
-                    visible={true}
-                >
-                    <NewDashboard />
-                </Drawer>
-            )}
+            <Drawer
+                title={'New Dashboard'}
+                width={400}
+                onClose={() => setNewDashboardDrawer(false)}
+                destroyOnClose={true}
+                visible={newDashboardDrawer}
+            >
+                <NewDashboard />
+            </Drawer>
+
             <Card>
                 {dashboardsLoading ? (
                     <Spin />

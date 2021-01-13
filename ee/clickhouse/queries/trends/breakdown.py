@@ -8,7 +8,7 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import parse_response, process_math
-from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL, NULL_BREAKDOWN_SQL, NULL_SQL
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL
 from ee.clickhouse.sql.trends.breakdown import (
@@ -56,10 +56,10 @@ class ClickhouseTrendsBreakdown:
         # process params
         params: Dict[str, Any] = {"team_id": team_id}
         interval_annotation = get_trunc_func_ch(filter.interval)
-        num_intervals, seconds_in_interval = get_time_diff(
+        num_intervals, seconds_in_interval, round_interval = get_time_diff(
             filter.interval or "day", filter.date_from, filter.date_to, team_id
         )
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
+        _, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
         props_to_filter = [*filter.properties, *entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id, table_name="e")
@@ -90,10 +90,11 @@ class ClickhouseTrendsBreakdown:
             **action_params,
             "event": entity.id,
             "key": filter.breakdown,
+            **date_params,
         }
 
         breakdown_filter_params = {
-            "parsed_date_from": parsed_date_from,
+            "parsed_date_from": date_from_clause(interval_annotation, round_interval),
             "parsed_date_to": parsed_date_to,
             "actions_query": "AND {}".format(action_query) if action_query else "",
             "event_filter": "AND event = %(event)s" if not action_query else "",
