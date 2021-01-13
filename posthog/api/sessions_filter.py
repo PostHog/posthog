@@ -1,5 +1,6 @@
 from typing import Any, Dict
 
+import posthoganalytics
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
@@ -25,7 +26,11 @@ class SessionsFilterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> SessionsFilter:
         request = self.context["request"]
-        return SessionsFilter.objects.create(team=request.user.team, created_by=request.user, **validated_data,)
+        instance = SessionsFilter.objects.create(team=request.user.team, created_by=request.user, **validated_data,)
+        posthoganalytics.capture(
+            instance.created_by.distinct_id, "sessions filter created", instance.get_analytics_metadata(),
+        )
+        return instance
 
 
 class SessionsFilterViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
