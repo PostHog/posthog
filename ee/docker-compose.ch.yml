@@ -73,7 +73,7 @@ services:
         build:
             context: ../
             dockerfile: production.Dockerfile
-        command: ./bin/docker-plugin-server
+        command: ./bin/plugin-server --no-restart-loop
         restart: on-failure
         volumes:
             - ..:/code

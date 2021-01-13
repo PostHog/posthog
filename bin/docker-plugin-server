@@ -1,5 +1,0 @@
-#!/bin/bash
-
-cd plugins
-
-yarn start
