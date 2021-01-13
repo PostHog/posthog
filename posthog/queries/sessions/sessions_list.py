@@ -24,7 +24,8 @@ class SessionsList:
         start_timestamp = kwargs.get("start_timestamp")
         date_filter = self.date_filter(filter)
 
-        person_emails = self.query_people_in_range(team, filter, date_filter, limit=limit + offset)
+        # :TRICKY: Query one extra person so we know when to stop pagination if all users on page are unique
+        person_emails = self.query_people_in_range(team, filter, date_filter, limit=limit + offset + 1)
 
         sessions_builder = SessionListBuilder(
             self.events_query(team, date_filter, list(person_emails.keys()), start_timestamp).iterator(),
