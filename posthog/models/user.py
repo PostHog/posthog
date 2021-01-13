@@ -172,9 +172,11 @@ class User(AbstractUser):
             ).exists(),  # has completed the onboarding at least for one project
             # properties dependent on current project / org below
             "billing_plan": self.organization.billing_plan if self.organization else None,
-            "organization_id": str(self.organization.id),
-            "project_id": str(self.team.uuid),
-            "project_setup_complete": (self.team.completed_snippet_onboarding and self.team.ingested_event),
+            "organization_id": str(self.organization.id) if self.organization else None,
+            "project_id": str(self.team.uuid) if self.team else None,
+            "project_setup_complete": (self.team.completed_snippet_onboarding and self.team.ingested_event)
+            if self.team
+            else False,
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")
