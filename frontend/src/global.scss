@@ -17,7 +17,7 @@ style files without adding already imported styles. */
     --muted: #{$text_muted};
     // Used for graph series
     --blue: #{$blue_500};
-    --purple: #{purple_500};
+    --purple: #{$purple_500};
     --salmon: #ff906e;
     --yellow: #ffc035;
     --green: #{$success};

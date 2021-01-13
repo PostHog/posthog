@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, call, patch
 from django.utils.timezone import datetime, now
 from freezegun import freeze_time
 
-from posthog.models import SessionRecordingEvent, Team
+from posthog.models import Organization, SessionRecordingEvent, Team
 from posthog.tasks.session_recording_retention import session_recording_retention, session_recording_retention_scheduler
 from posthog.test.base import BaseTest
 
@@ -15,8 +15,10 @@ class TestSessionRecording(BaseTest):
     @patch("posthog.tasks.session_recording_retention.session_recording_retention.delay")
     def test_scheduler(self, patched_session_recording_retention: MagicMock) -> None:
         with freeze_time("2020-01-10"):
-            team = Team.objects.create(session_recording_opt_in=True)
-            team2 = Team.objects.create(session_recording_opt_in=False)
+            organization, _, team = Organization.objects.bootstrap(
+                self.user, team_fields={"session_recording_opt_in": True}
+            )
+            team2 = Team.objects.create(organization=organization, session_recording_opt_in=False)
 
             session_recording_retention_scheduler()
 

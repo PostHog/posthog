@@ -59,7 +59,7 @@ def create_event(
 
     p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
 
-    if team.slack_incoming_webhook:
+    if team.slack_incoming_webhook or team.organization.is_feature_available("zapier"):
         # Do a little bit of pre-filtering
         if event in ActionStep.objects.filter(action__team_id=team.pk, action__post_to_slack=True).values_list(
             "event", flat=True

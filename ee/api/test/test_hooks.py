@@ -1,10 +1,11 @@
 from typing import Type, cast
 
 from ee.api.test.base import APITransactionLicensedTest
+from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models.hook import Hook
 
 
-class TestHooksAPI(APITransactionLicensedTest):
+class TestHooksAPI(ClickhouseTestMixin, APITransactionLicensedTest):
     TESTS_API = True
 
     def test_create_hook(self):

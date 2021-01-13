@@ -14,6 +14,7 @@ import {
 } from 'lib/constants'
 import { ViewType, insightLogic } from './insightLogic'
 import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
+import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
 
 export const EntityTypes = {
     ACTIONS: 'actions',
@@ -237,10 +238,15 @@ export const trendsLogic = kea({
 
                 return {
                     date: day,
-                    actionFilter: {
-                        ...action,
-                        properties,
-                    },
+                    filters: [
+                        {
+                            type: action.type === 'actions' ? 'action_type' : 'event_type',
+                            key: 'id',
+                            value: action.value,
+                            properties,
+                            label: action.name,
+                        },
+                    ],
                 }
             },
         ],
@@ -249,7 +255,10 @@ export const trendsLogic = kea({
             () => [selectors.sessionsPageParams],
             (params) => ({
                 sessions: `/sessions?${toAPIParams(params)}`,
-                recordings: `/sessions?${toAPIParams({ ...params, duration: ['gt', 0, 'm'] })}`,
+                recordings: `/sessions?${toAPIParams({
+                    ...params,
+                    filters: [...(params.filters || []), SESSIONS_WITH_RECORDINGS_FILTER],
+                })}`,
             }),
         ],
     }),
@@ -330,7 +339,9 @@ export const trendsLogic = kea({
             if (
                 !searchParams.insight ||
                 searchParams.insight === ViewType.TRENDS ||
-                searchParams.insight === ViewType.SESSIONS
+                searchParams.insight === ViewType.SESSIONS ||
+                searchParams.insight === ViewType.STICKINESS ||
+                searchParams.insight === ViewType.LIFECYCLE
             ) {
                 if (props.dashboardItemId) {
                     return // don't use the URL if on the dashboard
@@ -360,6 +371,13 @@ export const trendsLogic = kea({
                             order: 0,
                         },
                     ]
+                }
+
+                if (searchParams.insight === ViewType.STICKINESS) {
+                    cleanSearchParams['shown_as'] = 'Stickiness'
+                }
+                if (searchParams.insight === ViewType.LIFECYCLE) {
+                    cleanSearchParams['shown_as'] = 'Lifecycle'
                 }
 
                 if (searchParams.insight === ViewType.SESSIONS && !searchParams.session) {

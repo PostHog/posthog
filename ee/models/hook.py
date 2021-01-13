@@ -17,18 +17,16 @@ class Hook(AbstractHook):
 
 
 def find_and_fire_hook(
-    event_name: str,
-    instance: models.Model,
-    user_override: Optional[Team] = None,
-    payload_override: Optional[dict] = None,
+    event_name: str, instance: models.Model, user_override: Team, payload_override: Optional[dict] = None,
 ):
-    hooks = Hook.objects.select_related("team").filter(event=event_name, team=user_override)
+    if not user_override.organization.is_feature_available("zapier"):
+        return
+    hooks = Hook.objects.filter(event=event_name, team=user_override)
     if event_name == "action_performed":
         # action_performed is a resource_id-filterable hook
         hooks = hooks.filter(models.Q(resource_id=instance.pk))
     for hook in hooks:
-        if hook.team.organization.is_feature_available("zapier"):
-            hook.deliver_hook(instance, payload_override)
+        hook.deliver_hook(instance, payload_override)
 
 
 def deliver_hook_wrapper(target, payload, instance, hook):

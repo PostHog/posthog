@@ -66,12 +66,10 @@ def query_sessions_in_range(
 ) -> List[dict]:
     filter_query, filter_params = "", {}
 
-    if filter.duration_operator:
-        filter_query = (
-            f"AND duration {OPERATORS[filter.duration_operator]} INTERVAL '%(min_recording_duration)s seconds'"
-        )
+    if filter.duration_filter_property:
+        filter_query = f"AND duration {OPERATORS[filter.duration_filter_property.operator]} INTERVAL '%(min_recording_duration)s seconds'"
         filter_params = {
-            "min_recording_duration": filter.duration,
+            "min_recording_duration": filter.duration_filter_property.value,
         }
 
     with connection.cursor() as cursor:

@@ -14,7 +14,9 @@ class Property:
     value: str
     type: str
 
-    def __init__(self, key: str, value: str, operator: Optional[str] = None, type: Optional[str] = None,) -> None:
+    def __init__(
+        self, key: str, value: str, operator: Optional[str] = None, type: Optional[str] = None, **kwargs
+    ) -> None:
         self.key = key
         self.value = value
         self.operator = operator

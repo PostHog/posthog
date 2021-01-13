@@ -5,7 +5,7 @@ import pytz
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.models import Annotation, Dashboard, DashboardItem, Team, User
+from posthog.models import Annotation, Dashboard, DashboardItem, Organization, User
 from posthog.test.base import APIBaseTest, BaseTest
 
 
@@ -71,7 +71,7 @@ class TestAPIAnnotation(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_creating_annotation(self, mock_capture):
-        team2 = Team.objects.create()
+        team2 = Organization.objects.bootstrap(None)[2]
 
         self.client.force_login(self.user)
 
