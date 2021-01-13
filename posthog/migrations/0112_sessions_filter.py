@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
             name="SessionsFilter",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("name", models.CharField(blank=True, max_length=400, null=True)),
+                ("name", models.CharField(blank=True, max_length=400, null=False)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 ("filters", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
