@@ -89,7 +89,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                         to={`/person/${encodeURIComponent(session.distinct_id)}`}
                         className={rrwebBlockClass + ' ph-no-capture'}
                     >
-                        {session.properties?.email || session.distinct_id}
+                        {session?.email || session.distinct_id}
                     </Link>
                 )
             },

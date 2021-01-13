@@ -71,7 +71,7 @@ class ClickhouseSessionsList:
 
         for session in sessions:
             if distinct_to_person.get(session["distinct_id"], None):
-                session["properties"] = distinct_to_person[session["distinct_id"]].properties
+                session["email"] = distinct_to_person[session["distinct_id"]].properties.get("email")
 
     def _parse_list_results(self, results: List[Tuple]):
         final = []
