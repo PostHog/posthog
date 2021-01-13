@@ -8,13 +8,7 @@ from posthog.test.base import APITransactionBaseTest, BaseTest
 
 
 class TestUser(BaseTest):
-    TESTS_API = True
-
-    def test_redirect_to_site(self):
-        self.team.app_urls = ["http://somewebsite.com"]
-        self.team.save()
-        response = self.client.get("/api/user/redirect_to_site/?actionId=1")
-        self.assertIn("http://somewebsite.com", response.url)
+    TESTS_API = True  # TODO: Remove once endpoint is refactored to DRF
 
     def test_create_user_with_distinct_id(self):
         with self.settings(TEST=False):
@@ -22,16 +16,77 @@ class TestUser(BaseTest):
         self.assertNotEqual(user.distinct_id, "")
         self.assertNotEqual(user.distinct_id, None)
 
+    def test_analytics_metadata(self):
+
+        # One org, one team, anonymized
+        organization, team, user = User.objects.bootstrap(
+            company_name="Test Org", email="test_org@posthog.com", password="12345678", anonymize_data=True,
+        )
+
+        with self.settings(EE_AVAILABLE=True, MULTI_TENANCY=True):
+            self.assertEqual(
+                user.get_analytics_metadata(),
+                {
+                    "realm": "cloud",
+                    "ee_available": True,
+                    "email_opt_in": False,
+                    "anonymize_data": True,
+                    "email": None,
+                    "is_signed_up": True,
+                    "organization_count": 1,
+                    "project_count": 1,
+                    "team_member_count_all": 1,
+                    "completed_onboarding_once": False,
+                    "billing_plan": None,
+                    "organization_id": str(organization.id),
+                    "project_id": str(team.uuid),
+                    "project_setup_complete": False,
+                },
+            )
+
+        # Multiple teams, multiple members, completed onboarding
+        user = User.objects.create(email="test_org_2@posthog.com", email_opt_in=True)
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        Team.objects.create(organization=self.organization)
+        self.team.completed_snippet_onboarding = True
+        self.team.ingested_event = True
+        self.team.save()
+
+        with self.settings(EE_AVAILABLE=False, MULTI_TENANCY=False):
+            self.assertEqual(
+                user.get_analytics_metadata(),
+                {
+                    "realm": "hosted",
+                    "ee_available": False,
+                    "email_opt_in": True,
+                    "anonymize_data": False,
+                    "email": "test_org_2@posthog.com",
+                    "is_signed_up": True,
+                    "organization_count": 1,
+                    "project_count": 2,
+                    "team_member_count_all": 2,
+                    "completed_onboarding_once": True,
+                    "billing_plan": None,
+                    "organization_id": str(self.organization.id),
+                    "project_id": str(self.team.uuid),
+                    "project_setup_complete": True,
+                },
+            )
+
+    # TODO: Move to TestUserAPI once endpoint is refactored to DRF
     def test_user_team_update(self):
         response = self.client.patch(
             "/api/user/",
             data={"team": {"opt_out_capture": True, "anonymize_ips": False, "session_recording_opt_in": True}},
             content_type="application/json",
-        ).json()
+        )
 
-        self.assertEqual(response["team"]["opt_out_capture"], True)
-        self.assertEqual(response["team"]["anonymize_ips"], False)
-        self.assertEqual(response["team"]["session_recording_opt_in"], True)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertEqual(response_data["team"]["opt_out_capture"], True)
+        self.assertEqual(response_data["team"]["anonymize_ips"], False)
+        self.assertEqual(response_data["team"]["session_recording_opt_in"], True)
 
         team = Team.objects.get(id=self.team.id)
         self.assertEqual(team.opt_out_capture, True)
@@ -98,12 +153,18 @@ class TestLoginViews(BaseTest):
 
 
 class TestUserAPI(APITransactionBaseTest):
+    def test_redirect_to_site(self):
+        self.team.app_urls = ["http://somewebsite.com"]
+        self.team.save()
+        response = self.client.get("/api/user/redirect_to_site/?actionId=1")
+        self.assertIn("http://somewebsite.com", response.url)
+
     @patch("posthoganalytics.identify")
     def test_user_api(self, mock_identify):
 
         # create another project/user to test analytics input
         for _ in range(0, 2):
-            Team.objects.create(organization=self.organization)
+            Team.objects.create(organization=self.organization, completed_snippet_onboarding=True, ingested_event=True)
         u = User.objects.create(email="user4@posthog.com")
         OrganizationMembership.objects.create(user=u, organization=self.organization)
 
@@ -128,6 +189,7 @@ class TestUserAPI(APITransactionBaseTest):
                 "organization_count": 1,
                 "project_count": 3,
                 "team_member_count_all": 2,
+                "completed_onboarding_once": True,
                 "billing_plan": None,
                 "organization_id": str(self.organization.id),
                 "project_id": str(self.team.uuid),

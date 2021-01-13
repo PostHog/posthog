@@ -63,7 +63,7 @@ class UserManager(BaseUserManager):
     ) -> "User":
         with transaction.atomic():
             user = self.create_user(email=email, password=password, first_name=first_name, **extra_fields)
-            membership = user.join(organization=organization, level=level)
+            user.join(organization=organization, level=level)
             return user
 
     def get_from_personal_api_key(self, key_value: str) -> Optional["User"]:
@@ -167,6 +167,9 @@ class User(AbstractUser):
             "organization_count": self.organization_memberships.count(),
             "project_count": self.teams.count(),
             "team_member_count_all": team_member_count_all,
+            "completed_onboarding_once": self.teams.filter(
+                completed_snippet_onboarding=True, ingested_event=True,
+            ).exists(),  # has completed the onboarding at least for one project
             # properties dependent on current project / org below
             "billing_plan": self.organization.billing_plan if self.organization else None,
             "organization_id": str(self.organization.id),
