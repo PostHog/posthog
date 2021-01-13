@@ -47,13 +47,17 @@ def sessions_list_test_factory(sessions, event_factory, action_filter_enabled):
                 with freeze_time("2012-01-15T04:01:34.000Z"):
                     self.assertLength(
                         self.run_query(
-                            SessionsFilter(data={"action_filter": {"type": "events", "id": "custom-event"}})
+                            SessionsFilter(
+                                data={"filters": [{"type": "event_type", "key": "id", "value": "custom-event"}]}
+                            )
                         ),
                         2,
                     )
                     self.assertLength(
                         self.run_query(
-                            SessionsFilter(data={"action_filter": {"type": "events", "id": "another-event"}})
+                            SessionsFilter(
+                                data={"filters": [{"type": "event_type", "key": "id", "value": "another-event"}]}
+                            )
                         ),
                         1,
                     )
@@ -62,11 +66,14 @@ def sessions_list_test_factory(sessions, event_factory, action_filter_enabled):
                         self.run_query(
                             SessionsFilter(
                                 data={
-                                    "action_filter": {
-                                        "type": "events",
-                                        "id": "custom-event",
-                                        "properties": [{"key": "$os", "value": "Mac OS X"}],
-                                    }
+                                    "filters": [
+                                        {
+                                            "type": "event_type",
+                                            "key": "id",
+                                            "value": "custom-event",
+                                            "properties": [{"key": "$os", "value": "Mac OS X"}],
+                                        }
+                                    ]
                                 }
                             )
                         ),
@@ -81,21 +88,34 @@ def sessions_list_test_factory(sessions, event_factory, action_filter_enabled):
 
                 with freeze_time("2012-01-15T04:01:34.000Z"):
                     self.assertLength(
-                        self.run_query(SessionsFilter(data={"action_filter": {"type": "actions", "id": action1.id}})), 2
+                        self.run_query(
+                            SessionsFilter(
+                                data={"filters": [{"type": "action_type", "key": "id", "value": action1.id}]}
+                            )
+                        ),
+                        2,
                     )
                     self.assertLength(
-                        self.run_query(SessionsFilter(data={"action_filter": {"type": "actions", "id": action2.id}})), 1
+                        self.run_query(
+                            SessionsFilter(
+                                data={"filters": [{"type": "action_type", "key": "id", "value": action2.id}]}
+                            )
+                        ),
+                        1,
                     )
 
                     self.assertLength(
                         self.run_query(
                             SessionsFilter(
                                 data={
-                                    "action_filter": {
-                                        "type": "actions",
-                                        "id": action1.id,
-                                        "properties": [{"key": "$os", "value": "Mac OS X"}],
-                                    }
+                                    "filters": [
+                                        {
+                                            "type": "action_type",
+                                            "key": "id",
+                                            "value": action1.id,
+                                            "properties": [{"key": "$os", "value": "Mac OS X"}],
+                                        }
+                                    ]
                                 }
                             )
                         ),

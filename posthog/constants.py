@@ -3,6 +3,12 @@ from enum import Enum
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 
+SESSIONS_FILTER_RECORDING_TYPE = "recording"
+SESSIONS_FILTER_COHORT_TYPE = "cohort"
+SESSIONS_FILTER_PERSON_TYPE = "person"
+SESSIONS_FILTER_ACTION_TYPE = "action_type"
+SESSIONS_FILTER_EVENT_TYPE = "event_type"
+
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
 TRENDS_LINEAR = "ActionsLineGraph"
 TRENDS_TABLE = "ActionsTable"
