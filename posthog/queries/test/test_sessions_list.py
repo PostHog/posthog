@@ -26,7 +26,7 @@ def sessions_list_test_factory(sessions, event_factory, action_filter_enabled):
                 response = self.run_query(SessionsFilter(data={"properties": []}))
 
                 self.assertEqual(len(response), 2)
-                self.assertEqual(response[0]["global_session_id"], 1)
+                self.assertEqual(response[0]["distinct_id"], "2")
 
                 response = self.run_query(SessionsFilter(data={"properties": [{"key": "$os", "value": "Mac OS X"}]}))
                 self.assertEqual(len(response), 1)
@@ -125,7 +125,7 @@ def sessions_list_test_factory(sessions, event_factory, action_filter_enabled):
                     )
 
         def run_query(self, sessions_filter):
-            return sessions().run(sessions_filter, self.team)
+            return sessions().run(sessions_filter, self.team)[0]
 
         def assertLength(self, value, expected):
             self.assertEqual(len(value), expected)
