@@ -5,7 +5,7 @@ from freezegun import freeze_time
 from posthog.models import Action, ActionStep, Event, Organization, Person
 from posthog.models.cohort import Cohort
 from posthog.models.filters.sessions_filter import SessionsFilter
-from posthog.queries.sessions_list import SessionListBuilder, SessionsList
+from posthog.queries.sessions.sessions_list import SessionListBuilder, SessionsList
 from posthog.test.base import BaseTest
 
 

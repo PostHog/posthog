@@ -11,7 +11,7 @@ from posthog.models import Event, Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.sessions_filter import SessionEventsFilter, SessionsFilter
 from posthog.queries.base import BaseQuery, properties_to_Q
-from posthog.queries.session_recording import filter_sessions_by_recordings
+from posthog.queries.sessions.session_recording import filter_sessions_by_recordings
 
 RunningSession = Dict
 Session = Dict

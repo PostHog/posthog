@@ -21,7 +21,7 @@ from posthog.models.event import EventManager
 from posthog.models.filters.sessions_filter import SessionEventsFilter, SessionsFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.base import properties_to_Q
-from posthog.queries.session_recording import SessionRecording
+from posthog.queries.sessions.session_recording import SessionRecording
 from posthog.utils import convert_property_value, flatten, relative_date_parse
 
 
@@ -272,7 +272,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def sessions(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.queries.sessions_list import SessionsList
+        from posthog.queries.sessions.sessions_list import SessionsList
 
         filter = SessionsFilter(request=request)
         pagination = json.loads(request.GET.get("pagination", "{}"))
@@ -290,7 +290,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def session_events(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.queries.sessions_list import SessionsListEvents
+        from posthog.queries.sessions.sessions_list import SessionsListEvents
 
         filter = SessionEventsFilter(request=request)
         return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
