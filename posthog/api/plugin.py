@@ -76,17 +76,20 @@ class PluginSerializer(serializers.ModelSerializer):
     def _update_validated_data_from_url(self, validated_data: Dict[str, Any], url: str) -> Dict:
         if url.startswith("file:"):
             plugin_path = url[5:]
-            json_path = os.path.join(plugin_path, "plugin.json")
-            json = load_json_file(json_path)
-            if not json:
-                raise ValidationError("Could not load plugin.json from: {}".format(json_path))
+            for filename in ("plugin.json", "package.json"):
+                json_path = os.path.join(plugin_path, filename)
+                json = load_json_file(json_path)
+                if json:
+                    break
+            else:
+                raise ValidationError(f"Could not load either plugin.json or package.json from {plugin_path}!")
             validated_data["plugin_type"] = "local"
             validated_data["url"] = url
             validated_data["tag"] = None
             validated_data["archive"] = None
             validated_data["name"] = json.get("name", json_path.split("/")[-2])
             validated_data["description"] = json.get("description", "")
-            validated_data["config_schema"] = json.get("config", {})
+            validated_data["config_schema"] = json.get("posthog-plugin-config", json.get("config", {}))
             validated_data["source"] = None
         else:
             parsed_url = parse_url(url, get_latest_if_none=True)
@@ -94,15 +97,17 @@ class PluginSerializer(serializers.ModelSerializer):
                 validated_data["url"] = parsed_url["root_url"]
                 validated_data["tag"] = parsed_url.get("version", parsed_url.get("tag", None))
                 validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
-                plugin_json = get_json_from_archive(validated_data["archive"], "plugin.json")
+                plugin_json = get_json_from_archive(validated_data["archive"], ("plugin.json", "package.json"))
                 if not plugin_json:
                     raise ValidationError("Could not find plugin.json in the plugin")
                 validated_data["name"] = plugin_json["name"]
                 validated_data["description"] = plugin_json.get("description", "")
-                validated_data["config_schema"] = plugin_json.get("config", {})
+                validated_data["config_schema"] = plugin_json.get(
+                    "posthog-plugin-config", plugin_json.get("config", {})
+                )
                 validated_data["source"] = None
             else:
-                raise ValidationError("Must be a GitHub repository or a NPM package URL!")
+                raise ValidationError("Must be a GitHub repository or a npm package URL!")
 
             # Keep plugin type as "repository" or reset to "custom" if it was something else.
             if (

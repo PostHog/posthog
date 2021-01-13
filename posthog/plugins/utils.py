@@ -3,7 +3,7 @@ import json
 import os
 import re
 import tarfile
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, Sequence, Union
 from zipfile import BadZipFile, ZipFile
 
 import requests
@@ -62,7 +62,7 @@ def parse_url(url: str, get_latest_if_none=False) -> Dict[str, str]:
     parsed_url = parse_npm_url(url, get_latest_if_none)
     if parsed_url:
         return parsed_url
-    raise Exception("Must be a Github Repository or NPM package URL!")
+    raise Exception("Must be a GitHub Repository or npm package URL!")
 
 
 # passing `tag` overrides whatever is in the URL
@@ -71,13 +71,13 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
 
     if parsed_url["type"] == "github":
         if not (tag or parsed_url.get("tag", None)):
-            raise Exception("No Github tag given!")
+            raise Exception("No GitHub tag given!")
         url = "https://github.com/{user}/{repo}/archive/{tag}.zip".format(
             user=parsed_url["user"], repo=parsed_url["repo"], tag=tag or parsed_url["tag"]
         )
     elif parsed_url["type"] == "npm":
         if not (tag or parsed_url.get("version", None)):
-            raise Exception("No NPM version given")
+            raise Exception("No npm version given")
         url = "https://registry.npmjs.org/{pkg}/-/{pkg}-{version}.tgz".format(
             pkg=parsed_url["pkg"], version=tag or parsed_url["version"]
         )
@@ -90,41 +90,56 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
     return response.content
 
 
-def load_json_file(filename: str):
-    try:
-        with open(filename, "r") as reader:
-            return json.loads(reader.read())
-    except FileNotFoundError:
-        return None
+def load_json_file(filenames: Union[str, Sequence[str]]) -> Any:
+    if isinstance(filenames, str):
+        filenames = (filenames,)
+    for filename in filenames:
+        try:
+            with open(filename, "r") as reader:
+                return json.loads(reader.read())
+        except FileNotFoundError:
+            continue
+    return None
 
 
-def get_json_from_zip_archive(archive: bytes, filename: str):
+def get_json_from_zip_archive(archive: bytes, filenames: Union[str, Sequence[str]]):
+    if isinstance(filenames, str):
+        filenames = (filenames,)
     zip_file = ZipFile(io.BytesIO(archive), "r")
     root_folder = zip_file.namelist()[0]
-    file_path = os.path.join(root_folder, filename)
-    try:
-        with zip_file.open(file_path) as reader:
-            return json.loads(reader.read())
-    except KeyError:
-        return None
+    for filename in filenames:
+        file_path = os.path.join(root_folder, filename)
+        try:
+            with zip_file.open(file_path) as reader:
+                return json.loads(reader.read())
+        except KeyError:
+            continue
+    return None
 
 
-def get_json_from_tgz_archive(archive: bytes, filename: str):
+def get_json_from_tgz_archive(archive: bytes, filenames: Union[str, Sequence[str]]):
+    if isinstance(filenames, str):
+        filenames = (filenames,)
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
         if tar.getmembers()[0].isdir():
             root_folder = tar.getmembers()[0].name
         else:
             root_folder = "/".join(tar.getmembers()[0].name.split("/")[0:-1])
-        file_path = os.path.join(root_folder, filename)
-        extracted_file = tar.extractfile(file_path)
-        if not extracted_file:
-            return None
-        json_bytes = extracted_file.read()
-        return json.loads(json_bytes)
+        for filename in filenames:
+            file_path = os.path.join(root_folder, filename)
+            try:
+                extracted_file = tar.extractfile(file_path)
+                if not extracted_file:
+                    return None
+                json_bytes = extracted_file.read()
+                return json.loads(json_bytes)
+            except:
+                continue
+    return None
 
 
-def get_json_from_archive(archive: bytes, filename: str):
+def get_json_from_archive(archive: bytes, filenames: Union[str, Sequence[str]]):
     try:
-        return get_json_from_zip_archive(archive, filename)
+        return get_json_from_zip_archive(archive, filenames)
     except BadZipFile:
-        return get_json_from_tgz_archive(archive, filename)
+        return get_json_from_tgz_archive(archive, filenames)
