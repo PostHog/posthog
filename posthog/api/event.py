@@ -290,7 +290,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def session_events(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.queries.sessions.sessions_list import SessionsListEvents
+        from posthog.queries.sessions.sessions_list_events import SessionsListEvents
 
         filter = SessionEventsFilter(request=request)
         return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
