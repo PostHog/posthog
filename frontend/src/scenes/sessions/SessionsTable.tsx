@@ -114,6 +114,12 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             },
         },
         {
+            title: 'End Time',
+            render: function RenderEndTime(session: SessionType) {
+                return <span>{humanFriendlyDetailedTime(session.end_time)}</span>
+            },
+        },
+        {
             title: 'Start Point',
             render: function RenderStartPoint(session: SessionType) {
                 const url = session.start_url || (session.events && session.events[0].properties?.$current_url)
