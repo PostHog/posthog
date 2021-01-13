@@ -16,7 +16,12 @@ from ee.clickhouse.models.property import get_property_values_for_key, parse_pro
 from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording
 from ee.clickhouse.queries.sessions.list import SESSIONS_LIST_DEFAULT_LIMIT, ClickhouseSessionsList
 from ee.clickhouse.queries.util import parse_timestamps
-from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
+from ee.clickhouse.sql.events import (
+    GET_CUSTOM_EVENTS,
+    SELECT_EVENT_WITH_ARRAY_PROPS_SQL,
+    SELECT_EVENT_WITH_PROP_SQL,
+    SELECT_ONE_EVENT_SQL,
+)
 from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
@@ -108,7 +113,10 @@ class ClickhouseEventsViewSet(EventViewSet):
         team = self.team
         result = []
         flattened = []
-        if key:
+        if key == "custom_event":
+            events = sync_execute(GET_CUSTOM_EVENTS, {"team_id": team.pk})
+            return Response([{"name": event[0]} for event in events])
+        elif key:
             result = get_property_values_for_key(key, team, value=request.GET.get("value"))
             for value in result:
                 try:

@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Prefetch, QuerySet
+from django.db.models.query_utils import Q
 from django.utils import timezone
 from django.utils.timezone import now
 from rest_framework import request, response, serializers, viewsets
@@ -208,6 +209,16 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_values(self, request: request.Request) -> List[Dict[str, Any]]:
         key = request.GET.get("key")
         params: List[Optional[Union[str, int]]] = [key, key]
+
+        if key == "custom_event":
+            event_names = (
+                Event.objects.filter(team_id=self.team_id)
+                .filter(~Q(event__in=["$autocapture", "$pageview", "$identify", "$pageleave", "$screen"]))
+                .values("event")
+                .distinct()
+            )
+            return [{"name": value["event"]} for value in event_names]
+
         if request.GET.get("value"):
             where = " AND properties ->> %s LIKE %s"
             params.append(key)
