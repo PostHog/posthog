@@ -23,7 +23,7 @@ class EventWithCurrentUrl:
     current_url: Optional[str]
 
 
-SESSIONS_LIST_DEFAULT_LIMIT = 1
+SESSIONS_LIST_DEFAULT_LIMIT = 50
 SESSION_TIMEOUT = timedelta(minutes=30)
 MAX_SESSION_DURATION = timedelta(hours=8)
 

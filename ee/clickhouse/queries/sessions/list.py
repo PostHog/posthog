@@ -13,7 +13,7 @@ from posthog.models import Person, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
 
 Session = Dict
-SESSIONS_LIST_DEFAULT_LIMIT = 2
+SESSIONS_LIST_DEFAULT_LIMIT = 50
 
 
 class ClickhouseSessionsList:
