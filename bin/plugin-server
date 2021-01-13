@@ -28,7 +28,7 @@ fi
 
 export BASE_DIR=$(dirname $(dirname "$PWD/${0#./}"))
 # Crudely extract netlocs by removing "kafka://" in a compatibility approach
-export KAFKA_HOSTS=${KAFKA_HOSTS:-$(echo $KAFKA_URL | sed -e "s/kafka:\/\///g")}
+export KAFKA_HOSTS=${KAFKA_HOSTS:-$(echo $KAFKA_URL | sed -e "s/kafka\(\+ssl\)\{0,1\}:\/\///g")}
 # Check PRIMARY_DB in a compatibility approach
 export KAFKA_ENABLED=${KAFKA_ENABLED:-$([[ $PRIMARY_DB = "clickhouse" ]] && echo "true" || echo "false")}
 
