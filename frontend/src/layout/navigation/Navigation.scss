@@ -10,7 +10,7 @@
             width: 100vw;
             min-height: 100vh;
             background: rgba(0, 0, 0, 0.3);
-            z-index: 1031;
+            z-index: $z_mobile_nav_overlay;
             opacity: 100;
         }
         transition: opacity 0.3s;
@@ -67,6 +67,7 @@
         svg {
             max-height: 28px;
             max-width: 28px;
+            font-size: 28px;
         }
 
         .menu-title {
@@ -152,6 +153,58 @@
 
         &.hide {
             opacity: 0;
+        }
+    }
+}
+
+.pinned-dashboards-popover {
+    z-index: $z_pinned_dashboards_popup;
+    &.ant-popover-placement-right {
+        padding-left: 0;
+    }
+    .ant-popover-arrow {
+        display: none;
+    }
+}
+
+.pinned-dashboards {
+    border: 0;
+
+    .ant-menu-item-group-title {
+        padding-left: 0px;
+    }
+
+    .ant-menu-item {
+        border-radius: $radius;
+        padding-left: 8px;
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+        }
+
+        svg {
+            margin-right: 10px;
+            font-size: 16px;
+        }
+
+        &.ant-menu-item-active {
+            background-color: $bg_mid;
+        }
+    }
+
+    .pinned-empty-state {
+        height: initial;
+        padding-left: 16px;
+        text-align: left;
+
+        span {
+            color: $text_muted;
+            max-width: 200px;
+            display: inline-block;
+            text-align: left;
+            line-height: 1.5em;
+            white-space: initial;
         }
     }
 }
