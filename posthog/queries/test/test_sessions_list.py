@@ -249,6 +249,7 @@ class TestSessionListBuilder(BaseTest):
                     "1": (now() - relativedelta(minutes=35)).timestamp(),
                     "2": (now() - relativedelta(minutes=45)).timestamp(),
                 },
+                "start_timestamp": (now() - relativedelta(minutes=3)).timestamp(),
             },
         )
 

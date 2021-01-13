@@ -32,9 +32,10 @@ class SessionsList:
     def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
         limit = int(kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
         offset = int(kwargs.get("offset", 0))
+        start_timestamp = kwargs.get("start_timestamp")
 
         sessions_builder = SessionListBuilder(
-            self.events_query(filter, team, limit, offset).iterator(),
+            self.events_query(filter, team, limit, offset, start_timestamp).iterator(),
             offset=offset,
             limit=limit,
             last_page_last_seen=kwargs.get("last_seen", {}),
@@ -43,13 +44,18 @@ class SessionsList:
 
         return filter_sessions_by_recordings(team, sessions_builder.sessions, filter), sessions_builder.pagination
 
-    def events_query(self, filter: SessionsFilter, team: Team, limit: int, offset: int) -> QuerySet:
+    def events_query(
+        self, filter: SessionsFilter, team: Team, limit: int, offset: int, start_timestamp: Optional[str]
+    ) -> QuerySet:
         query = base_events_query(filter, team)
-        return (
+        events = (
             query.filter(distinct_id__in=query.values("distinct_id").distinct()[: limit + offset + 1])
             .only("distinct_id", "timestamp")
             .annotate(current_url=KeyTextTransform("$current_url", "properties"))
         )
+        if start_timestamp is not None:
+            events = events.filter(timestamp__lt=datetime.fromtimestamp(float(start_timestamp)))
+        return events
 
 
 class SessionsListEvents(BaseQuery):
@@ -94,13 +100,17 @@ class SessionListBuilder:
         )
 
         if has_more:
-            return {"offset": self.offset + self.limit, "last_seen": self.next_page_last_seen()}
+            return {
+                "offset": self.offset + self.limit,
+                "last_seen": self.next_page_last_seen(),
+                "start_timestamp": self.next_page_start_timestamp,
+            }
         else:
             return None
 
     @cached_property
     def next_page_start_timestamp(self):
-        return min(session["end_time"].timestamp() for session in self._sessions)
+        return min(session["end_time"].timestamp() for session in self.sessions)
 
     def next_page_last_seen(self):
         """
