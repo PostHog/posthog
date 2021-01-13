@@ -137,7 +137,7 @@ CREATE TABLE {table_name}_with_denormalized_props
     properties_issampledevent VARCHAR,
     properties_currentscreen VARCHAR,
     properties_objectname VARCHAR,
-    properties_test_prop VARCHAR,
+    properties_test_prop VARCHAR
     {extra_fields}
 ) ENGINE = {engine}
 
