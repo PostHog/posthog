@@ -44,6 +44,7 @@ class SessionsList:
             Event.objects.filter(team=team)
             .filter(date_filter)
             .filter(distinct_id__in=distinct_ids)
+            .order_by("-timestamp")
             .only("distinct_id", "timestamp")
             .annotate(current_url=KeyTextTransform("$current_url", "properties"))
         )
