@@ -275,3 +275,22 @@ class TestSessionListBuilder(BaseTest):
         )
 
         self.assertEqual(self.builder.pagination, None)
+
+    def test_current_url_set(self):
+        sessions = self.build(
+            [
+                MockEvent("1", now()),
+                MockEvent("2", now() - relativedelta(minutes=3), "http://foo.bar/landing"),
+                MockEvent("2", now() - relativedelta(minutes=25)),
+                MockEvent("1", now() - relativedelta(minutes=27)),
+                MockEvent("1", now() - relativedelta(minutes=35)),
+                MockEvent("2", now() - relativedelta(minutes=45), "http://foo.bar/subpage"),
+            ]
+        )
+
+        self.assertEqual(len(sessions), 2)
+        self.assertDictContainsSubset({"distinct_id": "1", "start_url": None, "end_url": None}, sessions[0])
+        self.assertDictContainsSubset(
+            {"distinct_id": "2", "start_url": "http://foo.bar/landing", "end_url": "http://foo.bar/subpage"},
+            sessions[1],
+        )
