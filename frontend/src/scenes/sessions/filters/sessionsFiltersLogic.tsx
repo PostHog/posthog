@@ -1,4 +1,5 @@
 import { kea } from 'kea'
+import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
@@ -98,9 +99,7 @@ export const sessionsFiltersLogic = kea<
         activeFilter: [
             (s) => [s.filters, s.savedFilters],
             (filters: Array<SessionsPropertyFilter>, savedFilters: Array<SavedFilter>): SavedFilter | null =>
-                savedFilters.filter(
-                    (savedFilter) => JSON.stringify(savedFilter.filters.properties) === JSON.stringify(filters)
-                )[0],
+                savedFilters.filter((savedFilter) => equal(savedFilter.filters.properties, filters))[0],
         ],
     },
     loaders: () => ({
