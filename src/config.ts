@@ -50,7 +50,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         KAFKA_HOSTS: 'comma-delimited Kafka hosts',
         KAFKA_CLIENT_CERT_B64: 'Kafka certificate in Base64',
         KAFKA_CLIENT_CERT_KEY_B64: 'Kafka certificate key in Base64',
-        KAFKA_TRUSTED_CERT_B64: 'Kafka trusted certificate in Base64',
+        KAFKA_TRUSTED_CERT_B64: 'Kafka trusted CA in Base64',
         SENTRY_DSN: 'Sentry ingestion URL',
         STATSD_HOST: 'StatsD host - integration disabled if this is not provided',
         STATSD_PORT: 'StatsD port',
