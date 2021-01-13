@@ -8,7 +8,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
 import { Tooltip } from 'antd'
 import { ActionSelectInfo } from '../ActionSelectInfo'
-import { SelectBox } from '../../../lib/components/SelectBox'
+import { SelectBox, SelectedItem } from '../../../lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
 import { entityFilterLogicType } from 'types/scenes/insights/ActionFilter/entityFilterLogicType'
 
@@ -32,6 +32,7 @@ const getSuggestions = (events: EventUsageType[]): EventUsageType[] => {
         .sort((a, b) => b.usage_count - a.usage_count)
         .slice(0, 3)
 }
+
 export function ActionFilterDropdown({
     open,
     logic,
@@ -104,6 +105,9 @@ export function ActionFilterDropdown({
                             </>
                         )
                     },
+                    type: EntityTypes.EVENTS,
+                    getValue: (item: SelectedItem) => item.event,
+                    getLabel: (item: SelectedItem) => item.event,
                 },
                 {
                     name: (
@@ -118,24 +122,10 @@ export function ActionFilterDropdown({
                         id: action.id,
                         action,
                     })),
-                    renderInfo: function actions({ item }) {
-                        return (
-                            <>
-                                <AimOutlined /> Actions
-                                <Link
-                                    to={`/action/${item.id}#backTo=Insights&backToURL=${encodeURIComponent(
-                                        window.location.pathname + window.location.search
-                                    )}`}
-                                    style={{ float: 'right' }}
-                                >
-                                    edit
-                                </Link>
-                                <br />
-                                <h3>{item.name} </h3>
-                                {item.action && <ActionSelectInfo entity={item.action} />}
-                            </>
-                        )
-                    },
+                    renderInfo: ActionInfo,
+                    type: EntityTypes.ACTIONS,
+                    getValue: (item: SelectedItem) => item.action?.id,
+                    getLabel: (item: SelectedItem) => item.action?.name,
                 },
                 {
                     name: (
@@ -167,8 +157,30 @@ export function ActionFilterDropdown({
                             </>
                         )
                     },
+                    type: EntityTypes.EVENTS,
+                    getValue: (item: SelectedItem) => item.event,
+                    getLabel: (item: SelectedItem) => item.event,
                 },
             ]}
         />
+    )
+}
+
+export function ActionInfo({ item }: { item: SelectedItem }): JSX.Element {
+    return (
+        <>
+            <AimOutlined /> Actions
+            <Link
+                to={`/action/${item.id}#backTo=Insights&backToURL=${encodeURIComponent(
+                    window.location.pathname + window.location.search
+                )}`}
+                style={{ float: 'right' }}
+            >
+                edit
+            </Link>
+            <br />
+            <h3>{item.name} </h3>
+            {item.action && <ActionSelectInfo entity={item.action} />}
+        </>
     )
 }

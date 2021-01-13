@@ -35,27 +35,26 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
 def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:
     counts = stats[1]
     dates = [
-        ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
+        item.strftime(
             "%Y-%m-%d{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
         )
         for item in stats[0]
     ]
     labels = [
-        ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
+        item.strftime(
             "%a. %-d %B{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
         )
         for item in stats[0]
     ]
     days = [
-        ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
+        item.strftime(
             "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else "")
         )
         for item in stats[0]
     ]
     return {
-        "data": counts,
-        "count": sum(counts),
-        "dates": dates,
+        "data": [float(c) for c in counts],
+        "count": float(sum(counts)),
         "labels": labels,
         "days": days,
         **additional_values,

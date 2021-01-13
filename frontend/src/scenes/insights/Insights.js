@@ -49,6 +49,7 @@ import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
 import { ErrorMessage, TimeOut } from './EmptyStates'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const { TabPane } = Tabs
 
@@ -62,6 +63,8 @@ const displayMap = {
 
 const showIntervalFilter = {
     [`${ViewType.TRENDS}`]: true,
+    [`${ViewType.STICKINESS}`]: true,
+    [`${ViewType.LIFECYCLE}`]: true,
     [`${ViewType.SESSIONS}`]: true,
     [`${ViewType.FUNNELS}`]: false,
     [`${ViewType.RETENTION}`]: false,
@@ -70,6 +73,8 @@ const showIntervalFilter = {
 
 const showChartFilter = {
     [`${ViewType.TRENDS}`]: true,
+    [`${ViewType.STICKINESS}`]: true,
+    [`${ViewType.LIFECYCLE}`]: false,
     [`${ViewType.SESSIONS}`]: true,
     [`${ViewType.FUNNELS}`]: false,
     [`${ViewType.RETENTION}`]: true,
@@ -78,6 +83,8 @@ const showChartFilter = {
 
 const showDateFilter = {
     [`${ViewType.TRENDS}`]: true,
+    [`${ViewType.STICKINESS}`]: true,
+    [`${ViewType.LIFECYCLE}`]: true,
     [`${ViewType.SESSIONS}`]: true,
     [`${ViewType.FUNNELS}`]: true,
     [`${ViewType.RETENTION}`]: false,
@@ -86,6 +93,8 @@ const showDateFilter = {
 
 const showComparePrevious = {
     [`${ViewType.TRENDS}`]: true,
+    [`${ViewType.STICKINESS}`]: true,
+    [`${ViewType.LIFECYCLE}`]: false,
     [`${ViewType.SESSIONS}`]: true,
     [`${ViewType.FUNNELS}`]: false,
     [`${ViewType.RETENTION}`]: false,
@@ -101,6 +110,7 @@ function _Insights() {
     const { user } = useValues(userLogic)
     const { isLoading, activeView, allFilters, showTimeoutMessage, showErrorMessage } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         user?.team && (
@@ -129,13 +139,25 @@ function _Insights() {
                         }}
                     >
                         <TabPane tab={<span data-attr="insight-trends-tab">Trends</span>} key={ViewType.TRENDS} />
-                        <TabPane tab={<span data-attr="insight-sessions-tab">Sessions</span>} key={ViewType.SESSIONS} />
                         <TabPane tab={<span data-attr="insight-funnels-tab">Funnels</span>} key={ViewType.FUNNELS} />
+                        <TabPane tab={<span data-attr="insight-sessions-tab">Sessions</span>} key={ViewType.SESSIONS} />
                         <TabPane
                             tab={<span data-attr="insight-retention-tab">Retention</span>}
                             key={ViewType.RETENTION}
                         />
                         <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS} />
+                        {featureFlags['remove-shownas'] && (
+                            <TabPane
+                                tab={<span data-attr="insight-stickiness-tab">Stickiness</span>}
+                                key={ViewType.STICKINESS}
+                            />
+                        )}
+                        {featureFlags['remove-shownas'] && (
+                            <TabPane
+                                tab={<span data-attr="insight-lifecycle-tab">Lifecycle</span>}
+                                key={ViewType.LIFECYCLE}
+                            />
+                        )}
                     </Tabs>
                 </Row>
                 <Row gutter={16}>
@@ -154,15 +176,23 @@ function _Insights() {
                                 These are insight specific filters. 
                                 They each have insight specific logics
                                 */}
-                                        {
-                                            {
-                                                [`${ViewType.TRENDS}`]: <TrendTab />,
-                                                [`${ViewType.SESSIONS}`]: <SessionTab />,
-                                                [`${ViewType.FUNNELS}`]: <FunnelTab />,
-                                                [`${ViewType.RETENTION}`]: <RetentionTab />,
-                                                [`${ViewType.PATHS}`]: <PathTab />,
-                                            }[activeView]
-                                        }
+                                        {featureFlags['remove-shownas']
+                                            ? {
+                                                  [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
+                                                  [`${ViewType.STICKINESS}`]: <TrendTab view={ViewType.STICKINESS} />,
+                                                  [`${ViewType.LIFECYCLE}`]: <TrendTab view={ViewType.LIFECYCLE} />,
+                                                  [`${ViewType.SESSIONS}`]: <SessionTab view={ViewType.SESSIONS} />,
+                                                  [`${ViewType.FUNNELS}`]: <FunnelTab />,
+                                                  [`${ViewType.RETENTION}`]: <RetentionTab />,
+                                                  [`${ViewType.PATHS}`]: <PathTab />,
+                                              }[activeView]
+                                            : {
+                                                  [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
+                                                  [`${ViewType.SESSIONS}`]: <SessionTab view={ViewType.SESSIONS} />,
+                                                  [`${ViewType.FUNNELS}`]: <FunnelTab />,
+                                                  [`${ViewType.RETENTION}`]: <RetentionTab />,
+                                                  [`${ViewType.PATHS}`]: <PathTab />,
+                                              }[activeView]}
                                     </div>
                                 </Card>
                                 {activeView === ViewType.FUNNELS && (
@@ -244,22 +274,31 @@ function _Insights() {
                                                 display: showErrorMessage || showTimeoutMessage ? 'none' : 'block',
                                             }}
                                         >
-                                            {
-                                                {
-                                                    [`${ViewType.TRENDS}`]: (
-                                                        <TrendInsight view={ViewType.TRENDS} key={ViewType.TRENDS} />
-                                                    ),
-                                                    [`${ViewType.SESSIONS}`]: (
-                                                        <TrendInsight
-                                                            view={ViewType.SESSIONS}
-                                                            key={ViewType.SESSIONS}
-                                                        />
-                                                    ),
-                                                    [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                    [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                    [`${ViewType.PATHS}`]: <Paths />,
-                                                }[activeView]
-                                            }
+                                            {featureFlags['remove-shownas']
+                                                ? {
+                                                      [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                                      [`${ViewType.STICKINESS}`]: (
+                                                          <TrendInsight view={ViewType.STICKINESS} />
+                                                      ),
+                                                      [`${ViewType.LIFECYCLE}`]: (
+                                                          <TrendInsight view={ViewType.LIFECYCLE} />
+                                                      ),
+                                                      [`${ViewType.SESSIONS}`]: (
+                                                          <TrendInsight view={ViewType.SESSIONS} />
+                                                      ),
+                                                      [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                                      [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                                      [`${ViewType.PATHS}`]: <Paths />,
+                                                  }[activeView]
+                                                : {
+                                                      [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                                      [`${ViewType.SESSIONS}`]: (
+                                                          <TrendInsight view={ViewType.SESSIONS} />
+                                                      ),
+                                                      [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                                      [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                                      [`${ViewType.PATHS}`]: <Paths />,
+                                                  }[activeView]}
                                         </div>
                                     </div>
                                 </Card>
@@ -278,11 +317,11 @@ function _Insights() {
 }
 
 function TrendInsight({ view }) {
-    const { filters, loading, showingPeople } = useValues(trendsLogic({ dashboardItemId: null, view }))
+    const { filters: _filters, loading, showingPeople } = useValues(trendsLogic({ dashboardItemId: null, view }))
 
     return (
         <>
-            {(filters.actions || filters.events || filters.session) && (
+            {(_filters.actions || _filters.events || _filters.session) && (
                 <div
                     style={{
                         minHeight: '70vh',
@@ -290,12 +329,12 @@ function TrendInsight({ view }) {
                     }}
                 >
                     {loading && <Loading />}
-                    {(!filters.display ||
-                        filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
-                        filters.display === ACTIONS_BAR_CHART) && <ActionsLineGraph view={view} />}
-                    {filters.display === ACTIONS_TABLE && <ActionsTable filters={filters} view={view} />}
-                    {filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={filters} view={view} />}
+                    {(!_filters.display ||
+                        _filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
+                        _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
+                        _filters.display === ACTIONS_BAR_CHART) && <ActionsLineGraph view={view} />}
+                    {_filters.display === ACTIONS_TABLE && <ActionsTable filters={_filters} view={view} />}
+                    {_filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={_filters} view={view} />}
                 </div>
             )}
             <PersonModal visible={showingPeople} view={view} />

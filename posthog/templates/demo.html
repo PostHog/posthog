@@ -205,13 +205,17 @@
             document.getElementById('sign-up-cta').innerText = 'Get started now'
         }
 
-        document.getElementById('submit-review').addEventListener('click', () => {
-            document.getElementById('new-review').innerText = document.getElementById('review-text').value
-        })
+        if (document.getElementById('submit-review')) {
+            document.getElementById('submit-review').addEventListener('click', () => {
+                document.getElementById('new-review').innerText = document.getElementById('review-text').value
+            })
+        }
 
-        document.getElementById('my-video').addEventListener('play', () => {
-            posthog.capture('played_movie', { title: "Big Buck Bunny" })
-        })
+        if (document.getElementById('my-video')) {
+            document.getElementById('my-video').addEventListener('play', () => {
+                posthog.capture('played_movie', { title: "Big Buck Bunny" })
+            })
+        }
     </script>
 
 </body>

@@ -7,11 +7,13 @@ import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { Link } from 'lib/components/Link'
 import { userLogic } from 'scenes/userLogic'
 import { ArrowRightOutlined, ClockCircleOutlined } from '@ant-design/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function PersonModal({ visible, view }) {
     const { people, filters, peopleModalURL } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setShowingPeople, loadMorePeople } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const title =
         filters.shown_as === 'Stickiness'
@@ -32,7 +34,7 @@ export function PersonModal({ visible, view }) {
                     style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                 >
                     Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
-                    {user?.is_multi_tenancy || true ? (
+                    {user?.is_multi_tenancy && featureFlags['filter_by_session_props'] ? (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                             <Link
                                 to={peopleModalURL.sessions}

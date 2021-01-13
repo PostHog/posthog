@@ -31,6 +31,7 @@
           DATABASE_URL: postgres://main:main@postgresdatabase.internal:5432/main
           REDIS_URL: redis://cache.internal:6379
           NODE_OPTIONS: --max_old_space_size=1536
+          DEPLOYMENT: Platform.sh
   workers:
     worker:
       commands:

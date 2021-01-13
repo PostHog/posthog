@@ -5,6 +5,8 @@ import { insightLogicType } from 'types/scenes/insights/insightLogicType'
 
 export const ViewType = {
     TRENDS: 'TRENDS',
+    STICKINESS: 'STICKINESS',
+    LIFECYCLE: 'LIFECYCLE',
     SESSIONS: 'SESSIONS',
     FUNNELS: 'FUNNELS',
     RETENTION: 'RETENTION',

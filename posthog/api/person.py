@@ -19,6 +19,7 @@ from posthog.models import Event, Filter, Person
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.queries.base import properties_to_Q
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
@@ -114,9 +115,8 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if request.GET.get("cohort"):
             queryset = queryset.filter(cohort__id=request.GET["cohort"])
         if request.GET.get("properties"):
-            queryset = queryset.filter(
-                Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(team_id=self.team_id)
-            )
+            filter = Filter(data={"properties": json.loads(request.GET["properties"])})
+            queryset = queryset.filter(properties_to_Q(filter.properties, team_id=self.team_id))
 
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset

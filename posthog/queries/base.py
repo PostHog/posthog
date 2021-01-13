@@ -2,11 +2,15 @@ import copy
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from dateutil.relativedelta import relativedelta
-from django.db.models import Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from posthog.models import Entity, Event, Filter, Team
-from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.entity import Entity
+from posthog.models.event import Event
+from posthog.models.filters.filter import Filter
+from posthog.models.person import Person
+from posthog.models.property import Property
+from posthog.models.team import Team
 from posthog.utils import get_compare_period_dates
 
 """
@@ -100,9 +104,68 @@ def filter_events(team_id: int, filter, entity: Optional[Entity] = None, include
     if include_dates:
         filters &= Q(timestamp__lte=filter.date_to + relativity)
     if filter.properties:
-        filters &= filter.properties_to_Q(team_id=team_id)
+        filters &= properties_to_Q(filter.properties, team_id=team_id)
     if entity and entity.properties:
-        filters &= entity.properties_to_Q(team_id=team_id)
+        filters &= properties_to_Q(entity.properties, team_id=team_id)
+    return filters
+
+
+def properties_to_Q(properties: List[Property], team_id: int, is_person_query: bool = False) -> Q:
+    """
+    Converts a filter to Q, for use in Django ORM .filter()
+    If you're filtering a Person QuerySet, use is_person_query to avoid doing an unnecessary nested loop
+    """
+    filters = Q()
+
+    if len(properties) == 0:
+        return filters
+
+    if is_person_query:
+        for property in properties:
+            filters &= property.property_to_Q()
+        return filters
+
+    person_properties = [prop for prop in properties if prop.type == "person"]
+    if len(person_properties) > 0:
+        person_Q = Q()
+        for property in person_properties:
+            person_Q &= property.property_to_Q()
+        filters &= Q(Exists(Person.objects.filter(person_Q, id=OuterRef("person_id"),).only("pk")))
+
+    for property in [prop for prop in properties if prop.type == "event"]:
+        filters &= property.property_to_Q()
+
+    # importing from .event and .cohort below to avoid importing from partially initialized modules
+
+    element_properties = [prop for prop in properties if prop.type == "element"]
+    if len(element_properties) > 0:
+        from posthog.models.event import Event
+
+        filters &= Q(
+            Exists(
+                Event.objects.filter(pk=OuterRef("id"))
+                .filter(
+                    **Event.objects.filter_by_element(
+                        {item.key: item.value for item in element_properties}, team_id=team_id,
+                    )
+                )
+                .only("id")
+            )
+        )
+
+    cohort_properties = [prop for prop in properties if prop.type == "cohort"]
+    if len(cohort_properties) > 0:
+        from posthog.models.cohort import CohortPeople
+
+        for item in cohort_properties:
+            if item.key == "id":
+                filters &= Q(
+                    Exists(
+                        CohortPeople.objects.filter(cohort_id=int(item.value), person_id=OuterRef("person_id"),).only(
+                            "id"
+                        )
+                    )
+                )
     return filters
 
 

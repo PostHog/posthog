@@ -1,10 +1,11 @@
 from typing import Type, cast
 
 from ee.api.test.base import APITransactionLicensedTest
+from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models.hook import Hook
 
 
-class TestHooksAPI(APITransactionLicensedTest):
+class TestHooksAPI(ClickhouseTestMixin, APITransactionLicensedTest):
     TESTS_API = True
 
     def test_create_hook(self):
@@ -46,3 +47,9 @@ class TestHooksAPI(APITransactionLicensedTest):
             },
             cast(dict, response.data),
         )
+
+    def test_delete_hook(self):
+        hook_id = "abc123"
+        Hook.objects.create(id=hook_id, user=self.user, team=self.team, resource_id=20)
+        response = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hook_id}")
+        self.assertEqual(response.status_code, 204)

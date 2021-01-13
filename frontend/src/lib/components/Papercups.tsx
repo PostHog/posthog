@@ -15,8 +15,9 @@ export function Papercups({ user }: { user: UserType | null }): JSX.Element {
                 user && {
                     email: user.email,
                     name: user.name,
-                    external_id: String(user.id),
+                    external_id: user.distinct_id,
                     metadata: {
+                        user_id: user.id,
                         organization_name: user.organization?.name,
                         organization_id: user.organization?.id,
                         organization_plan: user.organization?.billing_plan,

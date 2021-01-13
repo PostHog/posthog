@@ -82,9 +82,7 @@ const DEFAULT_PATHS_ID = 'default_paths'
 export function Paths({ dashboardItemId = null, filters = null }) {
     const canvas = useRef(null)
     const size = useWindowSize()
-    const { paths, loadedFilter, loadedPathsLoading: pathsLoading } = useValues(
-        pathsLogic({ dashboardItemId, filters })
-    )
+    const { paths, loadedFilter, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
 
     const [modalVisible, setModalVisible] = useState(false)
     const [event, setEvent] = useState(null)

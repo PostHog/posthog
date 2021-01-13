@@ -37,6 +37,7 @@ export function ActionFilter({
     hideMathSelector,
     copy = '',
     disabled = false,
+    singleFilter = false,
     sortable = false,
 }) {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
@@ -87,22 +88,25 @@ export function ActionFilter({
                             index={index}
                             key={index}
                             hideMathSelector={hideMathSelector}
+                            singleFilter={singleFilter}
                         />
                     ))
                 )
             ) : null}
-            <div className="mt">
-                <Button
-                    type="primary"
-                    onClick={() => addFilter()}
-                    style={{ marginTop: '0.5rem' }}
-                    data-attr="add-action-event-button"
-                    icon={<PlusCircleOutlined />}
-                    disabled={disabled}
-                >
-                    {copy || 'Action or event'}
-                </Button>
-            </div>
+            {!singleFilter && (
+                <div className="mt">
+                    <Button
+                        type="primary"
+                        onClick={() => addFilter()}
+                        style={{ marginTop: '0.5rem' }}
+                        data-attr="add-action-event-button"
+                        icon={<PlusCircleOutlined />}
+                        disabled={disabled}
+                    >
+                        {copy || 'Action or event'}
+                    </Button>
+                </div>
+            )}
         </div>
     )
 }
