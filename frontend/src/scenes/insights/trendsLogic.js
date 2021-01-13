@@ -231,7 +231,7 @@ export const trendsLogic = kea({
                 }
 
                 const { action, day, breakdown_value } = people
-                const properties = [...filters.properties, ...action.properties]
+                const properties = [...filters.properties]
                 if (filters.breakdown) {
                     properties.push({ key: filters.breakdown, value: breakdown_value, type: filters.breakdown_type })
                 }
