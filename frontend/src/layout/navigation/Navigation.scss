@@ -159,6 +159,12 @@
 
 .pinned-dashboards-popover {
     z-index: $z_pinned_dashboards_popup;
+    &.ant-popover-placement-right {
+        padding-left: 0;
+    }
+    .ant-popover-arrow {
+        display: none;
+    }
 }
 
 .pinned-dashboards {
