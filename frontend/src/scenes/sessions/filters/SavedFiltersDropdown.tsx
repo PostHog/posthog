@@ -27,6 +27,7 @@ export function SavedFiltersDropdown(): JSX.Element {
                                         ...router.values.searchParams,
                                         filters: savedFilter.filters.properties,
                                     })}`}
+                                    data-attr="sessions-filter-link"
                                 >
                                     {savedFilter.name}
                                 </Link>
