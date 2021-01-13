@@ -112,6 +112,7 @@ function CohortChoice({ setCohort, cohort }: { setCohort: CallableFunction; coho
                     title="Upload CSV"
                     size="small"
                     className="clickable-card"
+                    data-attr="cohort-choice-upload-csv"
                     onClick={() => setCohort({ ...cohort, is_static: true })}
                 >
                     <div style={{ textAlign: 'center', fontSize: 40 }}>
@@ -124,6 +125,7 @@ function CohortChoice({ setCohort, cohort }: { setCohort: CallableFunction; coho
                     title="Create cohort by definition"
                     size="small"
                     className="clickable-card"
+                    data-attr="cohort-choice-definition"
                     onClick={() => setCohort({ ...cohort, is_static: false })}
                 >
                     <div style={{ textAlign: 'center', fontSize: 40 }}>
