@@ -147,7 +147,7 @@ export function Cohort(props: { onChange: CallableFunction; cohort: CohortType }
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
-                    saveCohort(cohort)
+                    saveCohort()
                 }}
             >
                 <div className="mb">

@@ -11,7 +11,7 @@ export const cohortLogic = kea({
     connect: [cohortsModel],
 
     actions: () => ({
-        saveCohort: (cohort) => ({ cohort }),
+        saveCohort: (filterParams = null) => ({ filterParams }),
         setCohort: (cohort) => ({ cohort }),
         checkIsFinished: (cohort) => ({ cohort }),
         setToastId: (toastId) => ({ toastId }),
@@ -46,8 +46,9 @@ export const cohortLogic = kea({
         ],
     }),
 
-    listeners: ({ sharedListeners, actions }) => ({
-        saveCohort: async ({ cohort }) => {
+    listeners: ({ sharedListeners, actions, values }) => ({
+        saveCohort: async ({ filterParams }) => {
+            let cohort = values.cohort
             const cohortFormData = new FormData()
             for (const [key, value] of Object.entries(cohort)) {
                 if (key === 'groups') {
@@ -61,12 +62,11 @@ export const cohortLogic = kea({
                     cohortFormData.append(key, value)
                 }
             }
-
             if (cohort.id !== 'new') {
-                cohort = await api.update('api/cohort/' + cohort.id, cohortFormData)
+                cohort = await api.update('api/cohort/' + cohort.id + '?' + filterParams, cohortFormData)
                 cohortsModel.actions.updateCohort(cohort)
             } else {
-                cohort = await api.create('api/cohort', cohortFormData)
+                cohort = await api.create('api/cohort/' + '?' + filterParams, cohortFormData)
                 cohortsModel.actions.createCohort(cohort)
             }
             delete cohort['csv']

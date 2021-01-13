@@ -11,7 +11,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function PersonModal({ visible, view }) {
     const { people, filters, peopleModalURL } = useValues(trendsLogic({ dashboardItemId: null, view }))
-    const { setShowingPeople, loadMorePeople } = useActions(trendsLogic({ dashboardItemId: null, view }))
+    const { setShowingPeople, loadMorePeople, saveCohortWithFilters } = useActions(
+        trendsLogic({ dashboardItemId: null, view })
+    )
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -34,6 +36,9 @@ export function PersonModal({ visible, view }) {
                     style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                 >
                     Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
+                    <Button type="primary" onClick={() => saveCohortWithFilters()}>
+                        {'Save cohort'}
+                    </Button>
                     {user?.is_multi_tenancy && featureFlags['filter_by_session_props'] ? (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                             <Link

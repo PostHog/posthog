@@ -15,6 +15,7 @@ import {
 import { ViewType, insightLogic } from './insightLogic'
 import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
+import { cohortLogic } from 'scenes/persons/cohortLogic'
 
 export const EntityTypes = {
     ACTIONS: 'actions',
@@ -132,7 +133,19 @@ export const trendsLogic = kea({
 
     connect: {
         values: [userLogic, ['eventNames'], actionsModel, ['actions']],
-        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
+        actions: [
+            insightLogic,
+            ['setAllFilters'],
+            insightHistoryLogic,
+            ['createInsight'],
+            cohortLogic({
+                cohort: {
+                    id: 'new',
+                    groups: [{}],
+                },
+            }),
+            ['saveCohort'],
+        ],
     },
 
     loaders: ({ values, props }) => ({
@@ -172,6 +185,7 @@ export const trendsLogic = kea({
         setDisplay: (display) => ({ display }),
 
         loadPeople: (action, label, day, breakdown_value) => ({ action, label, day, breakdown_value }),
+        saveCohortWithFilters: true,
         loadMorePeople: true,
         setLoadingMorePeople: (status) => ({ status }),
         setShowingPeople: (isShowing) => ({ isShowing }),
@@ -266,6 +280,11 @@ export const trendsLogic = kea({
     listeners: ({ actions, values, props }) => ({
         [actions.setDisplay]: async ({ display }) => {
             actions.setFilters({ display })
+        },
+        [actions.saveCohortWithFilters]: () => {
+            const { label, action, day, breakdown_value } = values.people
+            const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
+            actions.saveCohort(filterParams)
         },
         [actions.loadPeople]: async ({ label, action, day, breakdown_value }, breakpoint) => {
             let people = []
