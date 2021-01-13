@@ -17,114 +17,18 @@
             "essential": true,
             "environment": [
                 {
-                    "name": "USING_PGBOUNCER",
+                    "name": "KAFKA_ENABLED",
                     "value": "True"
-                },
-                {
-                    "name": "DISABLE_SERVER_SIDE_CURSORS",
-                    "value": "True"
-                },
-                {
-                    "name": "CLICKHOUSE_ASYNC",
-                    "value": "False"
-                },
-                {
-                    "name": "CLICKHOUSE_DATABASE",
-                    "value": "posthog"
-                },
-                {
-                    "name": "CLICKHOUSE_ENABLE_STORAGE_POLICY",
-                    "value": "True"
-                },
-                {
-                    "name": "CLICKHOUSE_REPLICATION",
-                    "value": "True"
-                },
-                {
-                    "name": "CLICKHOUSE_SECURE",
-                    "value": "True"
-                },
-                {
-                    "name": "CLICKHOUSE_VERIFY",
-                    "value": "True"
-                },
-                {
-                    "name": "EVENT_USAGE_CACHING_TTL",
-                    "value": "3600"
-                },
-                {
-                    "name": "INCLUDE_DOCS",
-                    "value": "1"
-                },
-                {
-                    "name": "IS_BEHIND_PROXY",
-                    "value": "True"
-                },
-                {
-                    "name": "DISABLE_SECURE_SSL_REDIRECT",
-                    "value": "True"
-                },
-                {
-                    "name": "IS_DOCKER",
-                    "value": "True"
-                },
-                {
-                    "name": "KAFKA_BASE64_KEYS",
-                    "value": "True"
-                },
-                {
-                    "name": "PRIMARY_DB",
-                    "value": "clickhouse"
                 },
                 {
                     "name": "SITE_URL",
                     "value": "https://app.posthog.com"
-                },
-                {
-                    "name": "EMAIL_DEFAULT_FROM",
-                    "value": "hey@posthog.com"
-                },
-                {
-                    "name": "DEPLOYMENT",
-                    "value": "Posthog Cloud"
                 }
             ],
             "secrets": [
                 {
-                    "name": "CLICKHOUSE_CA",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_CA::"
-                },
-                {
-                    "name": "CLICKHOUSE_HOST",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_HOST::"
-                },
-                {
-                    "name": "CLICKHOUSE_PASSWORD",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_PASSWORD::"
-                },
-                {
                     "name": "DATABASE_URL",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:DATABASE_URL::"
-                },
-                {
-                    "name": "EMAIL_HOST",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:EMAIL_HOST::"
-                },
-                {
-                    "name": "EMAIL_HOST_PASSWORD",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:EMAIL_HOST_PASSWORD::"
-                },
-                {
-                    "name": "EMAIL_HOST_USER",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:EMAIL_HOST_USER::"
-                },
-                {
-                    "name": "EMAIL_PORT",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:EMAIL_PORT::"
-                },
-                {
-                    "name": "EMAIL_USE_TLS",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:EMAIL_USE_TLS::"
                 },
                 {
                     "name": "KAFKA_CLIENT_CERT_B64",
@@ -151,20 +55,15 @@
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:REDIS_URL::"
                 },
                 {
-                    "name": "SECRET_KEY",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SECRET_KEY::"
-                },
-                {
                     "name": "SENTRY_DSN",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SENTRY_DSN::"
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SENTRY_DSN_PLUGIN_SERVER::"
                 },
                 {
                     "name": "STATSD_HOST",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STATSD_HOST::"
                 }
             ],
-            "entryPoint": ["sh", "-c"],
-            "command": ["./bin/plugin-server"]
+            "entryPoint": ["./bin/plugin-server"]
         }
     ],
     "requiresCompatibilities": ["FARGATE"],
