@@ -77,7 +77,9 @@ class TestSignup(APIBaseTest):
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
-            user.distinct_id, "user signed up", properties={"is_first_user": True, "is_organization_first_user": True},
+            user.distinct_id,
+            "user signed up",
+            properties={"is_instance_first_user": True, "is_first_org_first_user": True},
         )
 
         # Assert that the user is logged in
@@ -132,7 +134,9 @@ class TestSignup(APIBaseTest):
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
-            user.distinct_id, "user signed up", properties={"is_first_user": True, "is_organization_first_user": True},
+            user.distinct_id,
+            "user signed up",
+            properties={"is_instance_first_user": True, "is_first_org_first_user": True},
         )
 
         # Assert that the user is logged in
