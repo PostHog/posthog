@@ -11,7 +11,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 
 class SessionsFilterSerializer(serializers.ModelSerializer):
-    created_by = UserSerializer(required=False, read_only=True)
+    created_by = UserSerializer(read_only=True)
 
     class Meta:
         model = SessionsFilter
