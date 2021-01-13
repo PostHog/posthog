@@ -95,6 +95,6 @@ SESSION_SQL = """
     HAVING
         notEmpty(action_filter_timestamp)
     ORDER BY
-        start_time DESC
+        end_time DESC
     {sessions_limit}
 """
