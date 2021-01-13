@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from dateutil.relativedelta import relativedelta
 from django.contrib.postgres.fields.jsonb import KeyTextTransform
@@ -28,7 +28,7 @@ SESSION_TIMEOUT = timedelta(minutes=30)
 MAX_SESSION_DURATION = timedelta(hours=8)
 
 
-class SessionsList(BaseQuery):
+class SessionsList:
     def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
         limit = int(kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
         offset = int(kwargs.get("offset", 0))
@@ -53,14 +53,14 @@ class SessionsList(BaseQuery):
 
 
 class SessionsListEvents(BaseQuery):
-    def run(self, filter: SessionEventsFilter, team: Team) -> List[Dict[str, Any]]:
+    def run(self, filter: SessionEventsFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         events = (
             Event.objects.filter(team=team)
             .filter(filter.date_filter_Q)
             .filter(distinct_id=filter.distinct_id)
             .order_by("timestamp")
         )
-        return EventSerializer(events, many=True, context={"people": None}).data
+        return cast(List[Dict[str, Any]], EventSerializer(events, many=True, context={"people": None}).data)
 
 
 class SessionListBuilder:
@@ -81,7 +81,7 @@ class SessionListBuilder:
         self.max_session_duration: timedelta = max_session_duration
 
         self.running_sessions: Dict[str, RunningSession] = {}
-        self._sessions: Dict[str, Session] = []
+        self._sessions: List[Session] = []
 
     @cached_property
     def sessions(self):
@@ -172,7 +172,7 @@ class SessionListBuilder:
             or session["end_time"] - session["start_time"] > self.max_session_duration
         )
 
-    def _sessions_check(self, timestamp: datetime):
+    def _sessions_check(self, timestamp: Optional[datetime]):
         for distinct_id in list(self.running_sessions.keys()):
             if timestamp is None or self._has_session_timed_out(distinct_id, timestamp):
                 self._session_end(distinct_id)

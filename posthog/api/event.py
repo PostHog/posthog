@@ -284,7 +284,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return Response({"result": sessions, "pagination": pagination})
 
-    def _filter_sessions_by_distinct_id(self, distinct_id: str, sessions: List[Any]) -> Dict[str, Any]:
+    def _filter_sessions_by_distinct_id(self, distinct_id: str, sessions: List[Any]) -> List[Any]:
         person_ids = Person.objects.get(persondistinctid__distinct_id=distinct_id).distinct_ids
         return [session for i, session in enumerate(sessions) if session["distinct_id"] in person_ids]
 

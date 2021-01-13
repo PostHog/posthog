@@ -11,13 +11,12 @@ from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.sessions.list import SESSION_SQL
 from posthog.models import Person, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
-from posthog.queries.base import BaseQuery
 
 Session = Dict
 SESSIONS_LIST_DEFAULT_LIMIT = 2
 
 
-class ClickhouseSessionsList(BaseQuery):
+class ClickhouseSessionsList:
     def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
         limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT) + 1
         offset = kwargs.get("offset", 0)
