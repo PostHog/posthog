@@ -199,7 +199,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["123"])
         Person.objects.create(team_id=self.team.pk, distinct_ids=["2"])
         # Team leakage
-        team2 = Team.objects.create()
+        team2 = Team.objects.create(organization=self.organization)
         Person.objects.create(team=team2, properties={"email": "email@example.org"})
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
