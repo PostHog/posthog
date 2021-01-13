@@ -179,10 +179,13 @@ def add_person_properties_annotations(team_id: int, breakdown: str) -> Dict[str,
 
 
 def aggregate_by_interval(
-    filtered_events: QuerySet, team_id: int, entity: Entity, filter: Filter, breakdown: Optional[str] = None,
+    events: QuerySet, team_id: int, entity: Entity, filter: Filter, breakdown: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], QuerySet]:
     interval = filter.interval if filter.interval else "day"
     interval_annotation = get_interval_annotation(interval)
+    filtered_events = events.filter(
+        filter_events(team_id, filter, entity, interval_annotation=interval_annotation[interval])
+    )
     values = [interval]
     if breakdown:
         if filter.breakdown_type == "cohort":
@@ -331,10 +334,7 @@ class Trends(LifecycleTrend, BaseQuery):
 
     def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
-        events = events.filter(filter_events(team_id, filter, entity))
-        items, filtered_events = aggregate_by_interval(
-            filtered_events=events, team_id=team_id, entity=entity, filter=filter,
-        )
+        items, filtered_events = aggregate_by_interval(events=events, team_id=team_id, entity=entity, filter=filter,)
         formatted_entities: List[Dict[str, Any]] = []
         for _, item in items.items():
             formatted_data = append_data(dates_filled=list(item.items()), interval=filter.interval)
@@ -345,9 +345,8 @@ class Trends(LifecycleTrend, BaseQuery):
 
     def _serialize_breakdown(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
-        events = events.filter(filter_events(team_id, filter, entity))
         items, filtered_events = aggregate_by_interval(
-            filtered_events=events,
+            events=events,
             team_id=team_id,
             entity=entity,
             filter=filter,
