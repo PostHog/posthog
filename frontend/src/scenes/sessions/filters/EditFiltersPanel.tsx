@@ -36,7 +36,7 @@ const SECTIONS: Record<string, { label: string; description: string }> = {
     },
 }
 
-export function SessionsEditFiltersPanel({ onSubmit }: Props): JSX.Element {
+export function EditFiltersPanel({ onSubmit }: Props): JSX.Element {
     const { displayedFilters } = useValues(sessionsFiltersLogic)
     const { openFilterSelect, removeFilter } = useActions(sessionsFiltersLogic)
 

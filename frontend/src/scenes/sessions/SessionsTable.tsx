@@ -26,7 +26,7 @@ import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPalett
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
-import { SessionsEditFiltersPanel } from 'scenes/sessions/filters/SessionsEditFiltersPanel'
+import { EditFiltersPanel } from 'scenes/sessions/filters/EditFiltersPanel'
 import { SavedFiltersDropdown } from 'scenes/sessions/filters/SavedFiltersDropdown'
 
 interface SessionsTableProps {
@@ -187,7 +187,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             </Space>
 
             {featureFlags['filter_by_session_props'] ? (
-                <SessionsEditFiltersPanel onSubmit={applyFilters} />
+                <EditFiltersPanel onSubmit={applyFilters} />
             ) : (
                 <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
             )}
