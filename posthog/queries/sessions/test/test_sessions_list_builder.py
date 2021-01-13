@@ -125,7 +125,7 @@ class TestSessionListBuilder(BaseTest):
 
         self.assertEqual(self.builder.pagination, None)
 
-    def test_current_url_set(self):
+    def test__email_current_url_set(self):
         sessions = self.build(
             [
                 MockEvent("1", now()),
@@ -134,12 +134,20 @@ class TestSessionListBuilder(BaseTest):
                 MockEvent("1", now() - relativedelta(minutes=27)),
                 MockEvent("1", now() - relativedelta(minutes=35)),
                 MockEvent("2", now() - relativedelta(minutes=45), "http://foo.bar/subpage"),
-            ]
+            ],
+            emails={"2": "foo@bar.com"},
         )
 
         self.assertEqual(len(sessions), 2)
-        self.assertDictContainsSubset({"distinct_id": "1", "start_url": None, "end_url": None}, sessions[0])
         self.assertDictContainsSubset(
-            {"distinct_id": "2", "start_url": "http://foo.bar/landing", "end_url": "http://foo.bar/subpage"},
+            {"distinct_id": "1", "start_url": None, "end_url": None, "email": None}, sessions[0]
+        )
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "2",
+                "start_url": "http://foo.bar/landing",
+                "end_url": "http://foo.bar/subpage",
+                "email": "foo@bar.com",
+            },
             sessions[1],
         )

@@ -22,6 +22,7 @@ class SessionListBuilder:
         self,
         events_iterator,
         last_page_last_seen={},
+        emails={},
         limit=50,
         offset=0,
         session_timeout=SESSION_TIMEOUT,
@@ -29,6 +30,7 @@ class SessionListBuilder:
     ):
         self.iterator = events_iterator
         self.last_page_last_seen: Dict[str, int] = last_page_last_seen
+        self.emails: Dict[str, Optional[str]] = emails
         self.limit: int = limit
         self.offset: int = offset
         self.session_timeout: timedelta = session_timeout
@@ -104,6 +106,7 @@ class SessionListBuilder:
             "end_time": event.timestamp,
             "event_count": 0,
             "start_url": event.current_url,
+            "email": self.emails.get(event.distinct_id),
         }
         self._session_update(event)
 

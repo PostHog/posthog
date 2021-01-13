@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.contrib.postgres.fields.jsonb import KeyTextTransform
+from django.db import connection
 from django.db.models import Q, QuerySet
 from django.utils.timezone import now
 
@@ -21,9 +22,13 @@ class SessionsList:
         limit = int(kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
         offset = int(kwargs.get("offset", 0))
         start_timestamp = kwargs.get("start_timestamp")
+        date_filter = self.date_filter(filter)
+
+        person_emails = self.query_people_in_range(team, filter, date_filter, limit=limit + offset)
 
         sessions_builder = SessionListBuilder(
-            self.events_query(filter, team, limit, offset, start_timestamp).iterator(),
+            self.events_query(team, date_filter, list(person_emails.keys()), start_timestamp).iterator(),
+            emails=person_emails,
             offset=offset,
             limit=limit,
             last_page_last_seen=kwargs.get("last_seen", {}),
@@ -33,11 +38,12 @@ class SessionsList:
         return filter_sessions_by_recordings(team, sessions_builder.sessions, filter), sessions_builder.pagination
 
     def events_query(
-        self, filter: SessionsFilter, team: Team, limit: int, offset: int, start_timestamp: Optional[str]
+        self, team: Team, date_filter: Q, distinct_ids: List[str], start_timestamp: Optional[str]
     ) -> QuerySet:
-        query = base_events_query(filter, team)
         events = (
-            query.filter(distinct_id__in=query.values("distinct_id").distinct()[: limit + offset + 1])
+            Event.objects.filter(team=team)
+            .filter(date_filter)
+            .filter(distinct_id__in=distinct_ids)
             .only("distinct_id", "timestamp")
             .annotate(current_url=KeyTextTransform("$current_url", "properties"))
         )
@@ -45,21 +51,38 @@ class SessionsList:
             events = events.filter(timestamp__lt=datetime.fromtimestamp(float(start_timestamp)))
         return events
 
+    def query_people_in_range(
+        self, team: Team, filter: SessionsFilter, date_filter: Q, limit: int
+    ) -> Dict[str, Optional[str]]:
+        events_query = (
+            Event.objects.filter(team=team)
+            .add_person_id(team.pk)
+            .filter(properties_to_Q(filter.properties, team_id=team.pk))
+            .filter(date_filter)
+            .order_by("-timestamp")
+            .only("distinct_id")
+        )
+        sql, params = events_query.query.sql_with_params()
+        query = f"""
+            SELECT DISTINCT ON(distinct_id) events.distinct_id, posthog_person.properties->>'email'
+            FROM ({sql}) events
+            LEFT OUTER JOIN
+                posthog_persondistinctid ON posthog_persondistinctid.distinct_id = events.distinct_id AND posthog_persondistinctid.team_id = {team.pk}
+            LEFT OUTER JOIN
+                posthog_person ON posthog_person.id = posthog_persondistinctid.person_id
+            LIMIT {limit}
+        """
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            distinct_id_to_email = dict(cursor.fetchall())
+            return distinct_id_to_email
 
-def base_events_query(filter: SessionsFilter, team: Team) -> QuerySet:
-    # if _date_from is not explicitely set we only want to get the last day worth of data
-    # otherwise the query is very slow
-    if filter._date_from and filter.date_to:
-        date_filter = Q(timestamp__gte=filter.date_from, timestamp__lte=filter.date_to + relativedelta(days=1),)
-    else:
-        dt = now()
-        dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-        date_filter = Q(timestamp__gte=dt, timestamp__lte=dt + relativedelta(days=1))
-
-    return (
-        Event.objects.filter(team=team)
-        .add_person_id(team.pk)
-        .filter(properties_to_Q(filter.properties, team_id=team.pk))
-        .filter(date_filter)
-        .order_by("-timestamp")
-    )
+    def date_filter(self, filter: SessionsFilter) -> Q:
+        # if _date_from is not explicitely set we only want to get the last day worth of data
+        # otherwise the query is very slow
+        if filter._date_from and filter.date_to:
+            return Q(timestamp__gte=filter.date_from, timestamp__lte=filter.date_to + relativedelta(days=1),)
+        else:
+            dt = now()
+            dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+            return Q(timestamp__gte=dt, timestamp__lte=dt + relativedelta(days=1))
