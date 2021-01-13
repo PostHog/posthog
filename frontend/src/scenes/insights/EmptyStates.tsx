@@ -55,12 +55,15 @@ export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
                     some things you can try to speed it up:
                 </>
             ) : (
-                <>Your query took a long time to complete. Here are some things you can try to speed it up:</>
+                <>
+                    <strong>Your query took too long to complete.</strong> Here are some things you can try to speed it
+                    up:
+                </>
             )}
             <ol>
                 <li>Reduce the date range of your query</li>
                 <li>Remove some filters</li>
-                {!user?.is_multi_tenancy && <li>Increase the size of your database instance</li>}
+                {!user?.is_multi_tenancy && <li>Increase the size of your database server</li>}
                 {!user?.is_multi_tenancy && !user?.ee_enabled && (
                     <li>
                         <a
@@ -69,9 +72,9 @@ export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
                             rel="noopener"
                             target="_blank"
                         >
-                            Upgrade your database
+                            Upgrade PostHog
                         </a>{' '}
-                        to enterprise (runs database on Clickhouse which can handle huge amounts of data very fast)
+                        to enterprise to get access to Clickhouse
                     </li>
                 )}
                 <li>

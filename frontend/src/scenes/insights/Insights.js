@@ -241,10 +241,7 @@ function _Insights() {
                                         )}
                                         <div
                                             style={{
-                                                display:
-                                                    !isLoading && (showErrorMessage || showTimeoutMessage)
-                                                        ? 'none'
-                                                        : 'block',
+                                                display: showErrorMessage || showTimeoutMessage ? 'none' : 'block',
                                             }}
                                         >
                                             {
@@ -266,7 +263,7 @@ function _Insights() {
                                         </div>
                                     </div>
                                 </Card>
-                                {activeView === ViewType.FUNNELS && (
+                                {!showErrorMessage && !showTimeoutMessage && activeView === ViewType.FUNNELS && (
                                     <Card>
                                         <FunnelPeople />
                                     </Card>
