@@ -4,7 +4,6 @@ import secrets
 import urllib.parse
 from typing import Optional, cast
 
-import posthoganalytics
 import requests
 from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
@@ -22,6 +21,7 @@ from posthog.email import is_email_available
 from posthog.models import Team, User
 from posthog.models.organization import Organization
 from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api, reload_plugins_on_workers
+from posthog.tasks import user_identify
 from posthog.version import VERSION
 
 
@@ -83,6 +83,8 @@ def user(request):
             user.anonymize_data = data["user"].get("anonymize_data", user.anonymize_data)
             user.toolbar_mode = data["user"].get("toolbar_mode", user.toolbar_mode)
             user.save()
+
+    user_identify.identify_task.delay(user_id=user.id)
 
     return JsonResponse(
         {

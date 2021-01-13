@@ -1,8 +1,10 @@
 from unittest.mock import patch
 
-from posthog.models import Team, User
+from rest_framework import status
 
-from .base import BaseTest
+from posthog.models import Team, User
+from posthog.models.organization import OrganizationMembership
+from posthog.test.base import APITransactionBaseTest, BaseTest
 
 
 class TestUser(BaseTest):
@@ -93,3 +95,42 @@ class TestLoginViews(BaseTest):
         User.objects.all().delete()
         response = self.client.get("/", follow=True)
         self.assertRedirects(response, "/preflight")
+
+
+class TestUserAPI(APITransactionBaseTest):
+    @patch("posthoganalytics.identify")
+    def test_user_api(self, mock_identify):
+
+        # create another project/user to test analytics input
+        for _ in range(0, 2):
+            Team.objects.create(organization=self.organization)
+        u = User.objects.create(email="user4@posthog.com")
+        OrganizationMembership.objects.create(user=u, organization=self.organization)
+
+        with self.settings(EE_AVAILABLE=True, MULTI_TENANCY=False):
+            response = self.client.get("/api/user/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        # TODO: When refactoring this to DRF; assert the full response is what's expected
+        self.assertEqual(response_data["distinct_id"], self.user.distinct_id)
+
+        # Make sure the user is update in PostHog (analytics)
+        mock_identify.assert_called_once_with(
+            self.user.distinct_id,
+            {
+                "realm": "hosted",
+                "ee_available": True,
+                "email_opt_in": False,
+                "anonymize_data": False,
+                "email": "user1@posthog.com",
+                "is_signed_up": True,
+                "organization_count": 1,
+                "project_count": 3,
+                "team_member_count_all": 2,
+                "billing_plan": None,
+                "organization_id": str(self.organization.id),
+                "project_id": str(self.team.uuid),
+                "project_setup_complete": False,
+            },
+        )

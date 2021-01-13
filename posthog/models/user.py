@@ -151,4 +151,27 @@ class User(AbstractUser):
                 )
                 self.save()
 
+    def get_analytics_metadata(self):
+
+        team_member_count_all: int = OrganizationMembership.objects.filter(
+            organization__in=self.organizations.all(),
+        ).values("user_id").distinct().count()
+
+        return {
+            "realm": "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted",
+            "ee_available": settings.EE_AVAILABLE,
+            "email_opt_in": self.email_opt_in,
+            "anonymize_data": self.anonymize_data,
+            "email": self.email if not self.anonymize_data else None,
+            "is_signed_up": True,
+            "organization_count": self.organization_memberships.count(),
+            "project_count": self.teams.count(),
+            "team_member_count_all": team_member_count_all,
+            # properties dependent on current project / org below
+            "billing_plan": self.organization.billing_plan if self.organization else None,
+            "organization_id": str(self.organization.id),
+            "project_id": str(self.team.uuid),
+            "project_setup_complete": (self.team.completed_snippet_onboarding and self.team.ingested_event),
+        }
+
     __repr__ = sane_repr("email", "first_name", "distinct_id")
