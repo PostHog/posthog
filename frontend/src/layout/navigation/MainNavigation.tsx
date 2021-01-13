@@ -6,7 +6,7 @@ import {
     ClockCircleFilled,
     DownOutlined,
     MessageOutlined,
-    PushpinOutlined,
+    PushpinFilled,
     PlusOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
@@ -51,18 +51,14 @@ const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.
     const { scene, loadingScene } = useValues(sceneLogic)
     const { collapseMenu } = useActions(navigationLogic)
 
-    const activeScene = (): string => {
+    function activeScene(): string {
         const nominalScene = loadingScene || scene
-
         // Scenes with special handling can go here
-
         return sceneOverride[nominalScene] || nominalScene
     }
 
-    const handleClick = (): void => {
-        if (onClick) {
-            onClick()
-        }
+    function handleClick(): void {
+        onClick?.()
         collapseMenu()
     }
 
@@ -118,7 +114,7 @@ function _MainNavigation(): JSX.Element {
                                 <Menu.Item key={`pinned-${item.id}`} style={{ margin: 0 }}>
                                     <MenuItem
                                         title={item.name}
-                                        icon={<PushpinOutlined />}
+                                        icon={<PushpinFilled />}
                                         identifier={`dashboard-${item.id}`}
                                         to={`/dashboard/${item.id}`}
                                         onClick={() => setPinnedDashboardsVisible(false)}
