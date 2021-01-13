@@ -44,15 +44,13 @@ export const sessionsTableLogic = kea<
                 await breakpoint(10)
                 const response = await api.get(`api/event/sessions/?${params}`)
                 breakpoint()
-                if (response.offset) {
-                    actions.setNextOffset(response.offset)
-                }
+                actions.setPagination(response.pagination)
                 return response.result
             },
         },
     }),
     actions: () => ({
-        setNextOffset: (nextOffset: number | null) => ({ nextOffset }),
+        setPagination: (pagination: Record<string, any> | null) => ({ pagination }),
         fetchNextSessions: true,
         appendNewSessions: (sessions) => ({ sessions }),
         previousDay: true,
@@ -68,10 +66,10 @@ export const sessionsTableLogic = kea<
             loadSessionsFailure: () => [],
         },
         isLoadingNext: [false, { fetchNextSessions: () => true, appendNewSessions: () => false }],
-        nextOffset: [
-            null as null | number,
+        pagination: [
+            null as Record<string, any> | null,
             {
-                setNextOffset: (_, { nextOffset }) => nextOffset,
+                setPagination: (_, { pagination }) => pagination,
                 loadSessionsFailure: () => null,
             },
         ],
@@ -107,25 +105,21 @@ export const sessionsTableLogic = kea<
             const params = toParams({
                 date_from: values.selectedDateURLparam,
                 date_to: values.selectedDateURLparam,
-                offset: values.nextOffset,
+                pagination: values.pagination,
                 distinct_id: props.personIds ? props.personIds[0] : '',
                 properties: values.properties,
             })
             const response = await api.get(`api/event/sessions/?${params}`)
             breakpoint()
-            if (response.offset) {
-                actions.setNextOffset(response.offset)
-            } else {
-                actions.setNextOffset(null)
-            }
+            actions.setPagination(response.pagination)
             actions.appendNewSessions(response.result)
         },
         applyFilters: () => {
-            actions.setNextOffset(null)
+            actions.setPagination(null)
             actions.loadSessions(true)
         },
         setFilters: () => {
-            actions.setNextOffset(null)
+            actions.setPagination(null)
             actions.loadSessions(true)
         },
         previousDay: () => {

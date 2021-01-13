@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_entity_filter
@@ -13,12 +13,13 @@ from posthog.models import Person, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.base import BaseQuery
 
-SESSIONS_LIST_DEFAULT_LIMIT = 50
+Session = Dict
+SESSIONS_LIST_DEFAULT_LIMIT = 2
 
 
 class ClickhouseSessionsList(BaseQuery):
-    def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT)
+    def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
+        limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT) + 1
         offset = kwargs.get("offset", 0)
         filter = set_default_dates(filter)
 
@@ -44,9 +45,14 @@ class ClickhouseSessionsList(BaseQuery):
         query_result = sync_execute(query, params)
         result = self._parse_list_results(query_result)
 
+        pagination = None
+        if len(result) == limit:
+            result.pop()
+            pagination = {"offset": offset + limit - 1}
+
         self._add_person_properties(team, result)
 
-        return filter_sessions_by_recordings(team, result, filter)
+        return filter_sessions_by_recordings(team, result, filter), pagination
 
     def _add_person_properties(self, team=Team, sessions=List[Tuple]):
         distinct_id_hash = {}

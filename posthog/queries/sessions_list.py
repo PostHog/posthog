@@ -1,22 +1,17 @@
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.contrib.postgres.fields.jsonb import KeyTextTransform
-from django.db import connection
 from django.db.models import Q, QuerySet
-from django.db.models.query import Prefetch
 from django.utils.timezone import now
 
-from posthog.api.element import ElementSerializer
 from posthog.api.event import EventSerializer
-from posthog.models import Element, ElementGroup, Event, Team
+from posthog.models import Event, Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.sessions_filter import SessionEventsFilter, SessionsFilter
 from posthog.queries.base import BaseQuery, properties_to_Q
 from posthog.queries.session_recording import filter_sessions_by_recordings
-from posthog.queries.sessions import BaseSessions, Query, QueryParams
-from posthog.utils import dict_from_cursor_fetchall
 
 RunningSession = Dict
 Session = Dict
@@ -28,25 +23,30 @@ class EventWithCurrentUrl:
     current_url: Optional[str]
 
 
-SESSIONS_LIST_DEFAULT_LIMIT = 50
+SESSIONS_LIST_DEFAULT_LIMIT = 1
 SESSION_TIMEOUT = timedelta(minutes=30)
 MAX_SESSION_DURATION = timedelta(hours=8)
 
 
 class SessionsList(BaseQuery):
-    def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> List[Session]:
+    def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
         limit = int(kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
-        offset = filter.offset
+        offset = int(kwargs.get("offset", 0))
 
-        sessions_builder = SessionListBuilder(self.events_query(filter, team, limit, offset).iterator())
+        sessions_builder = SessionListBuilder(
+            self.events_query(filter, team, limit, offset).iterator(),
+            offset=offset,
+            limit=limit,
+            last_page_last_seen=kwargs.get("last_seen", {}),
+        )
         sessions_builder.build()
 
-        return sessions_builder.sessions
+        return filter_sessions_by_recordings(team, sessions_builder.sessions, filter), sessions_builder.pagination
 
     def events_query(self, filter: SessionsFilter, team: Team, limit: int, offset: int) -> QuerySet:
         query = base_events_query(filter, team)
         return (
-            query.filter(distinct_id__in=query.values("distinct_id").distinct()[: limit + offset])
+            query.filter(distinct_id__in=query.values("distinct_id").distinct()[: limit + offset + 1])
             .only("distinct_id", "timestamp")
             .annotate(current_url=KeyTextTransform("$current_url", "properties"))
         )
@@ -69,21 +69,38 @@ class SessionListBuilder:
         events_iterator,
         last_page_last_seen={},
         limit=50,
+        offset=0,
         session_timeout=SESSION_TIMEOUT,
         max_session_duration=MAX_SESSION_DURATION,
     ):
         self.iterator = events_iterator
         self.last_page_last_seen: Dict[str, int] = last_page_last_seen
         self.limit: int = limit
+        self.offset: int = offset
         self.session_timeout: timedelta = session_timeout
         self.max_session_duration: timedelta = max_session_duration
 
         self.running_sessions: Dict[str, RunningSession] = {}
-        self.sessions: Dict[str, Session] = []
+        self._sessions: Dict[str, Session] = []
+
+    @cached_property
+    def sessions(self):
+        return self._sessions[: self.limit]
+
+    @cached_property
+    def pagination(self):
+        has_more = len(self._sessions) >= self.limit and (
+            len(self._sessions) > self.limit or next(self.iterator, None) is not None
+        )
+
+        if has_more:
+            return {"offset": self.offset + self.limit, "last_seen": self.next_page_last_seen()}
+        else:
+            return None
 
     @cached_property
     def next_page_start_timestamp(self):
-        return min(session["end_time"].timestamp() for session in self.sessions)
+        return min(session["end_time"].timestamp() for session in self._sessions)
 
     def next_page_last_seen(self):
         """
@@ -97,7 +114,7 @@ class SessionListBuilder:
                 result[distinct_id] = timestamp
 
         for session in self.sessions:
-            result[session["distinct_id"]] = session["start_time"].timestamp()
+            result[session["distinct_id"]] = int(session["start_time"].timestamp())
         return result
 
     def build(self):
@@ -112,13 +129,13 @@ class SessionListBuilder:
                         self._session_start(event)
                     else:
                         self._session_update(event)
-                elif len(self.running_sessions) + len(self.sessions) < self.limit:
+                elif len(self.running_sessions) + len(self._sessions) < self.limit:
                     self._session_start(event)
 
             if index % 300 == 0:
                 self._sessions_check(event.timestamp)
 
-            if len(self.sessions) >= self.limit:
+            if len(self._sessions) >= self.limit:
                 break
 
         self._sessions_check(None)
@@ -139,7 +156,7 @@ class SessionListBuilder:
 
     def _session_end(self, distinct_id: str):
         session = self.running_sessions[distinct_id]
-        self.sessions.append(
+        self._sessions.append(
             {
                 **session,
                 "global_session_id": f"{distinct_id}-{session['start_time']}",

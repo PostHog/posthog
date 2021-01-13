@@ -264,7 +264,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # /event/sessions
     #
     # params:
-    # - offset: (number) offset query param for paginated list of user sessions
+    # - pagination: (dict) Object containing information about pagination (offset, last page info)
     # - distinct_id: (string) filter sessions by distinct id
     # - duration: (float) filter sessions by recording duration
     # - duration_operator: (string: lt, gt)
@@ -272,31 +272,21 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def sessions(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.queries.sessions_list import SESSIONS_LIST_DEFAULT_LIMIT, SessionsList
+        from posthog.queries.sessions_list import SessionsList
 
         filter = SessionsFilter(request=request)
-        limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
-        result: Dict[str, Any] = {"result": SessionsList().run(filter=filter, team=self.team, limit=limit)}
+        pagination = json.loads(request.GET.get("pagination", "{}"))
+
+        sessions, pagination = SessionsList().run(filter=filter, team=self.team, **pagination)
 
         if filter.distinct_id:
-            result = self._filter_sessions_by_distinct_id(filter.distinct_id, result)
+            sessions = self._filter_sessions_by_distinct_id(filter.distinct_id, sessions)
 
-        if filter.session is None:
-            offset = filter.offset + limit - 1
-            if len(result["result"]) > SESSIONS_LIST_DEFAULT_LIMIT:
-                result["result"].pop()
-                date_from = result["result"][0]["start_time"].isoformat()
-                result.update({OFFSET: offset})
-                result.update({DATE_FROM: date_from})
+        return Response({"result": sessions, "pagination": pagination})
 
-        return Response(result)
-
-    def _filter_sessions_by_distinct_id(self, distinct_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    def _filter_sessions_by_distinct_id(self, distinct_id: str, sessions: List[Any]) -> Dict[str, Any]:
         person_ids = Person.objects.get(persondistinctid__distinct_id=distinct_id).distinct_ids
-        result["result"] = [
-            session for i, session in enumerate(result["result"]) if result["result"][i]["distinct_id"] in person_ids
-        ]
-        return result
+        return [session for i, session in enumerate(sessions) if session["distinct_id"] in person_ids]
 
     @action(methods=["GET"], detail=False)
     def session_events(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:

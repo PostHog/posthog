@@ -53,7 +53,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
     const {
         sessions,
         sessionsLoading,
-        nextOffset,
+        pagination,
         isLoadingNext,
         selectedDate,
         properties,
@@ -227,7 +227,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                     textAlign: 'center',
                 }}
             >
-                {(nextOffset || isLoadingNext) && (
+                {(pagination || isLoadingNext) && (
                     <Button type="primary" onClick={fetchNextSessions}>
                         {isLoadingNext ? <Spin> </Spin> : 'Load more sessions'}
                     </Button>
