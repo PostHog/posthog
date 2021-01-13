@@ -5,7 +5,14 @@ from django.utils import timezone
 
 from posthog.constants import DATE_FROM, DATE_TO, STICKINESS_DAYS
 from posthog.models.entity import Entity
-from posthog.models.filters.mixins.common import BaseParamMixin, DateMixin, EntitiesMixin, IntervalMixin
+from posthog.models.filters.mixins.common import (
+    BaseParamMixin,
+    DateMixin,
+    EntitiesMixin,
+    EntityIdMixin,
+    EntityTypeMixin,
+    IntervalMixin,
+)
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
@@ -71,26 +78,6 @@ class TotalIntervalsDerivedMixin(IntervalMixin, StickinessDateMixin):
             raise ValueError(f"{self.interval} not supported")
         _num_intervals += 2
         return _num_intervals
-
-
-class EntityIdMixin(BaseParamMixin):
-    @cached_property
-    def target_entity_id(self) -> Optional[str]:
-        return self._data.get("entityId", None)
-
-    @include_dict
-    def entity_id_to_dict(self):
-        return {"entity_id": self.target_entity_id} if self.target_entity_id else {}
-
-
-class EntityTypeMixin(BaseParamMixin):
-    @cached_property
-    def target_entity_type(self) -> Optional[str]:
-        return self._data.get("type", None)
-
-    @include_dict
-    def entity_type_to_dict(self):
-        return {"entity_type": self.target_entity_type} if self.target_entity_type else {}
 
 
 class TargetEntityDerivedMixin(EntitiesMixin, EntityTypeMixin, EntityIdMixin):
