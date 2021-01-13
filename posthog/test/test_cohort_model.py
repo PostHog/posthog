@@ -67,6 +67,12 @@ class TestCohort(BaseTest):
         cohort.calculate_people()
         self.assertEqual(cohort.people.count(), 2)
 
+        # if we add people again, don't increase the number of people in cohort
+        cohort.insert_users_by_list(["123"])
+        cohort = Cohort.objects.get()
+        self.assertEqual(cohort.people.count(), 2)
+        self.assertEqual(cohort.is_calculating, False)
+
     @tag("ee")
     @patch("ee.clickhouse.models.cohort.get_person_ids_by_cohort_id")
     def test_calculating_cohort_clickhouse(self, get_person_ids_by_cohort_id):

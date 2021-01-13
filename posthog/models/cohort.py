@@ -126,8 +126,10 @@ class Cohort(models.Model):
             cursor = connection.cursor()
             for i in range(0, len(items), batchsize):
                 batch = items[i : i + batchsize]
-                persons_query = Person.objects.filter(team_id=self.team_id).filter(
-                    Q(persondistinctid__distinct_id__in=batch) | Q(properties__email__in=batch)
+                persons_query = (
+                    Person.objects.filter(team_id=self.team_id)
+                    .filter(Q(persondistinctid__distinct_id__in=batch) | Q(properties__email__in=batch))
+                    .exclude(cohort__id=self.id)
                 )
                 if use_clickhouse:
                     insert_static_cohort([p for p in persons_query.values_list("uuid", flat=True)], self.pk, self.team)
