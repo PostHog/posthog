@@ -12,7 +12,9 @@ from ee.clickhouse.sql.events import (
 )
 from ee.clickhouse.sql.person import (
     DROP_PERSON_DISTINCT_ID_TABLE_SQL,
+    DROP_PERSON_STATIC_COHORT_TABLE_SQL,
     DROP_PERSON_TABLE_SQL,
+    PERSON_STATIC_COHORT_TABLE_SQL,
     PERSONS_DISTINCT_ID_TABLE_SQL,
     PERSONS_TABLE_SQL,
 )
@@ -39,10 +41,12 @@ class ClickhouseTestMixin:
     def _destroy_person_tables(self):
         sync_execute(DROP_PERSON_TABLE_SQL)
         sync_execute(DROP_PERSON_DISTINCT_ID_TABLE_SQL)
+        sync_execute(DROP_PERSON_STATIC_COHORT_TABLE_SQL)
 
     def _create_person_tables(self):
         sync_execute(PERSONS_TABLE_SQL)
         sync_execute(PERSONS_DISTINCT_ID_TABLE_SQL)
+        sync_execute(PERSON_STATIC_COHORT_TABLE_SQL)
 
     def _destroy_session_recording_tables(self):
         sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL)

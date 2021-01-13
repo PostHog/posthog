@@ -40,6 +40,24 @@ class TestCohort(BaseTest):
         cohort.calculate_people(use_clickhouse=False)
         self.assertCountEqual([p for p in cohort.people.all()], [person1, person2])
 
+    def test_insert_by_distinct_id_or_email(self):
+        team2 = Team.objects.create()
+        Person.objects.create(team=self.team, properties={"email": "email@example.org"})
+        Person.objects.create(team=self.team, distinct_ids=["123"])
+        Person.objects.create(team=self.team)
+        # Team leakage
+        Person.objects.create(team=team2, properties={"email": "email@example.org"})
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        cohort.insert_users_by_list(["email@example.org", "123"])
+        cohort = Cohort.objects.get()
+        self.assertEqual(cohort.people.count(), 2)
+        self.assertEqual(cohort.is_calculating, False)
+
+        #  If we accidentally call calculate_people it shouldn't erase people
+        cohort.calculate_people()
+        self.assertEqual(cohort.people.count(), 2)
+
     @tag("ee")
     @patch("ee.clickhouse.models.cohort.get_person_ids_by_cohort_id")
     def test_calculating_cohort_clickhouse(self, get_person_ids_by_cohort_id):
