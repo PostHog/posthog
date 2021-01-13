@@ -23,7 +23,7 @@ def format_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
     if cohort.is_static:
         return (
             "person_id IN (SELECT person_id FROM {} WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s)".format(
-                PERSON_STATIC_COHORT_TABLE, cohort.pk, cohort.team_id
+                PERSON_STATIC_COHORT_TABLE
             ),
             {"cohort_id": cohort.pk, "team_id": cohort.team_id},
         )
