@@ -64,7 +64,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
 
     def _run_query(self, filter: Filter) -> List:
         query, params = parse_prop_clauses(filter.properties, self.team.pk, allow_denormalized_props=True)
-        final_query = "SELECT uuid FROM events_with_denormalized_props WHERE team_id = %(team_id)s {}".format(query)
+        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         # Make sure we don't accidentally use json on the properties field
         self.assertNotIn("json", final_query.lower())
         return sync_execute(final_query, {**params, "team_id": self.team.pk})

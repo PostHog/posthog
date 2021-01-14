@@ -10,14 +10,6 @@ DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL = """
 DROP TABLE events_with_array_props_view
 """
 
-DROP_EVENTS_WITH_DENORMALIZED_PROPS_SQL = """
-DROP TABLE events_with_denormalized_props
-"""
-
-DROP_EVENTS_WITH_DENORMALIZED_PROPS_MV_SQL = """
-DROP TABLE events_with_denormalized_props_mv
-"""
-
 
 EVENTS_TABLE = "events"
 
@@ -31,7 +23,11 @@ CREATE TABLE {table_name}
     team_id Int64,
     distinct_id VARCHAR,
     elements_chain VARCHAR,
-    created_at DateTime64(6, 'UTC')
+    properties_issampledevent VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'isSampledEvent')), 
+    properties_currentscreen VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'currentScreen')),
+    properties_objectname VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'objectName')), 
+    properties_test_prop VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'test_prop')), 
+    created_at DateTime64(6, 'UTC'),
     {extra_fields}
 ) ENGINE = {engine} 
 """
@@ -122,52 +118,6 @@ _timestamp,
 _offset
 FROM events
 """
-
-EVENTS_WITH_DENORMALIZED_PROPS = """
-CREATE TABLE {table_name}_with_denormalized_props
-(
-    uuid UUID,
-    event VARCHAR,
-    properties VARCHAR,
-    timestamp DateTime64(6, 'UTC'),
-    team_id Int64,
-    distinct_id VARCHAR,
-    elements_chain VARCHAR,
-    created_at DateTime64(6, 'UTC'),
-    properties_issampledevent VARCHAR,
-    properties_currentscreen VARCHAR,
-    properties_objectname VARCHAR,
-    properties_test_prop VARCHAR
-    {extra_fields}
-) ENGINE = {engine}
-
-ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
-""".format(
-    table_name=EVENTS_TABLE, engine=table_engine(EVENTS_TABLE, "_timestamp"), extra_fields=KAFKA_COLUMNS,
-)
-
-EVENTS_WITH_DENORMALIZED_PROPS_MV = """
-CREATE MATERIALIZED VIEW {table_name}_with_denormalized_props_mv
-TO {table_name}_with_denormalized_props
-AS SELECT
-uuid,
-event,
-properties,
-timestamp,
-team_id,
-distinct_id,
-elements_chain,
-created_at,
-trim(BOTH '\"' FROM JSONExtractRaw(properties, 'issampledevent')) properties_issampledevent,
-trim(BOTH '\"' FROM JSONExtractRaw(properties, 'currentscreen')) properties_currentscreen,
-trim(BOTH '\"' FROM JSONExtractRaw(properties, 'objectname')) properties_objectname,
-trim(BOTH '\"' FROM JSONExtractRaw(properties, 'test_prop')) properties_test_prop,
-_timestamp,
-_offset
-FROM {table_name}
-""".format(
-    table_name=EVENTS_TABLE,
-)
 
 SELECT_PROP_VALUES_SQL = """
 SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where JSONHas(properties, %(key)s) AND team_id = %(team_id)s {parsed_date_from} {parsed_date_to} LIMIT 10
