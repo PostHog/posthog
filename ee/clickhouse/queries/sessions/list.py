@@ -19,7 +19,7 @@ SESSIONS_LIST_DEFAULT_LIMIT = 50
 class ClickhouseSessionsList:
     def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
         limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT) + 1
-        offset = kwargs.get("offset", 0)
+        offset = filter.pagination.get("offset", 0)
         filter = set_default_dates(filter)
 
         filters, params = parse_prop_clauses(filter.properties, team.pk)

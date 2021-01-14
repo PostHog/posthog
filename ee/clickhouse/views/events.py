@@ -127,9 +127,8 @@ class ClickhouseEventsViewSet(EventViewSet):
     @action(methods=["GET"], detail=False)
     def sessions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionsFilter(request=request)
-        pagination = json.loads(request.GET.get("pagination", "{}"))
 
-        sessions, pagination = ClickhouseSessionsList().run(team=self.team, filter=filter, **pagination)
+        sessions, pagination = ClickhouseSessionsList().run(team=self.team, filter=filter)
 
         if filter.distinct_id:
             try:

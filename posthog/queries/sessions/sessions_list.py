@@ -20,8 +20,8 @@ SESSIONS_LIST_DEFAULT_LIMIT = 50
 class SessionsList:
     def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
         limit = int(kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
-        offset = int(kwargs.get("offset", 0))
-        start_timestamp = kwargs.get("start_timestamp")
+        offset = int(filter.pagination.get("offset", 0))
+        start_timestamp = filter.pagination.get("start_timestamp")
         date_filter = self.date_filter(filter)
 
         # :TRICKY: Query one extra person so we know when to stop pagination if all users on page are unique
