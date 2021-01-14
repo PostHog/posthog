@@ -94,8 +94,8 @@ export function AutocapturePanel(): JSX.Element {
                         Learn more
                     </Link>
                     .
-                    <JSInstructions />
                 </p>
+                <JSInstructions />
             </div>
         </CardContainer>
     )
