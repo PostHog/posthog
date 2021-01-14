@@ -65,6 +65,7 @@ jobs:
               run: yarn --frozen-lockfile
 
             - name: Initiate database for tests
+              if: steps.version.outputs.IS_NEW_VERSION == 'true'
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   REDIS_URL: 'redis://localhost'
