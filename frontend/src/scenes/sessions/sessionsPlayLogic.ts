@@ -14,6 +14,7 @@ type SessionRecordingId = string
 interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
+    start_time: string
 }
 
 export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, EventIndex>>({
