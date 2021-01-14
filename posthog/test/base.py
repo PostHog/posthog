@@ -92,4 +92,8 @@ class APIBaseTest(APITestMixin, APITestCase):
 
 
 class APITransactionBaseTest(APITestMixin, APITransactionTestCase):
+    """
+    Test class using Django REST Framework test suite.
+    """
+
     pass

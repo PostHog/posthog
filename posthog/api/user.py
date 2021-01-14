@@ -4,7 +4,6 @@ import secrets
 import urllib.parse
 from typing import Optional, cast
 
-import posthoganalytics
 import requests
 from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
@@ -22,6 +21,7 @@ from posthog.email import is_email_available
 from posthog.models import Team, User
 from posthog.models.organization import Organization
 from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api, reload_plugins_on_workers
+from posthog.tasks import user_identify
 from posthog.version import VERSION
 
 
@@ -82,22 +82,9 @@ def user(request):
             user.email_opt_in = data["user"].get("email_opt_in", user.email_opt_in)
             user.anonymize_data = data["user"].get("anonymize_data", user.anonymize_data)
             user.toolbar_mode = data["user"].get("toolbar_mode", user.toolbar_mode)
-            posthoganalytics.identify(
-                user.distinct_id,
-                {
-                    "email_opt_in": user.email_opt_in,
-                    "anonymize_data": user.anonymize_data,
-                    "email": user.email if not user.anonymize_data else None,
-                    "is_signed_up": True,
-                    "toolbar_mode": user.toolbar_mode,
-                    "billing_plan": user.organization.billing_plan if user.organization is not None else None,
-                    "is_team_unique_user": team.users.count() == 1 if team is not None else None,
-                    "team_setup_complete": (team.completed_snippet_onboarding and team.ingested_event)
-                    if team is not None
-                    else None,
-                },
-            )
             user.save()
+
+    user_identify.identify_task.delay(user_id=user.id)
 
     return JsonResponse(
         {
@@ -147,7 +134,6 @@ def user(request):
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
             "posthog_version": VERSION,
             "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
-            "is_staff": user.is_staff,
             "ee_available": settings.EE_AVAILABLE,
             "ee_enabled": is_ee_enabled(),
             "email_service_available": is_email_available(with_absolute_urls=True),
