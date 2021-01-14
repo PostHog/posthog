@@ -76,18 +76,10 @@ services:
         volumes:
             - ..:/code
         environment:
-            IS_DOCKER: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            CLICKHOUSE_HOST: 'clickhouse'
-            CLICKHOUSE_DATABASE: 'posthog'
-            CLICKHOUSE_SECURE: 'false'
-            CLICKHOUSE_VERIFY: 'false'
             KAFKA_ENABLED: 'true'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: 'asdflaisdjkfalsdkjf'
-            DEBUG: 'true'
-            PRIMARY_DB: 'clickhouse'
         depends_on:
             - db
             - redis

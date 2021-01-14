@@ -209,6 +209,10 @@ LIMIT %(limit)s
     tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
 )
 
+GET_CUSTOM_EVENTS = """
+SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']
+"""
+
 GET_PROPERTIES_VOLUME = """
     SELECT arrayJoin(array_property_keys) as key, count(1) as count FROM events_with_array_props_view WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY key ORDER BY count DESC
 """

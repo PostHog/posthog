@@ -83,12 +83,22 @@ def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
     return entities_list
 
 
+TIME_IN_SECONDS: Dict[str, Any] = {
+    "minute": 60,
+    "hour": 3600,
+    "day": 3600 * 24,
+    "week": 3600 * 24 * 7,
+    "month": 3600 * 24 * 30,
+}
+
 """
 filter_events takes team_id, filter, entity and generates a Q objects that you can use to filter a QuerySet
 """
 
 
-def filter_events(team_id: int, filter, entity: Optional[Entity] = None, include_dates: bool = True) -> Q:
+def filter_events(
+    team_id: int, filter, entity: Optional[Entity] = None, include_dates: bool = True, interval_annotation=None
+) -> Q:
     filters = Q()
     if filter.date_from and include_dates:
         filters &= Q(timestamp__gte=filter.date_from)

@@ -14,6 +14,7 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
         updateCurrentOrganization: (id) => ({ id }),
         updateCurrentProject: (id, dest) => ({ id, dest }),
         setToolbarModalOpen: (isOpen) => ({ isOpen }),
+        setPinnedDashboardsVisible: (visible) => ({ visible }),
     },
     reducers: {
         menuCollapsed: [
@@ -32,6 +33,12 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
             false,
             {
                 setToolbarModalOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
+        pinnedDashboardsVisible: [
+            false,
+            {
+                setPinnedDashboardsVisible: (_, { visible }) => visible,
             },
         ],
     },

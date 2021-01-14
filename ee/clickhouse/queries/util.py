@@ -7,6 +7,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.models.filters import Filter
 from posthog.models.filters.path_filter import PathFilter
+from posthog.queries.base import TIME_IN_SECONDS
 from posthog.types import FilterType
 
 
@@ -41,7 +42,7 @@ def format_ch_timestamp(timestamp: datetime, filter, default_hour_min: str = " 0
         or (filter._date_from == "-24h")
         or (filter._date_from == "-48h")
     )
-    return timestamp.strftime("%Y-%m-%d{}".format(" %H:%M:%S.%f" if is_hour_or_min else default_hour_min))
+    return timestamp.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if is_hour_or_min else default_hour_min))
 
 
 def get_earliest_timestamp(team_id: int) -> datetime:
@@ -50,21 +51,15 @@ def get_earliest_timestamp(team_id: int) -> datetime:
 
 def get_time_diff(
     interval: str, start_time: Optional[datetime], end_time: Optional[datetime], team_id: int
-) -> Tuple[int, int]:
+) -> Tuple[int, int, bool]:
 
     _start_time = start_time or get_earliest_timestamp(team_id)
     _end_time = end_time or timezone.now()
 
-    time_diffs: Dict[str, Any] = {
-        "minute": 60,
-        "hour": 3600,
-        "day": 3600 * 24,
-        "week": 3600 * 24 * 7,
-        "month": 3600 * 24 * 30,
-    }
-
     diff = _end_time - _start_time
-    return int(diff.total_seconds() / time_diffs[interval]) + 1, time_diffs[interval]
+    round_interval = diff.total_seconds() >= TIME_IN_SECONDS[interval] * 2
+
+    return int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + 1, TIME_IN_SECONDS[interval], round_interval
 
 
 PERIOD_TRUNC_MINUTE = "toStartOfMinute"
@@ -91,3 +86,10 @@ def get_trunc_func_ch(period: Optional[str]) -> str:
         return PERIOD_TRUNC_MONTH
     else:
         raise ValueError(f"Period {period} is unsupported.")
+
+
+def date_from_clause(interval_annotation: str, round_interval: bool) -> str:
+    if round_interval:
+        return "AND {interval}(timestamp) >= {interval}(toDateTime(%(date_from)s))".format(interval=interval_annotation)
+    else:
+        return "AND timestamp >= %(date_from)s"

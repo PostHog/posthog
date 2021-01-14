@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useValues } from 'kea'
+import { useValues, useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { Button, Popover, Row, Input, Checkbox, Tooltip } from 'antd'
 import { humanFriendlyDetailedTime } from '~/lib/utils'
@@ -9,6 +9,7 @@ import moment from 'moment'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { dashboardColors } from 'lib/colors'
 import { AnnotationScope } from 'lib/constants'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const { TextArea } = Input
 
@@ -51,6 +52,19 @@ export function AnnotationMarker({
     const [applyAll, setApplyAll] = useState(true)
     const [textAreaVisible, setTextAreaVisible] = useState(false)
     const [hovered, setHovered] = useState(false)
+    const { reportAnnotationViewed } = useActions(eventUsageLogic)
+
+    const visible = focused || (!dynamic && hovered)
+
+    useEffect(() => {
+        if (visible) {
+            reportAnnotationViewed(annotations)
+        } else {
+            reportAnnotationViewed(null)
+            /* We report a null value to cancel (if applicable) the report because the annotation was closed */
+        }
+    }, [visible])
+
     const {
         user: { id, name, email, organization, project },
     } = useValues(userLogic)
@@ -97,6 +111,7 @@ export function AnnotationMarker({
     return (
         <Popover
             trigger="click"
+            visible={visible}
             defaultVisible={false}
             content={
                 dynamic ? (
@@ -174,7 +189,7 @@ export function AnnotationMarker({
                                             data.created_by.id === id ||
                                             data.created_by === 'local') && (
                                             <DeleteOutlined
-                                                className="button-border clickable"
+                                                className="button-border clickable text-danger"
                                                 onClick={() => {
                                                     onDelete(data)
                                                 }}
@@ -249,7 +264,6 @@ export function AnnotationMarker({
                     )}
                 </Row>
             }
-            visible={focused || (!dynamic && hovered)}
         >
             <div
                 style={{

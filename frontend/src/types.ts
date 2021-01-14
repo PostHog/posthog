@@ -26,6 +26,14 @@ export interface UserType {
     email_service_available: boolean
 }
 
+/* Type for User objects in nested serializers (e.g. created_by) */
+export interface UserNestedType {
+    id: number
+    distinct_id: string
+    first_name: string
+    email: string
+}
+
 export interface UserUpdateType {
     user?: Omit<Partial<UserType>, 'team'>
     team?: Partial<TeamType>
@@ -156,6 +164,62 @@ export interface PropertyFilter {
     type: string
     value: string | number
 }
+
+interface BasePropertyFilter {
+    key: string
+    value: string | number | null
+    label?: string
+}
+
+export type PropertyOperator =
+    | 'exact'
+    | 'is_not'
+    | 'icontains'
+    | 'not_icontains'
+    | 'regex'
+    | 'not_regex'
+    | 'gt'
+    | 'lt'
+    | 'is_set'
+    | 'is_not_set'
+
+interface EventPropertyFilter extends BasePropertyFilter {
+    type: 'event'
+    operator: PropertyOperator
+}
+
+export interface PersonPropertyFilter extends BasePropertyFilter {
+    type: 'person'
+    operator: PropertyOperator
+}
+
+interface CohortPropertyFilter extends BasePropertyFilter {
+    type: 'cohort'
+}
+
+export interface RecordingPropertyFilter extends BasePropertyFilter {
+    type: 'recording'
+    key: 'duration'
+    value: number
+    operator: 'lt' | 'gt'
+}
+
+interface ActionTypePropertyFilter extends BasePropertyFilter {
+    type: 'action_type'
+    properties?: Array<EventPropertyFilter>
+}
+
+export interface EventTypePropertyFilter extends BasePropertyFilter {
+    type: 'event_type'
+    properties?: Array<EventPropertyFilter>
+}
+
+export type SessionsPropertyFilter =
+    | PersonPropertyFilter
+    | CohortPropertyFilter
+    | RecordingPropertyFilter
+    | ActionTypePropertyFilter
+    | EventTypePropertyFilter
 
 export interface Entity {
     id: string | number
@@ -314,4 +378,17 @@ export interface PluginErrorType {
     stack?: string
     name?: string
     event?: Record<string, any>
+}
+
+export interface AnnotationType {
+    id: string
+    scope: 'organization' | 'dashboard_item'
+    content: string
+    date_marker: string
+    created_by?: UserNestedType | null
+    created_at: string
+    updated_at: string
+    dashboard_item?: number
+    deleted?: boolean
+    creation_type?: string
 }

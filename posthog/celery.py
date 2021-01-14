@@ -88,7 +88,16 @@ def redis_heartbeat():
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id", "session_recording_events"]
+CLICKHOUSE_TABLES = [
+    "events",
+    "sharded_events",
+    "person",
+    "sharded_person",
+    "person_distinct_id",
+    "sharded_person_distinct_id",
+    "session_recording_events",
+    "sharded_session_recording_events",
+]
 
 
 @app.task(ignore_result=True)
@@ -97,11 +106,16 @@ def clickhouse_lag():
         from ee.clickhouse.client import sync_execute
 
         for table in CLICKHOUSE_TABLES:
-            QUERY = """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
-            query = QUERY.format(table=table)
-            lag = sync_execute(query)[0][2]
-            g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-            g.send("clickhouse_{table}_table_lag_seconds".format(table=table), lag)
+            try:
+                QUERY = (
+                    """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
+                )
+                query = QUERY.format(table=table)
+                lag = sync_execute(query)[0][2]
+                g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
+                g.send("clickhouse_{table}_table_lag_seconds".format(table=table), lag)
+            except:
+                pass
     else:
         pass
 
@@ -112,11 +126,14 @@ def clickhouse_row_count():
         from ee.clickhouse.client import sync_execute
 
         for table in CLICKHOUSE_TABLES:
-            QUERY = """select count(1) freq from {table};"""
-            query = QUERY.format(table=table)
-            rows = sync_execute(query)[0][0]
-            g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-            g.send("clickhouse_{table}_table_row_count".format(table=table), rows)
+            try:
+                QUERY = """select count(1) freq from {table};"""
+                query = QUERY.format(table=table)
+                rows = sync_execute(query)[0][0]
+                g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
+                g.send("clickhouse_{table}_table_row_count".format(table=table), rows)
+            except:
+                pass
     else:
         pass
 
