@@ -3,7 +3,7 @@ from typing import Any, Dict, List
 
 from django.db import connection
 from django.db.models import Count
-from django.db.models.query import Prefetch
+from django.db.models.query import Prefetch, QuerySet
 from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
@@ -96,34 +96,47 @@ class Stickiness(BaseQuery):
     def _retrieve_people(self, filter: StickinessFilter, team: Team) -> ReturnDict:
         from posthog.api.person import PersonSerializer
 
-        if filter.target_entity.type == TREND_FILTER_TYPE_EVENTS:
-            filtered_events = base.process_entity_for_events(
-                filter.target_entity, team_id=team.pk, order_by=None
-            ).filter(base.filter_events(team.pk, filter, filter.target_entity))
-        elif filter.target_entity.type == TREND_FILTER_TYPE_ACTIONS:
-            actions = Action.objects.filter(deleted=False, team=team)
-            actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
-            try:
-                actions.get(pk=filter.target_entity.id)
-            except Action.DoesNotExist:
-                return PersonSerializer([], many=True).data
-
-            filtered_events = base.process_entity_for_events(
-                filter.target_entity, team_id=team.pk, order_by=None
-            ).filter(base.filter_events(team.pk, filter, filter.target_entity))
-        else:
-            raise ValueError("target entity must be action or event")
-
-        events = (
-            filtered_events.values("person_id")
-            .annotate(day_count=Count(filter.trunc_func("timestamp"), distinct=True))
-            .filter(day_count=filter.selected_interval)
-        )
-
-        people = Person.objects.filter(
-            team=team, id__in=[p["person_id"] for p in events[filter.offset : filter.offset + 100]],
-        )
-
+        events = stickiness_process_entity_type(team, filter)
+        events = stickiness_format_intervals(events, filter)
+        people = stickiness_fetch_people(events, team, filter)
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
         return PersonSerializer(people, many=True).data
+
+
+def stickiness_process_entity_type(team: Team, filter: StickinessFilter) -> QuerySet:
+
+    events = Event.objects.none()
+    if filter.target_entity.type == TREND_FILTER_TYPE_EVENTS:
+        events = base.process_entity_for_events(filter.target_entity, team_id=team.pk, order_by=None).filter(
+            base.filter_events(team.pk, filter, filter.target_entity)
+        )
+    elif filter.target_entity.type == TREND_FILTER_TYPE_ACTIONS:
+        actions = Action.objects.filter(deleted=False, team=team)
+        actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
+        try:
+            actions.get(pk=filter.target_entity.id)
+        except Action.DoesNotExist:
+            return Event.objects.none()
+
+        events = base.process_entity_for_events(filter.target_entity, team_id=team.pk, order_by=None).filter(
+            base.filter_events(team.pk, filter, filter.target_entity)
+        )
+    else:
+        raise ValueError("target entity must be action or event")
+    return events
+
+
+def stickiness_format_intervals(events: QuerySet, filter: StickinessFilter) -> QuerySet:
+    return (
+        events.values("person_id")
+        .annotate(day_count=Count(filter.trunc_func("timestamp"), distinct=True))
+        .filter(day_count=filter.selected_interval)
+    )
+
+
+def stickiness_fetch_people(events: QuerySet, team: Team, filter: StickinessFilter, use_offset=True) -> QuerySet:
+    return Person.objects.filter(
+        team=team,
+        id__in=[p["person_id"] for p in (events[filter.offset : filter.offset + 100] if use_offset else events)],
+    )
