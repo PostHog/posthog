@@ -392,3 +392,29 @@ export interface AnnotationType {
     deleted?: boolean
     creation_type?: string
 }
+
+export interface FilterType {
+    insight: 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
+    display?:
+        | 'ActionsLineGraph'
+        | 'ActionsLineGraphCumulative'
+        | 'ActionsTable'
+        | 'ActionsPie'
+        | 'ActionsBar'
+        | 'PathsViz'
+        | 'FunnelViz'
+    interval?: string
+    date_from?: string
+    date_to?: string
+    properties?: PropertyFilter[]
+    events?: Record<string, any>[]
+    actions?: Record<string, any>[]
+    breakdown_type?: 'cohort' | 'person' | 'event'
+    shown_as?: 'Volume' | 'Stickiness' | 'Lifecycle' // DEPRECATED: Remove when releasing `remove-shownas`
+    session?: string
+    period?: string
+    retentionType?: 'retention_recurring' | 'retention_first_time'
+    returningEntity?: Record<string, any>
+    startEntity?: Record<string, any>
+    path_type?: '$pageview' | '$screen' | '$autocapture' | 'custom_event'
+}
