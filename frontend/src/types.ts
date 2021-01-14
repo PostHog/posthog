@@ -288,6 +288,7 @@ export interface SessionType {
     start_url?: string
     end_url?: string
     email?: string
+    action_filter_times: Array<string>
 }
 
 export interface OrganizationBilling {

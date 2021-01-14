@@ -73,6 +73,9 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
         <Table
             columns={columns}
             rowKey="id"
+            rowClassName={(event: EventType) =>
+                (session.action_filter_times || []).includes(event.timestamp) ? 'sessions-event-highlighted' : ''
+            }
             dataSource={events}
             loading={eventsLoading}
             pagination={{
