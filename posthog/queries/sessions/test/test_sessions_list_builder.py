@@ -125,7 +125,7 @@ class TestSessionListBuilder(BaseTest):
 
         self.assertEqual(self.builder.pagination, None)
 
-    def test__email_current_url_set(self):
+    def test_email_current_url_set(self):
         sessions = self.build(
             [
                 MockEvent("1", now()),
@@ -151,3 +151,16 @@ class TestSessionListBuilder(BaseTest):
             },
             sessions[1],
         )
+
+    def test_handles_session_ordering(self):
+        sessions = self.build(
+            [
+                MockEvent("1", now()),
+                MockEvent("2", now() - relativedelta(minutes=3)),
+                MockEvent("2", now() - relativedelta(minutes=7)),
+                MockEvent("1", now() - relativedelta(minutes=25)),
+                MockEvent("2", now() - relativedelta(minutes=999)),
+            ]
+        )
+
+        self.assertEqual([session["distinct_id"] for session in sessions], ["1", "2"])

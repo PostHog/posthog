@@ -143,6 +143,8 @@ def sessions_list_test_factory(sessions, event_factory, action_filter_enabled):
                 event_factory(team=self.team, event="custom-event", distinct_id="1", properties={"$os": "Mac OS X"})
                 event_factory(team=self.team, event="custom-event", distinct_id="2", properties={"$os": "Windows 95"})
                 event_factory(team=self.team, event="another-event", distinct_id="2", properties={"$os": "Windows 95"})
+            with freeze_time("2012-01-15T04:13:22.000Z"):
+                event_factory(team=self.team, event="$pageview", distinct_id="2")
             team_2 = Organization.objects.bootstrap(None)[2]
             Person.objects.create(team=self.team, distinct_ids=["1", "3", "4"], properties={"email": "bla"})
             # Test team leakage

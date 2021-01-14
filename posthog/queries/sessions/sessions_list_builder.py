@@ -41,6 +41,7 @@ class SessionListBuilder:
 
     @cached_property
     def sessions(self):
+        self._sessions.sort(key=lambda session: session["end_time"], reverse=True)
         return self._sessions[: self.limit]
 
     @cached_property
