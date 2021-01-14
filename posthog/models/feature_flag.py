@@ -1,5 +1,5 @@
 import hashlib
-from typing import Dict
+from typing import Dict, List
 
 import posthoganalytics
 from django.contrib.postgres.fields import JSONField
@@ -7,6 +7,7 @@ from django.db import models
 from django.dispatch import receiver
 from django.utils import timezone
 
+from posthog.models.team import Team
 from posthog.queries.base import properties_to_Q
 
 from .filters import Filter
@@ -80,3 +81,15 @@ def feature_flag_created(sender, instance, created, raw, using, **kwargs):
         posthoganalytics.capture(
             instance.created_by.distinct_id, event_name, instance.get_analytics_metadata(),
         )
+
+
+def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
+    flags_enabled = []
+    feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
+        "id", "team_id", "filters", "key", "rollout_percentage"
+    )
+    for feature_flag in feature_flags:
+        # distinct_id will always be a string, but data can have non-string values ("Any")
+        if feature_flag.distinct_id_matches(distinct_id):
+            flags_enabled.append(feature_flag.key)
+    return flags_enabled

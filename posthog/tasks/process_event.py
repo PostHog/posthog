@@ -10,19 +10,7 @@ from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
 from posthog.models import Element, Event, Person, SessionRecordingEvent, Team
-from posthog.models.feature_flag import FeatureFlag
-
-
-def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
-    flags_enabled = []
-    feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
-        "id", "team_id", "filters", "key", "rollout_percentage"
-    )
-    for feature_flag in feature_flags:
-        # distinct_id will always be a string, but data can have non-string values ("Any")
-        if feature_flag.distinct_id_matches(distinct_id):
-            flags_enabled.append(feature_flag.key)
-    return flags_enabled
+from posthog.models.feature_flag import FeatureFlag, get_active_feature_flags
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:

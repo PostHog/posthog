@@ -8,7 +8,7 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from posthog.models import Team, User
-from posthog.tasks.process_event import get_active_feature_flags
+from posthog.models.feature_flag import get_active_feature_flags
 from posthog.utils import cors_response, load_data_from_request
 
 from .capture import _get_project_id, _get_token
