@@ -159,7 +159,7 @@ class User(AbstractUser):
 
         return {
             "realm": "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted",
-            "ee_available": settings.EE_AVAILABLE,
+            "is_ee_available": settings.EE_AVAILABLE,
             "email_opt_in": self.email_opt_in,
             "anonymize_data": self.anonymize_data,
             "email": self.email if not self.anonymize_data else None,
@@ -174,9 +174,9 @@ class User(AbstractUser):
             "billing_plan": self.organization.billing_plan if self.organization else None,
             "organization_id": str(self.organization.id) if self.organization else None,
             "project_id": str(self.team.uuid) if self.team else None,
-            "project_setup_complete": (self.team.completed_snippet_onboarding and self.team.ingested_event)
-            if self.team
-            else False,
+            "project_setup_complete": bool(self.team)
+            and self.team.completed_snippet_onboarding
+            and self.team.ingested_event,
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")
