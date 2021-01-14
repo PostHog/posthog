@@ -1,3 +1,6 @@
+from datetime import datetime
+
+import pytz
 from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Event, Organization, Person
@@ -15,7 +18,7 @@ def _create_action(**kwargs):
     return action
 
 
-def sessions_list_test_factory(sessions, event_factory, action_filters_enabled):
+def sessions_list_test_factory(sessions, event_factory):
     class TestSessionsList(BaseTest):
         def test_sessions_list(self):
             self.create_test_data()
@@ -52,6 +55,20 @@ def sessions_list_test_factory(sessions, event_factory, action_filters_enabled):
             self.assertLength(
                 self.run_query(
                     SessionsFilter(data={"filters": [{"type": "event_type", "key": "id", "value": "another-event"}]})
+                ),
+                1,
+            )
+
+            self.assertLength(
+                self.run_query(
+                    SessionsFilter(
+                        data={
+                            "filters": [
+                                {"type": "event_type", "key": "id", "value": "custom-event"},
+                                {"type": "event_type", "key": "id", "value": "another-event"},
+                            ]
+                        }
+                    )
                 ),
                 1,
             )
@@ -112,25 +129,30 @@ def sessions_list_test_factory(sessions, event_factory, action_filters_enabled):
                 1,
             )
 
-        if action_filters_enabled:
+        @freeze_time("2012-01-15T04:15:00.000Z")
+        def test_match_multiple_action_filters(self):
+            self.create_test_data()
 
-            @freeze_time("2012-01-15T04:01:34.000Z")
-            def test_match_multiple_action_filters(self):
-                self.create_test_data()
-
-                self.assertLength(
-                    self.run_query(
-                        SessionsFilter(
-                            data={
-                                "filters": [
-                                    {"type": "event_type", "key": "id", "value": "custom-event"},
-                                    {"type": "event_type", "key": "id", "value": "another-event"},
-                                ]
-                            }
-                        )
-                    ),
-                    1,
+            sessions = self.run_query(
+                SessionsFilter(
+                    data={
+                        "filters": [
+                            {"type": "event_type", "key": "id", "value": "custom-event"},
+                            {"type": "event_type", "key": "id", "value": "another-event"},
+                        ]
+                    }
                 )
+            )
+
+            self.assertLength(sessions, 1)
+
+            self.assertEqual(
+                sessions[0]["action_filter_times"],
+                [
+                    datetime(2012, 1, 15, 4, 1, 34).replace(tzinfo=pytz.UTC),
+                    datetime(2012, 1, 15, 4, 1, 34).replace(tzinfo=pytz.UTC),
+                ],
+            )
 
         def run_query(self, sessions_filter):
             return sessions().run(sessions_filter, self.team)[0]
@@ -163,5 +185,5 @@ def sessions_list_test_factory(sessions, event_factory, action_filters_enabled):
     return TestSessionsList
 
 
-class DjangoSessionsListTest(sessions_list_test_factory(SessionsList, Event.objects.create, action_filters_enabled=True)):  # type: ignore
+class DjangoSessionsListTest(sessions_list_test_factory(SessionsList, Event.objects.create)):  # type: ignore
     pass

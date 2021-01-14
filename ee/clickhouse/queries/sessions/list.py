@@ -9,7 +9,7 @@ from ee.clickhouse.queries.clickhouse_session_recording import filter_sessions_b
 from ee.clickhouse.queries.sessions.clickhouse_sessions import set_default_dates
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.sessions.list import SESSION_SQL
-from posthog.models import Person, Team
+from posthog.models import Entity, Person, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
 
 Session = Dict
@@ -23,7 +23,9 @@ class ClickhouseSessionsList:
         filter = set_default_dates(filter)
 
         filters, params = parse_prop_clauses(filter.properties, team.pk)
-        action_filter_timestamp_sql, action_filter_params = format_action_filter_aggregate(filter, team.pk)
+        filters_select_clause, filters_timestamps_clause, filters_having, action_filter_params = format_action_filters(
+            filter
+        )
 
         date_from, date_to, _ = parse_timestamps(filter, team.pk)
         params = {
@@ -38,7 +40,9 @@ class ClickhouseSessionsList:
             date_from=date_from,
             date_to=date_to,
             filters=filters,
-            action_filter_timestamp=action_filter_timestamp_sql,
+            filters_select_clause=filters_select_clause,
+            filters_timestamps_clause=filters_timestamps_clause,
+            filters_having=filters_having,
             sessions_limit="LIMIT %(offset)s, %(limit)s",
         )
         query_result = sync_execute(query, params)
@@ -101,19 +105,37 @@ class ClickhouseSessionsList:
                     "event_count": len(result[4]),
                     "events": list(events),
                     "properties": {},
+                    "action_filter_times": [action_time for (action_time,) in result[10:]],
                 }
             )
 
         return final
 
 
-def format_action_filter_aggregate(filter: SessionsFilter, team_id: int):
-    if filter.action_filter is None:
-        return "timestamp", {}
+def format_action_filters(filter: SessionsFilter) -> Tuple[str, str, str, Dict]:
+    if len(filter.action_filters) == 0:
+        return "", "", "", {}
 
-    filter_sql, params = format_entity_filter(filter.action_filter)
-    if filter.action_filter.properties:
-        filters, filter_params = parse_prop_clauses(filter.action_filter.properties, team_id=None)
+    timestamps_clause = select_clause = ""
+    having_clause = []
+    params: Dict = {}
+
+    for index, entity in enumerate(filter.action_filters):
+        timestamp, filter_params = format_action_filter_aggregate(entity, prepend=f"entity_{index}")
+
+        timestamps_clause += f", {timestamp} as action_filter_timestamp_{index}"
+        select_clause += f", groupArray(1)(action_filter_timestamp_{index}) as action_filter_timestamp_{index}"
+        having_clause.append(f"notEmpty(action_filter_timestamp_{index})")
+
+        params = {**params, **filter_params}
+
+    return select_clause, timestamps_clause, f"HAVING {' AND '.join(having_clause)}", params
+
+
+def format_action_filter_aggregate(entity: Entity, prepend: str):
+    filter_sql, params = format_entity_filter(entity, prepend=prepend)
+    if entity.properties:
+        filters, filter_params = parse_prop_clauses(entity.properties, prepend=prepend, team_id=None)
         filter_sql += f" {filters}"
         params = {**params, **filter_params}
 
