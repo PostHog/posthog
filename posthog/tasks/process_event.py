@@ -15,7 +15,9 @@ from posthog.models.feature_flag import FeatureFlag
 
 def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
     flags_enabled = []
-    feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only("key", "rollout_percentage")
+    feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
+        "id", "team_id", "filters", "key", "rollout_percentage"
+    )
     for feature_flag in feature_flags:
         # distinct_id will always be a string, but data can have non-string values ("Any")
         if feature_flag.distinct_id_matches(distinct_id):
