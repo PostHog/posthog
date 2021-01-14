@@ -16,10 +16,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
     listeners: {
         reportAnnotationViewed: async ({ annotations }: { annotations: AnnotationType[] | null }, breakpoint) => {
             if (!annotations) {
-                // If value is `null` the component has been unmounted, we cancel the report if the timeout hasn't elapsed
+                // If value is `null` the component has been unmounted, don't report
                 return
             }
-            await breakpoint(500)
+
+            await breakpoint(500) // Debounce calls to make sure we don't report accidentally hovering over an annotation.
 
             for (const annotation of annotations) {
                 /* Report one event per annotation */
@@ -57,7 +58,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 custom_properties_count,
                 posthog_properties_count,
             }
-            console.log('person viewed', properties)
             posthog.capture('person viewed', properties)
         },
     },
