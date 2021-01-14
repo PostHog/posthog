@@ -69,7 +69,11 @@ export function AutocapturePanel(): JSX.Element {
                     Faster option. Particularly recommended for new projects where you don't know what your analytics
                     will look like just yet. Just add this snippet to your website and we'll{' '}
                     <b>automatically capture page views, sessions and all relevant interactions</b> within your website.{' '}
-                    <Link to="https://posthog.com/product-features/event-autocapture" target="_blank" rel="noopener">
+                    <Link
+                        to="https://posthog.com/product-features/event-autocapture?utm_medium=in-product&utm_campaign=ingestion-web"
+                        target="_blank"
+                        rel="noopener"
+                    >
                         Learn more
                     </Link>
                     .
@@ -90,7 +94,11 @@ export function AutocapturePanel(): JSX.Element {
                     Use this option if you want more granular control of how PostHog runs in your website and the events
                     you capture. Recommended for teams with more stable products and more defined analytics
                     requirements.{' '}
-                    <Link to="https://posthog.com/docs/integrations/js-integration/" target="_blank" rel="noopener">
+                    <Link
+                        to="https://posthog.com/docs/integrations/js-integration/?utm_medium=in-product&utm_campaign=ingestion-web"
+                        target="_blank"
+                        rel="noopener"
+                    >
                         Learn more
                     </Link>
                     .
