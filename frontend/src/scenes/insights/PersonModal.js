@@ -35,10 +35,12 @@ export function PersonModal({ visible, view }) {
                 <div
                     style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                 >
-                    Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
-                    <Button type="primary" onClick={() => saveCohortWithFilters()}>
-                        {'Save cohort'}
-                    </Button>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                        Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
+                        <Button type="primary" onClick={() => saveCohortWithFilters()}>
+                            {'Save cohort'}
+                        </Button>
+                    </div>
                     {user?.is_multi_tenancy && featureFlags['filter_by_session_props'] ? (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                             <Link
