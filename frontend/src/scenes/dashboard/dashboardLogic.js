@@ -10,9 +10,10 @@ import { isAndroidOrIOS, clearDOMTextSelection } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const dashboardLogic = kea({
-    connect: [dashboardsModel, dashboardItemsModel],
+    connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
 
     key: (props) => props.id,
 
@@ -28,10 +29,9 @@ export const dashboardLogic = kea({
         enableWobblyDragging: true,
         disableDragging: true,
         refreshDashboardItem: (id) => ({ id }),
-        reportUsage: (payload) => payload, // Reports usage via `posthog.capture`
     }),
 
-    loaders: ({ props, actions }) => ({
+    loaders: ({ props }) => ({
         allItems: [
             [],
             {
@@ -40,7 +40,7 @@ export const dashboardLogic = kea({
                         const dashboard = await api.get(
                             `api/dashboard/${props.id}${props.shareToken ? '/?share_token=' + props.shareToken : ''}`
                         )
-                        actions.reportUsage(dashboard)
+                        eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
                         if (error.status === 404) {
@@ -226,7 +226,7 @@ export const dashboardLogic = kea({
         },
     }),
 
-    listeners: ({ actions, values, key, cache, props }) => ({
+    listeners: ({ actions, values, key, cache }) => ({
         addNewDashboard: async () => {
             prompt({ key: `new-dashboard-${key}` }).actions.prompt({
                 title: 'New dashboard',
@@ -317,31 +317,6 @@ export const dashboardLogic = kea({
             if (dashboardItem.refreshing) {
                 setTimeout(() => actions.refreshDashboardItem(id), 1000)
             }
-        },
-        reportUsage: async (payload, breakpoint) => {
-            await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
-            const { created_at, name, is_shared, pinned } = payload
-            const properties = {
-                created_at,
-                name,
-                is_shared,
-                pinned,
-                sample_items_count: 0,
-                item_count: payload.items.length,
-                created_by_system: !payload.created_by,
-                watching_shared: !!props.shareToken,
-            }
-
-            for (const item of payload.items) {
-                const key = `${item.filters.insight.toLowerCase()}_count`
-                if (!properties[key]) {
-                    properties[key] = 1
-                } else {
-                    properties[key] += 1
-                }
-                properties.sample_items_count += item.is_sample ? 1 : 0
-            }
-            posthog.capture('viewed dashboard', properties)
         },
     }),
 })

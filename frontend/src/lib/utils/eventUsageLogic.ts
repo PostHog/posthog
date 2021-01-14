@@ -4,7 +4,7 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from 'types/lib/utils/eventUsageLogicType'
-import { AnnotationType, FilterType } from '~/types'
+import { AnnotationType, FilterType, DashboardType } from '~/types'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
@@ -13,6 +13,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportAnnotationViewed: (annotations) => ({ annotations }),
         reportPersonDetailViewed: (person) => ({ person }),
         reportInsightViewed: (filters, isFirstLoad) => ({ filters, isFirstLoad }),
+        reportDashboardViewed: (dashboard, hasShareToken) => ({ dashboard, hasShareToken }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }: { annotations: AnnotationType[] | null }, breakpoint) => {
@@ -120,6 +121,35 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
 
             posthog.capture('insight viewed', properties)
+        },
+        reportDashboardViewed: async (
+            { dashboard, hasShareToken }: { hasShareToken: boolean; dashboard: DashboardType },
+            breakpoint
+        ) => {
+            await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
+            const { created_at, name, is_shared, pinned } = dashboard
+            const properties = {
+                created_at,
+                name: userLogic.values.user?.is_multi_tenancy ? name : undefined, // Don't send name on self-hosted
+                is_shared,
+                pinned,
+                sample_items_count: 0,
+                item_count: dashboard.items.length,
+                created_by_system: !dashboard.created_by,
+                has_share_token: hasShareToken,
+            }
+
+            for (const item of dashboard.items) {
+                const key = `${item.filters.insight.toLowerCase()}_count`
+                if (!properties[key]) {
+                    properties[key] = 1
+                } else {
+                    properties[key] += 1
+                }
+                properties.sample_items_count += item.is_sample ? 1 : 0
+            }
+
+            posthog.capture('viewed dashboard', properties)
         },
     },
 })
