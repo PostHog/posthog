@@ -9,11 +9,13 @@ import { JSInstructions } from '../frameworks'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { userLogic } from 'scenes/userLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function AutocapturePanel(): JSX.Element {
     const { index, totalSteps } = useValues(ingestionLogic)
     const { setPlatform, setVerify } = useActions(ingestionLogic)
     const { user } = useValues(userLogic)
+    const { reportIngestionBookmarkletCollapsible } = useActions(eventUsageLogic)
     return (
         <CardContainer
             index={index}
@@ -23,7 +25,7 @@ export function AutocapturePanel(): JSX.Element {
             onBack={() => setPlatform(null)}
         >
             {user?.team && (
-                <Collapse data-attr="hello-there">
+                <Collapse onChange={(shownPanels) => reportIngestionBookmarkletCollapsible(shownPanels)}>
                     <Collapse.Panel
                         header={
                             <>

@@ -15,6 +15,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportInsightViewed: (filters, isFirstLoad) => ({ filters, isFirstLoad }),
         reportDashboardViewed: (dashboard, hasShareToken) => ({ dashboard, hasShareToken }),
         reportBookmarkletDragged: () => true,
+        reportIngestionBookmarkletCollapsible: (activePanels) => ({ activePanels }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }: { annotations: AnnotationType[] | null }, breakpoint) => {
@@ -155,6 +156,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportBookmarkletDragged: async (_, breakpoint) => {
             breakpoint(500)
             posthog.capture('bookmarklet drag start')
+        },
+        reportIngestionBookmarkletCollapsible: async ({ activePanels }: { activePanels: string[] }, breakpoint) => {
+            breakpoint(500)
+            const action = activePanels.includes('bookmarklet') ? 'shown' : 'hidden'
+            posthog.capture(`ingestion bookmarklet panel ${action}`)
         },
     },
 })
