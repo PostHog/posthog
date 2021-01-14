@@ -278,13 +278,15 @@ export interface EventType {
 export interface SessionType {
     distinct_id: string
     event_count: number
-    events: EventType[]
+    events?: EventType[]
     global_session_id: string
     length: number
-    properties: Record<string, any>
     start_time: string
     end_time: string
     session_recording_ids: string[]
+    start_url?: string
+    end_url?: string
+    email?: string
 }
 
 export interface OrganizationBilling {

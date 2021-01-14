@@ -4,7 +4,7 @@ from freezegun import freeze_time
 
 from posthog.models import Person, SessionRecordingEvent
 from posthog.models.filters.sessions_filter import SessionsFilter
-from posthog.queries.session_recording import SessionRecording, filter_sessions_by_recordings
+from posthog.queries.sessions.session_recording import SessionRecording, filter_sessions_by_recordings
 from posthog.test.base import BaseTest
 
 

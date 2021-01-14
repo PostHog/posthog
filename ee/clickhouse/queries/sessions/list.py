@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_entity_filter
@@ -11,15 +11,15 @@ from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.sessions.list import SESSION_SQL
 from posthog.models import Person, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
-from posthog.queries.base import BaseQuery
 
+Session = Dict
 SESSIONS_LIST_DEFAULT_LIMIT = 50
 
 
-class ClickhouseSessionsList(BaseQuery):
-    def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT)
-        offset = kwargs.get("offset", 0)
+class ClickhouseSessionsList:
+    def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
+        limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT) + 1
+        offset = filter.pagination.get("offset", 0)
         filter = set_default_dates(filter)
 
         filters, params = parse_prop_clauses(filter.properties, team.pk)
@@ -44,9 +44,14 @@ class ClickhouseSessionsList(BaseQuery):
         query_result = sync_execute(query, params)
         result = self._parse_list_results(query_result)
 
+        pagination = None
+        if len(result) == limit:
+            result.pop()
+            pagination = {"offset": offset + limit - 1}
+
         self._add_person_properties(team, result)
 
-        return filter_sessions_by_recordings(team, result, filter)
+        return filter_sessions_by_recordings(team, result, filter), pagination
 
     def _add_person_properties(self, team=Team, sessions=List[Tuple]):
         distinct_id_hash = {}
@@ -66,7 +71,7 @@ class ClickhouseSessionsList(BaseQuery):
 
         for session in sessions:
             if distinct_to_person.get(session["distinct_id"], None):
-                session["properties"] = distinct_to_person[session["distinct_id"]].properties
+                session["email"] = distinct_to_person[session["distinct_id"]].properties.get("email")
 
     def _parse_list_results(self, results: List[Tuple]):
         final = []
