@@ -133,7 +133,7 @@ class OrganizationSignupSerializer(serializers.Serializer):
         )
 
         posthoganalytics.identify(
-            user.distinct_id, {"is_instance_first_user": is_instance_first_user, "is_first_org_first_user": True},
+            user.distinct_id, {"is_first_user": is_instance_first_user, "is_organization_first_user": True},
         )
         posthoganalytics.capture(
             user.distinct_id,
