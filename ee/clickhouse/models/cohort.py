@@ -10,7 +10,6 @@ from ee.clickhouse.sql.person import (
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
 )
-from ee.idl.gen import person_static_cohort_pb2
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_PERSON_STATIC_COHORT
 from posthog.models import Action, Cohort, Filter, Team
@@ -22,10 +21,10 @@ def format_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
 
     if cohort.is_static:
         return (
-            "person_id IN (SELECT person_id FROM {} WHERE cohort_id = {})".format(
-                PERSON_STATIC_COHORT_TABLE, cohort.pk
+            "person_id IN (SELECT person_id FROM {} WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s)".format(
+                PERSON_STATIC_COHORT_TABLE
             ),
-            {},
+            {"cohort_id": cohort.pk, "team_id": cohort.team_id},
         )
 
     for group_idx, group in enumerate(cohort.groups):
@@ -74,11 +73,12 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
 
 def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int, team: Team):
     for person_uuid in person_uuids:
-        pb_event = person_static_cohort_pb2.PersonStaticCohort()
-        pb_event.id = str(uuid.uuid4())
-        pb_event.person_id = str(person_uuid)
-        pb_event.cohort_id = cohort_id
-        pb_event.team_id = team.pk
+        person_cohort = {
+            "id": str(uuid.uuid4()),
+            "person_id": str(person_uuid),
+            "cohort_id": cohort_id,
+            "team_id": team.pk,
+        }
 
         p = ClickhouseProducer()
-        p.produce_proto(sql=INSERT_PERSON_STATIC_COHORT, topic=KAFKA_PERSON_STATIC_COHORT, data=pb_event)
+        p.produce_proto(sql=INSERT_PERSON_STATIC_COHORT, topic=KAFKA_PERSON_STATIC_COHORT, data=person_cohort)

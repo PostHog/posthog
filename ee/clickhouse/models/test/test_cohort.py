@@ -213,3 +213,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort.calculate_people()
         results = get_person_ids_by_cohort_id(self.team, cohort.id)
         self.assertEqual(len(results), 2)
+
+        # if we add people again, don't increase the number of people in cohort
+        cohort.insert_users_by_list(["123"])
+        results = get_person_ids_by_cohort_id(self.team, cohort.id)
+        self.assertEqual(len(results), 2)
