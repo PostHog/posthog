@@ -15,6 +15,7 @@ import {
 import { ViewType, insightLogic } from './insightLogic'
 import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const EntityTypes = {
     ACTIONS: 'actions',
@@ -131,8 +132,8 @@ export const trendsLogic = kea({
     },
 
     connect: {
-        values: [userLogic, ['eventNames'], actionsModel, ['actions']],
-        actions: [insightLogic, ['setAllFilters', 'reportUsage'], insightHistoryLogic, ['createInsight']],
+        values: [userLogic, ['eventNames'], actionsModel, ['actions'], insightLogic, ['isFirstLoad']],
+        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
     },
 
     loaders: ({ values, props }) => ({
@@ -388,7 +389,7 @@ export const trendsLogic = kea({
                 } else {
                     /* Edge case when opening a trends graph from a dashboard or sometimes when trends are loaded
                     with filters already set, `setAllFilters` action is not triggered, and therefore usage is not reported */
-                    actions.reportUsage(values.filters)
+                    eventUsageLogic.actions.reportInsightViewed(values.filters, values.isFirstLoad)
                 }
 
                 handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))

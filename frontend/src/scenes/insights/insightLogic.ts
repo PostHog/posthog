@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { toParams, fromParams } from 'lib/utils'
-import posthog from 'posthog-js'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from 'types/scenes/insights/insightLogicType'
 
 export const ViewType = {
@@ -12,34 +12,9 @@ export const ViewType = {
     RETENTION: 'RETENTION',
     PATHS: 'PATHS',
 }
-interface FilterType {
-    insight: 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
-    display?:
-        | 'ActionsLineGraph'
-        | 'ActionsLineGraphCumulative'
-        | 'ActionsTable'
-        | 'ActionsPie'
-        | 'ActionsBar'
-        | 'PathsViz'
-        | 'FunnelViz'
-    interval?: string
-    date_from?: string
-    date_to?: string
-    properties?: Record<string, any>[]
-    events?: Record<string, any>[]
-    actions?: Record<string, any>[]
-    breakdown_type?: 'cohort' | 'person' | 'event'
-    shown_as?: 'Volume' | 'Stickiness' | 'Lifecycle' // DEPRECATED: Remove when releasing `remove-shownas`
-    session?: string
-    period?: string
-    retentionType?: 'retention_recurring' | 'retention_first_time'
-    returningEntity?: Record<string, any>
-    startEntity?: Record<string, any>
-    path_type?: '$pageview' | '$screen' | '$autocapture' | 'custom_event'
-}
 
 /*
-InsighLogic maintains state for changing between insight features
+InsightLogic maintains state for changing between insight features
 This includes handling the urls and view state
 */
 
@@ -50,7 +25,6 @@ export const insightLogic = kea<insightLogicType>({
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         setNotFirstLoad: () => {},
-        reportUsage: (filters) => filters, // Reports usage via `posthog.capture`
     }),
     reducers: () => ({
         cachedUrls: [
@@ -84,66 +58,10 @@ export const insightLogic = kea<insightLogicType>({
             },
         ],
     }),
-    listeners: ({ values, actions }) => ({
+    listeners: ({ actions, values }) => ({
         setAllFilters: (filters) => {
-            actions.reportUsage(filters.filters)
+            eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad)
             actions.setNotFirstLoad()
-        },
-        reportUsage: async (filters: FilterType, breakpoint) => {
-            await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
-
-            // Reports `insight viewed` event
-            const { display, interval, date_from, date_to, shown_as } = filters
-
-            // DEPRECATED: Remove when releasing `remove-shownas`
-            // Support for legacy `shown_as` property in a way that ensures standardized data reporting
-            let { insight } = filters
-            const SHOWN_AS_MAPPING: Record<string, 'TRENDS' | 'LIFECYCLE' | 'STICKINESS'> = {
-                Volume: 'TRENDS',
-                Lifecycle: 'LIFECYCLE',
-                Stickiness: 'STICKINESS',
-            }
-            if (shown_as) {
-                insight = SHOWN_AS_MAPPING[shown_as]
-            }
-
-            const properties: Record<string, any> = {
-                is_first_component_load: values.isFirstLoad,
-                insight,
-                display,
-                interval,
-                date_from,
-                date_to,
-                filters_count: filters.properties?.length || 0, // Only counts general filters (i.e. not per-event filters)
-                events_count: filters.events?.length, // Number of event lines in insights graph; number of steps in funnel
-                actions_count: filters.actions?.length, // Number of action lines in insights graph; number of steps in funnel
-            }
-
-            properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
-
-            // Custom properties for each insight
-            if (insight === 'TRENDS') {
-                properties.breakdown_type = filters.breakdown_type
-            } else if (insight === 'SESSIONS') {
-                properties.session_distribution = filters.session
-            } else if (insight === 'FUNNELS') {
-                properties.session_distribution = filters.session
-            } else if (insight === 'RETENTION') {
-                properties.period = filters.period
-                properties.date_to = filters.date_to
-                properties.retention_type = filters.retentionType
-                const cohortizingEvent = filters.startEntity?.events.length
-                    ? filters.startEntity?.events[0].id
-                    : filters.startEntity?.actions[0].id
-                const retainingEvent = filters.returningEntity?.events.length
-                    ? filters.returningEntity?.events[0].id
-                    : filters.returningEntity?.actions[0].id
-                properties.same_retention_and_cohortizing_event = cohortizingEvent == retainingEvent
-            } else if (insight === 'PATHS') {
-                properties.path_type = filters.path_type
-            }
-
-            posthog.capture('insight viewed', properties)
         },
     }),
     actionToUrl: ({ actions, values }) => ({

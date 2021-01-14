@@ -4,7 +4,7 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from 'types/lib/utils/eventUsageLogicType'
-import { AnnotationType } from '~/types'
+import { AnnotationType, FilterType } from '~/types'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
@@ -12,6 +12,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
     actions: {
         reportAnnotationViewed: (annotations) => ({ annotations }),
         reportPersonDetailViewed: (person) => ({ person }),
+        reportInsightViewed: (filters, isFirstLoad) => ({ filters, isFirstLoad }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }: { annotations: AnnotationType[] | null }, breakpoint) => {
@@ -59,6 +60,66 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 posthog_properties_count,
             }
             posthog.capture('person viewed', properties)
+        },
+        reportInsightViewed: async (
+            { filters, isFirstLoad }: { filters: FilterType; isFirstLoad: boolean },
+            breakpoint
+        ) => {
+            await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
+
+            // Reports `insight viewed` event
+            const { display, interval, date_from, date_to, shown_as } = filters
+
+            // DEPRECATED: Remove when releasing `remove-shownas`
+            // Support for legacy `shown_as` property in a way that ensures standardized data reporting
+            let { insight } = filters
+            const SHOWN_AS_MAPPING: Record<string, 'TRENDS' | 'LIFECYCLE' | 'STICKINESS'> = {
+                Volume: 'TRENDS',
+                Lifecycle: 'LIFECYCLE',
+                Stickiness: 'STICKINESS',
+            }
+            if (shown_as) {
+                insight = SHOWN_AS_MAPPING[shown_as]
+            }
+
+            const properties: Record<string, any> = {
+                is_first_component_load: isFirstLoad,
+                insight,
+                display,
+                interval,
+                date_from,
+                date_to,
+                filters, // See https://github.com/PostHog/posthog/pull/2787#discussion_r556346868 for details
+                filters_count: filters.properties?.length || 0, // Only counts general filters (i.e. not per-event filters)
+                events_count: filters.events?.length || 0, // Number of event lines in insights graph; number of steps in funnel
+                actions_count: filters.actions?.length || 0, // Number of action lines in insights graph; number of steps in funnel
+            }
+
+            properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
+
+            // Custom properties for each insight
+            if (insight === 'TRENDS') {
+                properties.breakdown_type = filters.breakdown_type
+            } else if (insight === 'SESSIONS') {
+                properties.session_distribution = filters.session
+            } else if (insight === 'FUNNELS') {
+                properties.session_distribution = filters.session
+            } else if (insight === 'RETENTION') {
+                properties.period = filters.period
+                properties.date_to = filters.date_to
+                properties.retention_type = filters.retentionType
+                const cohortizingEvent = filters.startEntity?.events.length
+                    ? filters.startEntity?.events[0].id
+                    : filters.startEntity?.actions[0].id
+                const retainingEvent = filters.returningEntity?.events.length
+                    ? filters.returningEntity?.events[0].id
+                    : filters.returningEntity?.actions[0].id
+                properties.same_retention_and_cohortizing_event = cohortizingEvent == retainingEvent
+            } else if (insight === 'PATHS') {
+                properties.path_type = filters.path_type
+            }
+
+            posthog.capture('insight viewed', properties)
         },
     },
 })
