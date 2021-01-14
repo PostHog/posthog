@@ -52,10 +52,6 @@ class SessionsFiltersMixin(BaseParamMixin):
         ]
 
     @cached_property
-    def action_filter(self) -> Optional[Entity]:
-        return self.action_filters[0] if len(self.action_filters) > 0 else None
-
-    @cached_property
     def person_filter_properties(self) -> List[Property]:
         return [
             Property(**filter)
