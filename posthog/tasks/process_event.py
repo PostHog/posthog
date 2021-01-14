@@ -101,7 +101,7 @@ def store_names_and_properties(team: Team, event: str, properties: Dict) -> None
         team.save()
 
 
-def _add_missing_feature_flags(properties: Dict, team: Team, distinct_id: str):
+def _add_missing_feature_flags(properties: Dict, team: Team, distinct_id: str) -> None:
     # Only add missing feature flags on web
     if not properties.get("$lib") == "web" or properties.get("$active_feature_flags"):
         return
