@@ -141,7 +141,7 @@ export const trendsLogic = kea({
             cohortLogic({
                 cohort: {
                     id: 'new',
-                    groups: [{}],
+                    groups: [],
                 },
             }),
             ['saveCohort'],
@@ -284,7 +284,11 @@ export const trendsLogic = kea({
         [actions.saveCohortWithFilters]: () => {
             const { label, action, day, breakdown_value } = values.people
             const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
-            actions.saveCohort(filterParams)
+            const cohortParams = {
+                is_static: true,
+                name: label,
+            }
+            actions.saveCohort(cohortParams, filterParams)
         },
         [actions.loadPeople]: async ({ label, action, day, breakdown_value }, breakpoint) => {
             let people = []

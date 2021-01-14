@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 
 import posthoganalytics
 from django.db.models import Count, QuerySet
+from django.db.models.expressions import Value
 from django.db.models.sql.query import Query
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -46,7 +47,9 @@ class CohortSerializer(serializers.ModelSerializer):
         calculate_cohort_from_csv.delay(cohort.pk, distinct_ids_and_emails)
 
     def _handle_static(self, people: QuerySet, cohort: Cohort) -> None:
-        calculate_cohort_from_csv.delay(cohort.pk, [person.distinct_id for person in people])
+        calculate_cohort_from_csv.delay(
+            cohort.pk, [person.distinct_ids[0] for person in people if len(person.distinct_ids)]
+        )
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
@@ -54,19 +57,22 @@ class CohortSerializer(serializers.ModelSerializer):
         validated_data["is_calculating"] = True
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
-        if request.FILES.get("csv"):
-            self._handle_csv(request.FILES["csv"], cohort)
-
-        if request.GET.get("static"):
-            filter = Filter(request=request)
-            team = request.user.team
-            events = filter_by_type(team=team, filter=filter)
-            people = calculate_people(team=team, events=events, filter=filter)
-            self._handle_static(people, cohort)
+        if cohort.is_static:
+            if request.FILES.get("csv"):
+                self._handle_csv(request.FILES["csv"], cohort)
+            else:
+                try:
+                    filter = Filter(request=request)
+                    team = request.user.team
+                    events = filter_by_type(team=team, filter=filter)
+                    people = calculate_people(team=team, events=events, filter=filter)
+                    self._handle_static(people, cohort)
+                except:
+                    raise ValueError("This cohort has no conditions")
+        else:
+            calculate_cohort.delay(cohort_id=cohort.pk)
 
         posthoganalytics.capture(request.user.distinct_id, "cohort created", cohort.get_analytics_metadata())
-        if not cohort.is_static:
-            calculate_cohort.delay(cohort_id=cohort.pk)
         return cohort
 
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
