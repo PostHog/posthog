@@ -81,4 +81,4 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
         }
 
         p = ClickhouseProducer()
-        p.produce_proto(sql=INSERT_PERSON_STATIC_COHORT, topic=KAFKA_PERSON_STATIC_COHORT, data=person_cohort)
+        p.produce(sql=INSERT_PERSON_STATIC_COHORT, topic=KAFKA_PERSON_STATIC_COHORT, data=person_cohort)
