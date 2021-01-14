@@ -76,10 +76,10 @@ class CohortSerializer(serializers.ModelSerializer):
                     stickiness_filter = StickinessFilter(
                         request=request, team=team, get_earliest_timestamp=self.earliest_timestamp_func
                     )
-                    people = self._fetch_stickiness_people(stickiness_filter, team)
+                    people_distinct_ids = self._fetch_stickiness_people(stickiness_filter, team)
                 else:
-                    people = self._fetch_trend_people(filter, team)
-                self._calculate_static_by_people(people, cohort)
+                    people_distinct_ids = self._fetch_trend_people(filter, team)
+                self._calculate_static_by_people(people_distinct_ids, cohort)
             except:
                 raise ValueError("This cohort has no conditions")
 
@@ -89,19 +89,19 @@ class CohortSerializer(serializers.ModelSerializer):
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
         calculate_cohort_from_csv.delay(cohort.pk, distinct_ids_and_emails)
 
-    def _calculate_static_by_people(self, people: QuerySet, cohort: Cohort) -> None:
-        calculate_cohort_from_csv.delay(
-            cohort.pk, [person.distinct_ids[0] for person in people if len(person.distinct_ids)]
-        )
+    def _calculate_static_by_people(self, people: List[str], cohort: Cohort) -> None:
+        calculate_cohort_from_csv.delay(cohort.pk, people)
 
-    def _fetch_stickiness_people(self, filter: StickinessFilter, team: Team) -> QuerySet:
+    def _fetch_stickiness_people(self, filter: StickinessFilter, team: Team) -> List[str]:
         events = stickiness_process_entity_type(team, filter)
         events = stickiness_format_intervals(events, filter)
-        return stickiness_fetch_people(events, team, filter)
+        people = stickiness_fetch_people(events, team, filter)
+        return [person.distinct_ids[0] for person in people if len(person.distinct_ids)]
 
-    def _fetch_trend_people(self, filter: Filter, team: Team) -> QuerySet:
+    def _fetch_trend_people(self, filter: Filter, team: Team) -> List[str]:
         events = filter_by_type(team=team, filter=filter)
-        return calculate_people(team=team, events=events, filter=filter)
+        people = calculate_people(team=team, events=events, filter=filter)
+        return [person.distinct_ids[0] for person in people if len(person.distinct_ids)]
 
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
@@ -112,7 +112,7 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.save()
 
         if request.FILES.get("csv") and cohort.is_static:
-            self._handle_csv(request.FILES["csv"], cohort)
+            self._calculate_static_by_csv(request.FILES["csv"], cohort)
 
         posthoganalytics.capture(
             request.user.distinct_id,
