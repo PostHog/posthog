@@ -1,16 +1,19 @@
 import { CardContainer } from 'scenes/ingestion/CardContainer'
-import { Collapse, Tag } from 'antd'
+import { Alert, Collapse, Tag } from 'antd'
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
-import { BulbOutlined } from '@ant-design/icons'
+import { BulbOutlined, BookOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { JSInstructions } from '../frameworks'
 import { JSSnippet } from 'lib/components/JSSnippet'
+import { JSBookmarklet } from 'lib/components/JSBookmarklet'
+import { userLogic } from 'scenes/userLogic'
 
 export function AutocapturePanel(): JSX.Element {
     const { index, totalSteps } = useValues(ingestionLogic)
     const { setPlatform, setVerify } = useActions(ingestionLogic)
+    const { user } = useValues(userLogic)
     return (
         <CardContainer
             index={index}
@@ -19,19 +22,45 @@ export function AutocapturePanel(): JSX.Element {
             onSubmit={() => setVerify(true)}
             onBack={() => setPlatform(null)}
         >
-            <Collapse>
-                <Collapse.Panel
-                    header={
-                        <>
-                            <BulbOutlined style={{ color: 'var(--warning)' }} /> <b>Just exploring?</b> Immediately run
-                            PostHog in your website for some initial exploring.
-                        </>
-                    }
-                    key="1"
-                >
-                    Hello world!
-                </Collapse.Panel>
-            </Collapse>
+            {user?.team && (
+                <Collapse data-attr="hello-there">
+                    <Collapse.Panel
+                        header={
+                            <>
+                                <BulbOutlined style={{ color: 'var(--warning)' }} /> <b>Just exploring?</b> Immediately
+                                run PostHog in your website for some initial exploring.
+                            </>
+                        }
+                        key="bookmarklet"
+                    >
+                        If you want to quickly test PostHog in your website <b>without changing any code</b>, try out
+                        our bookmarklet.
+                        <b>Steps:</b>
+                        <ol>
+                            <li>
+                                <b>Drag</b> the link (<BookOutlined />) below to your bookmarks toolbar.{' '}
+                            </li>
+                            <li>Open the website you want to track and click on the bookmark you just added.</li>
+                            <li>Click continue below and see events coming in.</li>
+                        </ol>
+                        <div className="mt">
+                            <JSBookmarklet team={user.team} />
+                        </div>
+                        <div className="mt">
+                            <Alert
+                                type="warning"
+                                message={
+                                    <>
+                                        Please note this installation is only{' '}
+                                        <b>temporary, intended just for testing</b>. It will only work for the current
+                                        page and only in your browser session.
+                                    </>
+                                }
+                            />
+                        </div>
+                    </Collapse.Panel>
+                </Collapse>
+            )}
             <div style={{ marginTop: 16 }}>
                 <h2>
                     Option 1. Autocapture <Tag color="green">Recommended</Tag>

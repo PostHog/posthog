@@ -1,5 +1,5 @@
 import React from 'react'
-import { BookOutlined } from '@ant-design/icons'
+import { BookOutlined, ArrowLeftOutlined } from '@ant-design/icons'
 import { TeamType } from '~/types'
 
 export function JSBookmarklet({ team }: { team: TeamType }): JSX.Element {
@@ -10,7 +10,10 @@ export function JSBookmarklet({ team }: { team: TeamType }): JSX.Element {
 
     return (
         <a href={href}>
-            <BookOutlined /> PostHog Bookmarklet
+            <BookOutlined /> PostHog Bookmarklet{' '}
+            <span style={{ color: 'var(--muted)', fontStyle: 'italic', marginLeft: 16 }}>
+                <ArrowLeftOutlined /> <b>drag</b> to your bookmarks. Don't click it.
+            </span>
         </a>
     )
 }
