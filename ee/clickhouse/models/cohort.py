@@ -10,7 +10,6 @@ from ee.clickhouse.sql.person import (
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
 )
-from ee.idl.gen import person_static_cohort_pb2
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_PERSON_STATIC_COHORT
 from posthog.models import Action, Cohort, Filter, Team
