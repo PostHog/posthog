@@ -157,6 +157,10 @@ class User(AbstractUser):
             organization__in=self.organizations.all(),
         ).values("user_id").distinct().count()
 
+        project_setup_complete = False
+        if self.team and self.team.completed_snippet_onboarding and self.team.ingested_event:
+            project_setup_complete = True
+
         return {
             "realm": "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted",
             "is_ee_available": settings.EE_AVAILABLE,
@@ -174,9 +178,7 @@ class User(AbstractUser):
             "billing_plan": self.organization.billing_plan if self.organization else None,
             "organization_id": str(self.organization.id) if self.organization else None,
             "project_id": str(self.team.uuid) if self.team else None,
-            "project_setup_complete": bool(self.team)
-            and self.team.completed_snippet_onboarding
-            and self.team.ingested_event,
+            "project_setup_complete": project_setup_complete,
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")
