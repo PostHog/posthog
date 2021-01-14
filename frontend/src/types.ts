@@ -26,6 +26,14 @@ export interface UserType {
     email_service_available: boolean
 }
 
+/* Type for User objects in nested serializers (e.g. created_by) */
+export interface UserNestedType {
+    id: number
+    distinct_id: string
+    first_name: string
+    email: string
+}
+
 export interface UserUpdateType {
     user?: Omit<Partial<UserType>, 'team'>
     team?: Partial<TeamType>
@@ -370,4 +378,17 @@ export interface PluginErrorType {
     stack?: string
     name?: string
     event?: Record<string, any>
+}
+
+export interface AnnotationType {
+    id: string
+    scope: 'organization' | 'dashboard_item'
+    content: string
+    date_marker: string
+    created_by?: UserNestedType | null
+    created_at: string
+    updated_at: string
+    dashboard_item?: number
+    deleted?: boolean
+    creation_type?: string
 }
