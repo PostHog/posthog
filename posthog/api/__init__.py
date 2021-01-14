@@ -55,6 +55,7 @@ organizations_router.register(
 if is_ee_enabled():
     try:
         from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet
+        from ee.clickhouse.views.cohort import ClickhouseCohortViewSet
         from ee.clickhouse.views.element import ClickhouseElementViewSet
         from ee.clickhouse.views.events import ClickhouseEventsViewSet
         from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
@@ -71,6 +72,7 @@ if is_ee_enabled():
         router.register(r"person", ClickhousePersonViewSet, basename="person")
         router.register(r"paths", ClickhousePathsViewSet, basename="paths")
         router.register(r"element", ClickhouseElementViewSet, basename="element")
+        router.register(r"cohort", ClickhouseCohortViewSet, basename="cohort")
         # nested endpoints
         projects_router.register(r"actions", ClickhouseActionsViewSet, "project_actions", ["team_id"])
 else:

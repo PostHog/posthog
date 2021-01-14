@@ -33,6 +33,7 @@ from posthog.tasks.calculate_cohort import calculate_cohort, calculate_cohort_fr
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserSerializer(required=False, read_only=True)
     count = serializers.SerializerMethodField()
+    earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
 
     class Meta:
         model = Cohort
@@ -72,9 +73,8 @@ class CohortSerializer(serializers.ModelSerializer):
                 filter = Filter(request=request)
                 team = request.user.team
                 if filter.insight == INSIGHT_STICKINESS:
-                    earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
                     stickiness_filter = StickinessFilter(
-                        request=request, team=team, get_earliest_timestamp=earliest_timestamp_func
+                        request=request, team=team, get_earliest_timestamp=self.earliest_timestamp_func
                     )
                     people = self._fetch_stickiness_people(stickiness_filter, team)
                 else:
