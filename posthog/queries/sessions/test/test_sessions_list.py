@@ -15,7 +15,7 @@ def _create_action(**kwargs):
     return action
 
 
-def sessions_list_test_factory(sessions, event_factory, action_filter_enabled):
+def sessions_list_test_factory(sessions, event_factory, action_filters_enabled):
     class TestSessionsList(BaseTest):
         def test_sessions_list(self):
             self.create_test_data()
@@ -39,88 +39,98 @@ def sessions_list_test_factory(sessions, event_factory, action_filter_enabled):
                 )
                 self.assertEqual(len(response), 1)
 
-        if action_filter_enabled:
+        @freeze_time("2012-01-15T04:01:34.000Z")
+        def test_filter_by_entity_event(self):
+            self.create_test_data()
 
-            def test_filter_by_entity_event(self):
+            self.assertLength(
+                self.run_query(
+                    SessionsFilter(data={"filters": [{"type": "event_type", "key": "id", "value": "custom-event"}]})
+                ),
+                2,
+            )
+            self.assertLength(
+                self.run_query(
+                    SessionsFilter(data={"filters": [{"type": "event_type", "key": "id", "value": "another-event"}]})
+                ),
+                1,
+            )
+
+            self.assertLength(
+                self.run_query(
+                    SessionsFilter(
+                        data={
+                            "filters": [
+                                {
+                                    "type": "event_type",
+                                    "key": "id",
+                                    "value": "custom-event",
+                                    "properties": [{"key": "$os", "value": "Mac OS X"}],
+                                }
+                            ]
+                        }
+                    )
+                ),
+                1,
+            )
+
+        @freeze_time("2012-01-15T04:01:34.000Z")
+        def test_filter_by_entity_action(self):
+            action1 = _create_action(name="custom-event", team=self.team)
+            action2 = _create_action(name="another-event", team=self.team)
+
+            self.create_test_data()
+
+            self.assertLength(
+                self.run_query(
+                    SessionsFilter(data={"filters": [{"type": "action_type", "key": "id", "value": action1.id}]})
+                ),
+                2,
+            )
+            self.assertLength(
+                self.run_query(
+                    SessionsFilter(data={"filters": [{"type": "action_type", "key": "id", "value": action2.id}]})
+                ),
+                1,
+            )
+
+            self.assertLength(
+                self.run_query(
+                    SessionsFilter(
+                        data={
+                            "filters": [
+                                {
+                                    "type": "action_type",
+                                    "key": "id",
+                                    "value": action1.id,
+                                    "properties": [{"key": "$os", "value": "Mac OS X"}],
+                                }
+                            ]
+                        }
+                    )
+                ),
+                1,
+            )
+
+        if action_filters_enabled:
+
+            @freeze_time("2012-01-15T04:01:34.000Z")
+            def test_match_multiple_action_filters(self):
                 self.create_test_data()
 
-                with freeze_time("2012-01-15T04:01:34.000Z"):
-                    self.assertLength(
-                        self.run_query(
-                            SessionsFilter(
-                                data={"filters": [{"type": "event_type", "key": "id", "value": "custom-event"}]}
-                            )
-                        ),
-                        2,
-                    )
-                    self.assertLength(
-                        self.run_query(
-                            SessionsFilter(
-                                data={"filters": [{"type": "event_type", "key": "id", "value": "another-event"}]}
-                            )
-                        ),
-                        1,
-                    )
-
-                    self.assertLength(
-                        self.run_query(
-                            SessionsFilter(
-                                data={
-                                    "filters": [
-                                        {
-                                            "type": "event_type",
-                                            "key": "id",
-                                            "value": "custom-event",
-                                            "properties": [{"key": "$os", "value": "Mac OS X"}],
-                                        }
-                                    ]
-                                }
-                            )
-                        ),
-                        1,
-                    )
-
-            def test_filter_by_entity_action(self):
-                action1 = _create_action(name="custom-event", team=self.team)
-                action2 = _create_action(name="another-event", team=self.team)
-
-                self.create_test_data()
-
-                with freeze_time("2012-01-15T04:01:34.000Z"):
-                    self.assertLength(
-                        self.run_query(
-                            SessionsFilter(
-                                data={"filters": [{"type": "action_type", "key": "id", "value": action1.id}]}
-                            )
-                        ),
-                        2,
-                    )
-                    self.assertLength(
-                        self.run_query(
-                            SessionsFilter(
-                                data={"filters": [{"type": "action_type", "key": "id", "value": action2.id}]}
-                            )
-                        ),
-                        1,
-                    )
-
-                    self.assertLength(
-                        self.run_query(
-                            SessionsFilter(
-                                data={
-                                    "filters": [
-                                        {
-                                            "type": "action_type",
-                                            "key": "id",
-                                            "value": action1.id,
-                                            "properties": [{"key": "$os", "value": "Mac OS X"}],
-                                        }
-                                    ]
-                                }
-                            )
-                        ),
-                        1,
-                    )
+                self.assertLength(
+                    self.run_query(
+                        SessionsFilter(
+                            data={
+                                "filters": [
+                                    {"type": "event_type", "key": "id", "value": "custom-event"},
+                                    {"type": "event_type", "key": "id", "value": "another-event"},
+                                ]
+                            }
+                        )
+                    ),
+                    1,
+                )
 
         def run_query(self, sessions_filter):
             return sessions().run(sessions_filter, self.team)[0]
@@ -153,5 +163,5 @@ def sessions_list_test_factory(sessions, event_factory, action_filter_enabled):
     return TestSessionsList
 
 
-class DjangoSessionsListTest(sessions_list_test_factory(SessionsList, Event.objects.create, action_filter_enabled=False)):  # type: ignore
+class DjangoSessionsListTest(sessions_list_test_factory(SessionsList, Event.objects.create, action_filters_enabled=True)):  # type: ignore
     pass
