@@ -12,7 +12,7 @@ import { OptOutPlugins } from 'scenes/plugins/OptOutPlugins'
 import { CustomPlugin } from 'scenes/plugins/install/CustomPlugin'
 import { LocalPlugin } from 'scenes/plugins/install/LocalPlugin'
 import { SourcePlugin } from 'scenes/plugins/install/SourcePlugin'
-import { PageHeader } from 'lib/components/PageHeader'
+import { PageHeader, Subtitle } from 'lib/components/PageHeader'
 
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element {
@@ -57,7 +57,9 @@ function _Plugins(): JSX.Element {
                         </TabPane>
                         {user.plugin_access.install && (
                             <TabPane tab="Available" key="available">
+                                <Subtitle subtitle="Plugin Repository" />
                                 <Repository />
+                                <Subtitle subtitle="Install Custom Plugins" />
                                 <SourcePlugin />
                                 <CustomPlugin />
                                 <LocalPlugin />

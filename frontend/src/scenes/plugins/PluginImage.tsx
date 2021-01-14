@@ -17,17 +17,14 @@ export function PluginImage({ url, pluginType }: { url?: string; pluginType?: Pl
 
     return (
         <Card
-            /* TODO: when #2114 is merged className="card-elevated" */
             style={{
                 width: 60,
                 height: 60,
-                marginBottom: 24,
                 display: 'flex',
                 justifyContent: 'center',
                 alignItems: 'center',
                 marginLeft: 'auto',
                 marginRight: 'auto',
-                boxShadow: '0px 80px 80px rgba(0, 0, 0, 0.075), 0px 10px 10px rgba(0, 0, 0, 0.035) !important',
             }}
             bodyStyle={{ padding: 4 }}
         >

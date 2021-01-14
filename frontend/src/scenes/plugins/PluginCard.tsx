@@ -1,8 +1,7 @@
-import { Button, Card, Col, Popconfirm, Skeleton, Switch } from 'antd'
+import { Button, Card, Col, Popconfirm, Row, Skeleton, Switch } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from './pluginsLogic'
-import { someParentMatchesSelector } from 'lib/utils'
 import { PluginConfigType, PluginErrorType } from '~/types'
 import { PlusOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
@@ -38,65 +37,20 @@ export function PluginCard({
     const { loading } = useValues(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
-    const handleClick = (e: React.MouseEvent<HTMLDivElement, MouseEvent>): void => {
-        if (someParentMatchesSelector(e.target as HTMLElement, '.ant-popover,.ant-tag')) {
-            return
-        }
-        if (canConfigure) {
-            editPlugin(pluginId || null)
-        }
-    }
-
     const switchDisabled = (pluginConfig && pluginConfig.global) || !pluginConfig || !pluginConfig.id
 
     return (
         <Col
-            sm={12}
-            md={12}
-            lg={8}
-            xl={6}
-            style={{ cursor: pluginConfig && canConfigure ? 'pointer' : 'inherit', width: '100%', marginBottom: 20 }}
-            onClick={handleClick}
+            style={{ width: '100%', marginBottom: 20 }}
             data-attr={`plugin-card-${pluginConfig ? 'installed' : 'available'}`}
         >
             <Card
-                style={{ height: '100%', display: 'flex', marginBottom: 20 }}
-                bodyStyle={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}
+                style={{ height: '100%', display: 'flex' }}
+                bodyStyle={{ display: 'flex', flexDirection: 'column', flexGrow: 1, padding: 15 }}
             >
-                {!pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
-                {pluginType === 'source' ? (
-                    <SourcePluginTag style={{ position: 'absolute', top: 10, left: 10, cursor: 'pointer' }} />
-                ) : null}
-                {url?.startsWith('file:') ? (
-                    <LocalPluginTag
-                        url={url}
-                        title="Local"
-                        style={{ position: 'absolute', top: 10, left: 10, cursor: 'pointer' }}
-                    />
-                ) : null}
-                {pluginConfig?.error ? (
-                    <PluginError
-                        error={pluginConfig.error}
-                        reset={() => resetPluginConfigError(pluginConfig?.id || 0)}
-                    />
-                ) : error ? (
-                    <PluginError error={error} />
-                ) : null}
-                <PluginImage pluginType={pluginType} url={url} />
-                <div className="text-center mb" style={{ marginBottom: 16 }}>
-                    <b>{name}</b>
-                </div>
-                <div style={{ flexGrow: 1, paddingBottom: 16 }}>{description}</div>
-                <div style={{ display: 'flex', minHeight: 44, alignItems: 'center' }}>
-                    <div
-                        style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}
-                        onClick={(e) => {
-                            if (!switchDisabled) {
-                                e.stopPropagation()
-                            }
-                        }}
-                    >
-                        {pluginConfig && (
+                <Row style={{ alignItems: 'center' }}>
+                    {pluginConfig && (
+                        <Col style={{ marginRight: 14 }}>
                             <Popconfirm
                                 placement="topLeft"
                                 title={`Are you sure you wish to ${
@@ -116,17 +70,44 @@ export function PluginCard({
                                     )}
                                 </div>
                             </Popconfirm>
-                        )}
-                        {!pluginConfig && url && (
-                            <>
-                                <Link to={url} target="_blank" rel="noopener noreferrer">
+                        </Col>
+                    )}
+                    <Col style={{ marginRight: 14 }}>
+                        <PluginImage pluginType={pluginType} url={url} />
+                    </Col>
+                    <Col style={{ marginRight: 14, flex: 1 }}>
+                        <div>
+                            {pluginConfig?.error ? (
+                                <PluginError
+                                    error={pluginConfig.error}
+                                    reset={() => resetPluginConfigError(pluginConfig?.id || 0)}
+                                />
+                            ) : error ? (
+                                <PluginError error={error} />
+                            ) : null}
+                            <b>{name}</b>
+                            {url?.startsWith('file:') ? (
+                                <LocalPluginTag url={url} title="Local" style={{ marginLeft: 10 }} />
+                            ) : null}
+                            {!pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
+                            {!pluginConfig && url && (
+                                <Link to={url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 10 }}>
                                     Learn more
                                 </Link>
-                            </>
+                            )}
+                        </div>
+                        <div>
+                            {pluginType === 'source' ? <SourcePluginTag style={{ marginRight: 10 }} /> : null}
+
+                            {description}
+                        </div>
+                    </Col>
+                    <Col>
+                        {canConfigure && (
+                            <Button type="primary" onClick={() => editPlugin(pluginId || null)}>
+                                Configure
+                            </Button>
                         )}
-                    </div>
-                    <div>
-                        {canConfigure && <Button type="primary">Configure</Button>}
                         {!pluginId && (
                             <Button
                                 type="primary"
@@ -137,8 +118,8 @@ export function PluginCard({
                                 Install
                             </Button>
                         )}
-                    </div>
-                </div>
+                    </Col>
+                </Row>
             </Card>
         </Col>
     )
@@ -147,19 +128,26 @@ export function PluginCard({
 export function PluginLoading(): JSX.Element {
     return (
         <>
-            {[1, 2, 3].map((i) => {
-                return (
-                    <Col sm={12} md={12} lg={8} xl={6} key={i} style={{ marginBottom: 20 }}>
-                        <Card>
-                            <div className="text-center">
-                                <Skeleton.Image />
-                            </div>
-
-                            <Skeleton paragraph={{ rows: 4 }} active />
-                        </Card>
-                    </Col>
-                )
-            })}
+            {[1, 2, 3].map((i) => (
+                <Col key={i} style={{ marginBottom: 20, width: '100%' }}>
+                    <Card>
+                        <Row style={{ alignItems: 'center' }}>
+                            <Col style={{ marginRight: 14, width: 30 }}>
+                                <Skeleton title paragraph={false} active />
+                            </Col>
+                            <Col style={{ marginRight: 14 }}>
+                                <Skeleton.Image style={{ width: 60, height: 60 }} />
+                            </Col>
+                            <Col style={{ marginRight: 14, flex: 1 }}>
+                                <Skeleton title={false} paragraph={{ rows: 2 }} active />
+                            </Col>
+                            <Col style={{ marginRight: 14 }}>
+                                <Skeleton.Button style={{ width: 100 }} />
+                            </Col>
+                        </Row>
+                    </Card>
+                </Col>
+            ))}
         </>
     )
 }
