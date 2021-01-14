@@ -87,7 +87,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         filter = Filter(data={**filter._data, **data})
 
         current_url = request.get_full_path()
-        serialized_people = self._calculate_entity_people(team, entity, filter)
+        serialized_people = calculate_entity_people(team, entity, filter)
 
         current_url = request.get_full_path()
         next_url: Optional[str] = request.get_full_path()
@@ -110,45 +110,46 @@ class ClickhouseActionsViewSet(ActionViewSet):
             }
         )
 
-    def _calculate_entity_people(self, team: Team, entity: Entity, filter: Filter):
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
-        entity_sql, entity_params = format_entity_filter(entity=entity)
-        person_filter = ""
-        person_filter_params: Dict[str, Any] = {}
 
-        if filter.breakdown_type == "cohort" and filter.breakdown_value != "all":
-            cohort = Cohort.objects.get(pk=filter.breakdown_value)
-            person_filter, person_filter_params = format_filter_query(cohort)
-            person_filter = "AND distinct_id IN ({})".format(person_filter)
-        elif (
-            filter.breakdown_type == "person"
-            and isinstance(filter.breakdown, str)
-            and isinstance(filter.breakdown_value, str)
-        ):
-            person_prop = Property(**{"key": filter.breakdown, "value": filter.breakdown_value, "type": "person"})
-            filter.properties.append(person_prop)
+def calculate_entity_people(team: Team, entity: Entity, filter: Filter):
+    parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
+    entity_sql, entity_params = format_entity_filter(entity=entity)
+    person_filter = ""
+    person_filter_params: Dict[str, Any] = {}
 
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
-        params: Dict = {"team_id": team.pk, **prop_filter_params, **entity_params, "offset": filter.offset}
+    if filter.breakdown_type == "cohort" and filter.breakdown_value != "all":
+        cohort = Cohort.objects.get(pk=filter.breakdown_value)
+        person_filter, person_filter_params = format_filter_query(cohort)
+        person_filter = "AND distinct_id IN ({})".format(person_filter)
+    elif (
+        filter.breakdown_type == "person"
+        and isinstance(filter.breakdown, str)
+        and isinstance(filter.breakdown_value, str)
+    ):
+        person_prop = Property(**{"key": filter.breakdown, "value": filter.breakdown_value, "type": "person"})
+        filter.properties.append(person_prop)
 
-        content_sql = PERSON_TREND_SQL.format(
-            entity_filter=f"AND {entity_sql}",
-            parsed_date_from=parsed_date_from,
-            parsed_date_to=parsed_date_to,
-            filters=prop_filters,
-            breakdown_filter="",
-            person_filter=person_filter,
-        )
+    prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+    params: Dict = {"team_id": team.pk, **prop_filter_params, **entity_params, "offset": filter.offset}
 
-        people = sync_execute(
-            PEOPLE_THROUGH_DISTINCT_SQL.format(
-                content_sql=content_sql, latest_person_sql=GET_LATEST_PERSON_SQL.format(query="")
-            ),
-            {**params, **person_filter_params},
-        )
-        serialized_people = ClickhousePersonSerializer(people, many=True).data
+    content_sql = PERSON_TREND_SQL.format(
+        entity_filter=f"AND {entity_sql}",
+        parsed_date_from=parsed_date_from,
+        parsed_date_to=parsed_date_to,
+        filters=prop_filters,
+        breakdown_filter="",
+        person_filter=person_filter,
+    )
 
-        return serialized_people
+    people = sync_execute(
+        PEOPLE_THROUGH_DISTINCT_SQL.format(
+            content_sql=content_sql, latest_person_sql=GET_LATEST_PERSON_SQL.format(query="")
+        ),
+        {**params, **person_filter_params},
+    )
+    serialized_people = ClickhousePersonSerializer(people, many=True).data
+
+    return serialized_people
 
 
 class LegacyClickhouseActionsViewSet(ClickhouseActionsViewSet):
