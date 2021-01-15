@@ -1,17 +1,11 @@
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from posthog.models.filters.mixins.utils import cached_property
 
 RunningSession = Dict
 Session = Dict
-
-
-class EventWithCurrentUrl:
-    distinct_id: str
-    timestamp: datetime
-    current_url: Optional[str]
-
+EventWithCurrentUrl = Tuple  # distinct_id, timestamp, current_url, bools (action_filter_matches action_filter)
 
 SESSION_TIMEOUT = timedelta(minutes=30)
 MAX_SESSION_DURATION = timedelta(hours=8)
@@ -25,6 +19,7 @@ class SessionListBuilder:
         emails={},
         limit=50,
         offset=0,
+        action_filter_count=0,
         session_timeout=SESSION_TIMEOUT,
         max_session_duration=MAX_SESSION_DURATION,
     ):
@@ -33,6 +28,7 @@ class SessionListBuilder:
         self.emails: Dict[str, Optional[str]] = emails
         self.limit: int = limit
         self.offset: int = offset
+        self.action_filter_count: int = action_filter_count
         self.session_timeout: timedelta = session_timeout
         self.max_session_duration: timedelta = max_session_duration
 
@@ -41,8 +37,11 @@ class SessionListBuilder:
 
     @cached_property
     def sessions(self):
-        self._sessions.sort(key=lambda session: session["end_time"], reverse=True)
-        return self._sessions[: self.limit]
+        sessions = list(sorted(self._sessions, key=lambda session: session["end_time"], reverse=True))[: self.limit]
+        # :TRICKY: Remove sessions where some filtered actions did not occur _after_ limiting to avoid running into pagination issues
+        if self.action_filter_count > 0:
+            sessions = [session for session in sessions if all(session["action_filter_times"])]
+        return sessions
 
     @cached_property
     def pagination(self):
@@ -80,13 +79,14 @@ class SessionListBuilder:
 
     def build(self):
         for index, event in enumerate(self.iterator):
+            distinct_id, timestamp, *rest = event
             if (
-                event.distinct_id not in self.last_page_last_seen
-                or event.timestamp.timestamp() < self.last_page_last_seen[event.distinct_id]
+                distinct_id not in self.last_page_last_seen
+                or timestamp.timestamp() < self.last_page_last_seen[distinct_id]
             ):
-                if event.distinct_id in self.running_sessions:
-                    if self._has_session_timed_out(event.distinct_id, event.timestamp):
-                        self._session_end(event.distinct_id)
+                if distinct_id in self.running_sessions:
+                    if self._has_session_timed_out(distinct_id, timestamp):
+                        self._session_end(distinct_id)
                         self._session_start(event)
                     else:
                         self._session_update(event)
@@ -94,7 +94,7 @@ class SessionListBuilder:
                     self._session_start(event)
 
             if index % 300 == 0:
-                self._sessions_check(event.timestamp)
+                self._sessions_check(timestamp)
 
             if len(self._sessions) >= self.limit:
                 break
@@ -102,19 +102,26 @@ class SessionListBuilder:
         self._sessions_check(None)
 
     def _session_start(self, event: EventWithCurrentUrl):
-        self.running_sessions[event.distinct_id] = {
-            "distinct_id": event.distinct_id,
-            "end_time": event.timestamp,
+        distinct_id, timestamp, current_url, *action_filter_matches = event
+        self.running_sessions[distinct_id] = {
+            "distinct_id": distinct_id,
+            "end_time": timestamp,
             "event_count": 0,
-            "start_url": event.current_url,
-            "email": self.emails.get(event.distinct_id),
+            "start_url": current_url,
+            "email": self.emails.get(distinct_id),
+            "action_filter_times": [None] * self.action_filter_count,
         }
         self._session_update(event)
 
     def _session_update(self, event: EventWithCurrentUrl):
-        self.running_sessions[event.distinct_id]["start_time"] = event.timestamp
-        self.running_sessions[event.distinct_id]["event_count"] += 1
-        self.running_sessions[event.distinct_id]["end_url"] = event.current_url
+        distinct_id, timestamp, current_url, *action_filter_matches = event
+        self.running_sessions[distinct_id]["start_time"] = timestamp
+        self.running_sessions[distinct_id]["event_count"] += 1
+        self.running_sessions[distinct_id]["end_url"] = current_url
+
+        for index, is_match in enumerate(action_filter_matches):
+            if is_match:
+                self.running_sessions[distinct_id]["action_filter_times"][index] = timestamp
 
     def _session_end(self, distinct_id: str):
         session = self.running_sessions[distinct_id]

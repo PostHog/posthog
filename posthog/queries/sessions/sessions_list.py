@@ -5,11 +5,13 @@ from dateutil.relativedelta import relativedelta
 from django.contrib.postgres.fields.jsonb import KeyTextTransform
 from django.db import connection
 from django.db.models import Q, QuerySet
+from django.db.models.expressions import ExpressionWrapper
+from django.db.models.fields import BooleanField
 from django.utils.timezone import now
 
 from posthog.models import Event, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
-from posthog.queries.base import properties_to_Q
+from posthog.queries.base import entity_to_Q, properties_to_Q
 from posthog.queries.sessions.session_recording import filter_sessions_by_recordings
 from posthog.queries.sessions.sessions_list_builder import SessionListBuilder
 
@@ -28,8 +30,9 @@ class SessionsList:
         person_emails = self.query_people_in_range(team, filter, date_filter, limit=limit + offset + 1)
 
         sessions_builder = SessionListBuilder(
-            self.events_query(team, date_filter, list(person_emails.keys()), start_timestamp).iterator(),
+            self.events_query(team, filter, date_filter, list(person_emails.keys()), start_timestamp).iterator(),
             emails=person_emails,
+            action_filter_count=len(filter.action_filters),
             offset=offset,
             limit=limit,
             last_page_last_seen=kwargs.get("last_seen", {}),
@@ -39,7 +42,12 @@ class SessionsList:
         return filter_sessions_by_recordings(team, sessions_builder.sessions, filter), sessions_builder.pagination
 
     def events_query(
-        self, team: Team, date_filter: Q, distinct_ids: List[str], start_timestamp: Optional[str]
+        self,
+        team: Team,
+        filter: SessionsFilter,
+        date_filter: Q,
+        distinct_ids: List[str],
+        start_timestamp: Optional[str],
     ) -> QuerySet:
         events = (
             Event.objects.filter(team=team)
@@ -51,7 +59,16 @@ class SessionsList:
         )
         if start_timestamp is not None:
             events = events.filter(timestamp__lt=datetime.fromtimestamp(float(start_timestamp)))
-        return events
+
+        keys = []
+        for i, entity in enumerate(filter.action_filters):
+            key = f"entity_{i}"
+            events = events.annotate(
+                **{key: ExpressionWrapper(entity_to_Q(entity, team.pk), output_field=BooleanField())}
+            )
+            keys.append(key)
+
+        return events.values_list("distinct_id", "timestamp", "current_url", *keys)
 
     def query_people_in_range(
         self, team: Team, filter: SessionsFilter, date_filter: Q, limit: int

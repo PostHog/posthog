@@ -6,11 +6,8 @@ from posthog.queries.sessions.sessions_list_builder import SessionListBuilder
 from posthog.test.base import BaseTest
 
 
-class MockEvent:
-    def __init__(self, distinct_id, timestamp, current_url=None):
-        self.distinct_id = distinct_id
-        self.timestamp = timestamp
-        self.current_url = current_url
+def mock_event(distinct_id, timestamp, matches_action_filter=[], current_url=None):
+    return (distinct_id, timestamp, current_url, *matches_action_filter)
 
 
 @freeze_time("2021-01-13")
@@ -23,12 +20,12 @@ class TestSessionListBuilder(BaseTest):
     def test_returns_sessions_for_single_user(self):
         sessions = self.build(
             [
-                MockEvent("1", now()),
-                MockEvent("1", now() - relativedelta(minutes=3)),
-                MockEvent("1", now() - relativedelta(minutes=7)),
-                MockEvent("1", now() - relativedelta(minutes=35)),
-                MockEvent("1", now() - relativedelta(minutes=99)),
-                MockEvent("1", now() - relativedelta(minutes=102)),
+                mock_event("1", now()),
+                mock_event("1", now() - relativedelta(minutes=3)),
+                mock_event("1", now() - relativedelta(minutes=7)),
+                mock_event("1", now() - relativedelta(minutes=35)),
+                mock_event("1", now() - relativedelta(minutes=99)),
+                mock_event("1", now() - relativedelta(minutes=102)),
             ]
         )
 
@@ -62,15 +59,15 @@ class TestSessionListBuilder(BaseTest):
 
     def test_returns_parallel_sessions_with_pagination(self):
         events = [
-            MockEvent("1", now()),
-            MockEvent("2", now() - relativedelta(minutes=3)),
-            MockEvent("3", now() - relativedelta(minutes=7)),
-            MockEvent("2", now() - relativedelta(minutes=25)),
-            MockEvent("1", now() - relativedelta(minutes=27)),
-            MockEvent("1", now() - relativedelta(minutes=35)),
-            MockEvent("2", now() - relativedelta(minutes=45)),
-            MockEvent("1", now() - relativedelta(minutes=85)),
-            MockEvent("1", now() - relativedelta(minutes=88)),
+            mock_event("1", now()),
+            mock_event("2", now() - relativedelta(minutes=3)),
+            mock_event("3", now() - relativedelta(minutes=7)),
+            mock_event("2", now() - relativedelta(minutes=25)),
+            mock_event("1", now() - relativedelta(minutes=27)),
+            mock_event("1", now() - relativedelta(minutes=35)),
+            mock_event("2", now() - relativedelta(minutes=45)),
+            mock_event("1", now() - relativedelta(minutes=85)),
+            mock_event("1", now() - relativedelta(minutes=88)),
         ]
 
         page1 = self.build(events)
@@ -128,12 +125,12 @@ class TestSessionListBuilder(BaseTest):
     def test_email_current_url_set(self):
         sessions = self.build(
             [
-                MockEvent("1", now()),
-                MockEvent("2", now() - relativedelta(minutes=3), "http://foo.bar/landing"),
-                MockEvent("2", now() - relativedelta(minutes=25)),
-                MockEvent("1", now() - relativedelta(minutes=27)),
-                MockEvent("1", now() - relativedelta(minutes=35)),
-                MockEvent("2", now() - relativedelta(minutes=45), "http://foo.bar/subpage"),
+                mock_event("1", now()),
+                mock_event("2", now() - relativedelta(minutes=3), current_url="http://foo.bar/landing"),
+                mock_event("2", now() - relativedelta(minutes=25)),
+                mock_event("1", now() - relativedelta(minutes=27)),
+                mock_event("1", now() - relativedelta(minutes=35)),
+                mock_event("2", now() - relativedelta(minutes=45), current_url="http://foo.bar/subpage"),
             ],
             emails={"2": "foo@bar.com"},
         )
@@ -155,12 +152,33 @@ class TestSessionListBuilder(BaseTest):
     def test_handles_session_ordering(self):
         sessions = self.build(
             [
-                MockEvent("1", now()),
-                MockEvent("2", now() - relativedelta(minutes=3)),
-                MockEvent("2", now() - relativedelta(minutes=7)),
-                MockEvent("1", now() - relativedelta(minutes=25)),
-                MockEvent("2", now() - relativedelta(minutes=999)),
+                mock_event("1", now()),
+                mock_event("2", now() - relativedelta(minutes=3)),
+                mock_event("2", now() - relativedelta(minutes=7)),
+                mock_event("1", now() - relativedelta(minutes=25)),
+                mock_event("2", now() - relativedelta(minutes=999)),
             ]
         )
 
         self.assertEqual([session["distinct_id"] for session in sessions], ["1", "2"])
+
+    def test_filter_sessions_by_action_filter(self):
+        sessions = self.build(
+            [
+                mock_event("1", now(), [False, True]),
+                mock_event("1", now() - relativedelta(minutes=1), [False, False]),
+                mock_event("1", now() - relativedelta(minutes=2), [False, True]),
+                mock_event("1", now() - relativedelta(minutes=3), [True, False]),
+                mock_event("2", now() - relativedelta(minutes=4), [True, False]),
+            ],
+            action_filter_count=2,
+        )
+
+        self.assertEqual(len(sessions), 1)
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "1",
+                "action_filter_times": [now() - relativedelta(minutes=3), now() - relativedelta(minutes=2)],
+            },
+            sessions[0],
+        )
