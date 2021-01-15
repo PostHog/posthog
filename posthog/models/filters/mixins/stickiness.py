@@ -21,7 +21,7 @@ from posthog.utils import relative_date_parse
 class SelectedIntervalMixin(BaseParamMixin):
     @cached_property
     def selected_interval(self) -> int:
-        return int(self._data.get(STICKINESS_DAYS, "0"))
+        return int(self._data.get(STICKINESS_DAYS, "0")) or int(self._data.get("selected_interval", "0"))
 
     @include_dict
     def selected_interval_to_dict(self):

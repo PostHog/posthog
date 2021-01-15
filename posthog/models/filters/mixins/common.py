@@ -271,7 +271,7 @@ class EntitiesMixin(BaseParamMixin):
 class EntityIdMixin(BaseParamMixin):
     @cached_property
     def target_entity_id(self) -> Optional[str]:
-        return self._data.get("entityId", None)
+        return self._data.get("entityId", None) or self._data.get("entity_id", None)
 
     @include_dict
     def entity_id_to_dict(self):
@@ -281,7 +281,7 @@ class EntityIdMixin(BaseParamMixin):
 class EntityTypeMixin(BaseParamMixin):
     @cached_property
     def target_entity_type(self) -> Optional[str]:
-        return self._data.get("type", None)
+        return self._data.get("type", None) or self._data.get("entity_type", None)
 
     @include_dict
     def entity_type_to_dict(self):

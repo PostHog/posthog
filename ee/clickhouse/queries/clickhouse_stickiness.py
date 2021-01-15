@@ -121,8 +121,8 @@ def retrieve_stickiness_people(filter: StickinessFilter, team: Team) -> ReturnDi
     return ClickhousePersonSerializer(people, many=True).data
 
 
-def insert_stickiness_people_into_cohort(cohort: Cohort, filter: StickinessFilter, team: Team) -> None:
-    content_sql, params = _process_content_sql(filter, team)
+def insert_stickiness_people_into_cohort(cohort: Cohort, filter: StickinessFilter) -> None:
+    content_sql, params = _process_content_sql(filter, cohort.team)
     try:
         sync_execute(
             INSERT_COHORT_ALL_PEOPLE_SQL.format(

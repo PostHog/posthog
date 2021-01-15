@@ -166,8 +166,8 @@ def calculate_entity_people(team: Team, entity: Entity, filter: Filter):
     return serialized_people
 
 
-def insert_entity_people_into_cohort(cohort: Cohort, team: Team, entity: Entity, filter: Filter):
-    content_sql, params = _process_content_sql(team, entity, filter)
+def insert_entity_people_into_cohort(cohort: Cohort, entity: Entity, filter: Filter):
+    content_sql, params = _process_content_sql(cohort.team, entity, filter)
     sync_execute(
         INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL.format(
             cohort_table=PERSON_STATIC_COHORT_TABLE,
