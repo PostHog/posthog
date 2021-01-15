@@ -1,6 +1,6 @@
 from freezegun import freeze_time
 
-from posthog.models import Action, ActionStep, Event, Person, Team
+from posthog.models import Action, ActionStep, Event, Organization, Person
 from posthog.models.cohort import Cohort
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.sessions_list import SessionsList
@@ -47,13 +47,17 @@ def sessions_list_test_factory(sessions, event_factory, action_filter_enabled):
                 with freeze_time("2012-01-15T04:01:34.000Z"):
                     self.assertLength(
                         self.run_query(
-                            SessionsFilter(data={"action_filter": {"type": "events", "id": "custom-event"}})
+                            SessionsFilter(
+                                data={"filters": [{"type": "event_type", "key": "id", "value": "custom-event"}]}
+                            )
                         ),
                         2,
                     )
                     self.assertLength(
                         self.run_query(
-                            SessionsFilter(data={"action_filter": {"type": "events", "id": "another-event"}})
+                            SessionsFilter(
+                                data={"filters": [{"type": "event_type", "key": "id", "value": "another-event"}]}
+                            )
                         ),
                         1,
                     )
@@ -62,11 +66,14 @@ def sessions_list_test_factory(sessions, event_factory, action_filter_enabled):
                         self.run_query(
                             SessionsFilter(
                                 data={
-                                    "action_filter": {
-                                        "type": "events",
-                                        "id": "custom-event",
-                                        "properties": [{"key": "$os", "value": "Mac OS X"}],
-                                    }
+                                    "filters": [
+                                        {
+                                            "type": "event_type",
+                                            "key": "id",
+                                            "value": "custom-event",
+                                            "properties": [{"key": "$os", "value": "Mac OS X"}],
+                                        }
+                                    ]
                                 }
                             )
                         ),
@@ -81,21 +88,34 @@ def sessions_list_test_factory(sessions, event_factory, action_filter_enabled):
 
                 with freeze_time("2012-01-15T04:01:34.000Z"):
                     self.assertLength(
-                        self.run_query(SessionsFilter(data={"action_filter": {"type": "actions", "id": action1.id}})), 2
+                        self.run_query(
+                            SessionsFilter(
+                                data={"filters": [{"type": "action_type", "key": "id", "value": action1.id}]}
+                            )
+                        ),
+                        2,
                     )
                     self.assertLength(
-                        self.run_query(SessionsFilter(data={"action_filter": {"type": "actions", "id": action2.id}})), 1
+                        self.run_query(
+                            SessionsFilter(
+                                data={"filters": [{"type": "action_type", "key": "id", "value": action2.id}]}
+                            )
+                        ),
+                        1,
                     )
 
                     self.assertLength(
                         self.run_query(
                             SessionsFilter(
                                 data={
-                                    "action_filter": {
-                                        "type": "actions",
-                                        "id": action1.id,
-                                        "properties": [{"key": "$os", "value": "Mac OS X"}],
-                                    }
+                                    "filters": [
+                                        {
+                                            "type": "action_type",
+                                            "key": "id",
+                                            "value": action1.id,
+                                            "properties": [{"key": "$os", "value": "Mac OS X"}],
+                                        }
+                                    ]
                                 }
                             )
                         ),
@@ -123,7 +143,7 @@ def sessions_list_test_factory(sessions, event_factory, action_filter_enabled):
                 event_factory(team=self.team, event="custom-event", distinct_id="1", properties={"$os": "Mac OS X"})
                 event_factory(team=self.team, event="custom-event", distinct_id="2", properties={"$os": "Windows 95"})
                 event_factory(team=self.team, event="another-event", distinct_id="2", properties={"$os": "Windows 95"})
-            team_2 = Team.objects.create()
+            team_2 = Organization.objects.bootstrap(None)[2]
             Person.objects.create(team=self.team, distinct_ids=["1", "3", "4"], properties={"email": "bla"})
             # Test team leakage
             Person.objects.create(team=team_2, distinct_ids=["1", "3", "4"], properties={"email": "bla"})

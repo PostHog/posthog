@@ -4,10 +4,7 @@ from uuid import uuid4
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_action_people import action_people_test_factory
-from posthog.models import Action, ActionStep
-from posthog.models.cohort import Cohort
-from posthog.models.person import Person
-from posthog.models.team import Team
+from posthog.models import Action, ActionStep, Cohort, Organization, Person
 
 
 def _create_action(**kwargs):
@@ -60,7 +57,7 @@ class TestAction(
         self.assertFalse(patch_delay.called)
 
     def test_only_get_count_on_retrieve(self):
-        team2 = Team.objects.create(name="bla")
+        team2 = Organization.objects.bootstrap(None, team_fields={"name": "bla"})[2]
         action = Action.objects.create(team=self.team, name="bla")
         ActionStep.objects.create(action=action, event="custom event")
         _create_event(event="custom event", team=self.team, distinct_id="test")

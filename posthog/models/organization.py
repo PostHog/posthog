@@ -17,19 +17,21 @@ except ImportError:
 class OrganizationManager(models.Manager):
     def bootstrap(
         self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs
-    ) -> Tuple["Organization", "OrganizationMembership", Any]:
+    ) -> Tuple["Organization", Optional["OrganizationMembership"], Any]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
         from .team import Team  # Avoiding circular import
 
         with transaction.atomic():
             organization = Organization.objects.create(**kwargs)
-            organization_membership = OrganizationMembership.objects.create(
-                organization=organization, user=user, level=OrganizationMembership.Level.OWNER
-            )
             team = Team.objects.create(organization=organization, **(team_fields or {}))
-            user.current_organization = organization
-            user.current_team = team
-            user.save()
+            organization_membership: Optional[OrganizationMembership] = None
+            if user is not None:
+                organization_membership = OrganizationMembership.objects.create(
+                    organization=organization, user=user, level=OrganizationMembership.Level.OWNER
+                )
+                user.current_organization = organization
+                user.current_team = team
+                user.save()
         return organization, organization_membership, team
 
 

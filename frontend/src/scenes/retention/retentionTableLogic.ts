@@ -103,7 +103,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         },
         results: {
             updateRetention: (_, { retention }) => retention,
-            clearRetention: () => ({}),
+            clearRetention: () => [],
         },
         loadingMore: [
             false,

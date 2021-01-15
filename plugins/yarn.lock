@@ -57,6 +57,31 @@
   resolved "https://registry.yarnpkg.com/@google-cloud/promisify/-/promisify-2.0.3.tgz#f934b5cdc939e3c7039ff62b9caaf59a9d89e3a8"
   integrity sha512-d4VSA86eL/AFTe5xtyZX+ePUjE8dIFu2T8zmdeNBSa5/kNgXPCx/o/wbFNHAGLJdGnk1vddRuMESD9HbOC8irw==
 
+"@posthog/plugin-server@0.6.4":
+  version "0.6.4"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.6.4.tgz#a03c192f27433301e1ce9aee47290b60cfb85b5f"
+  integrity sha512-pz2zx2ZCppdIcVzfxz4ZncH5NLrltBnv2JF/IF21d2HyvWkT3gYyHcoDn0WFm3Ea9Sfd8UQnPAglllWxMJXtYw==
+  dependencies:
+    "@google-cloud/bigquery" "^5.5.0"
+    "@sentry/node" "^5.29.0"
+    "@sentry/tracing" "^5.29.0"
+    "@types/luxon" "^1.25.0"
+    adm-zip "^0.4.16"
+    fastify "^3.8.0"
+    hot-shots "^8.2.1"
+    ioredis "^4.19.2"
+    kafkajs "^1.15.0"
+    luxon "^1.25.0"
+    node-fetch "^2.6.1"
+    node-schedule "^1.3.2"
+    pg "^8.4.2"
+    piscina "^2.1.0"
+    redlock "^4.2.0"
+    tar-stream "^2.1.4"
+    uuid "^8.3.1"
+    vm2 "^3.9.2"
+    yargs "^16.1.0"
+
 "@sentry/core@5.29.0":
   version "5.29.0"
   resolved "https://registry.yarnpkg.com/@sentry/core/-/core-5.29.0.tgz#4410ca0dc5785abf3df02fa23c18e83ad90d7cda"
@@ -930,31 +955,6 @@ postgres-interval@^1.1.0:
   integrity sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==
   dependencies:
     xtend "^4.0.0"
-
-posthog-plugin-server@0.6.4:
-  version "0.6.4"
-  resolved "https://registry.yarnpkg.com/posthog-plugin-server/-/posthog-plugin-server-0.6.4.tgz#1146ce135e960a4e7a6220816b866474e5cdb29b"
-  integrity sha512-icLJaR879ksv1EPMJjO2enR2gvfWIfWV2WqsJ447rB6AptgCWdkVEv57xcvyVZbNYjzZP4mM1UdDKcUghJolyw==
-  dependencies:
-    "@google-cloud/bigquery" "^5.5.0"
-    "@sentry/node" "^5.29.0"
-    "@sentry/tracing" "^5.29.0"
-    "@types/luxon" "^1.25.0"
-    adm-zip "^0.4.16"
-    fastify "^3.8.0"
-    hot-shots "^8.2.1"
-    ioredis "^4.19.2"
-    kafkajs "^1.15.0"
-    luxon "^1.25.0"
-    node-fetch "^2.6.1"
-    node-schedule "^1.3.2"
-    pg "^8.4.2"
-    piscina "^2.1.0"
-    redlock "^4.2.0"
-    tar-stream "^2.1.4"
-    uuid "^8.3.1"
-    vm2 "^3.9.2"
-    yargs "^16.1.0"
 
 proxy-addr@^2.0.5:
   version "2.0.6"

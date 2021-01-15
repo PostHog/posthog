@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space, Tooltip, Drawer } from 'antd'
+import { Table, Button, Spin, Space, Tooltip, Drawer, Divider } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -23,10 +23,11 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SessionsPlay } from './SessionsPlay'
 import { userLogic } from 'scenes/userLogic'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
-import { SessionRecordingFilters } from 'scenes/sessions/SessionRecordingFilters'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkButton } from 'lib/components/LinkButton'
-import { SessionActionFilters } from 'scenes/sessions/SessionActionFilters'
+import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
+import { EditFiltersPanel } from 'scenes/sessions/filters/EditFiltersPanel'
+import { SavedFiltersDropdown } from 'scenes/sessions/filters/SavedFiltersDropdown'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -57,11 +58,9 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         selectedDate,
         properties,
         sessionRecordingId,
-        duration,
         firstRecordingId,
-        actionFilter,
     } = useValues(logic)
-    const { fetchNextSessions, previousDay, nextDay, setFilters, updateActionFilter } = useActions(logic)
+    const { fetchNextSessions, previousDay, nextDay, setFilters, applyFilters } = useActions(logic)
     const { user } = useValues(userLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -103,7 +102,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             },
         },
         {
-            title: 'Duration',
+            title: 'Session duration',
             render: function RenderDuration(session: SessionType) {
                 return <span>{humanFriendlyDuration(session.length)}</span>
             },
@@ -154,7 +153,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                             }
                         >
                             <span>
-                                Play session
+                                Play recording
                                 <QuestionCircleOutlined style={{ marginLeft: 6 }} />
                             </span>
                         </Tooltip>
@@ -162,7 +161,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                         <Tooltip title={enableSessionRecordingCTA}>
                             <span>
                                 <PoweroffOutlined style={{ marginRight: 6 }} className="text-warning" />
-                                Play session
+                                Play recording
                             </span>
                         </Tooltip>
                     )}
@@ -180,25 +179,20 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             {!isPersonPage && <PageHeader title="Sessions" />}
             <Space className="mb-05">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
-                <DatePicker
-                    value={selectedDate}
-                    onChange={(date) => setFilters(properties, date, duration, actionFilter)}
-                    allowClear={false}
-                />
+                <DatePicker value={selectedDate} onChange={(date) => setFilters(properties, date)} allowClear={false} />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
+
+                {featureFlags['filter_by_session_props'] && <SessionsFilterBox />}
+                {featureFlags['filter_by_session_props'] && <SavedFiltersDropdown />}
             </Space>
 
-            {featureFlags['filter_by_session_props'] && user?.is_multi_tenancy && (
-                <SessionActionFilters actionFilter={actionFilter} updateActionFilter={updateActionFilter} />
+            {featureFlags['filter_by_session_props'] ? (
+                <EditFiltersPanel onSubmit={applyFilters} />
+            ) : (
+                <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
             )}
 
-            {featureFlags['filter_by_session_props'] && (
-                <SessionRecordingFilters
-                    duration={duration}
-                    onChange={(newDuration) => setFilters(properties, selectedDate, newDuration, actionFilter)}
-                />
-            )}
-            <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
+            <Divider />
 
             <div className="text-right mb">
                 <Tooltip title={playAllCTA}>
@@ -216,11 +210,6 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 </Tooltip>
             </div>
 
-            {actionFilter && !featureFlags['filter_by_session_props'] && (
-                <p className="text-muted">
-                    Showing only sessions where <b>{actionFilter.name}</b> occurred
-                </p>
-            )}
             <Table
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"

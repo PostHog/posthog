@@ -1,10 +1,9 @@
 from datetime import timedelta
-from typing import Any, Callable, List, Optional, Union
+from typing import Any, Callable, List, Union
 from unittest.mock import patch
 from uuid import UUID
 
 from django.conf import settings
-from django.test import TransactionTestCase
 from django.utils.timezone import now
 from freezegun import freeze_time
 
@@ -14,13 +13,14 @@ from posthog.models import (
     Element,
     ElementGroup,
     Event,
+    Organization,
     Person,
     SessionRecordingEvent,
     Team,
     User,
 )
 from posthog.tasks.process_event import process_event as _process_event
-from posthog.test.base import BaseTest, TransactionBaseTest
+from posthog.test.base import BaseTest
 
 
 def get_elements(event_id: Union[int, UUID]) -> List[Element]:
@@ -42,7 +42,12 @@ def test_process_event_factory(
             self.team.ingested_event = True  # avoid sending `first team event ingested` to PostHog
             self.team.save()
 
-            with self.assertNumQueries(30 if settings.EE_AVAILABLE else 28):  # extra queries to check for hooks
+            num_queries = 28
+            if settings.EE_AVAILABLE:  # extra queries to check for hooks
+                num_queries += 4
+            if settings.MULTI_TENANCY:  # extra query to check for billing plan
+                num_queries += 1
+            with self.assertNumQueries(num_queries):
                 process_event(
                     2,
                     "",
@@ -684,7 +689,7 @@ def test_process_event_factory(
             self.assertEqual(person.properties["email"], "someone@gmail.com")
 
         def test_distinct_team_leakage(self) -> None:
-            team2 = Team.objects.create()
+            team2 = Organization.objects.bootstrap(None)[2]
             Person.objects.create(team=team2, distinct_ids=["2"], properties={"email": "team2@gmail.com"})
             Person.objects.create(team=self.team, distinct_ids=["1", "2"])
 

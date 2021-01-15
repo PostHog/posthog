@@ -1,12 +1,11 @@
 import json
-from datetime import timedelta
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog.models import Action, ActionStep, Element, Event, Person, Team
-from posthog.test.base import BaseTest, TransactionBaseTest
+from posthog.models import Action, ActionStep, Element, Event, Organization, Person
+from posthog.test.base import TransactionBaseTest
 from posthog.utils import relative_date_parse
 
 
@@ -129,6 +128,18 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             )
             return sign_up
 
+        def test_custom_event_values(self):
+            events = ["test", "new event", "another event"]
+            for event in events:
+                event_factory(
+                    distinct_id="bla",
+                    event=event,
+                    team=self.team,
+                    properties={"random_prop": "don't include", "some other prop": "with some text"},
+                )
+            response = self.client.get("/api/event/values/?key=custom_event").json()
+            self.assertListEqual(sorted(events), sorted([event["name"] for event in response]))
+
         def test_event_property_values(self):
 
             with freeze_time("2020-01-10"):
@@ -176,7 +187,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                     distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item3"]}
                 )
 
-                team2 = Team.objects.create()
+                team2 = Organization.objects.bootstrap(None)[2]
                 event_factory(distinct_id="bla", event="random event", team=team2, properties={"random_prop": "abcd"})
                 response = self.client.get("/api/event/values/?key=random_prop").json()
 
