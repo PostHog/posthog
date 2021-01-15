@@ -237,6 +237,9 @@ export const trendsLogic = kea({
                     properties.push({ key: filters.breakdown, value: breakdown_value, type: filters.breakdown_type })
                 }
 
+                const eventProperties = properties.filter(({ type }) => type === 'event')
+                const personProperties = properties.filter(({ type }) => type === 'person' || type === 'cohort')
+
                 return {
                     date: day,
                     filters: [
@@ -244,9 +247,10 @@ export const trendsLogic = kea({
                             type: action.type === 'actions' ? 'action_type' : 'event_type',
                             key: 'id',
                             value: action.id,
-                            properties,
+                            properties: eventProperties,
                             label: action.name,
                         },
+                        ...personProperties,
                     ],
                 }
             },
