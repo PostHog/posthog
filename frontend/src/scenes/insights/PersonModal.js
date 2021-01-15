@@ -5,7 +5,6 @@ import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { Link } from 'lib/components/Link'
-import { userLogic } from 'scenes/userLogic'
 import { ArrowRightOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -14,7 +13,6 @@ export function PersonModal({ visible, view }) {
     const { setShowingPeople, loadMorePeople, saveCohortWithFilters } = useActions(
         trendsLogic({ dashboardItemId: null, view })
     )
-    const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const title =
@@ -41,7 +39,7 @@ export function PersonModal({ visible, view }) {
                             {'Save cohort'}
                         </Button>
                     </div>
-                    {user?.is_multi_tenancy && featureFlags['filter_by_session_props'] ? (
+                    {featureFlags['filter_by_session_props_link'] ? (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                             <Link
                                 to={peopleModalURL.sessions}
