@@ -3,7 +3,16 @@ from unittest.mock import patch
 from django.test import tag
 from freezegun import freeze_time
 
-from posthog.models import Action, ActionStep, Cohort, Element, Event, Person, Team
+from posthog.models import (
+    Action,
+    ActionStep,
+    Cohort,
+    Element,
+    Event,
+    Person,
+    Team,
+    organization,
+)
 from posthog.test.base import BaseTest
 
 
@@ -39,6 +48,30 @@ class TestCohort(BaseTest):
         )
         cohort.calculate_people(use_clickhouse=False)
         self.assertCountEqual([p for p in cohort.people.all()], [person1, person2])
+
+    def test_insert_by_distinct_id_or_email(self):
+        Person.objects.create(team=self.team, properties={"email": "email@example.org"})
+        Person.objects.create(team=self.team, distinct_ids=["123"])
+        Person.objects.create(team=self.team)
+        # Team leakage
+        team2 = Team.objects.create(organization=self.organization)
+        Person.objects.create(team=team2, properties={"email": "email@example.org"})
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        cohort.insert_users_by_list(["email@example.org", "123", "123", "email@example.org"])
+        cohort = Cohort.objects.get()
+        self.assertEqual(cohort.people.count(), 2)
+        self.assertEqual(cohort.is_calculating, False)
+
+        #  If we accidentally call calculate_people it shouldn't erase people
+        cohort.calculate_people()
+        self.assertEqual(cohort.people.count(), 2)
+
+        # if we add people again, don't increase the number of people in cohort
+        cohort.insert_users_by_list(["123"])
+        cohort = Cohort.objects.get()
+        self.assertEqual(cohort.people.count(), 2)
+        self.assertEqual(cohort.is_calculating, False)
 
     @tag("ee")
     @patch("ee.clickhouse.models.cohort.get_person_ids_by_cohort_id")

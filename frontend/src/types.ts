@@ -251,6 +251,7 @@ export interface CohortType {
     is_calculating?: boolean
     last_calculation?: string
     name?: string
+    csv?: File
     groups: Record<string, any>[]
 }
 
