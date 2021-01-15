@@ -117,16 +117,17 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.is_calculating = True
         cohort.save()
 
-        if request.FILES.get("csv") and cohort.is_static:
-            self._calculate_static_by_csv(request.FILES["csv"], cohort)
+        if cohort.is_static:
+            self._handle_static(cohort, request)
+        else:
+            calculate_cohort.delay(cohort_id=cohort.pk)
 
         posthoganalytics.capture(
             request.user.distinct_id,
             "cohort updated",
             {**cohort.get_analytics_metadata(), "updated_by_creator": request.user == cohort.created_by},
         )
-        if not cohort.is_static:
-            calculate_cohort.delay(cohort_id=cohort.pk)
+
         return cohort
 
     def get_count(self, action: Cohort) -> Optional[int]:
