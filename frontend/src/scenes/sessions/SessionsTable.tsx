@@ -53,7 +53,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
     const {
         sessions,
         sessionsLoading,
-        nextOffset,
+        pagination,
         isLoadingNext,
         selectedDate,
         properties,
@@ -89,7 +89,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                         to={`/person/${encodeURIComponent(session.distinct_id)}`}
                         className={rrwebBlockClass + ' ph-no-capture'}
                     >
-                        {session.properties?.email || session.distinct_id}
+                        {session?.email || session.distinct_id}
                     </Link>
                 )
             },
@@ -114,29 +114,26 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             },
         },
         {
+            title: 'End Time',
+            render: function RenderEndTime(session: SessionType) {
+                return <span>{humanFriendlyDetailedTime(session.end_time)}</span>
+            },
+        },
+        {
             title: 'Start Point',
             render: function RenderStartPoint(session: SessionType) {
-                return (
-                    <span>
-                        {session.events.length !== 0 && session.events[0].properties?.$current_url
-                            ? stripHTTP(session.events[0].properties.$current_url)
-                            : 'N/A'}
-                    </span>
-                )
+                const url = session.start_url || (session.events && session.events[0].properties?.$current_url)
+                return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
         },
         {
             title: 'End Point',
             render: function RenderEndPoint(session: SessionType) {
-                return (
-                    <span>
-                        {session.events.length !== 0 &&
-                        session.events[session.events.length - 1].properties?.$current_url
-                            ? stripHTTP(session.events[session.events.length - 1].properties.$current_url)
-                            : 'N/A'}
-                    </span>
-                )
+                const url =
+                    session.end_url ||
+                    (session.events && session.events[session.events.length - 1].properties?.$current_url)
+                return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
         },
@@ -221,8 +218,8 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 columns={columns}
                 loading={sessionsLoading}
                 expandable={{
-                    expandedRowRender: function renderExpand({ events }) {
-                        return <SessionDetails events={events} />
+                    expandedRowRender: function renderExpand(session) {
+                        return <SessionDetails key={session.global_session_id} session={session} />
                     },
                     rowExpandable: () => true,
                     expandRowByClick: true,
@@ -236,7 +233,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                     textAlign: 'center',
                 }}
             >
-                {(nextOffset || isLoadingNext) && (
+                {(pagination || isLoadingNext) && (
                     <Button type="primary" onClick={fetchNextSessions}>
                         {isLoadingNext ? <Spin> </Spin> : 'Load more sessions'}
                     </Button>

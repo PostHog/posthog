@@ -6,10 +6,10 @@ from ee.clickhouse.client import sync_execute
 from posthog.models import Team
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.base import BaseQuery
-from posthog.queries.session_recording import DistinctId
-from posthog.queries.session_recording import SessionRecording as BaseSessionRecording
-from posthog.queries.session_recording import Snapshots
-from posthog.queries.session_recording import filter_sessions_by_recordings as _filter_sessions_by_recordings
+from posthog.queries.sessions.session_recording import DistinctId
+from posthog.queries.sessions.session_recording import SessionRecording as BaseSessionRecording
+from posthog.queries.sessions.session_recording import Snapshots
+from posthog.queries.sessions.session_recording import filter_sessions_by_recordings as _filter_sessions_by_recordings
 
 OPERATORS = {"gt": ">", "lt": "<"}
 

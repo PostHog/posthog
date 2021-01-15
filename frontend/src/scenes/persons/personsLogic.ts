@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { personsLogicType } from 'types/scenes/persons/personsLogicType'
 import { PersonType } from '~/types'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface PersonPaginatedResponse {
     next: string | null
@@ -14,6 +15,9 @@ interface PersonPaginatedResponse {
 const FILTER_WHITELIST: string[] = ['is_identified', 'search', 'cohort']
 
 export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
+    connect: {
+        actions: [eventUsageLogic, ['reportPersonDetailViewed']],
+    },
     actions: {
         setListFilters: (payload) => ({ payload }),
         editProperty: (key, newValue) => ({ key, newValue }),
@@ -49,7 +53,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             actions.setPerson(response)
         },
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         persons: [
             { next: null, previous: null, results: [] } as PersonPaginatedResponse,
             {
@@ -78,7 +82,9 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                     if (!response.results.length) {
                         router.actions.push('/404')
                     }
-                    return response.results[0]
+                    const person = response.results[0]
+                    actions.reportPersonDetailViewed(person)
+                    return person
                 },
                 setPerson: (person: PersonType): PersonType => {
                     // Used after merging persons to update the view without an additional request

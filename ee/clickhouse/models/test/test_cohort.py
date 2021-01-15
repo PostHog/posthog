@@ -209,12 +209,18 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(results), 2)
         self.assertEqual(cohort.is_calculating, False)
 
+        # test SQLi
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["'); truncate person_static_cohort; --"])
+        cohort.insert_users_by_list(["'); truncate person_static_cohort; --", "123"])
+        results = sync_execute("select count(1) from person_static_cohort")[0][0]
+        self.assertEqual(results, 3)
+
         #  If we accidentally call calculate_people it shouldn't erase people
         cohort.calculate_people()
         results = get_person_ids_by_cohort_id(self.team, cohort.id)
-        self.assertEqual(len(results), 2)
+        self.assertEqual(len(results), 3)
 
         # if we add people again, don't increase the number of people in cohort
         cohort.insert_users_by_list(["123"])
         results = get_person_ids_by_cohort_id(self.team, cohort.id)
-        self.assertEqual(len(results), 2)
+        self.assertEqual(len(results), 3)

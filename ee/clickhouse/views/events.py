@@ -3,7 +3,6 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
 from django.utils.timezone import now
-from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -14,9 +13,13 @@ from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_even
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording
-from ee.clickhouse.queries.sessions.list import SESSIONS_LIST_DEFAULT_LIMIT, ClickhouseSessionsList
-from ee.clickhouse.queries.util import parse_timestamps
-from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
+from ee.clickhouse.queries.sessions.list import ClickhouseSessionsList
+from ee.clickhouse.sql.events import (
+    GET_CUSTOM_EVENTS,
+    SELECT_EVENT_WITH_ARRAY_PROPS_SQL,
+    SELECT_EVENT_WITH_PROP_SQL,
+    SELECT_ONE_EVENT_SQL,
+)
 from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
@@ -108,7 +111,10 @@ class ClickhouseEventsViewSet(EventViewSet):
         team = self.team
         result = []
         flattened = []
-        if key:
+        if key == "custom_event":
+            events = sync_execute(GET_CUSTOM_EVENTS, {"team_id": team.pk})
+            return Response([{"name": event[0]} for event in events])
+        elif key:
             result = get_property_values_for_key(key, team, value=request.GET.get("value"))
             for value in result:
                 try:
@@ -120,26 +126,18 @@ class ClickhouseEventsViewSet(EventViewSet):
 
     @action(methods=["GET"], detail=False)
     def sessions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        team = self.team
         filter = SessionsFilter(request=request)
 
-        limit = int(request.GET.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
-        offset = int(request.GET.get("offset", 0))
-
-        response = ClickhouseSessionsList().run(team=team, filter=filter, limit=limit + 1, offset=offset)
+        sessions, pagination = ClickhouseSessionsList().run(team=self.team, filter=filter)
 
         if filter.distinct_id:
             try:
-                person_ids = get_persons_by_distinct_ids(team.pk, [filter.distinct_id])[0].distinct_ids
-                response = [session for i, session in enumerate(response) if response[i]["distinct_id"] in person_ids]
+                person_ids = get_persons_by_distinct_ids(self.team.pk, [filter.distinct_id])[0].distinct_ids
+                sessions = [session for i, session in enumerate(sessions) if session["distinct_id"] in person_ids]
             except IndexError:
-                response = []
+                sessions = []
 
-        if len(response) > limit:
-            response.pop()
-            return Response({"result": response, "offset": offset + limit})
-        else:
-            return Response({"result": response,})
+        return Response({"result": sessions, "pagination": pagination})
 
     # ******************************************
     # /event/session_recording

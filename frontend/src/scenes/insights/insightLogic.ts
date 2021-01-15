@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import { toParams, fromParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from 'types/scenes/insights/insightLogicType'
 
 export const ViewType = {
@@ -11,8 +12,9 @@ export const ViewType = {
     RETENTION: 'RETENTION',
     PATHS: 'PATHS',
 }
+
 /*
-InsighLogic maintains state for changing between insight features
+InsightLogic maintains state for changing between insight features
 This includes handling the urls and view state
 */
 
@@ -22,6 +24,7 @@ export const insightLogic = kea<insightLogicType>({
         updateActiveView: (type) => ({ type }),
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
+        setNotFirstLoad: () => {},
     }),
     reducers: () => ({
         cachedUrls: [
@@ -45,6 +48,21 @@ export const insightLogic = kea<insightLogicType>({
                 setAllFilters: (_, { filters }) => filters,
             },
         ],
+        /*
+        isFirstLoad determines if this is the first graph being shown after the component is mounted (used for analytics)
+        */
+        isFirstLoad: [
+            true,
+            {
+                setNotFirstLoad: () => false,
+            },
+        ],
+    }),
+    listeners: ({ actions, values }) => ({
+        setAllFilters: (filters) => {
+            eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad)
+            actions.setNotFirstLoad()
+        },
     }),
     actionToUrl: ({ actions, values }) => ({
         setActiveView: ({ type }) => {

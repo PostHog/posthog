@@ -13,6 +13,7 @@ from posthog.models import (
     Element,
     ElementGroup,
     Event,
+    FeatureFlag,
     Organization,
     Person,
     SessionRecordingEvent,
@@ -747,6 +748,21 @@ def test_process_event_factory(
             self.team.refresh_from_db()
             self.assertListEqual(self.team.event_properties, ["price", "name", "$ip"])
             self.assertListEqual(self.team.event_properties_numerical, ["price"])
+
+        def test_add_feature_flags_if_missing(self) -> None:
+            self.assertListEqual(self.team.event_properties_numerical, [])
+            FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test-ff", rollout_percentage=100)
+            with self.assertNumQueries(17):
+                process_event(
+                    "xxx",
+                    "",
+                    "",
+                    {"event": "purchase", "properties": {"$lib": "web"},},
+                    self.team.pk,
+                    now().isoformat(),
+                    now().isoformat(),
+                )
+            self.assertEqual(get_events()[0].properties["$active_feature_flags"], ["test-ff"])
 
     return TestProcessEvent
 

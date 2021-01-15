@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Prefetch, QuerySet
+from django.db.models.query_utils import Q
 from django.utils import timezone
 from django.utils.timezone import now
 from rest_framework import request, response, serializers, viewsets
@@ -17,10 +18,10 @@ from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import Element, ElementGroup, Event, Filter, Person, PersonDistinctId
 from posthog.models.action import Action
 from posthog.models.event import EventManager
-from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.models.filters.sessions_filter import SessionEventsFilter, SessionsFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.base import properties_to_Q
-from posthog.queries.session_recording import SessionRecording
+from posthog.queries.sessions.session_recording import SessionRecording
 from posthog.utils import convert_property_value, flatten, relative_date_parse
 
 
@@ -208,6 +209,16 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_values(self, request: request.Request) -> List[Dict[str, Any]]:
         key = request.GET.get("key")
         params: List[Optional[Union[str, int]]] = [key, key]
+
+        if key == "custom_event":
+            event_names = (
+                Event.objects.filter(team_id=self.team_id)
+                .filter(~Q(event__in=["$autocapture", "$pageview", "$identify", "$pageleave", "$screen"]))
+                .values("event")
+                .distinct()
+            )
+            return [{"name": value["event"]} for value in event_names]
+
         if request.GET.get("value"):
             where = " AND properties ->> %s LIKE %s"
             params.append(key)
@@ -253,7 +264,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # /event/sessions
     #
     # params:
-    # - offset: (number) offset query param for paginated list of user sessions
+    # - pagination: (dict) Object containing information about pagination (offset, last page info)
     # - distinct_id: (string) filter sessions by distinct id
     # - duration: (float) filter sessions by recording duration
     # - duration_operator: (string: lt, gt)
@@ -261,31 +272,28 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def sessions(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.queries.sessions_list import SESSIONS_LIST_DEFAULT_LIMIT, SessionsList
+        from posthog.queries.sessions.sessions_list import SessionsList
 
         filter = SessionsFilter(request=request)
-        limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
-        result: Dict[str, Any] = {"result": SessionsList().run(filter=filter, team=self.team, limit=limit)}
+        pagination = json.loads(request.GET.get("pagination", "{}"))
+
+        sessions, pagination = SessionsList().run(filter=filter, team=self.team, **pagination)
 
         if filter.distinct_id:
-            result = self._filter_sessions_by_distinct_id(filter.distinct_id, result)
+            sessions = self._filter_sessions_by_distinct_id(filter.distinct_id, sessions)
 
-        if filter.session is None:
-            offset = filter.offset + limit - 1
-            if len(result["result"]) > SESSIONS_LIST_DEFAULT_LIMIT:
-                result["result"].pop()
-                date_from = result["result"][0]["start_time"].isoformat()
-                result.update({OFFSET: offset})
-                result.update({DATE_FROM: date_from})
+        return Response({"result": sessions, "pagination": pagination})
 
-        return Response(result)
-
-    def _filter_sessions_by_distinct_id(self, distinct_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    def _filter_sessions_by_distinct_id(self, distinct_id: str, sessions: List[Any]) -> List[Any]:
         person_ids = Person.objects.get(persondistinctid__distinct_id=distinct_id).distinct_ids
-        result["result"] = [
-            session for i, session in enumerate(result["result"]) if result["result"][i]["distinct_id"] in person_ids
-        ]
-        return result
+        return [session for i, session in enumerate(sessions) if session["distinct_id"] in person_ids]
+
+    @action(methods=["GET"], detail=False)
+    def session_events(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        from posthog.queries.sessions.sessions_list_events import SessionsListEvents
+
+        filter = SessionEventsFilter(request=request)
+        return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
 
     # ******************************************
     # /event/session_recording
