@@ -15,7 +15,7 @@ import {
 } from 'scenes/ingestion/frameworks'
 import { Row } from 'antd'
 import React from 'react'
-import { API, MOBILE, PURE_JS, WEB } from 'scenes/ingestion/constants'
+import { API, MOBILE, PURE_JS, SERVER } from 'scenes/ingestion/constants'
 import { useActions, useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 
@@ -92,14 +92,14 @@ export function InstructionsPanel(): JSX.Element {
             onSubmit={() => setVerify(true)}
             onBack={() => setFramework(null)}
         >
-            {platform === WEB ? (
+            {platform === SERVER ? (
                 <Row style={{ marginLeft: -5 }} justify="space-between" align="middle">
                     <h2 style={{ color: 'black', marginLeft: 8 }}>{'Custom Capture'}</h2>
                 </Row>
             ) : (
                 <h2>Setup</h2>
             )}
-            {platform === WEB ? (
+            {platform === SERVER ? (
                 <>
                     <p className="prompt-text">
                         {
