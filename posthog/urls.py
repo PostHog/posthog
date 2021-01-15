@@ -161,15 +161,6 @@ def signup_to_organization_view(request, invite_id):
             posthoganalytics.capture(
                 user.distinct_id, "user signed up", properties={"is_first_user": False, "first_team_user": False},
             )
-            posthoganalytics.identify(
-                user.distinct_id,
-                {
-                    "email": request.user.email if not request.user.anonymize_data else None,
-                    "company_name": organization.name,
-                    "organization_id": str(organization.id),
-                    "is_organization_first_user": False,
-                },
-            )
             return redirect("/")
     return render_template(
         "signup_to_organization.html",

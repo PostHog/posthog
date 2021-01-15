@@ -414,3 +414,10 @@ style files without adding already imported styles. */
         );
     }
 }
+
+.clickable-card {
+    cursor: pointer;
+    &:hover {
+        border-color: $primary;
+    }
+}

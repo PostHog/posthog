@@ -10,9 +10,10 @@ import { isAndroidOrIOS, clearDOMTextSelection } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const dashboardLogic = kea({
-    connect: [dashboardsModel, dashboardItemsModel],
+    connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
 
     key: (props) => props.id,
 
@@ -39,6 +40,7 @@ export const dashboardLogic = kea({
                         const dashboard = await api.get(
                             `api/dashboard/${props.id}${props.shareToken ? '/?share_token=' + props.shareToken : ''}`
                         )
+                        eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
                         if (error.status === 404) {
@@ -51,7 +53,6 @@ export const dashboardLogic = kea({
             },
         ],
     }),
-
     reducers: ({ props }) => ({
         allItems: {
             [dashboardItemsModel.actions.renameDashboardItemSuccess]: (state, { item }) => {
@@ -105,7 +106,6 @@ export const dashboardLogic = kea({
             },
         ],
     }),
-
     selectors: ({ props, selectors }) => ({
         items: [() => [selectors.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [() => [selectors.allItemsLoading], (allItemsLoading) => allItemsLoading],
@@ -216,7 +216,6 @@ export const dashboardLogic = kea({
             },
         ],
     }),
-
     events: ({ actions, cache }) => ({
         afterMount: [actions.loadDashboardItems],
         beforeUnmount: () => {

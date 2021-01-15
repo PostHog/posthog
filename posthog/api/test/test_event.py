@@ -317,7 +317,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
 
             response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-17",).json()
             self.assertEqual(len(response["result"]), 50)
-            self.assertEqual(response.get("offset", None), None)
+            self.assertIsNone(response.get("pagination"))
 
             for i in range(2):
                 with freeze_time(relative_date_parse("2012-01-15T04:01:34.000Z") + relativedelta(hours=i + 46)):
@@ -325,11 +325,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
 
             response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-17",).json()
             self.assertEqual(len(response["result"]), 50)
-            self.assertEqual(response["offset"], 50)
-
-            response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-17&offset=50",).json()
-            self.assertEqual(len(response["result"]), 2)
-            self.assertEqual(response.get("offset", None), None)
+            self.assertIsNotNone(response["pagination"])
 
         def test_event_sessions_by_id(self):
             Person.objects.create(team=self.team, distinct_ids=["1"])

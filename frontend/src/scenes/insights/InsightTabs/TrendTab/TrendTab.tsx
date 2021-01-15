@@ -42,7 +42,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     <PropertyFilters pageKey="trends-filters" />
                 </>
             )}
-            {filters.insight === ViewType.TRENDS && (
+            {filters.insight !== ViewType.LIFECYCLE && filters.insight !== ViewType.STICKINESS && (
                 <>
                     <hr />
                     <h4 className="secondary">

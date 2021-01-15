@@ -22,5 +22,6 @@ class Command(BaseCommand):
                 password=CLICKHOUSE_PASSWORD,
                 verify_ssl_cert=False,
             ).migrate("ee.clickhouse.migrations")
+            print("migration successful")
         except Exception as e:
             print(e)
