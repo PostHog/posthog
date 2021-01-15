@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from ee.clickhouse.client import sync_execute
@@ -71,7 +72,13 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
 
 def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int, team: Team):
     persons = (
-        {"id": str(uuid.uuid4()), "person_id": str(person_uuid), "cohort_id": cohort_id, "team_id": team.pk,}
+        {
+            "id": str(uuid.uuid4()),
+            "person_id": str(person_uuid),
+            "cohort_id": cohort_id,
+            "team_id": team.pk,
+            "_timestamp": datetime.now(),
+        }
         for person_uuid in person_uuids
     )
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
