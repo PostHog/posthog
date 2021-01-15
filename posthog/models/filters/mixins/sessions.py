@@ -27,6 +27,17 @@ class DistinctIdMixin(BaseParamMixin):
         return {"distinct_id": self.distinct_id} if self.distinct_id else {}
 
 
+class PaginationMixin(BaseParamMixin):
+    @cached_property
+    def pagination(self) -> Dict:
+        _pagination = self._data.get("pagination", {})
+        return json.loads(_pagination) if isinstance(_pagination, str) else _pagination
+
+    @include_dict
+    def pagination_to_dict(self):
+        return {"pagination": self.pagination}
+
+
 class SessionsFiltersMixin(BaseParamMixin):
     @cached_property
     def action_filters(self) -> List[Entity]:
@@ -39,10 +50,6 @@ class SessionsFiltersMixin(BaseParamMixin):
             for filter in self._all_filters
             if filter["type"] in [SESSIONS_FILTER_ACTION_TYPE, SESSIONS_FILTER_EVENT_TYPE]
         ]
-
-    @cached_property
-    def action_filter(self) -> Optional[Entity]:
-        return self.action_filters[0] if len(self.action_filters) > 0 else None
 
     @cached_property
     def person_filter_properties(self) -> List[Property]:

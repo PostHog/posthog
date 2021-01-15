@@ -122,24 +122,23 @@ class OrganizationSignupSerializer(serializers.Serializer):
         return value
 
     def create(self, validated_data, **kwargs):
-        is_first_user: bool = not User.objects.exists()
-        realm: str = "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
+        is_instance_first_user: bool = not User.objects.exists()
 
         company_name = validated_data.pop("company_name", validated_data["first_name"])
         self._organization, self._team, self._user = User.objects.bootstrap(company_name=company_name, **validated_data)
         user = self._user
+
         login(
             self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
         )
 
+        posthoganalytics.identify(
+            user.distinct_id, {"is_first_user": is_instance_first_user, "is_organization_first_user": True},
+        )
         posthoganalytics.capture(
             user.distinct_id,
             "user signed up",
-            properties={"is_first_user": is_first_user, "is_organization_first_user": True},
-        )
-
-        posthoganalytics.identify(
-            user.distinct_id, properties={"email": user.email, "realm": realm, "ee_available": settings.EE_AVAILABLE},
+            properties={"is_first_user": is_instance_first_user, "is_organization_first_user": True},
         )
 
         return user

@@ -1,35 +1,29 @@
 from unittest.mock import patch
 
-from posthog.models import Team, User
+from rest_framework import status
 
-from .base import BaseTest
+from posthog.models import Team, User
+from posthog.models.organization import OrganizationMembership
+from posthog.test.base import APITransactionBaseTest, BaseTest
 
 
 class TestUser(BaseTest):
     TESTS_API = True
 
-    def test_redirect_to_site(self):
-        self.team.app_urls = ["http://somewebsite.com"]
-        self.team.save()
-        response = self.client.get("/api/user/redirect_to_site/?actionId=1")
-        self.assertIn("http://somewebsite.com", response.url)
-
-    def test_create_user_with_distinct_id(self):
-        with self.settings(TEST=False):
-            user = User.objects.create_user(first_name="Tim", email="tim@gmail.com", password=None)
-        self.assertNotEqual(user.distinct_id, "")
-        self.assertNotEqual(user.distinct_id, None)
-
+    # TODO: Move to TestUserAPI once endpoint is refactored to DRF
     def test_user_team_update(self):
         response = self.client.patch(
             "/api/user/",
             data={"team": {"opt_out_capture": True, "anonymize_ips": False, "session_recording_opt_in": True}},
             content_type="application/json",
-        ).json()
+        )
 
-        self.assertEqual(response["team"]["opt_out_capture"], True)
-        self.assertEqual(response["team"]["anonymize_ips"], False)
-        self.assertEqual(response["team"]["session_recording_opt_in"], True)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertEqual(response_data["team"]["opt_out_capture"], True)
+        self.assertEqual(response_data["team"]["anonymize_ips"], False)
+        self.assertEqual(response_data["team"]["session_recording_opt_in"], True)
 
         team = Team.objects.get(id=self.team.id)
         self.assertEqual(team.opt_out_capture, True)
@@ -93,3 +87,49 @@ class TestLoginViews(BaseTest):
         User.objects.all().delete()
         response = self.client.get("/", follow=True)
         self.assertRedirects(response, "/preflight")
+
+
+class TestUserAPI(APITransactionBaseTest):
+    def test_redirect_to_site(self):
+        self.team.app_urls = ["http://somewebsite.com"]
+        self.team.save()
+        response = self.client.get("/api/user/redirect_to_site/?actionId=1")
+        self.assertIn("http://somewebsite.com", response.url)
+
+    @patch("posthoganalytics.identify")
+    def test_user_api(self, mock_identify):
+
+        # create another project/user to test analytics input
+        for _ in range(0, 2):
+            Team.objects.create(organization=self.organization, completed_snippet_onboarding=True, ingested_event=True)
+        u = User.objects.create(email="user4@posthog.com")
+        OrganizationMembership.objects.create(user=u, organization=self.organization)
+
+        with self.settings(EE_AVAILABLE=True, MULTI_TENANCY=False):
+            response = self.client.get("/api/user/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        # TODO: When refactoring this to DRF; assert the full response is what's expected
+        self.assertEqual(response_data["distinct_id"], self.user.distinct_id)
+
+        # Make sure the user is update in PostHog (analytics)
+        mock_identify.assert_called_once_with(
+            self.user.distinct_id,
+            {
+                "realm": "hosted",
+                "is_ee_available": True,
+                "email_opt_in": False,
+                "anonymize_data": False,
+                "email": "user1@posthog.com",
+                "is_signed_up": True,
+                "organization_count": 1,
+                "project_count": 3,
+                "team_member_count_all": 2,
+                "completed_onboarding_once": True,
+                "billing_plan": None,
+                "organization_id": str(self.organization.id),
+                "project_id": str(self.team.uuid),
+                "project_setup_complete": False,
+            },
+        )

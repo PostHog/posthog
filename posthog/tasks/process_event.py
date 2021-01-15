@@ -1,6 +1,6 @@
 import datetime
 from numbers import Number
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import posthoganalytics
 from celery import shared_task
@@ -10,6 +10,7 @@ from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
 from posthog.models import Element, Event, Person, SessionRecordingEvent, Team
+from posthog.models.feature_flag import FeatureFlag, get_active_feature_flags
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
@@ -90,6 +91,13 @@ def store_names_and_properties(team: Team, event: str, properties: Dict) -> None
         team.save()
 
 
+def _add_missing_feature_flags(properties: Dict, team: Team, distinct_id: str) -> None:
+    # Only add missing feature flags on web
+    if not properties.get("$lib") == "web" or properties.get("$active_feature_flags"):
+        return
+    properties["$active_feature_flags"] = get_active_feature_flags(team, distinct_id)
+
+
 def _capture(
     ip: str,
     site_url: str,
@@ -129,6 +137,8 @@ def _capture(
 
     if not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
+
+    _add_missing_feature_flags(properties, team, distinct_id)
 
     Event.objects.create(
         event=event,
