@@ -50,10 +50,10 @@ SESSIONS_IN_RANGE_QUERY_COLUMNS = ["session_id", "distinct_id", "start_time", "e
 class SessionRecording(BaseSessionRecording):
     def query_recording_snapshots(
         self, team: Team, session_id: str
-    ) -> Tuple[Optional[DistinctId], datetime.datetime, Snapshots]:
+    ) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots]:
         response = sync_execute(SINGLE_RECORDING_QUERY, {"team_id": team.id, "session_id": session_id})
         if len(response) == 0:
-            return None, []
+            return None, None, []
         return response[0][0], response[0][1], [json.loads(snapshot_data) for _, _, snapshot_data in response]
 
 

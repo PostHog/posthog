@@ -41,11 +41,11 @@ SESSIONS_IN_RANGE_QUERY = """
 class SessionRecording:
     def query_recording_snapshots(
         self, team: Team, session_id: str
-    ) -> Tuple[Optional[DistinctId], datetime.datetime, Snapshots]:
+    ) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots]:
         events = SessionRecordingEvent.objects.filter(team=team, session_id=session_id).order_by("timestamp")
 
         if len(events) == 0:
-            return None, []
+            return None, None, []
 
         return events[0].distinct_id, events[0].timestamp, [e.snapshot_data for e in events]
 
