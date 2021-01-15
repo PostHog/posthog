@@ -764,6 +764,45 @@ def test_process_event_factory(
                 )
             self.assertEqual(get_events()[0].properties["$active_feature_flags"], ["test-ff"])
 
+        def test_event_name_dict_json(self) -> None:
+            process_event(
+                "xxx",
+                "",
+                "",
+                {"event": {"event name": "as object"}, "properties": {"price": 299.99, "name": "AirPods Pro"},},
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+            event = get_events()[0]
+            self.assertEqual(event.event, '{"event name": "as object"}')
+
+        def test_event_name_list_json(self) -> None:
+            process_event(
+                "xxx",
+                "",
+                "",
+                {"event": ["event name", "a list"], "properties": {"price": 299.99, "name": "AirPods Pro"},},
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+            event = get_events()[0]
+            self.assertEqual(event.event, '["event name", "a list"]')
+
+        def test_long_event_name_substr(self) -> None:
+            process_event(
+                "xxx",
+                "",
+                "",
+                {"event": "E" * 300, "properties": {"price": 299.99, "name": "AirPods Pro"},},
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+            event = get_events()[0]
+            self.assertEqual(len(event.event), 200)
+
     return TestProcessEvent
 
 

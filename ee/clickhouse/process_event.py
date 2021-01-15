@@ -19,7 +19,12 @@ from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.tasks.process_event import _add_missing_feature_flags, handle_identify_or_alias, store_names_and_properties
+from posthog.tasks.process_event import (
+    _add_missing_feature_flags,
+    handle_identify_or_alias,
+    sanitize_event_name,
+    store_names_and_properties,
+)
 
 if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
@@ -59,6 +64,7 @@ def _capture_ee(
     if not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
 
+    event = sanitize_event_name(event)
     _add_missing_feature_flags(properties, team, distinct_id)
     store_names_and_properties(team=team, event=event, properties=properties)
 
