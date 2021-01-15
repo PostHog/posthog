@@ -4,5 +4,4 @@ from ee.clickhouse.sql.person import KAFKA_PERSON_STATIC_COHORT_TABLE_SQL, PERSO
 
 operations = [
     migrations.RunSQL(PERSON_STATIC_COHORT_TABLE_SQL),
-    migrations.RunSQL(KAFKA_PERSON_STATIC_COHORT_TABLE_SQL),
 ]

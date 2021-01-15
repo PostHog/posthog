@@ -11,7 +11,6 @@ from ee.clickhouse.sql.person import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from ee.kafka_client.client import ClickhouseProducer
-from ee.kafka_client.topics import KAFKA_PERSON_STATIC_COHORT
 from posthog.models import Action, Cohort, Filter, Team
 
 
@@ -72,13 +71,10 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
 
 
 def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int, team: Team):
-    for person_uuid in person_uuids:
-        person_cohort = {
-            "id": str(uuid.uuid4()),
-            "person_id": str(person_uuid),
-            "cohort_id": cohort_id,
-            "team_id": team.pk,
-        }
-
-        p = ClickhouseProducer()
-        p.produce(sql=INSERT_PERSON_STATIC_COHORT, topic=KAFKA_PERSON_STATIC_COHORT, data=person_cohort)
+    p = ClickhouseProducer()
+    p.send_to_kafka = False
+    persons = (
+        {"id": str(uuid.uuid4()), "person_id": str(person_uuid), "cohort_id": cohort_id, "team_id": team.pk,}
+        for person_uuid in person_uuids
+    )
+    sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
