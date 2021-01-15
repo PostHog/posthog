@@ -22,7 +22,7 @@ def backwards(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0111_plugin_storage"),
+        ("posthog", "0113_cohort_is_static"),
     ]
 
     operations = [
