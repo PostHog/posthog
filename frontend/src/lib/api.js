@@ -27,7 +27,13 @@ class Api {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
-        const response = await fetch(url)
+
+        let response
+        try {
+            response = await fetch(url)
+        } catch (e) {
+            throw { status: 0, message: e }
+        }
 
         if (!response.ok) {
             const data = await getJSONOrThrow(response)
