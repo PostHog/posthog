@@ -57,13 +57,13 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
             (platform, framework, verify) => {
                 // if missing parts of the URL
                 if (verify) {
-                    return 5 - (platform ? 0 : 1) - (framework ? 0 : 1)
+                    return 4 - (platform ? 0 : 1) - (framework ? 0 : 1)
                 }
                 if (framework === API && !platform) {
                     return 4
                 }
 
-                return platform === WEB ? 3 : platform === MOBILE ? 4 : 5
+                return platform === WEB ? 3 : 4 // (mobile & server)
             },
         ],
     },
