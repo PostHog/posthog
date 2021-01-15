@@ -65,7 +65,7 @@ export function AutocapturePanel(): JSX.Element {
             )}
             <div style={{ marginTop: 16 }}>
                 <h2>
-                    Option 1. Autocapture <Tag color="green">Recommended</Tag>
+                    Option 1. Code snippet <Tag color="green">Recommended</Tag>
                 </h2>
                 <p>
                     Faster option. Particularly recommended for new projects where you don't know what your analytics
