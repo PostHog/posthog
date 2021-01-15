@@ -243,7 +243,7 @@ export const trendsLogic = kea({
                         {
                             type: action.type === 'actions' ? 'action_type' : 'event_type',
                             key: 'id',
-                            value: action.value,
+                            value: action.id,
                             properties,
                             label: action.name,
                         },
