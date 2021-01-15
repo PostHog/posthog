@@ -27,7 +27,7 @@ CREATE TABLE {table_name}
     properties_currentscreen VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'currentScreen')),
     properties_objectname VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'objectName')), 
     properties_test_prop VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'test_prop')), 
-    created_at DateTime64(6, 'UTC'),
+    created_at DateTime64(6, 'UTC')
     {extra_fields}
 ) ENGINE = {engine} 
 """
