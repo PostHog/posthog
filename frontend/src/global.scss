@@ -421,3 +421,20 @@ style files without adding already imported styles. */
         border-color: $primary;
     }
 }
+
+// Stateful badges
+
+.stateful-badge {
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-weight: bold;
+
+    &.or {
+        background-color: $blue_300;
+    }
+
+    &.and {
+        background-color: $yellow_100;
+        color: $primary_alt;
+    }
+}
