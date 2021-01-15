@@ -58,7 +58,7 @@ class TestCohort(BaseTest):
         Person.objects.create(team=team2, properties={"email": "email@example.org"})
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
-        cohort.insert_users_by_list(["email@example.org", "123"])
+        cohort.insert_users_by_list(["email@example.org", "123", "123", "email@example.org"])
         cohort = Cohort.objects.get()
         self.assertEqual(cohort.people.count(), 2)
         self.assertEqual(cohort.is_calculating, False)
