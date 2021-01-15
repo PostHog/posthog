@@ -46,7 +46,7 @@ export const insightLogic = kea<insightLogicType>({
                 setShowTimeoutMessage: (_, { showTimeoutMessage }: { showTimeoutMessage: boolean }) =>
                     showTimeoutMessage,
                 endQuery: (_, { exception }) => {
-                    if (exception?.status !== 500) {
+                    if (exception && exception.status !== 500) {
                         return true
                     }
                     return false
