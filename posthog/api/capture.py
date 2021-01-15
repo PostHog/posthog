@@ -9,6 +9,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
+from ee.kafka_client.topics import KAFKA_EVENTS_INGESTION_HANDOFF, KAFKA_EVENTS_WAL
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
 from posthog.models import Team, User
@@ -190,17 +191,10 @@ def get_event(request):
         event_uuid = UUIDT()
 
         if is_ee_enabled():
-            log_event(
-                distinct_id=distinct_id,
-                ip=get_ip_address(request),
-                site_url=request.build_absolute_uri("/")[:-1],
-                data=event,
-                team_id=team.id,
-                now=now,
-                sent_at=sent_at,
-                event_uuid=event_uuid,
-            )
-            if not settings.PLUGIN_SERVER_INGESTION_HANDOFF:
+            log_topics = [KAFKA_EVENTS_WAL]
+            if settings.PLUGIN_SERVER_INGESTION_HANDOFF:
+                log_topics.append(KAFKA_EVENTS_INGESTION_HANDOFF)
+            else:
                 process_event_ee(
                     distinct_id=distinct_id,
                     ip=get_ip_address(request),
@@ -211,6 +205,17 @@ def get_event(request):
                     sent_at=sent_at,
                     event_uuid=event_uuid,
                 )
+            log_event(
+                distinct_id=distinct_id,
+                ip=get_ip_address(request),
+                site_url=request.build_absolute_uri("/")[:-1],
+                data=event,
+                team_id=team.id,
+                now=now,
+                sent_at=sent_at,
+                event_uuid=event_uuid,
+                topics=log_topics,
+            )
         else:
             task_name = "posthog.tasks.process_event.process_event"
             if settings.PLUGIN_SERVER_INGESTION_HANDOFF or team.plugins_opt_in:
