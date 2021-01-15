@@ -79,13 +79,9 @@
                     &:before {
                         background-color: $blue_300 !important;
                     }
-                }
 
-                &.current {
                     .ant-tag {
-                        background-color: $blue_100;
-                        border-color: $blue_500;
-                        color: $blue_700;
+                        font-weight: bold;
                     }
                 }
 

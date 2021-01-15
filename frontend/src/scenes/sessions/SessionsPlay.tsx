@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Player, PlayerRef } from 'posthog-react-rrweb-player'
+import { Player, PlayerRef, findCurrent } from 'posthog-react-rrweb-player'
 import { Card, Col, Input, Row, Skeleton, Tag } from 'antd'
 import {
     UserOutlined,
@@ -49,6 +49,7 @@ function DeviceIcon({ width }: { width: number }): JSX.Element {
 export const SessionsPlay = hot(_SessionsPlay)
 function _SessionsPlay(): JSX.Element {
     const {
+        session,
         sessionPlayerData,
         sessionPlayerDataLoading,
         loadingNextRecording,
@@ -58,17 +59,20 @@ function _SessionsPlay(): JSX.Element {
         tags,
         tagsLoading,
         eventIndex,
-        pageVisitEvents,
         showNext,
         showPrev,
+        shownPlayerEvents,
     } = useValues(sessionsPlayLogic)
-    const { toggleAddingTagShown, setAddingTag, createTag, goToNext, goToPrevious } = useActions(sessionsPlayLogic)
+    const { toggleAddingTagShown, setAddingTag, createTag, goToNext, goToPrevious, loadSessionEvents } = useActions(
+        sessionsPlayLogic
+    )
     const addTagInput = useRef<Input>(null)
 
     const [playerTime, setCurrentPlayerTime] = useState(0)
     const playerRef = useRef<PlayerRef>(null)
-    const [pageEvent, atPageIndex] = useMemo(() => eventIndex.getPageMetadata(playerTime), [eventIndex, playerTime])
+    const [pageEvent] = useMemo(() => eventIndex.getPageMetadata(playerTime), [eventIndex, playerTime])
     const [recordingMetadata] = useMemo(() => eventIndex.getRecordingMetadata(playerTime), [eventIndex, playerTime])
+    const activeIndex = useMemo(() => findCurrent(playerTime, shownPlayerEvents), [shownPlayerEvents, playerTime])[1]
 
     const isLoading = sessionPlayerDataLoading || loadingNextRecording
 
@@ -78,9 +82,15 @@ function _SessionsPlay(): JSX.Element {
         }
     }, [addingTagShown])
 
-    const seekEvent = (playerTime: number): void => {
-        setCurrentPlayerTime(playerTime)
-        playerRef.current?.seek(playerTime)
+    useEffect(() => {
+        if (session) {
+            loadSessionEvents(session)
+        }
+    }, [session])
+
+    const seekEvent = (time: number): void => {
+        setCurrentPlayerTime(time)
+        playerRef.current?.seek(time)
     }
 
     return (
@@ -211,9 +221,11 @@ function _SessionsPlay(): JSX.Element {
                             <div className="timeline">
                                 <div className="line" />
                                 <div className="timeline-items">
-                                    {pageVisitEvents.map(({ href, playerTime }, index) => (
-                                        <div className={index === atPageIndex ? 'current' : undefined} key={index}>
-                                            <Tag onClick={() => seekEvent(playerTime)}>{href}</Tag>
+                                    {shownPlayerEvents.map(({ playerTime: time, color, text }, index) => (
+                                        <div className={index == activeIndex ? 'current' : undefined} key={index}>
+                                            <Tag onClick={() => seekEvent(time)} color={color}>
+                                                {text}
+                                            </Tag>
                                         </div>
                                     ))}
                                 </div>
