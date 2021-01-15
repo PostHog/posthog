@@ -19,6 +19,7 @@ SINGLE_RECORDING_QUERY = """
     WHERE
         team_id = %(team_id)s
         AND session_id = %(session_id)s
+    ORDER BY timestamp
 """
 
 SESSIONS_IN_RANGE_QUERY = """

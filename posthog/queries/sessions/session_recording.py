@@ -60,7 +60,7 @@ class SessionRecording:
         )
 
         return {
-            "snapshots": list(sorted(snapshots, key=lambda s: s["timestamp"])),
+            "snapshots": snapshots,
             "person": person,
             "start_time": start_time,
         }
