@@ -43,7 +43,7 @@ export const insightLogic = kea<insightLogicType>({
                 setShowTimeoutMessage: (_, { showTimeoutMessage }: { showTimeoutMessage: boolean }) =>
                     showTimeoutMessage,
                 endQuery: (_, { exception }) => {
-                    if (exception && exception.status !== 500 && exception.message.indexOf('Failed to fetch') === -1) {
+                    if (exception?.status !== 500 || exception?.message?.indexOf('Failed to fetch') === -1) {
                         return true
                     }
                     return false
@@ -57,7 +57,7 @@ export const insightLogic = kea<insightLogicType>({
             false,
             {
                 endQuery: (_, { exception }) =>
-                    exception?.status === 500 || exception?.message.indexOf('Failed to fetch') > -1 || false,
+                    exception?.status === 500 || exception?.message?.indexOf('Failed to fetch') > -1 || false,
                 startQuery: () => false,
                 setActiveView: () => false,
             },
