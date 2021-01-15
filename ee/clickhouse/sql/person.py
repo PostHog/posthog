@@ -287,7 +287,7 @@ LIMIT 200 OFFSET %(offset)s
 """
 
 INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL = """
-INSERT INTO {cohort_table} SELECT genereateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s FROM (
+INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
     SELECT id FROM (
         {latest_person_sql}
     ) as person INNER JOIN (
@@ -309,7 +309,7 @@ LIMIT 100 OFFSET %(offset)s
 """
 
 INSERT_COHORT_ALL_PEOPLE_SQL = """
-INSERT INTO {cohort_table} SELECT genereateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s FROM (
+INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
     SELECT id FROM (
         {latest_person_sql}
     ) as person INNER JOIN (

@@ -8,6 +8,7 @@ from dateutil.relativedelta import relativedelta
 from django.db.models import F
 from django.utils import timezone
 
+from posthog.ee import is_ee_enabled
 from posthog.models import Cohort
 
 logger = logging.getLogger(__name__)
@@ -47,3 +48,12 @@ def calculate_cohort_from_csv(cohort_id: int, items: List[str]) -> None:
     cohort.insert_users_by_list(items)
 
     logger.info("Calculating cohort {} from CSV took {:.2f} seconds".format(cohort.pk, (time.time() - start_time)))
+
+
+@shared_task(ignore_result=True, max_retries=1)
+def insert_cohort_from_query(cohort_id: int) -> None:
+    if is_ee_enabled():
+        from ee.clickhouse.views.cohort import insert_cohort_people_into_pg
+
+        cohort = Cohort.objects.get(pk=cohort_id)
+        insert_cohort_people_into_pg(cohort=cohort)

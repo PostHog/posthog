@@ -150,6 +150,32 @@ class Cohort(models.Model):
             self.save()
             capture_exception()
 
+    def insert_users_list_by_uuid(self, items: List[str]) -> None:
+        batchsize = 1000
+        try:
+            cursor = connection.cursor()
+            for i in range(0, len(items), batchsize):
+                batch = items[i : i + batchsize]
+                persons_query = (
+                    Person.objects.filter(team_id=self.team_id).filter(uuid__in=batch).exclude(cohort__id=self.id)
+                )
+                sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
+                query = UPDATE_QUERY.format(
+                    cohort_id=self.pk,
+                    values_query=sql.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
+                )
+                cursor.execute(query, params)
+
+            self.is_calculating = False
+            self.last_calculation = timezone.now()
+            self.errors_calculating = 0
+            self.save()
+        except Exception:
+            self.is_calculating = False
+            self.errors_calculating = F("errors_calculating") + 1
+            self.save()
+            capture_exception()
+
     def __str__(self):
         return self.name
 

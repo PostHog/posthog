@@ -168,24 +168,14 @@ def calculate_entity_people(team: Team, entity: Entity, filter: Filter):
 
 def insert_entity_people_into_cohort(cohort: Cohort, team: Team, entity: Entity, filter: Filter):
     content_sql, params = _process_content_sql(team, entity, filter)
-    try:
-        sync_execute(
-            INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL.format(
-                cohort_table=PERSON_STATIC_COHORT_TABLE,
-                content_sql=content_sql,
-                latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
-            ),
-            {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},
-        )
-        cohort.is_calculating = False
-        cohort.last_calculation = timezone.now()
-        cohort.errors_calculating = 0
-        cohort.save()
-    except Exception:
-        cohort.is_calculating = False
-        cohort.errors_calculating = F("errors_calculating") + 1
-        cohort.save()
-        capture_exception()
+    sync_execute(
+        INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL.format(
+            cohort_table=PERSON_STATIC_COHORT_TABLE,
+            content_sql=content_sql,
+            latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
+        ),
+        {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},
+    )
 
 
 class LegacyClickhouseActionsViewSet(ClickhouseActionsViewSet):
