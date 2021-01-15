@@ -82,10 +82,9 @@ class CohortSerializer(serializers.ModelSerializer):
                     stickiness_filter = StickinessFilter(
                         request=request, team=team, get_earliest_timestamp=self.earliest_timestamp_func
                     )
-                    people_distinct_ids = self._fetch_stickiness_people(stickiness_filter, team)
+                    self._handle_stickiness_people(cohort, stickiness_filter, team)
                 else:
-                    people_distinct_ids = self._fetch_trend_people(filter, team)
-                self._calculate_static_by_people(people_distinct_ids, cohort)
+                    self._handle_trend_people(cohort, filter, team)
             except:
                 raise ValueError("This cohort has no conditions")
 
@@ -98,16 +97,18 @@ class CohortSerializer(serializers.ModelSerializer):
     def _calculate_static_by_people(self, people: List[str], cohort: Cohort) -> None:
         calculate_cohort_from_csv.delay(cohort.pk, people)
 
-    def _fetch_stickiness_people(self, filter: StickinessFilter, team: Team) -> List[str]:
+    def _handle_stickiness_people(self, cohort: Cohort, filter: StickinessFilter, team: Team) -> None:
         events = stickiness_process_entity_type(team, filter)
         events = stickiness_format_intervals(events, filter)
         people = stickiness_fetch_people(events, team, filter)
-        return [person.distinct_ids[0] for person in people if len(person.distinct_ids)]
+        ids = [person.distinct_ids[0] for person in people if len(person.distinct_ids)]
+        self._calculate_static_by_people(ids, cohort)
 
-    def _fetch_trend_people(self, filter: Filter, team: Team) -> List[str]:
+    def _handle_trend_people(self, cohort: Cohort, filter: Filter, team: Team) -> None:
         events = filter_by_type(team=team, filter=filter)
         people = calculate_people(team=team, events=events, filter=filter)
-        return [person.distinct_ids[0] for person in people if len(person.distinct_ids)]
+        ids = [person.distinct_ids[0] for person in people if len(person.distinct_ids)]
+        self._calculate_static_by_people(ids, cohort)
 
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]

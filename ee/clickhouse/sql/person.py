@@ -286,13 +286,38 @@ GROUP BY id, created_at, team_id, properties, is_identified
 LIMIT 200 OFFSET %(offset)s
 """
 
+INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL = """
+INSERT INTO {cohort_table} SELECT genereateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s FROM (
+    SELECT id FROM (
+        {latest_person_sql}
+    ) as person INNER JOIN (
+        SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE distinct_id IN ({content_sql}) AND team_id = %(team_id)s
+    ) as pdi ON person.id = pdi.person_id
+    WHERE team_id = %(team_id)s
+    GROUP BY id
+)
+"""
+
 PEOPLE_SQL = """
 SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM (
     {latest_person_sql}
 ) as person INNER JOIN (
     SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE person_id IN ({content_sql}) AND team_id = %(team_id)s
-) as pdi ON person.id = pdi.person_id GROUP BY id, created_at, team_id, properties, is_identified
+) as pdi ON person.id = pdi.person_id 
+GROUP BY id, created_at, team_id, properties, is_identified
 LIMIT 100 OFFSET %(offset)s 
+"""
+
+INSERT_COHORT_ALL_PEOPLE_SQL = """
+INSERT INTO {cohort_table} SELECT genereateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s FROM (
+    SELECT id FROM (
+        {latest_person_sql}
+    ) as person INNER JOIN (
+        SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE person_id IN ({content_sql}) AND team_id = %(team_id)s
+    ) as pdi ON person.id = pdi.person_id
+    WHERE team_id = %(team_id)s
+    GROUP BY id
+)
 """
 
 GET_DISTINCT_IDS_BY_PROPERTY_SQL = """

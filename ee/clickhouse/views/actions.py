@@ -1,13 +1,15 @@
 # NOTE: bad django practice but /ee specifically depends on /posthog so it should be fine
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
+from django.db.models.expressions import F
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter, format_entity_filter
@@ -15,7 +17,14 @@ from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, PEOPLE_SQL, PEOPLE_THROUGH_DISTINCT_SQL, PERSON_TREND_SQL
+from ee.clickhouse.sql.person import (
+    GET_LATEST_PERSON_SQL,
+    INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL,
+    PEOPLE_SQL,
+    PEOPLE_THROUGH_DISTINCT_SQL,
+    PERSON_STATIC_COHORT_TABLE,
+    PERSON_TREND_SQL,
+)
 from ee.clickhouse.sql.stickiness.stickiness_people import STICKINESS_PEOPLE_SQL
 from posthog.api.action import ActionSerializer, ActionViewSet
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
@@ -111,7 +120,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         )
 
 
-def calculate_entity_people(team: Team, entity: Entity, filter: Filter):
+def _process_content_sql(team: Team, entity: Entity, filter: Filter):
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
     entity_sql, entity_params = format_entity_filter(entity=entity)
     person_filter = ""
@@ -140,16 +149,43 @@ def calculate_entity_people(team: Team, entity: Entity, filter: Filter):
         breakdown_filter="",
         person_filter=person_filter,
     )
+    return content_sql, {**params, **person_filter_params}
+
+
+def calculate_entity_people(team: Team, entity: Entity, filter: Filter):
+    content_sql, params = _process_content_sql(team, entity, filter)
 
     people = sync_execute(
         PEOPLE_THROUGH_DISTINCT_SQL.format(
             content_sql=content_sql, latest_person_sql=GET_LATEST_PERSON_SQL.format(query="")
         ),
-        {**params, **person_filter_params},
+        params,
     )
     serialized_people = ClickhousePersonSerializer(people, many=True).data
 
     return serialized_people
+
+
+def insert_entity_people_into_cohort(cohort: Cohort, team: Team, entity: Entity, filter: Filter):
+    content_sql, params = _process_content_sql(team, entity, filter)
+    try:
+        sync_execute(
+            INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL.format(
+                cohort_table=PERSON_STATIC_COHORT_TABLE,
+                content_sql=content_sql,
+                latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
+            ),
+            {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},
+        )
+        cohort.is_calculating = False
+        cohort.last_calculation = timezone.now()
+        cohort.errors_calculating = 0
+        cohort.save()
+    except Exception:
+        cohort.is_calculating = False
+        cohort.errors_calculating = F("errors_calculating") + 1
+        cohort.save()
+        capture_exception()
 
 
 class LegacyClickhouseActionsViewSet(ClickhouseActionsViewSet):
