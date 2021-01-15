@@ -126,11 +126,10 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
         sessionDate: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData: SessionPlayerData): string | null => {
-                if (!sessionPlayerData?.snapshots.length || !sessionPlayerData.snapshots[0].timestamp) {
+                if (!sessionPlayerData?.start_time) {
                     return null
                 }
-                // :KLUDGE: This is not using the session timestamp but client-side timestamp
-                return moment(sessionPlayerData.snapshots[0].timestamp).format('MMM Do')
+                return moment(sessionPlayerData.start_time).format('MMM Do')
             },
         ],
         eventIndex: [
