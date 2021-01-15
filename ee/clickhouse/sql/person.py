@@ -1,4 +1,4 @@
-from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_STATIC_COHORT, KAFKA_PERSON_UNIQUE_ID
+from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 
 from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine
 
@@ -151,10 +151,6 @@ PERSON_STATIC_COHORT_TABLE_SQL = (
     extra_fields=KAFKA_COLUMNS,
 )
 
-KAFKA_PERSON_STATIC_COHORT_TABLE_SQL = PERSON_STATIC_COHORT_BASE_SQL.format(
-    table_name="kafka_" + PERSON_STATIC_COHORT_TABLE, engine=kafka_engine(KAFKA_PERSON_STATIC_COHORT), extra_fields="",
-)
-
 DROP_PERSON_STATIC_COHORT_TABLE_SQL = """
 DROP TABLE {}
 """.format(
@@ -162,7 +158,7 @@ DROP TABLE {}
 )
 
 INSERT_PERSON_STATIC_COHORT = """
-INSERT INTO {} SELECT %(id)s, %(person_id)s, %(cohort_id)s, %(team_id)s, now(), 0 VALUES
+INSERT INTO {} (id, person_id, cohort_id, team_id, _timestamp) VALUES 
 """.format(
     PERSON_STATIC_COHORT_TABLE
 )
