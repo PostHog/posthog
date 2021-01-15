@@ -9,7 +9,6 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
-from ee.kafka_client.topics import KAFKA_EVENTS_INGESTION_HANDOFF, KAFKA_EVENTS_WAL
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
 from posthog.models import Team, User
@@ -18,6 +17,7 @@ from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
     from ee.clickhouse.process_event import log_event, process_event_ee
+    from ee.kafka_client.topics import KAFKA_EVENTS_INGESTION_HANDOFF, KAFKA_EVENTS_WAL
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
