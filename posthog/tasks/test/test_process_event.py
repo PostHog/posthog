@@ -774,7 +774,7 @@ def test_process_event_factory(
         def test_add_feature_flags_if_missing(self) -> None:
             self.assertListEqual(self.team.event_properties_numerical, [])
             FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test-ff", rollout_percentage=100)
-            with self.assertNumQueries(17):
+            with self.assertNumQueries(16):
                 process_event(
                     "xxx",
                     "",
