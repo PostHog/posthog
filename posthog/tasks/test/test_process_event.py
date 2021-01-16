@@ -94,7 +94,7 @@ def test_process_event_factory(
             )
 
             # See effect of caching
-            with self.assertNumQueries(24):
+            with self.assertNumQueries(num_queries - 4):
                 process_event(
                     2,
                     "",
