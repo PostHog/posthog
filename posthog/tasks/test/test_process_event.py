@@ -43,9 +43,9 @@ def test_process_event_factory(
             self.team.ingested_event = True  # avoid sending `first team event ingested` to PostHog
             self.team.save()
 
-            num_queries = 27
+            num_queries = 28
             if settings.EE_AVAILABLE:  # extra queries to check for hooks
-                num_queries += 4
+                num_queries += 3
             if settings.MULTI_TENANCY:  # extra query to check for billing plan
                 num_queries += 1
             with self.assertNumQueries(num_queries):
