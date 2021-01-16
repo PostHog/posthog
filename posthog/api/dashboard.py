@@ -17,6 +17,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.user import UserSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.constants import TRENDS_FUNNEL
 from posthog.helpers import create_dashboard_from_template
@@ -27,6 +28,7 @@ from posthog.utils import render_template
 
 class DashboardSerializer(serializers.ModelSerializer):
     items = serializers.SerializerMethodField()  # type: ignore
+    created_by = UserSerializer(required=False, read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
 
     class Meta:
