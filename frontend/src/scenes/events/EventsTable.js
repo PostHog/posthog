@@ -246,7 +246,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                     </Button>
                 </Col>
                 <Col span={pageKey === 'events' ? 2 : 4}>
-                    <Button onClick={openColumnChooser} type="secondary">
+                    <Button data-attr="events-table-column-selector" onClick={openColumnChooser} type="secondary">
                         Change columns
                     </Button>
                     <Tooltip title="Up to 100,000 latest events.">
