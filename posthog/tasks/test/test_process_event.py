@@ -97,7 +97,7 @@ def test_process_event_factory(
             num_queries = 22
             if settings.EE_AVAILABLE:  # extra queries to check for hooks
                 num_queries += 2
-            with self.assertNumQueries(num_queries - 4):
+            with self.assertNumQueries(num_queries):
                 process_event(
                     2,
                     "",
