@@ -43,7 +43,7 @@ def test_process_event_factory(
             self.team.ingested_event = True  # avoid sending `first team event ingested` to PostHog
             self.team.save()
 
-            num_queries = 28
+            num_queries = 27
             if settings.EE_AVAILABLE:  # extra queries to check for hooks
                 num_queries += 4
             if settings.MULTI_TENANCY:  # extra query to check for billing plan
@@ -92,6 +92,28 @@ def test_process_event_factory(
                     {"key": "$ip", "usage_count": None, "volume": None},
                 ],
             )
+
+            # See effect of caching
+            with self.assertNumQueries(24):
+                process_event(
+                    2,
+                    "",
+                    "",
+                    {
+                        "event": "$autocapture",
+                        "properties": {
+                            "distinct_id": 2,
+                            "token": self.team.api_token,
+                            "$elements": [
+                                {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                                {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
+                            ],
+                        },
+                    },
+                    team_id,
+                    now().isoformat(),
+                    now().isoformat(),
+                )
 
         def test_capture_no_element(self) -> None:
             user = self._create_user("tim")

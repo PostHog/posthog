@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 import posthoganalytics
 from django.contrib.postgres.fields import ArrayField, JSONField
@@ -12,7 +12,7 @@ from .dashboard import Dashboard
 from .dashboard_item import DashboardItem
 from .utils import UUIDT, generate_random_token, sane_repr
 
-TEAM_CACHE: Dict[str, "Team"] = {}
+TEAM_CACHE: Dict[int, "Team"] = {}
 
 
 class TeamManager(models.Manager):
@@ -65,13 +65,21 @@ class TeamManager(models.Manager):
             raise ValueError("Creating organization-less projects is prohibited")
         return super().create(*args, **kwargs)
 
-    def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
+    def get_team_from_token(self, token: Optional[str], only: Tuple) -> Optional["Team"]:
         if not token:
             return None
         try:
-            return Team.objects.get(api_token=token)
-        except Team.DoesNotExist:
+            return Team.objects.filter(api_token=token).only(*only)[0]
+        except IndexError:
             return None
+
+    def get_team_cached(self, pk: int) -> "Team":
+        team_from_cache = TEAM_CACHE.get(pk)
+        if team_from_cache:
+            return team_from_cache
+        team = Team.objects.get(pk=pk)
+        TEAM_CACHE[pk] = team
+        return team
 
 
 class Team(models.Model):

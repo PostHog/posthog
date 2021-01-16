@@ -76,13 +76,13 @@ def sanitize_event_name(event: Any) -> str:
             return str(event)[0:200]
 
 
-def store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
-    # In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
+def store_names_and_properties(team: Team, event: str, properties: Dict, cache_busted: bool = False) -> None:
     save = False
     if not team.ingested_event:
         # First event for the team captured
-        for user in team.organization.members.all():
-            posthoganalytics.capture(user.distinct_id, "first team event ingested", {"team": str(team.uuid)})
+        if cache_busted:
+            for user in team.organization.members.all():
+                posthoganalytics.capture(user.distinct_id, "first team event ingested", {"team": str(team.uuid)})
 
         team.ingested_event = True
         save = True
@@ -99,7 +99,10 @@ def store_names_and_properties(team: Team, event: str, properties: Dict) -> None
             team.event_properties_numerical.append(key)
             save = True
     if save:
-        team.save()
+        if not cache_busted:
+            store_names_and_properties(Team.objects.get(pk=team.pk), event, properties, cache_busted=True)
+        else:
+            team.save()
 
 
 def _add_missing_feature_flags(properties: Dict, team: Team, distinct_id: str) -> None:
@@ -136,15 +139,7 @@ def _capture(
             for index, el in enumerate(elements)
         ]
 
-    team = Team.objects.only(
-        "slack_incoming_webhook",
-        "event_names",
-        "event_properties",
-        "event_names_with_usage",
-        "event_properties_with_usage",
-        "anonymize_ips",
-        "ingested_event",
-    ).get(pk=team_id)
+    team = Team.objects.get_team_cached(pk=team_id)
 
     if not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip

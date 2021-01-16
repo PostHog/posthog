@@ -89,7 +89,9 @@ def get_decide(request: HttpRequest):
                 ),
             )
         token = _get_token(data, request)
-        team = Team.objects.get_team_from_token(token)
+
+        team = Team.objects.get_team_from_token(token, only=("id", "session_recording_opt_in", "app_urls"))
+
         if team is None and token:
             project_id = _get_project_id(data, request)
             user = User.objects.get_from_personal_api_key(token)

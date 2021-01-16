@@ -124,7 +124,8 @@ def get_event(request):
                 status=400,
             ),
         )
-    team = Team.objects.get_team_from_token(token)
+
+    team = Team.objects.get_team_from_token(token, only=("id", "plugins_opt_in"))
 
     if team is None:
         try:

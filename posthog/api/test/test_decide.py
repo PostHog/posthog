@@ -15,7 +15,7 @@ class TestDecide(BaseTest):
     def _post_decide(self, data=None, origin="http://127.0.0.1:8000"):
         return self.client.post(
             "/decide/",
-            {"data": self._dict_to_b64(data or {"token": self.team.api_token, "distinct_id": "example_id"})},
+            {"data": self._dict_to_b64(data or {"token": self.TESTS_API_TOKEN, "distinct_id": "example_id"})},
             HTTP_ORIGIN=origin,
         ).json()
 
@@ -69,6 +69,7 @@ class TestDecide(BaseTest):
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
     def test_user_session_recording_opt_in(self):
+        self.client.logout()
         # :TRICKY: Test for regression around caching
         response = self._post_decide()
         self.assertEqual(response["sessionRecording"], False)
@@ -76,11 +77,13 @@ class TestDecide(BaseTest):
         self.team.session_recording_opt_in = True
         self.team.save()
 
-        response = self._post_decide()
+        with self.assertNumQueries(3):
+            response = self._post_decide()
         self.assertEqual(response["sessionRecording"], {"endpoint": "/s/"})
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
     def test_user_session_recording_evil_site(self):
+        self.client.logout()
         self.team.app_urls = ["https://example.com"]
         self.team.session_recording_opt_in = True
         self.team.save()
