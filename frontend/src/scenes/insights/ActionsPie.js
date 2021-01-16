@@ -30,6 +30,7 @@ export function ActionsPie({ dashboardItemId, view, filters: filtersParam, color
                 borderColor: colorList,
                 hoverBorderWidth: 10,
                 borderWidth: 1,
+                action: data.map((item) => item.action),
             },
         ])
         setTotal(data.reduce((prev, item) => prev + item.aggregated_value, 0))

@@ -310,6 +310,33 @@ export function LineGraph({
                           responsive: true,
                           maintainAspectRatio: false,
                           hover: { mode: 'index' },
+                          tooltips: {
+                              enabled: true,
+                              yPadding: 10,
+                              xPadding: 10,
+                              caretPadding: 0,
+                              displayColors: true,
+                              mode: 'index',
+                              backgroundColor: '#1dc9b7',
+                              titleFontColor: '#ffffff',
+                              labelFontSize: 23,
+                              fontSize: 12,
+                              callbacks: {
+                                  label: function (tooltipItem, data) {
+                                      let entityData = data.datasets[tooltipItem.datasetIndex]
+                                      const label = entityData.chartLabel || entityData.labels[tooltipItem.index] || ''
+                                      const formattedLabel = entityData.action[tooltipItem.index]
+                                          ? formatLabel(label, entityData.action[tooltipItem.index])
+                                          : label
+                                      const currentValue = entityData.data[tooltipItem.index]
+                                      return (
+                                          (formattedLabel ? formattedLabel + ' — ' : '') +
+                                          currentValue.toLocaleString() +
+                                          (percentage ? '%' : '')
+                                      )
+                                  },
+                              },
+                          },
                       },
         })
     }
