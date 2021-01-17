@@ -210,7 +210,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                             ? `There is 1 new event. Click here to load it.`
                             : `There are ${newEvents.length} new events. Click here to load them.`,
                         props: {
-                            colSpan: 6,
+                            colSpan: columnsToRenderFromConfig.length + 1,
                             style: {
                                 cursor: 'pointer',
                             },
