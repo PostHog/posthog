@@ -279,7 +279,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                     columns={columns}
                     size="small"
                     className="ph-no-capture"
-                    scroll={{ x: columns.length * 180 }}
+                    scroll={{ x: true }}
                     locale={{
                         emptyText: (
                             <span>
