@@ -200,8 +200,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
             title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
             key: 'event',
             rowKey: 'id',
-            fixed: 'left',
-            width: 200,
             ellipsis: true,
             render: function renderEvent(item) {
                 if (!item.event) {
