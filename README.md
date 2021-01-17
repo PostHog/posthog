@@ -32,14 +32,15 @@ Join [our PostHog Users Slack community](https://join.slack.com/t/posthogusers/s
 
 ## Features
 
-- **Event-based** analytics at a user level - see which users are doing what in your application.
+- **Event-based** analytics at a user level - capture your product's usage data to see which users are doing what in your application.
+- **Product data visualizations**: [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [user cohorts](https://posthog.com/docs/features/cohorts), [user paths](https://posthog.com/docs/features/paths), [retention tables](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards).
 - **Complete control** over your data - host it yourself.
-- **Automatically capture** clicks and page views to do analyze what your users are doing **retroactively**.
+- **Session recording** to [watch videos](https://posthog.com/docs/features/session-recording) of your user behavior, with fine-grained privacy controls.
+- **Automatically capture** [clicks and pageviews](https://posthog.com/docs/features/actions) to do analyze what your users are doing **retroactively**.
 - **Feature flags** to understand the impact of new features before rolling them out more widely
-- **Heatmaps** to understand where in your app or website people are clicking
-- **Ready-made libraries** for **[JS](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration)** + [API](https://posthog.com/docs/integrations/api) for anything else.
-- **Beautiful data visualizations**: [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [user cohorts](https://posthog.com/docs/features/cohorts), [user paths](https://posthog.com/docs/features/paths), [retention tables](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards).
-- **Analytics right on your website** with the playful [PostHog Toolbar](https://posthog.com/docs/features/toolbar).
+- **Heatmaps** with the [Toolbar](https://posthog.com/docs/features/toolbar).
+- **Plugins** to integrate your product usage data with other systems, like your CRM, or data lakes.
+- **Ready-made libraries** for **[JS](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration)**, [Android](https://posthog.com/docs/integrations/android-integration), [iOS](https://posthog.com/docs/integrations/ios-integration), [PHP](https://posthog.com/docs/integrations/php-integration), [Flutter](https://posthog.com/docs/integrations/flutter-integration), [React Native](https://posthog.com/docs/integrations/react-native-integration), [Elixir](https://posthog.com/docs/integrations/elixir-integration) + [API](https://posthog.com/docs/integrations/api) for anything else.
 - **Super easy deploy** using Docker or Heroku.
 
 <br /><br />
@@ -70,7 +71,7 @@ This means you can know who is using your app, how they're using it, and where y
 
 ## What's Cool About This?
 
-PostHog is the only **product-focused** open-source analytics library, with an event and user-driven architecture. That means tracking identifiable (where applicable) user behavior, and creating user profiles. We are an open-source alternative to products such as Mixpanel, Amplitude, or Heap, that's designed to be more developer-friendly than them.
+PostHog is the only **product-focused** open-source analytics library, with an event and user-driven architecture. That means tracking identifiable (where applicable) user behavior, and creating user profiles. We are an open-source alternative to products such as Mixpanel, Amplitude, or Heap, that's designed to be more developer-friendly than them, with a broader range of features like session recording, heatmaps, feature flags and plugins.
 
 There are a few session-based open-source libraries that are nice alternatives to Google Analytics. That's not what we are focused on. 
 
