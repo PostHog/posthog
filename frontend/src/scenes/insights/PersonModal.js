@@ -8,11 +8,9 @@ import { Link } from 'lib/components/Link'
 import { ArrowRightOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-export function PersonModal({ visible, view }) {
+export function PersonModal({ visible, view, onSaveCohort }) {
     const { people, filters, peopleModalURL } = useValues(trendsLogic({ dashboardItemId: null, view }))
-    const { setShowingPeople, loadMorePeople, saveCohortWithFilters } = useActions(
-        trendsLogic({ dashboardItemId: null, view })
-    )
+    const { setShowingPeople, loadMorePeople } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
 
     const title =
@@ -35,7 +33,7 @@ export function PersonModal({ visible, view }) {
                 >
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                         Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
-                        <Button type="primary" onClick={() => saveCohortWithFilters()}>
+                        <Button type="primary" onClick={onSaveCohort}>
                             {'Save cohort'}
                         </Button>
                     </div>

@@ -13,7 +13,7 @@ import { PersonModal } from './PersonModal'
 import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Tooltip, Card, Button } from 'antd'
+import { Tabs, Row, Col, Tooltip, Card, Button, Input } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -49,6 +49,7 @@ import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Modal } from 'antd'
 
 const { TabPane } = Tabs
 
@@ -298,10 +299,37 @@ function _Insights() {
     )
 }
 
+function SaveCohortModal({ onOk, onCancel, visible }) {
+    const [cohortTitle, setCohortTitle] = useState('')
+    return (
+        <Modal
+            title={`New Cohort`}
+            okText={'Save'}
+            cancelText="Cancel"
+            onOk={() => onOk(cohortTitle)}
+            onCancel={onCancel}
+            visible={visible}
+        >
+            <div className="mb">
+                <Input
+                    required
+                    autoFocus
+                    placeholder="Cohort name..."
+                    value={cohortTitle}
+                    data-attr="cohort-name"
+                    onChange={(e) => setCohortTitle(e.target.value)}
+                />
+            </div>
+        </Modal>
+    )
+}
+
 function TrendInsight({ view }) {
+    const [cohortModalVisible, setCohortModalVisible] = useState(false)
     const { filters: _filters, loading, showingPeople } = useValues(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
+    const { saveCohortWithFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
 
     return (
         <>
@@ -321,7 +349,19 @@ function TrendInsight({ view }) {
                     {_filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={_filters} view={view} />}
                 </div>
             )}
-            <PersonModal visible={showingPeople} view={view} />
+            <PersonModal
+                visible={showingPeople && !cohortModalVisible}
+                view={view}
+                onSaveCohort={() => setCohortModalVisible(true)}
+            />
+            <SaveCohortModal
+                visible={cohortModalVisible}
+                onOk={(title) => {
+                    saveCohortWithFilters(title)
+                    setCohortModalVisible(false)
+                }}
+                onCancel={() => setCohortModalVisible(false)}
+            />
         </>
     )
 }

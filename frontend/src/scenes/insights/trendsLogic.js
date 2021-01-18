@@ -186,7 +186,7 @@ export const trendsLogic = kea({
         setDisplay: (display) => ({ display }),
 
         loadPeople: (action, label, day, breakdown_value) => ({ action, label, day, breakdown_value }),
-        saveCohortWithFilters: true,
+        saveCohortWithFilters: (cohortName) => ({ cohortName }),
         loadMorePeople: true,
         setLoadingMorePeople: (status) => ({ status }),
         setShowingPeople: (isShowing) => ({ isShowing }),
@@ -286,12 +286,12 @@ export const trendsLogic = kea({
         [actions.setDisplay]: async ({ display }) => {
             actions.setFilters({ display })
         },
-        [actions.saveCohortWithFilters]: () => {
+        [actions.saveCohortWithFilters]: ({ cohortName }) => {
             const { label, action, day, breakdown_value } = values.people
             const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
             const cohortParams = {
                 is_static: true,
-                name: label,
+                name: cohortName,
             }
             actions.saveCohort(cohortParams, filterParams)
         },
