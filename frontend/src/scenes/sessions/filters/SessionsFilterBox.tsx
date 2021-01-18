@@ -174,7 +174,7 @@ export function SessionsFilterBox(): JSX.Element {
     })
 
     return (
-        <>
+        <div className="mb-05">
             <Button
                 data-attr="sessions-filter-open"
                 onClick={() => (openFilter ? closeFilterSelect() : openFilterSelect('new'))}
@@ -190,6 +190,6 @@ export function SessionsFilterBox(): JSX.Element {
                     items={groups}
                 />
             )}
-        </>
+        </div>
     )
 }
