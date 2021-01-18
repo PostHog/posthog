@@ -40,6 +40,7 @@ export function InstalledPlugins(): JSX.Element {
                                     pluginType={plugin.plugin_type}
                                     pluginConfig={plugin.pluginConfig}
                                     error={plugin.error}
+                                    maintainer={plugin.maintainer || 'community'}
                                 />
                             )
                         })}

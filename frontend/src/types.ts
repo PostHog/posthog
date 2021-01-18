@@ -363,6 +363,7 @@ export interface PluginType {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     error?: PluginErrorType
+    maintainer?: string
 }
 
 export interface PluginConfigType {
