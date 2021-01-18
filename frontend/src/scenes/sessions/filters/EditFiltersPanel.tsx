@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, Card, Divider, Space } from 'antd'
+import { Button, Card, Divider, Space, Tag } from 'antd'
 import { useActions, useValues } from 'kea'
 import { DownOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
@@ -46,6 +46,12 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
         return null
     }
 
+    const andTag = (visible: boolean): JSX.Element => (
+        <Tag className="and-tag" style={{ visibility: visible ? 'initial' : 'hidden' }}>
+            AND
+        </Tag>
+    )
+
     return (
         <Card>
             {Object.entries(displayedFilters).map(([key, filters]) => (
@@ -54,7 +60,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                         <h3>{SECTIONS[key].label}</h3>
                         <p className="text-muted">{SECTIONS[key].description}</p>
                     </div>
-                    {filters.map(({ item, selector }) => (
+                    {filters.map(({ item, selector }, index) => (
                         <div className="sessions-filter-row" key={selector}>
                             <div className="sessions-filter-row-filters">
                                 <div>
@@ -82,13 +88,16 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                                     <DurationFilter filter={item as RecordingPropertyFilter} selector={selector} />
                                 )}
                             </div>
+                            {filters.length > 1 && andTag(index < filters.length - 1)}
                             <CloseButton onClick={() => removeFilter(selector)} style={{ marginLeft: 8 }} />
                         </div>
                     ))}
                     <div className="sessions-filter-row">
-                        <div className="full-width">
+                        <div className="sessions-filter-row-filters">
                             <AddFilterButton selector={`new-${key}`} />
                         </div>
+                        {filters.length > 1 && andTag(false)}
+                        <CloseButton style={{ marginLeft: 8, visibility: 'hidden' }} />
                     </div>
                     <Divider />
                 </div>

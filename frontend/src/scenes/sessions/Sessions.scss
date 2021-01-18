@@ -145,4 +145,11 @@
     .sessions-filter-row-filters > *:not(:last-child) {
         margin-right: 16px;
     }
+
+    .and-tag {
+        margin-left: 16px;
+        margin-right: 0px;
+        background: #fbd577;
+        font-weight: bold;
+    }
 }
