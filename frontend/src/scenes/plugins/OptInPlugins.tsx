@@ -35,11 +35,11 @@ export function OptInPlugins(): JSX.Element {
             {!user?.is_multi_tenancy && (
                 <>
                     <div style={{ marginBottom: 20 }}>
-                        Plugin support requires the cooperation of the main PostHog application and the new NodeJS-based{' '}
+                        Plugin support requires the cooperation of the main PostHog application and the{' '}
                         <a href="https://github.com/PostHog/plugin-server" target="_blank" rel="noreferrer noopener">
-                            <code>plugin-server</code>
+                            <code>PostHog plugin server</code>
                         </a>
-                        , which must be properly configured.
+                        , which must be properly set up.
                     </div>
                     <div style={{ marginBottom: 20 }}>
                         Plugin server:{' '}
