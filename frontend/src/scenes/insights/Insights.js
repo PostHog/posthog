@@ -332,7 +332,7 @@ function TrendInsight({ view }) {
     const { filters: _filters, loading, showingPeople } = useValues(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
-    const { saveCohortWithFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
+    const { saveCohortWithFilters, refreshCohort } = useActions(trendsLogic({ dashboardItemId: null, view }))
 
     return (
         <>
@@ -355,7 +355,10 @@ function TrendInsight({ view }) {
             <PersonModal
                 visible={showingPeople && !cohortModalVisible}
                 view={view}
-                onSaveCohort={() => setCohortModalVisible(true)}
+                onSaveCohort={() => {
+                    refreshCohort()
+                    setCohortModalVisible(true)
+                }}
             />
             <SaveCohortModal
                 visible={cohortModalVisible}

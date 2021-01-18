@@ -145,7 +145,7 @@ export const trendsLogic = kea({
                     groups: [],
                 },
             }),
-            ['saveCohort'],
+            ['saveCohort', 'setCohort'],
         ],
     },
 
@@ -188,6 +188,7 @@ export const trendsLogic = kea({
         loadPeople: (action, label, day, breakdown_value) => ({ action, label, day, breakdown_value }),
         saveCohortWithFilters: (cohortName) => ({ cohortName }),
         loadMorePeople: true,
+        refreshCohort: true,
         setLoadingMorePeople: (status) => ({ status }),
         setShowingPeople: (isShowing) => ({ isShowing }),
         setPeople: (people, count, action, label, day, breakdown_value, next) => ({
@@ -285,6 +286,12 @@ export const trendsLogic = kea({
     listeners: ({ actions, values, props }) => ({
         [actions.setDisplay]: async ({ display }) => {
             actions.setFilters({ display })
+        },
+        [actions.refreshCohort]: () => {
+            actions.setCohort({
+                id: 'new',
+                groups: [],
+            })
         },
         [actions.saveCohortWithFilters]: ({ cohortName }) => {
             const { label, action, day, breakdown_value } = values.people
