@@ -15,26 +15,46 @@ interface Props {
     onSubmit: () => void
 }
 
-const SECTIONS: Record<string, { label: string; description: string }> = {
+const SECTIONS: Record<string, { label: string; description: JSX.Element }> = {
     recording: {
         label: 'Recording filters',
-        description: 'Find sessions with recordings matching the following',
+        description: (
+            <>
+                Find sessions <b>with recordings</b> matching the following
+            </>
+        ),
     },
     person: {
         label: 'User property filters',
-        description: 'Find sessions where user properties match the following',
+        description: (
+            <>
+                Find sessions where user properties match <b>all</b> of the following
+            </>
+        ),
     },
     action_type: {
         label: 'Action filters',
-        description: 'Find sessions where user has done a given action',
+        description: (
+            <>
+                Find sessions where a given <b>action</b> has been triggered
+            </>
+        ),
     },
     event_type: {
         label: 'Event filters',
-        description: 'Find sessions where user has done a given event',
+        description: (
+            <>
+                Find sessions where a given <b>event</b> has been triggered
+            </>
+        ),
     },
     cohort: {
         label: 'Cohort filters',
-        description: 'Find sessions by users in the following cohorts',
+        description: (
+            <>
+                Find sessions by <b>users in</b> the following cohorts
+            </>
+        ),
     },
 }
 
