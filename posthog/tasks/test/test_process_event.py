@@ -557,6 +557,104 @@ def test_process_event_factory(
             self.assertEqual(event.distinct_id, "some-id")
             self.assertEqual(event.snapshot_data, {"timestamp": 123,})
 
+        def test_identify_set(self) -> None:
+            Person.objects.create(team=self.team, distinct_ids=["distinct_id"])
+
+            process_event(
+                "distinct_id",
+                "",
+                "",
+                {
+                    "event": "$identify",
+                    "properties": {
+                        "token": self.team.api_token,
+                        "distinct_id": "distinct_id",
+                        "$set": {"a_prop": "test-1", "c_prop": "test-1"},
+                    },
+                },
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+
+            self.assertEqual(len(get_events()), 1)
+            self.assertEqual(get_events()[0].properties["$set"], {"a_prop": "test-1", "c_prop": "test-1"})
+            person = Person.objects.get()
+            self.assertEqual(person.distinct_ids, ["distinct_id"])
+            self.assertEqual(person.properties, {"a_prop": "test-1", "c_prop": "test-1"})
+
+            # check no errors as this call can happen multiple times
+            process_event(
+                "distinct_id",
+                "",
+                "",
+                {
+                    "event": "$identify",
+                    "properties": {
+                        "token": self.team.api_token,
+                        "distinct_id": "distinct_id",
+                        "$set": {"a_prop": "test-2", "b_prop": "test-2b"},
+                    },
+                },
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+
+            self.assertEqual(len(get_events()), 2)
+            self.assertEqual(
+                Person.objects.get().properties, {"a_prop": "test-2", "b_prop": "test-2b", "c_prop": "test-1"}
+            )
+
+        def test_identify_set_once(self) -> None:
+            Person.objects.create(team=self.team, distinct_ids=["distinct_id"])
+
+            process_event(
+                "distinct_id",
+                "",
+                "",
+                {
+                    "event": "$identify",
+                    "properties": {
+                        "token": self.team.api_token,
+                        "distinct_id": "distinct_id",
+                        "$set_once": {"a_prop": "test-1", "c_prop": "test-1"},
+                    },
+                },
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+
+            self.assertEqual(len(get_events()), 1)
+            self.assertEqual(get_events()[0].properties["$set_once"], {"a_prop": "test-1", "c_prop": "test-1"})
+            person = Person.objects.get()
+            self.assertEqual(person.distinct_ids, ["distinct_id"])
+            self.assertEqual(person.properties, {"a_prop": "test-1", "c_prop": "test-1"})
+
+            # check no errors as this call can happen multiple times
+            process_event(
+                "distinct_id",
+                "",
+                "",
+                {
+                    "event": "$identify",
+                    "properties": {
+                        "token": self.team.api_token,
+                        "distinct_id": "distinct_id",
+                        "$set_once": {"a_prop": "test-2", "b_prop": "test-2"},
+                    },
+                },
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+
+            self.assertEqual(len(get_events()), 2)
+            self.assertEqual(
+                Person.objects.get().properties, {"a_prop": "test-1", "b_prop": "test-2", "c_prop": "test-1"}
+            )
+
         def test_distinct_with_anonymous_id(self) -> None:
             Person.objects.create(team=self.team, distinct_ids=["anonymous_id"])
 

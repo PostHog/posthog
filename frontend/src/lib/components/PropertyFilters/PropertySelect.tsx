@@ -41,7 +41,7 @@ export function PropertySelect({ optionGroups, value, onChange, placeholder, aut
         >
             {optionGroups.map(
                 (group) =>
-                    group.options.length > 0 && (
+                    group.options?.length > 0 && (
                         <Select.OptGroup key={group.type} label={group.label}>
                             {group.options.map((option, index) => (
                                 <Select.Option
