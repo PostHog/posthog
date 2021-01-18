@@ -1,7 +1,7 @@
 import React from 'react'
-import { Button, Card, Col, Row } from 'antd'
+import { Button, Card, Col, Row, Space } from 'antd'
 import { useActions, useValues } from 'kea'
-import { DownOutlined, PlusCircleOutlined } from '@ant-design/icons'
+import { DownOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
 import { EventTypePropertyFilter, PersonPropertyFilter, RecordingPropertyFilter } from '~/types'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
@@ -9,6 +9,7 @@ import { EventPropertyFilter } from 'scenes/sessions/filters/EventPropertyFilter
 import { PersonFilter } from 'scenes/sessions/filters/UserFilter'
 import { DurationFilter } from 'scenes/sessions/filters/DurationFilter'
 import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
+import { AddFilterButton } from 'scenes/sessions/filters/AddFilterButton'
 
 interface Props {
     onSubmit: () => void
@@ -38,7 +39,7 @@ const SECTIONS: Record<string, { label: string; description: string }> = {
 }
 
 export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
-    const { displayedFilterCount, displayedFilters } = useValues(sessionsFiltersLogic)
+    const { activeFilter, displayedFilterCount, displayedFilters } = useValues(sessionsFiltersLogic)
     const { openFilterSelect, removeFilter } = useActions(sessionsFiltersLogic)
 
     if (displayedFilterCount === 0) {
@@ -83,20 +84,24 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                             <CloseButton onClick={() => removeFilter(selector)} style={{ marginLeft: 8 }} />
                         </div>
                     ))}
+                    <div className="sessions-filter-row">
+                        <AddFilterButton selector={`new-${key}`} />
+                    </div>
                 </div>
             ))}
 
-            <div style={{ marginBottom: 8 }}>
-                <Button onClick={() => openFilterSelect('new')}>
-                    <PlusCircleOutlined />
+            <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Button disabled={!!activeFilter}>
+                    <span>
+                        <SaveOutlined /> Save filter
+                    </span>
                 </Button>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center' }}>
                 <Button type="primary" onClick={onSubmit}>
-                    Apply filters
+                    <span>
+                        <SearchOutlined /> Apply filters
+                    </span>
                 </Button>
-            </div>
+            </Space>
         </Card>
     )
 }

@@ -17,6 +17,15 @@
     height: calc(100vh - #{$top_nav_height} - 6 * #{$default_spacing});
 }
 
+.add-session-filter {
+    color: $text_muted;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px dashed $text_muted;
+}
+
 .sessions-player-button {
     color: $success;
     font-size: 16px;
