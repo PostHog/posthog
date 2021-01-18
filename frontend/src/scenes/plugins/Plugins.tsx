@@ -45,7 +45,7 @@ function _Plugins(): JSX.Element {
                         </sup>
                     </>
                 }
-                caption="Plugins enable you to extend PostHog's core functionality."
+                caption={user.team?.plugins_opt_in ? "Plugins enable you to extend PostHog's core functionality." : ''}
                 buttons={user.team?.plugins_opt_in && <OptOutPlugins />}
             />
 
