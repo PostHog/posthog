@@ -2,7 +2,10 @@ from typing import Dict, List, Optional, Tuple
 
 import posthoganalytics
 from django.contrib.postgres.fields import ArrayField, JSONField
+from django.core.cache import cache
 from django.db import models
+from django.db.models.signals import post_delete, post_save
+from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR, TRENDS_TABLE
@@ -74,11 +77,10 @@ class TeamManager(models.Manager):
             return None
 
     def get_team_cached(self, pk: int) -> "Team":
-        team_from_cache = TEAM_CACHE.get(pk)
-        if team_from_cache:
-            return team_from_cache
-        team = Team.objects.get(pk=pk)
-        TEAM_CACHE[pk] = team
+        team = cache.get("team_{}".format(pk))
+        if not team:
+            team = Team.objects.get(pk=pk)
+            cache.set("team_{}".format(pk), team)
         return team
 
 
@@ -127,3 +129,8 @@ class Team(models.Model):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
+
+
+@receiver(post_save, sender=Team)
+def person_saved(sender, instance: Team, **kwargs):
+    cache.set("team_{}".format(instance.pk), instance)

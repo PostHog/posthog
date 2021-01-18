@@ -33,7 +33,9 @@ def test_process_event_factory(
     process_event: Callable, get_events: Callable, get_session_recording_events: Callable, get_elements: Callable
 ) -> Callable:
     class TestProcessEvent(BaseTest):
-        def test_capture_new_person(self) -> None:
+        @patch("posthog.models.team.cache.get")
+        def test_capture_new_person(self, patch_cache: Any) -> None:
+            patch_cache.return_value = None
             user = self._create_user("tim")
             action1 = Action.objects.create(team=self.team)
             ActionStep.objects.create(action=action1, selector="a", event="$autocapture")
@@ -94,7 +96,8 @@ def test_process_event_factory(
             )
 
             # See effect of caching
-            num_queries = 22
+            patch_cache.return_value = team
+            num_queries = 23
             if settings.EE_AVAILABLE:  # extra queries to check for hooks
                 num_queries += 2
             with self.assertNumQueries(num_queries):
