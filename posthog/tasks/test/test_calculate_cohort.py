@@ -1,20 +1,21 @@
-from unittest.mock import patch
+from typing import Callable
+from unittest.mock import MagicMock, patch
 
-from django.test.utils import freeze_time
+from freezegun import freeze_time
 
-from posthog.models.cohort import Cohort, CohortPeople
+from posthog.models.cohort import Cohort
 from posthog.models.event import Event
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import calculate_cohort_from_list
 from posthog.test.base import BaseTest
 
 
-def calculate_cohort_test_factory(event_factory, person_factory):
+def calculate_cohort_test_factory(event_factory: Callable, person_factory: Callable):  # type: ignore
     class TestCalculateCohort(BaseTest):
         TESTS_API = True
 
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
-        def test_create_stickiness_cohort(self, _calculate_cohort_from_list):
+        def test_create_stickiness_cohort(self, _calculate_cohort_from_list: MagicMock) -> None:
             person_factory(team_id=self.team.pk, distinct_ids=["blabla"])
             event_factory(
                 team=self.team,
@@ -36,7 +37,7 @@ def calculate_cohort_test_factory(event_factory, person_factory):
             self.assertEqual(len(people), 1)
 
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
-        def test_create_trends_cohort(self, _calculate_cohort_from_list):
+        def test_create_trends_cohort(self, _calculate_cohort_from_list: MagicMock) -> None:
             person_factory(team_id=self.team.pk, distinct_ids=["blabla"])
             with freeze_time("2021-01-01 00:06:34"):
                 event_factory(
@@ -70,5 +71,5 @@ def calculate_cohort_test_factory(event_factory, person_factory):
     return TestCalculateCohort
 
 
-class TestDjangoCalculateCohort(calculate_cohort_test_factory(Event.objects.create, Person.objects.create)):
+class TestDjangoCalculateCohort(calculate_cohort_test_factory(Event.objects.create, Person.objects.create)):  # type: ignore
     pass

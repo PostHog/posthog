@@ -1,5 +1,5 @@
 import copy
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 from django.db import connection
 from django.db.models import Count
@@ -9,7 +9,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import Action, Entity, Team
 from posthog.models.action_step import ActionStep
-from posthog.models.event import Event
+from posthog.models.event import Event, EventManager
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person import Person
 from posthog.queries import base
@@ -106,7 +106,7 @@ class Stickiness(BaseQuery):
 
 def stickiness_process_entity_type(team: Team, filter: StickinessFilter) -> QuerySet:
 
-    events = Event.objects.none()
+    events: Union[EventManager, QuerySet] = Event.objects.none()
     if filter.target_entity.type == TREND_FILTER_TYPE_EVENTS:
         events = base.process_entity_for_events(filter.target_entity, team_id=team.pk, order_by=None).filter(
             base.filter_events(team.pk, filter, filter.target_entity)
