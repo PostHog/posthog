@@ -1,13 +1,18 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { SaveOutlined } from '@ant-design/icons'
-import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
+import { FilterOutlined, PlaySquareOutlined, SaveOutlined, UserOutlined } from '@ant-design/icons'
+import { SavedFilter, sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { Menu } from 'antd'
 import { Link } from 'lib/components/Link'
 import { toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import { Drawer } from 'lib/components/Drawer'
 import { SaveFilter } from 'scenes/sessions/filters/SaveFilter'
+
+const ICONS: Record<SavedFilter['id'], JSX.Element | undefined> = {
+    all: <UserOutlined />,
+    withrecordings: <PlaySquareOutlined />,
+}
 
 export function SavedFiltersMenu(): JSX.Element {
     const [saveVisible, setSaveVisible] = useState(false)
@@ -30,6 +35,7 @@ export function SavedFiltersMenu(): JSX.Element {
                             })}`}
                             data-attr="sessions-filter-link"
                         >
+                            {ICONS[savedFilter.id] || <FilterOutlined />}
                             {savedFilter.name}
                         </Link>
                     </Menu.Item>
