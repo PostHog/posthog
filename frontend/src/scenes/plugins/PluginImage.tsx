@@ -1,4 +1,3 @@
-import { Card } from 'antd'
 import { parseGithubRepoURL } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
 import { CodeOutlined } from '@ant-design/icons'
@@ -16,20 +15,9 @@ export function PluginImage({ url, pluginType }: { url?: string; pluginType?: Pl
     }, [url])
 
     return (
-        <Card
-            style={{
-                width: 60,
-                height: 60,
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginLeft: 'auto',
-                marginRight: 'auto',
-            }}
-            bodyStyle={{ padding: 4 }}
-        >
+        <div className="plugin-image">
             {pluginType === 'source' ? (
-                <CodeOutlined style={{ fontSize: 32 }} />
+                <CodeOutlined style={{ fontSize: 40 }} />
             ) : (
                 <img
                     src={state.image}
@@ -38,6 +26,6 @@ export function PluginImage({ url, pluginType }: { url?: string; pluginType?: Pl
                     onError={() => setState({ ...state, image: imgPluginDefault })}
                 />
             )}
-        </Card>
+        </div>
     )
 }

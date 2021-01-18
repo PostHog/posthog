@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from './pluginsLogic'
 import { PluginConfigType, PluginErrorType } from '~/types'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined, SettingOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
 import { PluginError } from 'scenes/plugins/PluginError'
@@ -44,13 +44,10 @@ export function PluginCard({
             style={{ width: '100%', marginBottom: 20 }}
             data-attr={`plugin-card-${pluginConfig ? 'installed' : 'available'}`}
         >
-            <Card
-                style={{ height: '100%', display: 'flex' }}
-                bodyStyle={{ display: 'flex', flexDirection: 'column', flexGrow: 1, padding: 15 }}
-            >
-                <Row style={{ alignItems: 'center' }}>
+            <Card className="plugin-card">
+                <Row align="middle" className="plugin-card-row">
                     {pluginConfig && (
-                        <Col style={{ marginRight: 14 }}>
+                        <Col>
                             <Popconfirm
                                 placement="topLeft"
                                 title={`Are you sure you wish to ${
@@ -72,10 +69,10 @@ export function PluginCard({
                             </Popconfirm>
                         </Col>
                     )}
-                    <Col style={{ marginRight: 14 }}>
+                    <Col className={pluginConfig ? 'hide-plugin-image-below-500' : ''}>
                         <PluginImage pluginType={pluginType} url={url} />
                     </Col>
-                    <Col style={{ marginRight: 14, flex: 1 }}>
+                    <Col style={{ flex: 1 }}>
                         <div>
                             {pluginConfig?.error ? (
                                 <PluginError
@@ -85,37 +82,53 @@ export function PluginCard({
                             ) : error ? (
                                 <PluginError error={error} />
                             ) : null}
-                            <b>{name}</b>
+                            {url ? (
+                                <Link className="plugin-title-link" to={url} target="_blank" rel="noopener noreferrer">
+                                    <strong>{name}</strong>
+                                </Link>
+                            ) : (
+                                <strong>{name}</strong>
+                            )}
                             {url?.startsWith('file:') ? (
                                 <LocalPluginTag url={url} title="Local" style={{ marginLeft: 10 }} />
                             ) : null}
+<<<<<<< HEAD
                             {!pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
                             {!pluginConfig && url && (
                                 <Link to={url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 10 }}>
                                     Learn more
                                 </Link>
                             )}
+=======
+>>>>>>> plugin cards in mobile mode
                         </div>
                         <div>
                             {pluginType === 'source' ? <SourcePluginTag style={{ marginRight: 10 }} /> : null}
-
                             {description}
                         </div>
                     </Col>
                     <Col>
                         {canConfigure && (
-                            <Button type="primary" onClick={() => editPlugin(pluginId || null)}>
-                                Configure
+                            <Button
+                                type="primary"
+                                className="padding-under-500"
+                                onClick={() => editPlugin(pluginId || null)}
+                            >
+                                <span className="show-over-500">Configure</span>
+                                <span className="hide-over-500">
+                                    <SettingOutlined />
+                                </span>
                             </Button>
                         )}
                         {!pluginId && (
                             <Button
                                 type="primary"
+                                className="padding-under-500"
                                 loading={loading}
                                 onClick={url ? () => installPlugin(url, PluginInstallationType.Repository) : undefined}
                                 icon={<PlusOutlined />}
                             >
-                                Install
+                                <span className="show-over-500">Install</span>
                             </Button>
                         )}
                     </Col>
@@ -130,19 +143,24 @@ export function PluginLoading(): JSX.Element {
         <>
             {[1, 2, 3].map((i) => (
                 <Col key={i} style={{ marginBottom: 20, width: '100%' }}>
-                    <Card>
-                        <Row style={{ alignItems: 'center' }}>
-                            <Col style={{ marginRight: 14, width: 30 }}>
+                    <Card className="plugin-card">
+                        <Row align="middle" className="plugin-card-row">
+                            <Col style={{ width: 30 }}>
                                 <Skeleton title paragraph={false} active />
                             </Col>
-                            <Col style={{ marginRight: 14 }}>
+                            <Col className="hide-plugin-image-below-500">
                                 <Skeleton.Image style={{ width: 60, height: 60 }} />
                             </Col>
-                            <Col style={{ marginRight: 14, flex: 1 }}>
+                            <Col style={{ flex: 1 }}>
                                 <Skeleton title={false} paragraph={{ rows: 2 }} active />
                             </Col>
-                            <Col style={{ marginRight: 14 }}>
-                                <Skeleton.Button style={{ width: 100 }} />
+                            <Col>
+                                <span className="show-over-500">
+                                    <Skeleton.Button style={{ width: 100 }} />
+                                </span>
+                                <span className="hide-over-500">
+                                    <Skeleton.Button style={{ width: 32 }} />
+                                </span>
                             </Col>
                         </Row>
                     </Card>

@@ -1,3 +1,4 @@
+import './Plugins.scss'
 import React, { useEffect } from 'react'
 import { hot } from 'react-hot-loader/root'
 import { PluginDrawer } from 'scenes/plugins/PluginDrawer'
@@ -33,7 +34,7 @@ function _Plugins(): JSX.Element {
     }
 
     return (
-        <div>
+        <div className="plugins-scene">
             <PageHeader
                 title={
                     <>
