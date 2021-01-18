@@ -207,7 +207,9 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict, 
                 team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
             )
     if set_once:
-        person.properties = properties.update(person.properties)
+        new_properties = properties.copy()
+        new_properties.update(person.properties)
+        person.properties = new_properties
     else:
         person.properties.update(properties)
     person.save()
@@ -287,6 +289,8 @@ def process_event(
     properties = data.get("properties", {})
     if data.get("$set"):
         properties["$set"] = data["$set"]
+    if data.get("$set_once"):
+        properties["$set_once"] = data["$set_once"]
 
     handle_identify_or_alias(data["event"], properties, distinct_id, team_id)
 

@@ -124,6 +124,8 @@ if is_ee_enabled():
         properties = data.get("properties", {})
         if data.get("$set"):
             properties["$set"] = data["$set"]
+        if data.get("$set_once"):
+            properties["$set_once"] = data["$set_once"]
 
         person_uuid = UUIDT()
         ts = handle_timestamp(data, now, sent_at)

@@ -561,7 +561,7 @@ def test_process_event_factory(
             Person.objects.create(team=self.team, distinct_ids=["distinct_id"])
 
             process_event(
-                "new_distinct_id",
+                "distinct_id",
                 "",
                 "",
                 {
@@ -569,7 +569,7 @@ def test_process_event_factory(
                     "properties": {
                         "token": self.team.api_token,
                         "distinct_id": "distinct_id",
-                        "$set_once": {"a_prop": "test-1", "c_prop": "test-1"},
+                        "$set": {"a_prop": "test-1", "c_prop": "test-1"},
                     },
                 },
                 self.team.pk,
@@ -580,12 +580,12 @@ def test_process_event_factory(
             self.assertEqual(len(get_events()), 1)
             self.assertEqual(get_events()[0].properties["$set"], {"a_prop": "test-1", "c_prop": "test-1"})
             person = Person.objects.get()
-            self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id"])
+            self.assertEqual(person.distinct_ids, ["distinct_id"])
             self.assertEqual(person.properties, {"a_prop": "test-1", "c_prop": "test-1"})
 
             # check no errors as this call can happen multiple times
             process_event(
-                "new_distinct_id",
+                "distinct_id",
                 "",
                 "",
                 {
@@ -593,7 +593,7 @@ def test_process_event_factory(
                     "properties": {
                         "token": self.team.api_token,
                         "distinct_id": "distinct_id",
-                        "$set_once": {"a_prop": "test-2", "b_prop": "test-2"},
+                        "$set": {"a_prop": "test-2", "b_prop": "test-2"},
                     },
                 },
                 self.team.pk,
@@ -604,14 +604,14 @@ def test_process_event_factory(
             self.assertEqual(len(get_events()), 2)
             self.assertEqual(get_events()[1].properties["$set"], {"a_prop": "test-2", "b_prop": "test-2"})
             person = Person.objects.get()
-            self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id"])
-            self.assertEqual(person.properties, {"a_prop": "test-2", "b-prop": "test-2", "c_prop": "test-1"})
+            self.assertEqual(person.distinct_ids, ["distinct_id"])
+            self.assertEqual(person.properties, {"a_prop": "test-2", "b_prop": "test-2", "c_prop": "test-1"})
 
         def test_identify_set_once(self) -> None:
             Person.objects.create(team=self.team, distinct_ids=["distinct_id"])
 
             process_event(
-                "new_distinct_id",
+                "distinct_id",
                 "",
                 "",
                 {
@@ -628,14 +628,14 @@ def test_process_event_factory(
             )
 
             self.assertEqual(len(get_events()), 1)
-            self.assertEqual(get_events()[0].properties["$set"], {"a_prop": "test-1", "c_prop": "test-1"})
+            self.assertEqual(get_events()[0].properties["$set_once"], {"a_prop": "test-1", "c_prop": "test-1"})
             person = Person.objects.get()
-            self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id"])
+            self.assertEqual(person.distinct_ids, ["distinct_id"])
             self.assertEqual(person.properties, {"a_prop": "test-1", "c_prop": "test-1"})
 
             # check no errors as this call can happen multiple times
             process_event(
-                "new_distinct_id",
+                "distinct_id",
                 "",
                 "",
                 {
@@ -652,10 +652,10 @@ def test_process_event_factory(
             )
 
             self.assertEqual(len(get_events()), 2)
-            self.assertEqual(get_events()[1].properties["$set"], {"a_prop": "test-2", "b_prop": "test-2"})
+            self.assertEqual(get_events()[1].properties["$set_once"], {"a_prop": "test-2", "b_prop": "test-2"})
             person = Person.objects.get()
-            self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id"])
-            self.assertEqual(person.properties, {"a_prop": "test-1", "b-prop": "test-2", "c_prop": "test-1"})
+            self.assertEqual(person.distinct_ids, ["distinct_id"])
+            self.assertEqual(person.properties, {"a_prop": "test-1", "b_prop": "test-2", "c_prop": "test-1"})
 
         def test_distinct_with_anonymous_id(self) -> None:
             Person.objects.create(team=self.team, distinct_ids=["anonymous_id"])
