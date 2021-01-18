@@ -344,7 +344,7 @@ elif os.environ.get("POSTHOG_DB_NAME"):
                 "sslmode": os.environ.get("POSTHOG_POSTGRES_SSL_MODE", None),
                 "sslrootcert": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_CA", None),
                 "sslcert": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_CRT", None),
-                "sslkey": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_KEY", None)
+                "sslkey": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_KEY", None),
             },
         }
     }
