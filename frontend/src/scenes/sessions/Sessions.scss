@@ -12,6 +12,8 @@
 
 .sessions-divider {
     margin-top: calc(3 * #{$default_spacing});
+    margin-left: 19px;
+    margin-right: 19px;
     height: calc(100vh - #{$top_nav_height} - 6 * #{$default_spacing});
 }
 
