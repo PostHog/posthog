@@ -51,7 +51,14 @@ export function OptInPlugins(): JSX.Element {
                             </span>
                         ) : (
                             <span style={{ color: 'var(--red)' }}>
-                                <WarningOutlined /> Offline
+                                <WarningOutlined /> Offline –{' '}
+                                <a
+                                    href="https://posthog.com/docs/plugins/enabling#plugin-server-is-offline"
+                                    target="_blank"
+                                    rel="noreferrer noopener"
+                                >
+                                    Why could this be?
+                                </a>
                             </span>
                         )}
                     </div>
