@@ -36,9 +36,13 @@ const SECTIONS: Record<string, { label: string; description: string }> = {
     },
 }
 
-export function EditFiltersPanel({ onSubmit }: Props): JSX.Element {
-    const { displayedFilters } = useValues(sessionsFiltersLogic)
+export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
+    const { displayedFilterCount, displayedFilters } = useValues(sessionsFiltersLogic)
     const { openFilterSelect, removeFilter } = useActions(sessionsFiltersLogic)
+
+    if (displayedFilterCount === 0) {
+        return null
+    }
 
     return (
         <Card>

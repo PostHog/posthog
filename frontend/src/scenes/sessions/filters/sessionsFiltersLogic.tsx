@@ -70,6 +70,7 @@ export const sessionsFiltersLogic = kea<
         ],
     },
     selectors: {
+        displayedFilterCount: [(s) => [s.filters], (filters) => filters.length],
         displayedFilters: [
             (s) => [s.filters],
             (filters: Array<SessionsPropertyFilter>) => {
