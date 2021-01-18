@@ -1,33 +1,118 @@
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.test.utils import freeze_time
 
-from posthog.models.event import Event
-from posthog.models.filters.filter import Filter
+from ee.clickhouse.models.event import create_event
+from posthog.models.cohort import Cohort
+from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import insert_cohort_from_query
-from posthog.test.base import BaseTest
+from posthog.tasks.test.test_calculate_cohort import calculate_cohort_test_factory
 
 
 def _create_event(**kwargs):
     kwargs.update({"event_uuid": uuid4()})
-    return Event(pk=_create_event(**kwargs))
+    create_event(**kwargs)
 
 
-class TestClickhouseCalculateCohort(BaseTest):
-    def test_create_stickiness_cohort(self):
-        pass
+def _create_person(**kwargs):
+    person = Person.objects.create(**kwargs)
+    return Person(id=person.uuid)
 
-    def test_create_trends_cohort(self):
-        with freeze_time("2020-01-01 00:06:34"):
+
+class TestClickhouseCalculateCohort(calculate_cohort_test_factory(_create_event, _create_person)):
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay")
+    def test_create_trends_cohort(self, _insert_cohort_from_query):
+        _create_person(team_id=self.team.pk, distinct_ids=["blabla"])
+        with freeze_time("2021-01-01 00:06:34"):
             _create_event(
-                team=self.team, event="sign up", distinct_id="blabla", properties={"$math_prop": 1},
+                team=self.team,
+                event="$pageview",
+                distinct_id="blabla",
+                properties={"$math_prop": 1},
+                timestamp="2021-01-01T12:00:00Z",
             )
 
-        with freeze_time("2020-01-02 00:06:34"):
+        with freeze_time("2021-01-02 00:06:34"):
             _create_event(
-                team=self.team, event="sign up", distinct_id="blabla", properties={"$math_prop": 4},
+                team=self.team,
+                event="$pageview",
+                distinct_id="blabla",
+                properties={"$math_prop": 4},
+                timestamp="2021-01-01T12:00:00Z",
             )
 
-        Filter(
-            data={"date_from": "-7d", "events": [{"id": "sign up"}, {"id": "no events"}],}
+        response = self.client.post(
+            "/api/cohort/?interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=%5B%5D&entityId=%24pageview&type=events&date_from=2021-01-01&date_to=2021-01-01&label=%24pageview",
+            {"name": "test", "is_static": True},
+        ).json()
+        cohort_id = response["id"]
+        _insert_cohort_from_query.assert_called_once_with(
+            cohort_id,
+            "TRENDS",
+            {
+                "date_from": "2021-01-01",
+                "date_to": "2021-01-01",
+                "display": "ActionsLineGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "math": None,
+                        "math_property": None,
+                        "properties": [],
+                    }
+                ],
+                "entity_id": "$pageview",
+                "entity_type": "events",
+                "insight": "TRENDS",
+                "interval": "day",
+            },
+            entity_data={
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "math": None,
+                "math_property": None,
+                "properties": [],
+            },
         )
+        insert_cohort_from_query(
+            1,
+            "TRENDS",
+            {
+                "date_from": "2021-01-01",
+                "date_to": "2021-01-01",
+                "display": "ActionsLineGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "math": None,
+                        "math_property": None,
+                        "properties": [],
+                    }
+                ],
+                "entity_id": "$pageview",
+                "entity_type": "events",
+                "insight": "TRENDS",
+                "interval": "day",
+            },
+            entity_data={
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "math": None,
+                "math_property": None,
+                "properties": [],
+            },
+        )
+        cohort = Cohort.objects.get(pk=cohort_id)
+        people = Person.objects.filter(cohort__id=cohort.pk)
+        self.assertEqual(len(people), 1)

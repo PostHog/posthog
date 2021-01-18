@@ -15,14 +15,14 @@ class ClickhouseCohortSerializer(CohortSerializer):
     earliest_timestamp_func = lambda team_id: get_earliest_timestamp(team_id)
 
     def _handle_stickiness_people(self, cohort: Cohort, filter: StickinessFilter) -> None:
-        insert_cohort_from_query(cohort.pk, INSIGHT_STICKINESS, filter.to_dict())
+        insert_cohort_from_query.delay(cohort.pk, INSIGHT_STICKINESS, filter.to_dict())
 
     def _handle_trend_people(self, cohort: Cohort, filter: Filter) -> None:
         if len(filter.entities) >= 1:
             entity = filter.entities[0]
         else:
             entity = Entity({"id": filter.target_entity_id, "type": filter.target_entity_type})
-        insert_cohort_from_query(cohort.pk, INSIGHT_TRENDS, filter.to_dict(), entity_data=entity.to_dict())
+        insert_cohort_from_query.delay(cohort.pk, INSIGHT_TRENDS, filter.to_dict(), entity_data=entity.to_dict())
 
 
 def insert_cohort_people_into_pg(cohort: Cohort):
