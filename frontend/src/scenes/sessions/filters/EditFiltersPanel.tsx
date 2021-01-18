@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, Card, Col, Row, Space } from 'antd'
+import { Button, Card, Col, Divider, Row, Space } from 'antd'
 import { useActions, useValues } from 'kea'
 import { DownOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
@@ -51,7 +51,8 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
             {Object.entries(displayedFilters).map(([key, filters]) => (
                 <div key={key}>
                     <div className="sessions-filter-title">
-                        <strong>{SECTIONS[key].label}</strong> · {SECTIONS[key].description}
+                        <h3>{SECTIONS[key].label}</h3>
+                        <p className="text-muted">{SECTIONS[key].description}</p>
                     </div>
                     {filters.map(({ item, selector }) => (
                         <div className="sessions-filter-row" key={selector}>
@@ -66,7 +67,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                                             alignItems: 'center',
                                         }}
                                     >
-                                        {item.label}
+                                        <strong>{item.label}</strong>
                                         <DownOutlined style={{ fontSize: 12, color: '#bfbfbf' }} />
                                     </Button>
                                     <SessionsFilterBox selector={selector} />
@@ -85,8 +86,11 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                         </div>
                     ))}
                     <div className="sessions-filter-row">
-                        <AddFilterButton selector={`new-${key}`} />
+                        <div className="full-width">
+                            <AddFilterButton selector={`new-${key}`} />
+                        </div>
                     </div>
+                    <Divider />
                 </div>
             ))}
 
