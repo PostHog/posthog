@@ -1,8 +1,8 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
-import { FilterOutlined, PlaySquareOutlined, UserOutlined } from '@ant-design/icons'
+import { FilterOutlined, PlaySquareOutlined, UserOutlined, EditOutlined } from '@ant-design/icons'
 import { SavedFilter, sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
-import { Menu } from 'antd'
+import { Button, Menu } from 'antd'
 import { Link } from 'lib/components/Link'
 import { toParams } from 'lib/utils'
 import { router } from 'kea-router'
@@ -15,10 +15,8 @@ const ICONS: Record<SavedFilter['id'], JSX.Element | undefined> = {
 }
 
 export function SavedFiltersMenu(): JSX.Element {
-    const [saveVisible, setSaveVisible] = useState(false)
-
-    const { activeFilter, savedFilters } = useValues(sessionsFiltersLogic)
-    const { createSessionsFilter } = useActions(sessionsFiltersLogic)
+    const { activeFilter, savedFilters, editedFilter } = useValues(sessionsFiltersLogic)
+    const { closeEditFilter } = useActions(sessionsFiltersLogic)
 
     const globalFilters = savedFilters.filter(({ type }) => type === 'global')
     const customFilters = savedFilters.filter(({ type }) => type === 'custom')
@@ -51,33 +49,49 @@ export function SavedFiltersMenu(): JSX.Element {
                     </Menu.ItemGroup>
                 )}
             </Menu>
-            <Drawer
-                title="Save session filters"
-                onClose={() => setSaveVisible(false)}
-                visible={saveVisible}
-                destroyOnClose={true}
-            >
-                <SaveFilter
-                    onSubmit={(name) => {
-                        createSessionsFilter(name)
-                        setSaveVisible(false)
-                    }}
-                />
-            </Drawer>
+            {!!editedFilter && (
+                <Drawer
+                    title={editedFilter.id !== null ? 'Update filters' : 'Save filters'}
+                    onClose={closeEditFilter}
+                    visible={!!editedFilter}
+                    destroyOnClose={true}
+                >
+                    <SaveFilter filter={editedFilter} />
+                </Drawer>
+            )}
         </>
     )
 }
 
-function MenuLink({ filter, icon }: { filter: SavedFilter; icon: JSX.Element; editable?: boolean }): JSX.Element {
+function MenuLink({
+    filter,
+    icon,
+    editable,
+}: {
+    filter: SavedFilter
+    icon: JSX.Element
+    editable?: boolean
+}): JSX.Element {
+    const { openEditFilter } = useActions(sessionsFiltersLogic)
+
+    const handleEdit = (event: React.MouseEvent): void => {
+        event.stopPropagation()
+        event.preventDefault()
+        openEditFilter(filter)
+    }
+
     return (
         <Link
             to={`/sessions?${toParams({
                 ...router.values.searchParams,
                 filters: filter.filters.properties,
             })}`}
-            data-attr="sessions-custom-filter-link"
+            data-attr="sessions-filter-link"
         >
-            {icon} {filter.name}
+            <span>
+                {icon} {filter.name}
+            </span>
+            {editable && <Button onClick={handleEdit} icon={<EditOutlined />} className="edit-filter-button" />}
         </Link>
     )
 }

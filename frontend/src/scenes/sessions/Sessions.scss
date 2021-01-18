@@ -2,12 +2,30 @@
 
 .sessions-filters-menu {
     border-right: unset;
-}
 
-.ant-menu-item-group-title {
-    text-transform: uppercase;
-    color: $text_muted;
-    font-weight: bold;
+    .ant-menu-item-group-title {
+        text-transform: uppercase;
+        color: $text_muted;
+        font-weight: bold;
+    }
+
+    .ant-menu-item {
+        padding: 0px;
+    }
+
+    .ant-menu-item a {
+        padding-left: 16px;
+        padding-right: 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        min-width: 250px;
+    }
+
+    .edit-filter-button .anticon {
+        font-size: 16px;
+        margin-right: 0px;
+    }
 }
 
 .sessions-divider {

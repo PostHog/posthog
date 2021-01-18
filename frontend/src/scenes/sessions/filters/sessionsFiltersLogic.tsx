@@ -38,7 +38,10 @@ export const sessionsFiltersLogic = kea<
             id,
             label,
         }),
-        createSessionsFilter: (name: string) => ({ name }),
+        upsertSessionsFilter: (id: number | string | null, name: string) => ({ id, name }),
+        deleteSessionsFilter: (id: number | string | null) => ({ id }),
+        openEditFilter: (filter: SavedFilter | { id: null }) => ({ filter }),
+        closeEditFilter: true,
     }),
     reducers: {
         filters: [
@@ -66,6 +69,13 @@ export const sessionsFiltersLogic = kea<
                 openFilterSelect: (_, { selector }) => selector,
                 updateFilter: () => null,
                 closeFilterSelect: () => null,
+            },
+        ],
+        editedFilter: [
+            null as SavedFilter | { id: null } | null,
+            {
+                openEditFilter: (_, { filter }) => filter,
+                closeEditFilter: () => null,
             },
         ],
     },
@@ -117,9 +127,12 @@ export const sessionsFiltersLogic = kea<
         customFilters: [
             [] as Array<SavedFilter>,
             {
-                loadCustomFilters: async (): Promise<Array<SavedFilter>> => {
+                loadCustomFilters: async (toastMessage?: string): Promise<Array<SavedFilter>> => {
                     const { results } = await api.get('api/sessions_filter')
-                    return results.map((entry) => ({ ...entry, type: 'custom' }))
+                    if (toastMessage) {
+                        toast(toastMessage)
+                    }
+                    return results.map((entry: Omit<SavedFilter, 'type'>) => ({ ...entry, type: 'custom' }))
                 },
             },
         ],
@@ -136,11 +149,23 @@ export const sessionsFiltersLogic = kea<
                 }
             }
         },
-        createSessionsFilter: async ({ name }) => {
-            await api.create('api/sessions_filter', { name, filters: { properties: values.filters } })
+        upsertSessionsFilter: async ({ id, name }) => {
+            actions.closeEditFilter()
 
-            actions.loadCustomFilters()
-            toast('Filter saved')
+            if (id === null) {
+                await api.create('api/sessions_filter', { name, filters: { properties: values.filters } })
+            } else {
+                await api.update(`api/sessions_filter/${id}`, { name })
+            }
+
+            actions.loadCustomFilters('Filter saved')
+        },
+        deleteSessionsFilter: async ({ id }) => {
+            actions.closeEditFilter()
+
+            await api.delete(`api/sessions_filter/${id}`)
+
+            actions.loadCustomFilters('Filter deleted')
         },
     }),
     events: ({ actions }) => ({

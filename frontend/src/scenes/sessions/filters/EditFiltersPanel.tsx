@@ -40,7 +40,7 @@ const SECTIONS: Record<string, { label: string; description: string }> = {
 
 export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
     const { activeFilter, displayedFilterCount, displayedFilters } = useValues(sessionsFiltersLogic)
-    const { openFilterSelect, removeFilter } = useActions(sessionsFiltersLogic)
+    const { openFilterSelect, openEditFilter, removeFilter } = useActions(sessionsFiltersLogic)
 
     if (displayedFilterCount === 0) {
         return null
@@ -104,7 +104,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
             ))}
 
             <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <Button disabled={!!activeFilter}>
+                <Button disabled={!!activeFilter} onClick={() => openEditFilter({ id: null })}>
                     <span>
                         <SaveOutlined /> Save filter
                     </span>

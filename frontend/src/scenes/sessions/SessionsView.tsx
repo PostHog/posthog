@@ -191,7 +191,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
             )}
 
-            <div className="text-right mb">
+            <div className="text-right mb mt">
                 <Tooltip title={playAllCTA}>
                     <span>
                         <LinkButton
