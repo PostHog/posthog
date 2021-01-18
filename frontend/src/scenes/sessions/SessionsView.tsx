@@ -48,7 +48,7 @@ function SessionPlayerDrawer({ isPersonPage = false }: { isPersonPage: boolean }
     )
 }
 
-export function SessionsTable({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
+export function SessionsView({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
     const {
         sessions,
