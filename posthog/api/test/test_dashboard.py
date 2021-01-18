@@ -55,34 +55,35 @@ class TestDashboard(TransactionBaseTest):
         self.assertIsNotNone(dashboard.share_token)
 
     def test_return_cached_results(self):
-        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-        }
-        filter = Filter(data=filter_dict)
+        with self.settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}):
+            dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+            filter_dict = {
+                "events": [{"id": "$pageview"}],
+                "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            }
+            filter = Filter(data=filter_dict)
 
-        item = DashboardItem.objects.create(dashboard=dashboard, filters=filter_dict, team=self.team,)
-        DashboardItem.objects.create(
-            dashboard=dashboard, filters=filter.to_dict(), team=self.team,
-        )
-        response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
-        self.assertEqual(response["items"][0]["result"], None)
-
-        # cache results
-        self.client.get(
-            "/api/action/trends/?events=%s&properties=%s"
-            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
-        )
-        item = DashboardItem.objects.get(pk=item.pk)
-        self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
-        self.assertEqual(item.filters_hash, generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)))
-
-        with self.assertNumQueries(8):
+            item = DashboardItem.objects.create(dashboard=dashboard, filters=filter_dict, team=self.team,)
+            DashboardItem.objects.create(
+                dashboard=dashboard, filters=filter.to_dict(), team=self.team,
+            )
             response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+            self.assertEqual(response["items"][0]["result"], None)
 
-        self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
-        self.assertEqual(response["items"][0]["result"][0]["count"], 0)
+            # cache results
+            self.client.get(
+                "/api/action/trends/?events=%s&properties=%s"
+                % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
+            )
+            item = DashboardItem.objects.get(pk=item.pk)
+            self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
+            self.assertEqual(item.filters_hash, generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)))
+
+            with self.assertNumQueries(8):
+                response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+
+            self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
+            self.assertEqual(response["items"][0]["result"][0]["count"], 0)
 
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
