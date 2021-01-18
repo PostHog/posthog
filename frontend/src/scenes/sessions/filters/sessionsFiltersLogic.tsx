@@ -19,6 +19,7 @@ export interface SavedFilter {
     filters: {
         properties: Array<SessionsPropertyFilter>
     }
+    type: 'global' | 'custom'
 }
 
 type FilterPropertyType = SessionsPropertyFilter['type']
@@ -87,11 +88,13 @@ export const sessionsFiltersLogic = kea<
                     id: 'all',
                     name: 'All sessions',
                     filters: { properties: [] },
+                    type: 'global',
                 },
                 {
                     id: 'withrecordings',
                     name: 'Sessions with recordings',
                     filters: { properties: [SESSIONS_WITH_RECORDINGS_FILTER] },
+                    type: 'global',
                 },
                 ...customFilters,
             ],
@@ -115,7 +118,7 @@ export const sessionsFiltersLogic = kea<
             {
                 loadCustomFilters: async (): Promise<Array<SavedFilter>> => {
                     const { results } = await api.get('api/sessions_filter')
-                    return results
+                    return results.map((entry) => ({ ...entry, type: 'custom' }))
                 },
             },
         ],

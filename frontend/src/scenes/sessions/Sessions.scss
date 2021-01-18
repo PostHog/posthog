@@ -1,5 +1,15 @@
 @import '~/vars';
 
+.sessions-filters-menu {
+    border-right: unset;
+}
+
+.ant-menu-item-group-title {
+    text-transform: uppercase;
+    color: $text_muted;
+    font-weight: bold;
+}
+
 .sessions-divider {
     margin-top: calc(3 * #{$default_spacing});
     height: calc(100vh - #{$top_nav_height} - 6 * #{$default_spacing});
