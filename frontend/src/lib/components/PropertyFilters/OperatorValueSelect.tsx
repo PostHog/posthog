@@ -31,7 +31,7 @@ export function OperatorValueSelect({
         <>
             <Col flex={1}>
                 <OperatorSelect
-                    operator={operator || 'exact'}
+                    operator={currentOperator || 'exact'}
                     operators={Object.keys(operatorMap) as Array<PropertyOperator>}
                     onChange={(newOperator: PropertyOperator) => {
                         setCurrentOperator(newOperator)
@@ -39,7 +39,7 @@ export function OperatorValueSelect({
                             onChange(newOperator, newOperator)
                         } else if (isOperatorFlag(currentOperator || 'exact')) {
                             onChange(newOperator, null)
-                        } else {
+                        } else if (value) {
                             onChange(newOperator, value)
                         }
                     }}
