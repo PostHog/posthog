@@ -4,6 +4,7 @@ import os
 import re
 import tarfile
 from typing import Dict, Optional
+from urllib.parse import quote
 from zipfile import BadZipFile, ZipFile
 
 import requests
@@ -38,6 +39,36 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, s
     return parsed
 
 
+def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, str]]:
+    url = url.strip("/")
+    match = re.search(r"^https?:\/\/(?:www\.)?gitlab\.com\/([A-Za-z0-9_.\-\/]+)$", url,)
+    if not match:
+        return None
+    project = match.group(1)
+    if "/-/" in project:
+        parsed = {
+            "type": "gitlab",
+            "project": match.group(1).split("/-/")[0],
+            "tag": project.split("/-/")[1].split("/")[1],
+        }
+    else:
+        parsed = {"type": "gitlab", "project": match.group(1), "tag": None}
+
+    parsed["root_url"] = "https://gitlab.com/{}".format(parsed["project"])
+    if get_latest_if_none and not parsed["tag"]:
+        try:
+            commits_url = "https://gitlab.com/api/v4/projects/{}/repository/commits".format(quote(parsed["project"]))
+            commits = requests.get(commits_url).json()
+            if len(commits) > 0 and commits[0].get("web_url", None):
+                return parse_url(commits[0]["web_url"])
+            raise
+        except Exception:
+            raise Exception("Could not get latest commit for: {}".format(parsed["root_url"]))
+    if parsed["tag"]:
+        parsed["tagged_url"] = "https://gitlab.com/{}/-/tree/{}".format(parsed["project"], parsed["tag"])
+    return parsed
+
+
 def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, str]]:
     match = re.search(r"^https?:\/\/(?:www\.)?npmjs\.com\/package\/([a-z0-9_-]+)\/?(v\/([A-Za-z0-9_.-]+)\/?|)$", url)
     if not match:
@@ -62,6 +93,9 @@ def parse_url(url: str, get_latest_if_none=False) -> Dict[str, str]:
     parsed_url = parse_npm_url(url, get_latest_if_none)
     if parsed_url:
         return parsed_url
+    parsed_url = parse_gitlab_url(url, get_latest_if_none)
+    if parsed_url:
+        return parsed_url
     raise Exception("Must be a Github Repository or NPM package URL!")
 
 
@@ -74,6 +108,12 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
             raise Exception("No Github tag given!")
         url = "https://github.com/{user}/{repo}/archive/{tag}.zip".format(
             user=parsed_url["user"], repo=parsed_url["repo"], tag=tag or parsed_url["tag"]
+        )
+    elif parsed_url["type"] == "gitlab":
+        if not (tag or parsed_url.get("tag", None)):
+            raise Exception("No Github tag given!")
+        url = "https://gitlab.com/{project}/-/archive/{tag}/{repo}-{tag}.zip".format(
+            project=parsed_url["project"], repo=parsed_url["project"].split("/")[-1], tag=tag or parsed_url["tag"]
         )
     elif parsed_url["type"] == "npm":
         if not (tag or parsed_url.get("version", None)):
