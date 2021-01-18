@@ -193,7 +193,7 @@ def get_or_create_person(team_id: int, distinct_id: str) -> Tuple[Person, bool]:
     return person, created
 
 
-def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
+def _update_person_properties(team_id: int, distinct_id: str, properties: Dict, set_once: bool = False) -> None:
     try:
         person = Person.objects.get(
             team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
@@ -206,7 +206,10 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
             person = Person.objects.get(
                 team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
             )
-    person.properties.update(properties)
+    if set_once:
+        person.properties = properties.update(person.properties)
+    else:
+        person.properties.update(properties)
     person.save()
 
 
@@ -270,6 +273,10 @@ def handle_identify_or_alias(event: str, properties: dict, distinct_id: str, tea
             )
         if properties.get("$set"):
             _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=properties["$set"])
+        if properties.get("$set_once"):
+            _update_person_properties(
+                team_id=team_id, distinct_id=distinct_id, properties=properties["$set_once"], set_once=True
+            )
         _set_is_identified(team_id=team_id, distinct_id=distinct_id)
 
 
