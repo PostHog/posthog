@@ -202,11 +202,13 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict, 
         try:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
         # Catch race condition where in between getting and creating, another request already created this person
-        except:
+        except Exception:
             person = Person.objects.get(
                 team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
             )
     if set_once:
+        # Set properties on a user record, only if they do not yet exist.
+        # Unlike $set, this will not overwrite existing people property values.
         new_properties = properties.copy()
         new_properties.update(person.properties)
         person.properties = new_properties

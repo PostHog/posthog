@@ -593,7 +593,7 @@ def test_process_event_factory(
                     "properties": {
                         "token": self.team.api_token,
                         "distinct_id": "distinct_id",
-                        "$set": {"a_prop": "test-2", "b_prop": "test-2"},
+                        "$set": {"a_prop": "test-2", "b_prop": "test-2b"},
                     },
                 },
                 self.team.pk,
@@ -603,7 +603,7 @@ def test_process_event_factory(
 
             self.assertEqual(len(get_events()), 2)
             self.assertEqual(
-                Person.objects.get().properties, {"a_prop": "test-2", "b_prop": "test-2", "c_prop": "test-1"}
+                Person.objects.get().properties, {"a_prop": "test-2", "b_prop": "test-2b", "c_prop": "test-1"}
             )
 
         def test_identify_set_once(self) -> None:
