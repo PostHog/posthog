@@ -96,7 +96,7 @@ def parse_url(url: str, get_latest_if_none=False) -> Dict[str, str]:
     parsed_url = parse_gitlab_url(url, get_latest_if_none)
     if parsed_url:
         return parsed_url
-    raise Exception("Must be a Github Repository or NPM package URL!")
+    raise Exception("Must be a GitHub/GitLab repository or npm package URL!")
 
 
 # passing `tag` overrides whatever is in the URL
@@ -105,13 +105,13 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
 
     if parsed_url["type"] == "github":
         if not (tag or parsed_url.get("tag", None)):
-            raise Exception("No Github tag given!")
+            raise Exception("No GitHub tag given!")
         url = "https://github.com/{user}/{repo}/archive/{tag}.zip".format(
             user=parsed_url["user"], repo=parsed_url["repo"], tag=tag or parsed_url["tag"]
         )
     elif parsed_url["type"] == "gitlab":
         if not (tag or parsed_url.get("tag", None)):
-            raise Exception("No Github tag given!")
+            raise Exception("No GitLab tag given!")
         url = "https://gitlab.com/{project}/-/archive/{tag}/{repo}-{tag}.zip".format(
             project=parsed_url["project"], repo=parsed_url["project"].split("/")[-1], tag=tag or parsed_url["tag"]
         )
