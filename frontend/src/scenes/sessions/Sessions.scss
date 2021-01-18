@@ -1,5 +1,10 @@
 @import '~/vars';
 
+.sessions-divider {
+    margin-top: calc(3 * #{$default_spacing});
+    height: calc(100vh - #{$top_nav_height} - 6 * #{$default_spacing});
+}
+
 .sessions-player-button {
     color: $success;
     font-size: 16px;
