@@ -27,7 +27,7 @@ from posthog.queries.stickiness import (
     stickiness_format_intervals,
     stickiness_process_entity_type,
 )
-from posthog.tasks.calculate_cohort import calculate_cohort, calculate_cohort_from_csv
+from posthog.tasks.calculate_cohort import calculate_cohort, calculate_cohort_from_list
 
 
 class CohortSerializer(serializers.ModelSerializer):
@@ -55,7 +55,7 @@ class CohortSerializer(serializers.ModelSerializer):
         decoded_file = file.read().decode("utf-8").splitlines()
         reader = csv.reader(decoded_file)
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
-        calculate_cohort_from_csv.delay(cohort.pk, distinct_ids_and_emails)
+        calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
@@ -92,10 +92,10 @@ class CohortSerializer(serializers.ModelSerializer):
         decoded_file = file.read().decode("utf-8").splitlines()
         reader = csv.reader(decoded_file)
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
-        calculate_cohort_from_csv.delay(cohort.pk, distinct_ids_and_emails)
+        calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
 
     def _calculate_static_by_people(self, people: List[str], cohort: Cohort) -> None:
-        calculate_cohort_from_csv.delay(cohort.pk, people)
+        calculate_cohort_from_list.delay(cohort.pk, people)
 
     def _handle_stickiness_people(self, cohort: Cohort, filter: StickinessFilter) -> None:
         events = stickiness_process_entity_type(cohort.team, filter)

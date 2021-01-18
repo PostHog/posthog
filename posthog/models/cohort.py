@@ -139,7 +139,6 @@ class Cohort(models.Model):
                     values_query=sql.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
                 )
                 cursor.execute(query, params)
-
             self.is_calculating = False
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
