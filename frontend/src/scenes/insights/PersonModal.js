@@ -7,6 +7,7 @@ import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { Link } from 'lib/components/Link'
 import { ArrowRightOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ViewType } from './insightLogic'
 
 export function PersonModal({ visible, view, onSaveCohort }) {
     const { people, filters, peopleModalURL } = useValues(trendsLogic({ dashboardItemId: null, view }))
@@ -33,9 +34,11 @@ export function PersonModal({ visible, view, onSaveCohort }) {
                 >
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                         Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
-                        <Button type="primary" onClick={onSaveCohort}>
-                            {'Save cohort'}
-                        </Button>
+                        {(view === ViewType.TRENDS || view === ViewType.STICKINESS) && (
+                            <Button type="primary" onClick={onSaveCohort}>
+                                {'Save cohort'}
+                            </Button>
+                        )}
                     </div>
                     {featureFlags['filter_by_session_props_link'] ? (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
