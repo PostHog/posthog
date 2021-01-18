@@ -127,7 +127,7 @@ class TestClickhouseCalculateCohort(calculate_cohort_test_factory(_create_event,
             },
         )
         insert_cohort_from_query(
-            1,
+            cohort_id,
             "TRENDS",
             {
                 "date_from": "2021-01-01",
