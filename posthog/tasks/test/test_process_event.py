@@ -602,10 +602,9 @@ def test_process_event_factory(
             )
 
             self.assertEqual(len(get_events()), 2)
-            self.assertEqual(get_events()[1].properties["$set"], {"a_prop": "test-2", "b_prop": "test-2"})
-            person = Person.objects.get()
-            self.assertEqual(person.distinct_ids, ["distinct_id"])
-            self.assertEqual(person.properties, {"a_prop": "test-2", "b_prop": "test-2", "c_prop": "test-1"})
+            self.assertEqual(
+                Person.objects.get().properties, {"a_prop": "test-2", "b_prop": "test-2", "c_prop": "test-1"}
+            )
 
         def test_identify_set_once(self) -> None:
             Person.objects.create(team=self.team, distinct_ids=["distinct_id"])
@@ -652,10 +651,9 @@ def test_process_event_factory(
             )
 
             self.assertEqual(len(get_events()), 2)
-            self.assertEqual(get_events()[1].properties["$set_once"], {"a_prop": "test-2", "b_prop": "test-2"})
-            person = Person.objects.get()
-            self.assertEqual(person.distinct_ids, ["distinct_id"])
-            self.assertEqual(person.properties, {"a_prop": "test-1", "b_prop": "test-2", "c_prop": "test-1"})
+            self.assertEqual(
+                Person.objects.get().properties, {"a_prop": "test-1", "b_prop": "test-2", "c_prop": "test-1"}
+            )
 
         def test_distinct_with_anonymous_id(self) -> None:
             Person.objects.create(team=self.team, distinct_ids=["anonymous_id"])
