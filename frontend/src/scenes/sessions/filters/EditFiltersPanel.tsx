@@ -8,6 +8,7 @@ import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLog
 import { EventPropertyFilter } from 'scenes/sessions/filters/EventPropertyFilter'
 import { PersonFilter } from 'scenes/sessions/filters/UserFilter'
 import { DurationFilter } from 'scenes/sessions/filters/DurationFilter'
+import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
 
 interface Props {
     onSubmit: () => void
@@ -67,6 +68,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                                         {item.label}
                                         <DownOutlined style={{ fontSize: 12, color: '#bfbfbf' }} />
                                     </Button>
+                                    <SessionsFilterBox selector={selector} />
                                 </Col>
                                 {['event_type', 'action_type'].includes(item.type) && (
                                     <EventPropertyFilter filter={item as EventTypePropertyFilter} selector={selector} />

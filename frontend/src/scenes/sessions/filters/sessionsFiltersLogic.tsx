@@ -6,7 +6,7 @@ import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constan
 import { sessionsFiltersLogicType } from 'types/scenes/sessions/filters/sessionsFiltersLogicType'
 import { SessionsPropertyFilter } from '~/types'
 
-type FilterSelector = number | 'new'
+export type FilterSelector = number | 'new'
 
 export interface PersonProperty {
     name: string
