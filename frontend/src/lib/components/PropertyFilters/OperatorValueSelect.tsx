@@ -39,7 +39,7 @@ export function OperatorValueSelect({
                             onChange(newOperator, newOperator)
                         } else if (isOperatorFlag(currentOperator || 'exact')) {
                             onChange(newOperator, null)
-                        } else if (value) {
+                        } else {
                             onChange(newOperator, value)
                         }
                     }}
