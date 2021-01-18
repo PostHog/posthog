@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, Card, Col, Divider, Row, Space } from 'antd'
+import { Button, Card, Divider, Space } from 'antd'
 import { useActions, useValues } from 'kea'
 import { DownOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
@@ -56,8 +56,8 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                     </div>
                     {filters.map(({ item, selector }) => (
                         <div className="sessions-filter-row" key={selector}>
-                            <Row style={{ width: '100%' }}>
-                                <Col span={6}>
+                            <div className="sessions-filter-row-filters">
+                                <div>
                                     <Button
                                         onClick={() => openFilterSelect(selector)}
                                         className="full-width"
@@ -71,7 +71,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                                         <DownOutlined style={{ fontSize: 12, color: '#bfbfbf' }} />
                                     </Button>
                                     <SessionsFilterBox selector={selector} />
-                                </Col>
+                                </div>
                                 {['event_type', 'action_type'].includes(item.type) && (
                                     <EventPropertyFilter filter={item as EventTypePropertyFilter} selector={selector} />
                                 )}
@@ -81,7 +81,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                                 {item.type === 'recording' && item.key === 'duration' && (
                                     <DurationFilter filter={item as RecordingPropertyFilter} selector={selector} />
                                 )}
-                            </Row>
+                            </div>
                             <CloseButton onClick={() => removeFilter(selector)} style={{ marginLeft: 8 }} />
                         </div>
                     ))}

@@ -132,4 +132,17 @@
     align-items: center;
     justify-content: space-between;
     margin-bottom: $default_spacing;
+
+    .sessions-filter-row-filters {
+        display: flex;
+        width: 100%;
+    }
+
+    .sessions-filter-row-filters > * {
+        flex: 1;
+    }
+
+    .sessions-filter-row-filters > *:not(:last-child) {
+        margin-right: 16px;
+    }
 }
