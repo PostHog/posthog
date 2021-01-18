@@ -13,9 +13,27 @@ def calculate_cohort_test_factory(event_factory, person_factory):
     class TestCalculateCohort(BaseTest):
         TESTS_API = True
 
-        @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay")
-        def test_create_stickiness_cohort(self):
-            pass
+        @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+        def test_create_stickiness_cohort(self, _calculate_cohort_from_list):
+            person_factory(team_id=self.team.pk, distinct_ids=["blabla"])
+            event_factory(
+                team=self.team,
+                event="$pageview",
+                distinct_id="blabla",
+                properties={"$math_prop": 1},
+                timestamp="2021-01-01T12:00:00Z",
+            )
+            response = self.client.post(
+                "/api/cohort/?insight=STICKINESS&properties=%5B%5D&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&shown_as=Stickiness&date_from=2021-01-01&entityId=%24pageview&type=events&stickiness_days=1&label=%24pageview",
+                {"name": "test", "is_static": True},
+            ).json()
+
+            cohort_id = response["id"]
+            _calculate_cohort_from_list.assert_called_once_with(cohort_id, ["blabla"])
+            calculate_cohort_from_list(cohort_id, ["blabla"])
+            cohort = Cohort.objects.get(pk=cohort_id)
+            people = Person.objects.filter(cohort__id=cohort.pk)
+            self.assertEqual(len(people), 1)
 
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
         def test_create_trends_cohort(self, _calculate_cohort_from_list):
