@@ -306,7 +306,10 @@ function SaveCohortModal({ onOk, onCancel, visible }) {
             title={`New Cohort`}
             okText={'Save'}
             cancelText="Cancel"
-            onOk={() => onOk(cohortTitle)}
+            onOk={() => {
+                onOk(cohortTitle)
+                setCohortTitle('')
+            }}
             onCancel={onCancel}
             visible={visible}
         >

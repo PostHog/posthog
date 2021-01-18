@@ -175,7 +175,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     # Get the current user's team (or first team in the instance) to set opt out capture & self capture configs
     team: Optional[Team] = None
     try:
-        team = request.user.team
+        team = request.user.team  # type: ignore
     except (Team.DoesNotExist, AttributeError):
         team = Team.objects.first()
 
