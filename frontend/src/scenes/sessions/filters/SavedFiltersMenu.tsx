@@ -2,7 +2,7 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { FilterOutlined, PlaySquareOutlined, UserOutlined, EditOutlined } from '@ant-design/icons'
 import { SavedFilter, sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
-import { Button, Menu } from 'antd'
+import { Button, Menu, Skeleton } from 'antd'
 import { Link } from 'lib/components/Link'
 import { toParams } from 'lib/utils'
 import { router } from 'kea-router'
@@ -15,7 +15,7 @@ const ICONS: Record<SavedFilter['id'], JSX.Element | undefined> = {
 }
 
 export function SavedFiltersMenu(): JSX.Element {
-    const { activeFilter, savedFilters, editedFilter } = useValues(sessionsFiltersLogic)
+    const { activeFilter, savedFilters, editedFilter, customFiltersLoading } = useValues(sessionsFiltersLogic)
     const { closeEditFilter } = useActions(sessionsFiltersLogic)
 
     const globalFilters = savedFilters.filter(({ type }) => type === 'global')
@@ -39,14 +39,18 @@ export function SavedFiltersMenu(): JSX.Element {
                     ))}
                 </Menu.ItemGroup>
 
-                {customFilters.length > 0 && (
-                    <Menu.ItemGroup title="Custom filters">
-                        {customFilters.map((savedFilter) => (
-                            <Menu.Item key={savedFilter.id.toString()}>
-                                <MenuLink filter={savedFilter} icon={<FilterOutlined />} editable />
-                            </Menu.Item>
-                        ))}
-                    </Menu.ItemGroup>
+                {customFiltersLoading ? (
+                    <Skeleton paragraph={{ rows: 1 }} active />
+                ) : (
+                    customFilters.length > 0 && (
+                        <Menu.ItemGroup title="Custom filters">
+                            {customFilters.map((savedFilter) => (
+                                <Menu.Item key={savedFilter.id.toString()}>
+                                    <MenuLink filter={savedFilter} icon={<FilterOutlined />} editable />
+                                </Menu.Item>
+                            ))}
+                        </Menu.ItemGroup>
+                    )
                 )}
             </Menu>
             {!!editedFilter && (
