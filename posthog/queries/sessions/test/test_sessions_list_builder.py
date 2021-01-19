@@ -178,7 +178,7 @@ class TestSessionListBuilder(BaseTest):
         self.assertDictContainsSubset(
             {
                 "distinct_id": "1",
-                "action_filter_times": [now() - relativedelta(minutes=3), now() - relativedelta(minutes=2)],
+                "action_filter_times": [now() - relativedelta(minutes=3), now() - relativedelta(minutes=2), now(),],
             },
             sessions[0],
         )
