@@ -57,7 +57,7 @@ function _Plugins(): JSX.Element {
                             <InstalledPlugins />
                         </TabPane>
                         {user.plugin_access.install && (
-                            <TabPane tab="Available" key="available">
+                            <TabPane tab="Repository" key="available">
                                 <Subtitle subtitle="Plugin Repository" />
                                 <Repository />
                                 <Subtitle subtitle="Install Custom Plugins" />
