@@ -135,7 +135,8 @@ def format_entity_filter(entity: Entity, prepend: str = "action") -> Tuple[str, 
         except Action.DoesNotExist:
             raise ValueError("This action does not exist")
     else:
-        entity_filter = "event = %(event)s"
-        params = {"event": entity.id}
+        key = f"{prepend}_event"
+        entity_filter = f"event = %({key})s"
+        params = {key: entity.id}
 
     return entity_filter, params
