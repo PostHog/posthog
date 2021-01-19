@@ -24,7 +24,8 @@ export function SaveFilter({ filter }: Props): JSX.Element {
                     <Input
                         required
                         autoFocus
-                        placeholder="Session filter name"
+                        placeholder="Name your filter"
+                        maxLength={24}
                         value={name}
                         data-attr="sessions-filter.name"
                         onChange={(e) => setName(e.target.value)}
