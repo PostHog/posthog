@@ -7,7 +7,7 @@ import { InstalledPlugins } from 'scenes/plugins/InstalledPlugins'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { pluginsLogic } from './pluginsLogic'
-import { Tabs, Tag } from 'antd'
+import { Alert, Tabs, Tag } from 'antd'
 import { OptInPlugins } from 'scenes/plugins/OptInPlugins'
 import { OptOutPlugins } from 'scenes/plugins/OptOutPlugins'
 import { CustomPlugin } from 'scenes/plugins/install/CustomPlugin'
@@ -64,6 +64,27 @@ function _Plugins(): JSX.Element {
                                     <Repository />
                                 </TabPane>
                                 <TabPane tab="Custom" key={PluginTab.Custom}>
+                                    <Alert
+                                        message="Advanced Features Ahead"
+                                        description={
+                                            <>
+                                                Please check out the{' '}
+                                                <a
+                                                    href="#"
+                                                    onClick={(e) => {
+                                                        e.preventDefault()
+                                                        setPluginTab(PluginTab.Repository)
+                                                    }}
+                                                >
+                                                    Plugin Repository
+                                                </a>{' '}
+                                                for a list of curated plugins you can directly install.
+                                            </>
+                                        }
+                                        type="warning"
+                                        showIcon
+                                        closable
+                                    />
                                     <Subtitle subtitle="Install Custom Plugins" />
                                     <SourcePlugin />
                                     <CustomPlugin />
