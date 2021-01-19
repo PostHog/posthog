@@ -1,11 +1,20 @@
 import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    List,
+    Optional,
+    Set,
+    Tuple,
+)
 
 from django.db import connection
-from django.db.models import F, Max, Min
 
 from posthog.models import Person, SessionRecordingEvent, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.utils import namedtuplefetchall
 
 DistinctId = str
@@ -94,15 +103,26 @@ def filter_sessions_by_recordings(
     max_ts = max(it["end_time"] for it in sessions_results)
 
     session_recordings = query(team, min_ts, max_ts, filter)
+    viewed_session_recordings = set(
+        SessionRecordingViewed.objects.filter(team=team, user_id=filter.user_id).values_list("session_id", flat=True)
+    )
 
     for session in sessions_results:
-        session["session_recording_ids"] = [
-            recording["session_id"] for recording in session_recordings if matches(session, recording)
-        ]
+        session["session_recordings"] = list(
+            collect_matching_recordings(session, session_recordings, viewed_session_recordings)
+        )
 
     if filter.limit_by_recordings:
-        sessions_results = [session for session in sessions_results if len(session["session_recording_ids"]) > 0]
+        sessions_results = [session for session in sessions_results if len(session["session_recordings"]) > 0]
     return sessions_results
+
+
+def collect_matching_recordings(
+    session: Any, session_recordings: List[Any], viewed: Set[str]
+) -> Generator[Dict, None, None]:
+    for recording in session_recordings:
+        if matches(session, recording):
+            yield {"id": recording["session_id"], "viewed": recording["session_id"] in viewed}
 
 
 def matches(session: Any, session_recording: Any) -> bool:

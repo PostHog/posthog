@@ -284,7 +284,7 @@ export interface SessionType {
     length: number
     start_time: string
     end_time: string
-    session_recording_ids: string[]
+    session_recordings: Array<{ id: string; viewed: boolean }>
     start_url?: string
     end_url?: string
     email?: string
