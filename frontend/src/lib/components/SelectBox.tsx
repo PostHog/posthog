@@ -1,9 +1,9 @@
-import React, { useRef, useEffect, useState } from 'react'
+import React, { useRef, useEffect, useState, Fragment } from 'react'
 import { useActions, useValues } from 'kea'
 import { Col, Row, Input, Divider } from 'antd'
 import { List } from 'antd'
 import { DownOutlined, RightOutlined } from '@ant-design/icons'
-import { ActionType } from '~/types'
+import { ActionType, CohortType } from '~/types'
 import { searchItems, selectBoxLogic } from 'lib/logic/selectBoxLogic'
 import './SelectBox.scss'
 import { selectBoxLogicType } from 'types/lib/logic/selectBoxLogicType'
@@ -12,16 +12,22 @@ export interface SelectBoxItem {
     dataSource: SelectedItem[]
     renderInfo({ item }: { item: SelectedItem }): JSX.Element
     name: JSX.Element | string
+    type: string
+    getValue: (item: SelectedItem) => string | number
+    getLabel: (item: SelectedItem) => string
 }
 
 export interface SelectedItem {
+    id?: number // Populated for actions
     name: string
     key: string
+    value?: string
     action?: ActionType
     event?: string
     volume?: number
     usage_count?: number
     category?: string
+    cohort?: CohortType
 }
 
 export function SelectBox({
@@ -31,17 +37,17 @@ export function SelectBox({
     onDismiss,
 }: {
     items: SelectBoxItem[]
-    selectedItemKey: string
+    selectedItemKey?: string
     onSelect: CallableFunction
-    onDismiss: CallableFunction
+    onDismiss: (event: MouseEvent) => void
 }): JSX.Element {
-    const dropdownRef = useRef()
+    const dropdownRef = useRef<HTMLDivElement>(null)
     const dropdownLogic = selectBoxLogic({ updateFilter: onSelect, items })
     const { selectedItem, RenderInfo } = useValues(dropdownLogic)
     const { setSearch, setSelectedItem, onKeyDown } = useActions(dropdownLogic)
 
-    const deselect = (e): void => {
-        if (dropdownRef?.current?.contains(e.target)) {
+    const deselect = (e: MouseEvent): void => {
+        if (e.target && dropdownRef?.current?.contains(e.target as Node)) {
             return
         }
         onDismiss && onDismiss(e)
@@ -62,7 +68,7 @@ export function SelectBox({
         }
     }, [])
     return (
-        <div ref={dropdownRef} className="select-box" tabIndex="0">
+        <div ref={dropdownRef} className="select-box" tabIndex={0}>
             <Row style={{ height: '100%' }}>
                 <Col sm={14} style={{ borderRight: '1px solid rgba(0, 0, 0, 0.1)', maxHeight: '100%' }}>
                     <Input
@@ -74,15 +80,11 @@ export function SelectBox({
                         style={{ width: '100%', borderRadius: 0 }}
                     />
                     <div className="search-list">
-                        {items.map((item) => (
-                            <>
-                                <SelectUnit
-                                    name={item.name}
-                                    dropdownLogic={dropdownLogic}
-                                    dataSource={item.dataSource}
-                                />
+                        {items.map((group, index) => (
+                            <Fragment key={index}>
+                                <SelectUnit group={group} dropdownLogic={dropdownLogic} dataSource={group.dataSource} />
                                 <Divider />
-                            </>
+                            </Fragment>
                         ))}
                     </div>
                 </Col>
@@ -95,11 +97,11 @@ export function SelectBox({
 }
 
 export function SelectUnit({
-    name,
+    group,
     dataSource,
     dropdownLogic,
 }: {
-    name: string | JSX.Element
+    group: SelectBoxItem
     dataSource: SelectedItem[]
     dropdownLogic: selectBoxLogicType
 }): JSX.Element {
@@ -111,12 +113,12 @@ export function SelectUnit({
         <>
             <span onClick={() => setIsCollapsed(!isCollapsed)}>
                 <h4 style={{ cursor: 'pointer', userSelect: 'none', padding: '4px 12px', marginBottom: 0 }}>
-                    {isCollapsed || data.length === 0 ? <RightOutlined /> : <DownOutlined />} {name}
+                    {isCollapsed || data.length === 0 ? <RightOutlined /> : <DownOutlined />} {group.name}
                     <span
                         style={{ float: 'right', fontWeight: search && data.length > 0 ? 700 : 'normal' }}
                         className="text-small"
                     >
-                        {data.length} event{data.length !== 1 && 's'}
+                        {data.length} {data.length === 1 ? 'entry' : 'entries'}
                     </span>
                 </h4>
             </span>
@@ -127,11 +129,11 @@ export function SelectUnit({
                     dataSource={data || []}
                     renderItem={(item: SelectedItem) => (
                         <List.Item
-                            className={selectedItem.key === item.key && 'selected'}
+                            className={selectedItem.key === item.key ? 'selected' : undefined}
                             datakey={item.key}
-                            onClick={() => clickSelectedItem(item)}
+                            onClick={() => clickSelectedItem(item, group)}
                             onMouseOver={() =>
-                                !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: name })
+                                !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: group.type })
                             }
                         >
                             {item.name}

@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space, Tooltip, Drawer } from 'antd'
+import { Table, Button, Spin, Space, Tooltip, Drawer, Divider } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -23,9 +23,11 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SessionsPlay } from './SessionsPlay'
 import { userLogic } from 'scenes/userLogic'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
-import { SessionRecordingFilters } from 'scenes/sessions/SessionRecordingFilters'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkButton } from 'lib/components/LinkButton'
+import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
+import { EditFiltersPanel } from 'scenes/sessions/filters/EditFiltersPanel'
+import { SavedFiltersDropdown } from 'scenes/sessions/filters/SavedFiltersDropdown'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -51,15 +53,14 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
     const {
         sessions,
         sessionsLoading,
-        nextOffset,
+        pagination,
         isLoadingNext,
         selectedDate,
         properties,
         sessionRecordingId,
-        duration,
         firstRecordingId,
     } = useValues(logic)
-    const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
+    const { fetchNextSessions, previousDay, nextDay, setFilters, applyFilters } = useActions(logic)
     const { user } = useValues(userLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -88,7 +89,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                         to={`/person/${encodeURIComponent(session.distinct_id)}`}
                         className={rrwebBlockClass + ' ph-no-capture'}
                     >
-                        {session.properties?.email || session.distinct_id}
+                        {session?.email || session.distinct_id}
                     </Link>
                 )
             },
@@ -101,7 +102,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             },
         },
         {
-            title: 'Duration',
+            title: 'Session duration',
             render: function RenderDuration(session: SessionType) {
                 return <span>{humanFriendlyDuration(session.length)}</span>
             },
@@ -113,29 +114,26 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             },
         },
         {
+            title: 'End Time',
+            render: function RenderEndTime(session: SessionType) {
+                return <span>{humanFriendlyDetailedTime(session.end_time)}</span>
+            },
+        },
+        {
             title: 'Start Point',
             render: function RenderStartPoint(session: SessionType) {
-                return (
-                    <span>
-                        {session.events.length !== 0 && session.events[0].properties?.$current_url
-                            ? stripHTTP(session.events[0].properties.$current_url)
-                            : 'N/A'}
-                    </span>
-                )
+                const url = session.start_url || (session.events && session.events[0].properties?.$current_url)
+                return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
         },
         {
             title: 'End Point',
             render: function RenderEndPoint(session: SessionType) {
-                return (
-                    <span>
-                        {session.events.length !== 0 &&
-                        session.events[session.events.length - 1].properties?.$current_url
-                            ? stripHTTP(session.events[session.events.length - 1].properties.$current_url)
-                            : 'N/A'}
-                    </span>
-                )
+                const url =
+                    session.end_url ||
+                    (session.events && session.events[session.events.length - 1].properties?.$current_url)
+                return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
         },
@@ -152,7 +150,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                             }
                         >
                             <span>
-                                Play session
+                                Play recording
                                 <QuestionCircleOutlined style={{ marginLeft: 6 }} />
                             </span>
                         </Tooltip>
@@ -160,7 +158,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                         <Tooltip title={enableSessionRecordingCTA}>
                             <span>
                                 <PoweroffOutlined style={{ marginRight: 6 }} className="text-warning" />
-                                Play session
+                                Play recording
                             </span>
                         </Tooltip>
                     )}
@@ -178,21 +176,20 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             {!isPersonPage && <PageHeader title="Sessions" />}
             <Space className="mb-05">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
-                <DatePicker
-                    value={selectedDate}
-                    onChange={(date) => setFilters(properties, date, duration)}
-                    allowClear={false}
-                />
+                <DatePicker value={selectedDate} onChange={(date) => setFilters(properties, date)} allowClear={false} />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
+
+                {featureFlags['filter_by_session_props'] && <SessionsFilterBox />}
+                {featureFlags['filter_by_session_props'] && <SavedFiltersDropdown />}
             </Space>
 
-            {featureFlags['filter_by_session_props'] && (
-                <SessionRecordingFilters
-                    duration={duration}
-                    onChange={(newDuration) => setFilters(properties, selectedDate, newDuration)}
-                />
+            {featureFlags['filter_by_session_props'] ? (
+                <EditFiltersPanel onSubmit={applyFilters} />
+            ) : (
+                <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
             )}
-            <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
+
+            <Divider />
 
             <div className="text-right mb">
                 <Tooltip title={playAllCTA}>
@@ -221,8 +218,8 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 columns={columns}
                 loading={sessionsLoading}
                 expandable={{
-                    expandedRowRender: function renderExpand({ events }) {
-                        return <SessionDetails events={events} />
+                    expandedRowRender: function renderExpand(session) {
+                        return <SessionDetails key={session.global_session_id} session={session} />
                     },
                     rowExpandable: () => true,
                     expandRowByClick: true,
@@ -236,7 +233,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                     textAlign: 'center',
                 }}
             >
-                {(nextOffset || isLoadingNext) && (
+                {(pagination || isLoadingNext) && (
                     <Button type="primary" onClick={fetchNextSessions}>
                         {isLoadingNext ? <Spin> </Spin> : 'Load more sessions'}
                     </Button>

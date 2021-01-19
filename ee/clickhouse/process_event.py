@@ -19,7 +19,12 @@ from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.tasks.process_event import handle_identify_or_alias, store_names_and_properties
+from posthog.tasks.process_event import (
+    _add_missing_feature_flags,
+    handle_identify_or_alias,
+    sanitize_event_name,
+    store_names_and_properties,
+)
 
 if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
@@ -54,18 +59,13 @@ def _capture_ee(
             for index, el in enumerate(elements)
         ]
 
-    team = Team.objects.only(
-        "slack_incoming_webhook",
-        "event_names",
-        "event_properties",
-        "event_names_with_usage",
-        "event_properties_with_usage",
-        "anonymize_ips",
-    ).get(pk=team_id)
+    team = Team.objects.select_related("organization").get(pk=team_id)
 
     if not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
 
+    event = sanitize_event_name(event)
+    _add_missing_feature_flags(properties, team, distinct_id)
     store_names_and_properties(team=team, event=event, properties=properties)
 
     if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
@@ -117,15 +117,17 @@ if is_ee_enabled():
         team_id: int,
         now: datetime.datetime,
         sent_at: Optional[datetime.datetime],
+        event_uuid: UUIDT,
     ) -> None:
         timer = statsd.Timer("%s_posthog_cloud" % (settings.STATSD_PREFIX,))
         timer.start()
         properties = data.get("properties", {})
         if data.get("$set"):
             properties["$set"] = data["$set"]
+        if data.get("$set_once"):
+            properties["$set_once"] = data["$set_once"]
 
         person_uuid = UUIDT()
-        event_uuid = UUIDT()
         ts = handle_timestamp(data, now, sent_at)
         handle_identify_or_alias(data["event"], properties, distinct_id, team_id)
 
@@ -164,6 +166,7 @@ else:
         team_id: int,
         now: datetime.datetime,
         sent_at: Optional[datetime.datetime],
+        event_uuid: UUIDT,
     ) -> None:
         # Noop if ee is not enabled
         return
@@ -177,12 +180,14 @@ def log_event(
     team_id: int,
     now: datetime.datetime,
     sent_at: Optional[datetime.datetime],
+    event_uuid: UUIDT,
 ) -> None:
     if settings.DEBUG:
         print(f'Logging event {data["event"]} to WAL')
     KafkaProducer().produce(
         topic=KAFKA_EVENTS_WAL,
         data={
+            "uuid": str(event_uuid),
             "distinct_id": distinct_id,
             "ip": ip,
             "site_url": site_url,

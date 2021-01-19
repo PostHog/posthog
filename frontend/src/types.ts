@@ -1,5 +1,5 @@
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { PluginConfigSchema } from 'posthog-plugins'
+import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 export interface UserType {
     anonymize_data: boolean
@@ -24,6 +24,14 @@ export interface UserType {
     is_debug: boolean
     is_impersonated: boolean
     email_service_available: boolean
+}
+
+/* Type for User objects in nested serializers (e.g. created_by) */
+export interface UserNestedType {
+    id: number
+    distinct_id: string
+    first_name: string
+    email: string
 }
 
 export interface UserUpdateType {
@@ -157,11 +165,71 @@ export interface PropertyFilter {
     value: string | number
 }
 
+interface BasePropertyFilter {
+    key: string
+    value: string | number | null
+    label?: string
+}
+
+export type PropertyOperator =
+    | 'exact'
+    | 'is_not'
+    | 'icontains'
+    | 'not_icontains'
+    | 'regex'
+    | 'not_regex'
+    | 'gt'
+    | 'lt'
+    | 'is_set'
+    | 'is_not_set'
+
+interface EventPropertyFilter extends BasePropertyFilter {
+    type: 'event'
+    operator: PropertyOperator
+}
+
+export interface PersonPropertyFilter extends BasePropertyFilter {
+    type: 'person'
+    operator: PropertyOperator
+}
+
+interface CohortPropertyFilter extends BasePropertyFilter {
+    type: 'cohort'
+}
+
+export interface RecordingPropertyFilter extends BasePropertyFilter {
+    type: 'recording'
+    key: 'duration'
+    value: number
+    operator: 'lt' | 'gt'
+}
+
+interface ActionTypePropertyFilter extends BasePropertyFilter {
+    type: 'action_type'
+    properties?: Array<EventPropertyFilter>
+}
+
+export interface EventTypePropertyFilter extends BasePropertyFilter {
+    type: 'event_type'
+    properties?: Array<EventPropertyFilter>
+}
+
+export type SessionsPropertyFilter =
+    | PersonPropertyFilter
+    | CohortPropertyFilter
+    | RecordingPropertyFilter
+    | ActionTypePropertyFilter
+    | EventTypePropertyFilter
+
 export interface Entity {
     id: string | number
     name: string
     order: number
-    type: string
+    type: 'actions' | 'events'
+}
+
+export interface EntityWithProperties extends Entity {
+    properties: Record<string, any>
 }
 
 export interface PersonType {
@@ -183,6 +251,7 @@ export interface CohortType {
     is_calculating?: boolean
     last_calculation?: string
     name?: string
+    csv?: File
     groups: Record<string, any>[]
 }
 
@@ -210,13 +279,15 @@ export interface EventType {
 export interface SessionType {
     distinct_id: string
     event_count: number
-    events: EventType[]
+    events?: EventType[]
     global_session_id: string
     length: number
-    properties: Record<string, any>
     start_time: string
     end_time: string
     session_recording_ids: string[]
+    start_url?: string
+    end_url?: string
+    email?: string
 }
 
 export interface OrganizationBilling {
@@ -292,6 +363,7 @@ export interface PluginType {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     error?: PluginErrorType
+    maintainer?: string
 }
 
 export interface PluginConfigType {
@@ -312,11 +384,42 @@ export interface PluginErrorType {
     event?: Record<string, any>
 }
 
-export interface PluginConfigSchemaType {
-    hint: string
-    key: string
-    name: string
-    order: number
-    required: boolean
-    type: string
+
+export interface AnnotationType {
+    id: string
+    scope: 'organization' | 'dashboard_item'
+    content: string
+    date_marker: string
+    created_by?: UserNestedType | null
+    created_at: string
+    updated_at: string
+    dashboard_item?: number
+    deleted?: boolean
+    creation_type?: string
+}
+
+export interface FilterType {
+    insight: 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
+    display?:
+        | 'ActionsLineGraph'
+        | 'ActionsLineGraphCumulative'
+        | 'ActionsTable'
+        | 'ActionsPie'
+        | 'ActionsBar'
+        | 'PathsViz'
+        | 'FunnelViz'
+    interval?: string
+    date_from?: string
+    date_to?: string
+    properties?: PropertyFilter[]
+    events?: Record<string, any>[]
+    actions?: Record<string, any>[]
+    breakdown_type?: 'cohort' | 'person' | 'event'
+    shown_as?: 'Volume' | 'Stickiness' | 'Lifecycle' // DEPRECATED: Remove when releasing `remove-shownas`
+    session?: string
+    period?: string
+    retentionType?: 'retention_recurring' | 'retention_first_time'
+    returningEntity?: Record<string, any>
+    startEntity?: Record<string, any>
+    path_type?: '$pageview' | '$screen' | '$autocapture' | 'custom_event'
 }

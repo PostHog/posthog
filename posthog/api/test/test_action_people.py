@@ -2,7 +2,7 @@ from json import dumps as jdumps
 
 from freezegun import freeze_time
 
-from posthog.models import Action, ActionStep, Cohort, Event, Person, Team
+from posthog.models import Action, ActionStep, Cohort, Event, Organization, Person
 
 from .base import TransactionBaseTest
 
@@ -17,7 +17,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             sign_up_action = action_factory(team=self.team, name="sign up")
 
             person = person_factory(team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"])
-            secondTeam = Team.objects.create(api_token="token456")
+            secondTeam = Organization.objects.bootstrap(None, team_fields={"api_token": "token456"})[2]
 
             freeze_without_time = ["2019-12-24", "2020-01-01", "2020-01-02"]
             freeze_with_time = [

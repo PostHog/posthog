@@ -115,11 +115,11 @@ FROM events
 """
 
 SELECT_PROP_VALUES_SQL = """
-SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where JSONHas(properties, %(key)s) AND team_id = %(team_id)s LIMIT 10
+SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where JSONHas(properties, %(key)s) AND team_id = %(team_id)s {parsed_date_from} {parsed_date_to} LIMIT 10
 """
 
 SELECT_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where team_id = %(team_id)s AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) LIKE %(value)s LIMIT 10
+SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where team_id = %(team_id)s AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) LIKE %(value)s {parsed_date_from} {parsed_date_to} LIMIT 10
 """
 
 SELECT_EVENT_WITH_ARRAY_PROPS_SQL = """
@@ -208,6 +208,10 @@ LIMIT %(limit)s
 """.format(
     tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
 )
+
+GET_CUSTOM_EVENTS = """
+SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']
+"""
 
 GET_PROPERTIES_VOLUME = """
     SELECT arrayJoin(array_property_keys) as key, count(1) as count FROM events_with_array_props_view WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY key ORDER BY count DESC

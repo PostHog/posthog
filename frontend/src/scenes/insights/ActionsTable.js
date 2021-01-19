@@ -34,7 +34,10 @@ export function ActionsTable({ dashboardItemId = null, view, filters: filtersPar
                             )
                         },
                     },
-                    { title: filters.session ? 'Value' : 'Count', dataIndex: 'aggregated_value' },
+                    {
+                        title: filters.session ? 'Value' : 'Count',
+                        dataIndex: filters.session ? 'count' : 'aggregated_value',
+                    },
                 ]}
                 rowKey="label"
                 pagination={{ pageSize: 9999, hideOnSinglePage: true }}

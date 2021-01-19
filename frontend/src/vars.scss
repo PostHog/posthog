@@ -16,7 +16,7 @@ $brand_yellow: #f9bd2b;
 // Text colors
 $text_default: #2d2d2d;
 $text_light: rgba(255, 255, 255, 0.88);
-$text_muted: #d9d9d9;
+$text_muted: #bfbfbf;
 $text_muted_alt: #35416b;
 
 // Background colors
@@ -42,6 +42,11 @@ $blue_500: #597dce;
 $blue_300: #8da9e7;
 $blue_100: #b8cefd;
 
+// Yellow Swatch
+$yellow_500: #f8a523;
+$yellow_300: #ffc035;
+$yellow_100: #fbdd99;
+
 // Purple Swatch
 $purple_700: #7c4286;
 $purple_500: #c278cf;
@@ -54,3 +59,7 @@ $purple_300: #dcb1e3;
 $default_spacing: 16px;
 $radius: 2px;
 $top_nav_height: 50px;
+
+// Z-indexes
+$z_mobile_nav_overlay: 1031;
+$z_pinned_dashboards_popup: 1062;

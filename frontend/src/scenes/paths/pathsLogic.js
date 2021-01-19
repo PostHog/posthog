@@ -43,12 +43,15 @@ export const pathsLogic = kea({
     connect: {
         actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
     },
-    loaders: ({ values }) => ({
-        loadedPaths: [
+    loaders: ({ values, props }) => ({
+        results: [
             { paths: [], filter: {} },
             {
-                loadPaths: async (_, breakpoint) => {
+                loadResults: async (refresh = false, breakpoint) => {
                     const filter = { ...values.filter, properties: values.properties }
+                    if (!refresh && (props.cachedResults || props.preventLoading)) {
+                        return { paths: props.cachedResults, filter }
+                    }
                     const params = toParams(filter)
                     const paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
                     breakpoint()
@@ -82,12 +85,12 @@ export const pathsLogic = kea({
     }),
     listeners: ({ actions, values, props }) => ({
         setProperties: () => {
-            actions.loadPaths()
+            actions.loadResults(true)
         },
         setFilter: () => {
-            actions.loadPaths()
+            actions.loadResults(true)
         },
-        loadPaths: () => {
+        loadResults: () => {
             actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
             if (!props.dashboardItemId) {
                 actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
@@ -96,9 +99,9 @@ export const pathsLogic = kea({
     }),
     selectors: {
         paths: [
-            (s) => [s.loadedPaths],
-            (loadedPaths) => {
-                const { paths } = loadedPaths
+            (s) => [s.results],
+            (results) => {
+                const { paths } = results
 
                 const nodes = {}
                 for (const path of paths) {
@@ -117,7 +120,7 @@ export const pathsLogic = kea({
                 return response
             },
         ],
-        loadedFilter: [(s) => [s.loadedPaths, s.filter], (loadedPaths, filter) => loadedPaths?.filter || filter],
+        loadedFilter: [(s) => [s.results, s.filter], (results, filter) => results?.filter || filter],
         propertiesForUrl: [
             (s) => [s.properties, s.filter],
             (properties, filter) => {
@@ -166,6 +169,6 @@ export const pathsLogic = kea({
         },
     }),
     events: ({ actions }) => ({
-        afterMount: actions.loadPaths,
+        afterMount: () => actions.loadResults(),
     }),
 })

@@ -102,7 +102,7 @@ export const displayMap = {
         link: ({ id, dashboard, name, filters }) => {
             return combineUrl(
                 `/insights`,
-                { insight: ViewType.Retention, ...filters },
+                { insight: ViewType.RETENTION, ...filters },
                 { fromItem: id, fromItemName: name, fromDashboard: dashboard }
             ).url
         },
@@ -155,7 +155,13 @@ export function DashboardItem({
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
 
-    const _type = item.filters.insight === ViewType.RETENTION ? 'RetentionContainer' : item.filters.display
+    const _type =
+        item.filters.insight === ViewType.RETENTION
+            ? 'RetentionContainer'
+            : item.filters.insight === ViewType.PATHS
+            ? 'PathsViz'
+            : item.filters.display || 'ActionsLineGraph'
+
     const className = displayMap[_type].className
     const Element = displayMap[_type].element
     const Icon = displayMap[_type].icon

@@ -21,6 +21,7 @@ export function Repository(): JSX.Element {
                                     name={plugin.name}
                                     url={plugin.url}
                                     description={plugin.description}
+                                    maintainer={plugin.maintainer}
                                 />
                             )
                         })}

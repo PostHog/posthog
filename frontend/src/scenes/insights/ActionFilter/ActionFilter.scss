@@ -1,0 +1,19 @@
+@import '~/vars';
+
+.draggable-action-filter {
+    margin-top: 16px;
+    display: flex;
+
+    .action-filter-drag-handle {
+        cursor: move;
+        padding-right: 2px;
+        color: $text_default;
+        font-size: 1.2em;
+        svg {
+            transform: rotate(90deg);
+        }
+    }
+    .ant-row.mt {
+        margin-top: 0;
+    }
+}

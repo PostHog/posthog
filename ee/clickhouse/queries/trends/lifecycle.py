@@ -41,7 +41,7 @@ class ClickhouseLifecycle(LifecycleTrend):
             date_from = get_earliest_timestamp(team_id)
 
         interval = filter.interval or "day"
-        num_intervals, seconds_in_interval = get_time_diff(interval, filter.date_from, filter.date_to, team_id)
+        num_intervals, seconds_in_interval, _ = get_time_diff(interval, filter.date_from, filter.date_to, team_id)
         interval_increment, interval_string, sub_interval_string = self.get_interval(interval)
         trunc_func = get_trunc_func_ch(interval)
         event_query = ""
@@ -104,7 +104,9 @@ class ClickhouseLifecycle(LifecycleTrend):
             date_from = get_earliest_timestamp(team_id)
 
         interval = filter.interval or "day"
-        num_intervals, seconds_in_interval = get_time_diff(interval, filter.date_from, filter.date_to, team_id=team_id)
+        num_intervals, seconds_in_interval, _ = get_time_diff(
+            interval, filter.date_from, filter.date_to, team_id=team_id
+        )
         interval_increment, interval_string, sub_interval_string = self.get_interval(interval)
         trunc_func = get_trunc_func_ch(interval)
         event_query = ""

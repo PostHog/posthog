@@ -3,7 +3,6 @@ import datetime
 from itertools import accumulate
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import numpy as np
 import pandas as pd
 from django.db import connection
 from django.db.models import (
@@ -22,12 +21,11 @@ from django.db.models import (
     Value,
     functions,
 )
-from django.db.models.expressions import F, RawSQL, Subquery
+from django.db.models.expressions import ExpressionWrapper, F, RawSQL, Subquery
+from django.db.models.fields import DateTimeField
 from django.db.models.functions import Cast
-from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
-from django.db.models.sql.query import Query
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE, TRENDS_PIE, TRENDS_TABLE
 from posthog.models import (
     Action,
     ActionStep,
@@ -45,7 +43,7 @@ from posthog.utils import append_data
 
 from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
 
-FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "M"}
+FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "MS"}
 
 MATH_TO_AGGREGATE_FUNCTION: Dict[str, Callable] = {
     "sum": Sum,
@@ -92,8 +90,6 @@ def build_dataframe(aggregates: QuerySet, interval: str, breakdown: Optional[str
         )
     if interval == "week":
         dataframe["date"] = dataframe["date"].apply(lambda x: x - pd.offsets.Week(weekday=6))
-    elif interval == "month":
-        dataframe["date"] = dataframe["date"].apply(lambda x: x - pd.offsets.MonthEnd(n=1))
     return dataframe
 
 
@@ -149,7 +145,9 @@ def get_interval_annotation(key: str) -> Dict[str, Any]:
         "minute": functions.TruncMinute("timestamp"),
         "hour": functions.TruncHour("timestamp"),
         "day": functions.TruncDay("timestamp"),
-        "week": functions.TruncWeek("timestamp"),
+        "week": functions.TruncWeek(
+            ExpressionWrapper(F("timestamp") + datetime.timedelta(days=1), output_field=DateTimeField())
+        ),
         "month": functions.TruncMonth("timestamp"),
     }
     func = map.get(key)
@@ -181,10 +179,13 @@ def add_person_properties_annotations(team_id: int, breakdown: str) -> Dict[str,
 
 
 def aggregate_by_interval(
-    filtered_events: QuerySet, team_id: int, entity: Entity, filter: Filter, breakdown: Optional[str] = None,
+    events: QuerySet, team_id: int, entity: Entity, filter: Filter, breakdown: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], QuerySet]:
     interval = filter.interval if filter.interval else "day"
     interval_annotation = get_interval_annotation(interval)
+    filtered_events = events.filter(
+        filter_events(team_id, filter, entity, interval_annotation=interval_annotation[interval])
+    )
     values = [interval]
     if breakdown:
         if filter.breakdown_type == "cohort":
@@ -317,34 +318,35 @@ class Trends(LifecycleTrend, BaseQuery):
 
         return serialized_data
 
-    def _set_default_dates(self, filter: Filter, team_id: int) -> None:
+    def _set_default_dates(self, filter: Filter, team_id: int) -> Filter:
         # format default dates
         if not filter.date_from:
-            filter._date_from = (
-                Event.objects.filter(team_id=team_id)
-                .order_by("timestamp")[0]
-                .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-                .isoformat()
+            return Filter(
+                data={
+                    **filter._data,
+                    "date_from": Event.objects.filter(team_id=team_id)
+                    .order_by("timestamp")[0]
+                    .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+                    .isoformat(),
+                }
             )
+        return filter
 
     def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
-        events = events.filter(filter_events(team_id, filter, entity))
-        items, filtered_events = aggregate_by_interval(
-            filtered_events=events, team_id=team_id, entity=entity, filter=filter,
-        )
+        items, filtered_events = aggregate_by_interval(events=events, team_id=team_id, entity=entity, filter=filter,)
         formatted_entities: List[Dict[str, Any]] = []
         for _, item in items.items():
             formatted_data = append_data(dates_filled=list(item.items()), interval=filter.interval)
-            formatted_data.update({"aggregated_value": get_aggregate_total(filtered_events, entity)})
+            if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
+                formatted_data.update({"aggregated_value": get_aggregate_total(filtered_events, entity)})
             formatted_entities.append(formatted_data)
         return formatted_entities
 
     def _serialize_breakdown(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
-        events = events.filter(filter_events(team_id, filter, entity))
         items, filtered_events = aggregate_by_interval(
-            filtered_events=events,
+            events=events,
             team_id=team_id,
             entity=entity,
             filter=filter,
@@ -396,7 +398,7 @@ class Trends(LifecycleTrend, BaseQuery):
             actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)
         actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
 
-        self._set_default_dates(filter, team.pk)
+        filter = self._set_default_dates(filter, team.pk)
 
         result = []
         for entity in filter.entities:

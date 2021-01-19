@@ -327,6 +327,8 @@ else:
 
 if DATABASE_URL:
     DATABASES = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=600)}
+    if DISABLE_SERVER_SIDE_CURSORS:
+        DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 elif os.environ.get("POSTHOG_DB_NAME"):
     DATABASES = {
         "default": {
@@ -397,6 +399,7 @@ CELERY_IGNORE_RESULT = True  # only applies to delay(), must do @shared_task(ign
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
+TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached results for
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
@@ -446,8 +449,8 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
-    "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "PAGE_SIZE": 100,
+    "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
 }
 
 EXCEPTIONS_HOG = {
@@ -463,6 +466,7 @@ EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
 EMAIL_USE_TLS = get_bool_from_env("EMAIL_USE_TLS", False)
 EMAIL_USE_SSL = get_bool_from_env("EMAIL_USE_SSL", False)
 DEFAULT_FROM_EMAIL = os.environ.get("EMAIL_DEFAULT_FROM", os.environ.get("DEFAULT_FROM_EMAIL", "root@localhost"))
+EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO")
 
 MULTI_TENANCY = False  # overriden by posthog-production
 

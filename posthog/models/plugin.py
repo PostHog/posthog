@@ -53,3 +53,14 @@ class PluginAttachment(models.Model):
     file_name: models.CharField = models.CharField(max_length=200)
     file_size: models.IntegerField = models.IntegerField()
     contents: models.BinaryField = models.BinaryField()
+
+
+class PluginStorage(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["plugin_config_id", "key"], name="posthog_unique_plugin_storage_key")
+        ]
+
+    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
+    key: models.CharField = models.CharField(max_length=200)
+    value: models.TextField = models.TextField(blank=True, null=True)
