@@ -384,7 +384,6 @@ export interface PluginErrorType {
     event?: Record<string, any>
 }
 
-
 export interface AnnotationType {
     id: string
     scope: 'organization' | 'dashboard_item'
