@@ -85,9 +85,7 @@ export function PluginCard({
                             ) : error ? (
                                 <PluginError error={error} />
                             ) : null}
-                            {url?.startsWith('file:') ? (
-                                <LocalPluginTag url={url || 'file:/local/path'} title="Local" />
-                            ) : null}
+                            {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
                             {pluginType === 'source' ? <SourcePluginTag /> : null}
                         </div>
                         <div>
