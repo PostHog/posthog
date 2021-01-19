@@ -67,7 +67,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
     }
 
     const andTag = (visible: boolean): JSX.Element => (
-        <span className="stateful-badge and" style={{ visibility: visible ? 'initial' : 'hidden' }}>
+        <span className="stateful-badge and" style={{ visibility: visible ? 'initial' : 'hidden', marginLeft: 16 }}>
             AND
         </span>
     )
