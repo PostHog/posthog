@@ -1399,7 +1399,7 @@ Important! We've added Celery workers. We'll move tasks to workers to speed up a
 ![graph show numbers](https://posthog.com/wp-content/uploads/2020/03/image-1.png)
 - Allow multiple URLS when creating actions
 
-![multiple urls when creating actions](https://user-images.githubusercontent.com/53387/76166375-54751200-615e-11ea-889f-d0ec93356cf2.gif)
+![Multiple urls when creating actions](https://user-images.githubusercontent.com/53387/76166375-54751200-615e-11ea-889f-d0ec93356cf2.gif)
 - Better property filters
 
 ![image](https://user-images.githubusercontent.com/1727427/76364411-5831a180-62e2-11ea-81f1-f0c1832b7927.png)
