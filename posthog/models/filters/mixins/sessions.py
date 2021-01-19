@@ -63,7 +63,7 @@ class SessionsFiltersMixin(BaseParamMixin):
         ]
 
     @cached_property
-    def duration_filter_property(self) -> Optional[Property]:
+    def recording_duration_filter(self) -> Optional[Property]:
         return next(
             (
                 Property(**filter)
