@@ -9,13 +9,15 @@ export function SearchAllBox(): JSX.Element {
     const { openFilterSelect, closeFilterSelect } = useActions(sessionsFiltersLogic)
 
     return (
-        <div className="mb-05">
+        <div className="mb-05 full-width">
             <Button
+                className="full-width"
+                style={{ textAlign: 'left' }}
                 data-attr="sessions-filter-open"
                 onClick={() => (openFilter ? closeFilterSelect() : openFilterSelect('new'))}
             >
                 <SearchOutlined />
-                <span className="text-muted">Search for users, events, actions...</span>
+                <span className="text-muted">Filter sessions by users, actions, events, ...</span>
             </Button>
         </div>
     )
