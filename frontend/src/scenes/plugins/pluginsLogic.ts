@@ -160,7 +160,7 @@ export const pluginsLogic = kea<
             },
         ],
         personalApiKey: [
-            [] as PersonalAPIKeyType[],
+            {} as PersonalAPIKeyType,
             {
                 createKey: async (label: string) => {
                     const newKey: PersonalAPIKeyType = await api.create('api/personal_api_keys/', {

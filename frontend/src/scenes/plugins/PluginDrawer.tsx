@@ -13,7 +13,7 @@ import { getConfigSchemaArray } from 'scenes/plugins/utils'
 import Markdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/SourcePluginTag'
 import { PluginSource } from 'scenes/plugins/PluginSource'
-import { PluginConfigSchemaType } from '~/types'
+import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 
 function EnabledDisabledSwitch({
     value,
@@ -45,7 +45,7 @@ export function PluginDrawer(): JSX.Element {
             if (getConfigSchemaArray(editingPlugin.config_schema).length > 0) {
                 const pluginConfigSchemaKeys = (getConfigSchemaArray(
                     editingPlugin.config_schema
-                ) as PluginConfigSchemaType[]).map((schemaObject: PluginConfigSchemaType) => schemaObject.key)
+                ) as PluginConfigSchema[]).map((schemaObject: PluginConfigSchema) => schemaObject.key)
                 if (pluginConfigSchemaKeys.includes('posthogApiKey') && !pluginConfig.posthogApiKey) {
                     if (!personalApiKey || personalApiKey.length === 0) {
                         createKey('Plugins')

@@ -1362,6 +1362,11 @@
     theme-ui "^0.3.1"
     tinycolor2 "^1.4.1"
 
+"@posthog/plugin-scaffold@^0.2.8-alpha.2":
+  version "0.2.8-alpha.2"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.2.8-alpha.2.tgz#09e1bc742a962a8ebad900b47fe6927acefbf58f"
+  integrity sha512-fFgyh2n7BL2hrz/0jE5jjCudkLH7vZ0jxCUBKjbFvxdwwS2mznvx1lZ6nlJ1PlXe2+N6w/uqk3nH8gui/7bxEQ==
+
 "@rollup/plugin-commonjs@^15.1.0":
   version "15.1.0"
   resolved "https://registry.yarnpkg.com/@rollup/plugin-commonjs/-/plugin-commonjs-15.1.0.tgz#1e7d076c4f1b2abf7e65248570e555defc37c238"
