@@ -14,6 +14,7 @@ import { CustomPlugin } from 'scenes/plugins/install/CustomPlugin'
 import { LocalPlugin } from 'scenes/plugins/install/LocalPlugin'
 import { SourcePlugin } from 'scenes/plugins/install/SourcePlugin'
 import { PageHeader, Subtitle } from 'lib/components/PageHeader'
+import { PluginTab } from 'scenes/plugins/types'
 
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element {
@@ -52,19 +53,23 @@ function _Plugins(): JSX.Element {
 
             {user.team?.plugins_opt_in ? (
                 <>
-                    <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey)}>
-                        <TabPane tab="Installed" key="installed">
+                    <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}>
+                        <TabPane tab="Installed" key={PluginTab.Installed}>
                             <InstalledPlugins />
                         </TabPane>
                         {user.plugin_access.install && (
-                            <TabPane tab="Repository" key="available">
-                                <Subtitle subtitle="Plugin Repository" />
-                                <Repository />
-                                <Subtitle subtitle="Install Custom Plugins" />
-                                <SourcePlugin />
-                                <CustomPlugin />
-                                <LocalPlugin />
-                            </TabPane>
+                            <>
+                                <TabPane tab="Repository" key={PluginTab.Repository}>
+                                    <Subtitle subtitle="Plugin Repository" />
+                                    <Repository />
+                                </TabPane>
+                                <TabPane tab="Custom" key={PluginTab.Custom}>
+                                    <Subtitle subtitle="Install Custom Plugins" />
+                                    <SourcePlugin />
+                                    <CustomPlugin />
+                                    <LocalPlugin />
+                                </TabPane>
+                            </>
                         )}
                     </Tabs>
                     <PluginDrawer />
