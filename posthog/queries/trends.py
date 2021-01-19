@@ -45,6 +45,13 @@ from .base import BaseQuery, filter_events, handle_compare, process_entity_for_e
 
 FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "MS"}
 
+DATERANGE_MAP = {
+    "minute": datetime.timedelta(minutes=1),
+    "hour": datetime.timedelta(hours=1),
+    "day": datetime.timedelta(days=1), 
+    "week": datetime.timedelta(weeks=1), 
+    "month": datetime.timedelta(days=31)
+}
 MATH_TO_AGGREGATE_FUNCTION: Dict[str, Callable] = {
     "sum": Sum,
     "avg": Avg,
@@ -67,6 +74,56 @@ MATH_TO_AGGREGATE_STRING: Dict[str, str] = {
     "p99": "percentile_disc(0.99) WITHIN GROUP (ORDER BY {math_prop})",
 }
 
+def get_daterange(start_date,end_date,frequency):
+        
+    delta = DATERANGE_MAP[frequency]
+    
+    time_range =[]
+    if frequency!= 'month':
+        while start_date < end_date:
+            time_range.append(start_date)
+            start_date += delta
+    else:
+        start_date = (start_date.replace(day=1) + delta).replace(day=1)
+        while start_date < end_date:
+            time_range.append(start_date)
+            start_date = (start_date.replace(day=1) + delta).replace(day=1)
+    return time_range
+
+   
+def build_dataframe1(aggregates: QuerySet, interval: str, breakdown: Optional[str] = None) -> pd.DataFrame:
+    data_array = []
+    if breakdown == "cohorts":
+        cohort_keys = [key for key in aggregates[0].keys() if key.startswith("cohort_")]
+        # Convert queryset with day, count, cohort_88, cohort_99, ... to multiple rows, for example:
+        # 2020-01-01..., 1, cohort_88
+        # 2020-01-01..., 3, cohort_99
+        cohort_dict = {}
+        data_dict = {}
+        for a in aggregates:
+            for key in cohort_keys:
+                if a[key]:
+                    cohort_dict[key] = cohort_dict.get(key,0)+a["count"]
+                    data_dict[(a[interval],key)] = data_dict.get((a[interval],key),0)+ a["count"]
+        
+        data_array =[
+                {"date": key[0], "count": value, "breakdown": key[1]}
+                for key, value in data_dict.items()
+            ]
+        
+        if len(cohort_keys)>20:
+            cohort_keys = [x[0] for x in sorted(cohort_keys.iteritems(), key=lambda x:-x[1])[:20]]
+            data_array = list(filter(lambda d: d['breakdown'] in cohort_keys, data_array))
+    else:
+        cohort_keys = [a[breakdown] if breakdown else "Total"]
+        data_array =[
+                {"date": a[interval], "count": a["count"], "breakdown": a[breakdown] if breakdown else "Total",}
+                for a in aggregates
+            ]
+    
+    if interval == "week":
+        data_array["date"] = data_array["date"].apply(lambda x: x - pd.offsets.Week(weekday=6)) #todo
+    return data_array, cohort_keys
 
 def build_dataframe(aggregates: QuerySet, interval: str, breakdown: Optional[str] = None) -> pd.DataFrame:
     if breakdown == "cohorts":
@@ -108,34 +165,16 @@ def group_events_to_date(
         if date_to:
             date_to = date_to.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    time_index = pd.date_range(date_from, date_to, freq=FREQ_MAP[interval])
+    time_index = get_daterange(date_from, date_to, frequency=interval)
     if len(aggregates) > 0:
-        dataframe = build_dataframe(aggregates, interval, breakdown)
+        dataframe, unique_cohorts = build_dataframe1(aggregates, interval, breakdown)
 
-        # extract top 20 if more than 20 breakdowns
-        if breakdown and dataframe["breakdown"].nunique() > 20:
-            counts = (
-                dataframe.groupby(["breakdown"])["count"]
-                .sum()
-                .reset_index(name="total")
-                .sort_values(by=["total"], ascending=False)[:20]
-            )
-            top_breakdown = counts["breakdown"].to_list()
-            dataframe = dataframe[dataframe.breakdown.isin(top_breakdown)]
-        dataframe = dataframe.astype({"breakdown": str})
-        for value in dataframe["breakdown"].unique():
-            filtered = (
-                dataframe.loc[dataframe["breakdown"] == value]
-                if value
-                else dataframe.loc[dataframe["breakdown"].isnull()]
-            )
-            df_dates = pd.DataFrame(filtered.groupby("date").mean(), index=time_index)
-            df_dates = df_dates.fillna(0)
-            response[value] = {key: value[0] if len(value) > 0 else 0 for key, value in df_dates.iterrows()}
+        for value in unique_cohorts:
+            filtered = list(filter(lambda d: d['breakdown'] == value, dataframe))
+            datewise_data = {d["date"]:d["count"] for d in filtered}  
+            response[value] = {key: datewise_data.get(key,0) for key in time_index}
     else:
-        dataframe = pd.DataFrame([], index=time_index)
-        dataframe = dataframe.fillna(0)
-        response["total"] = {key: value[0] if len(value) > 0 else 0 for key, value in dataframe.iterrows()}
+        response["total"] = {key: 0 for key in time_index}
 
     return response
 
