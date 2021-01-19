@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, Card, Divider, Space, Tag } from 'antd'
+import { Button, Card, Divider, Space } from 'antd'
 import { useActions, useValues } from 'kea'
 import { DownOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
@@ -67,9 +67,9 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
     }
 
     const andTag = (visible: boolean): JSX.Element => (
-        <Tag className="and-tag" style={{ visibility: visible ? 'initial' : 'hidden' }}>
+        <span className="stateful-badge and" style={{ visibility: visible ? 'initial' : 'hidden' }}>
             AND
-        </Tag>
+        </span>
     )
 
     return (

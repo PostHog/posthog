@@ -15,7 +15,7 @@ export function AddFilterButton({ selector }: { selector: string }): JSX.Element
                     <PlusOutlined />
                     <span style={{ marginLeft: 8 }}>Add filter</span>
                 </span>
-                <DownOutlined style={{ fontSize: 12, color: '#bfbfbf' }} />
+                <DownOutlined style={{ fontSize: 12, color: 'var(--muted)' }} />
             </Button>
             <SessionsFilterBox selector={selector} />
         </>
