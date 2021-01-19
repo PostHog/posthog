@@ -3,7 +3,6 @@ import datetime
 from itertools import accumulate
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import pandas as pd
 from django.db import connection
 from django.db.models import (
     Avg,
@@ -39,7 +38,7 @@ from posthog.models import (
 )
 from posthog.models.utils import Percentile
 from posthog.queries.lifecycle import LifecycleTrend
-from posthog.utils import append_data
+from posthog.utils import append_data, get_daterange
 
 from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
 
@@ -73,25 +72,8 @@ MATH_TO_AGGREGATE_STRING: Dict[str, str] = {
     "p95": "percentile_disc(0.95) WITHIN GROUP (ORDER BY {math_prop})",
     "p99": "percentile_disc(0.99) WITHIN GROUP (ORDER BY {math_prop})",
 }
-
-def get_daterange(start_date,end_date,frequency):
-        
-    delta = DATERANGE_MAP[frequency]
-    
-    time_range =[]
-    if frequency!= 'month':
-        while start_date < end_date:
-            time_range.append(start_date)
-            start_date += delta
-    else:
-        start_date = (start_date.replace(day=1) + delta).replace(day=1)
-        while start_date < end_date:
-            time_range.append(start_date)
-            start_date = (start_date.replace(day=1) + delta).replace(day=1)
-    return time_range
-
    
-def build_dataframe1(aggregates: QuerySet, interval: str, breakdown: Optional[str] = None) -> pd.DataFrame:
+def build_dataframe1(aggregates: QuerySet, interval: str, breakdown: Optional[str] = None) -> list:
     data_array = []
     if breakdown == "cohorts":
         cohort_keys = [key for key in aggregates[0].keys() if key.startswith("cohort_")]
@@ -125,29 +107,29 @@ def build_dataframe1(aggregates: QuerySet, interval: str, breakdown: Optional[st
         data_array["date"] = data_array["date"].apply(lambda x: x - pd.offsets.Week(weekday=6)) #todo
     return data_array, cohort_keys
 
-def build_dataframe(aggregates: QuerySet, interval: str, breakdown: Optional[str] = None) -> pd.DataFrame:
-    if breakdown == "cohorts":
-        cohort_keys = [key for key in aggregates[0].keys() if key.startswith("cohort_")]
-        # Convert queryset with day, count, cohort_88, cohort_99, ... to multiple rows, for example:
-        # 2020-01-01..., 1, cohort_88
-        # 2020-01-01..., 3, cohort_99
-        dataframe = pd.melt(
-            pd.DataFrame(aggregates), id_vars=[interval, "count"], value_vars=cohort_keys, var_name="breakdown",
-        ).rename(columns={interval: "date"})
-        # Filter out false values
-        dataframe = dataframe[dataframe["value"] == True]
-        # Sum dates with same cohort
-        dataframe = dataframe.groupby(["breakdown", "date"], as_index=False).sum()
-    else:
-        dataframe = pd.DataFrame(
-            [
-                {"date": a[interval], "count": a["count"], "breakdown": a[breakdown] if breakdown else "Total",}
-                for a in aggregates
-            ]
-        )
-    if interval == "week":
-        dataframe["date"] = dataframe["date"].apply(lambda x: x - pd.offsets.Week(weekday=6))
-    return dataframe
+# def build_dataframe(aggregates: QuerySet, interval: str, breakdown: Optional[str] = None) -> pd.DataFrame:
+#     if breakdown == "cohorts":
+#         cohort_keys = [key for key in aggregates[0].keys() if key.startswith("cohort_")]
+#         # Convert queryset with day, count, cohort_88, cohort_99, ... to multiple rows, for example:
+#         # 2020-01-01..., 1, cohort_88
+#         # 2020-01-01..., 3, cohort_99
+#         dataframe = pd.melt(
+#             pd.DataFrame(aggregates), id_vars=[interval, "count"], value_vars=cohort_keys, var_name="breakdown",
+#         ).rename(columns={interval: "date"})
+#         # Filter out false values
+#         dataframe = dataframe[dataframe["value"] == True]
+#         # Sum dates with same cohort
+#         dataframe = dataframe.groupby(["breakdown", "date"], as_index=False).sum()
+#     else:
+#         dataframe = pd.DataFrame(
+#             [
+#                 {"date": a[interval], "count": a["count"], "breakdown": a[breakdown] if breakdown else "Total",}
+#                 for a in aggregates
+#             ]
+#         )
+#     if interval == "week":
+#         dataframe["date"] = dataframe["date"].apply(lambda x: x - pd.offsets.Week(weekday=6))
+#     return dataframe
 
 
 def group_events_to_date(
@@ -328,7 +310,7 @@ def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optiona
         ret_dict["label"] = "{} - {}".format(
             entity.name, value if value and value != "None" and value != "nan" else "Other",
         )
-        ret_dict["breakdown_value"] = value if value and not pd.isna(value) else None
+        ret_dict["breakdown_value"] = value if value and not pd.isna(value) else None #todo
     else:
         if value == "cohort_all":
             ret_dict["label"] = "{} - all users".format(entity.name)

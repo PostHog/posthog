@@ -479,3 +479,20 @@ def flatten(l: List[Any]) -> Generator:
             yield from flatten(el)
         else:
             yield el
+
+
+def get_daterange(start_date,end_date,frequency):
+        
+    delta = DATERANGE_MAP[frequency]
+    
+    time_range =[]
+    if frequency!= 'month':
+        while start_date < end_date:
+            time_range.append(start_date)
+            start_date += delta
+    else:
+        start_date = (start_date.replace(day=1) + delta).replace(day=1)
+        while start_date < end_date:
+            time_range.append(start_date)
+            start_date = (start_date.replace(day=1) + delta).replace(day=1)
+    return time_range
