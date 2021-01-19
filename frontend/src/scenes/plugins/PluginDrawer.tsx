@@ -2,7 +2,7 @@ import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Button, Form, Input, Popconfirm, Switch } from 'antd'
-import { DeleteOutlined, ArrowRightOutlined, CodeOutlined } from '@ant-design/icons'
+import { DeleteOutlined, ExportOutlined, CodeOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from './PluginImage'
 import { Link } from 'lib/components/Link'
@@ -102,7 +102,7 @@ export function PluginDrawer(): JSX.Element {
                                             <SourcePluginTag />
                                         ) : editingPlugin.url ? (
                                             <Link to={editingPlugin.url} target="_blank" rel="noopener noreferrer">
-                                                View plugin <ArrowRightOutlined />
+                                                View plugin <ExportOutlined />
                                             </Link>
                                         ) : null}
                                     </div>

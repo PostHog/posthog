@@ -74,6 +74,9 @@ export function PluginCard({
                     </Col>
                     <Col style={{ flex: 1 }}>
                         <div>
+                            <strong style={{ marginRight: 10 }}>{name}</strong>
+                            {!pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
+                            {!description && !url ? <br /> : null}
                             {pluginConfig?.error ? (
                                 <PluginError
                                     error={pluginConfig.error}
@@ -82,20 +85,26 @@ export function PluginCard({
                             ) : error ? (
                                 <PluginError error={error} />
                             ) : null}
-                            <strong>{name}</strong>
                             {url?.startsWith('file:') ? (
-                                <LocalPluginTag url={url} title="Local" style={{ marginLeft: 10 }} />
+                                <LocalPluginTag url={url || 'file:/local/path'} title="Local" />
                             ) : null}
-                            {!pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
-                            {!pluginConfig && url && (
-                                <Link to={url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 10 }}>
-                                    Learn more
-                                </Link>
-                            )}
+                            {pluginType === 'source' ? <SourcePluginTag /> : null}
                         </div>
                         <div>
-                            {pluginType === 'source' ? <SourcePluginTag style={{ marginRight: 10 }} /> : null}
                             {description}
+                            {url && (
+                                <span>
+                                    {description ? <> &nbsp; </> : ''}
+                                    <Link
+                                        to={url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        style={{ whiteSpace: 'nowrap' }}
+                                    >
+                                        Learn more
+                                    </Link>
+                                </span>
+                            )}
                         </div>
                     </Col>
                     <Col>
