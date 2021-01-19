@@ -22,7 +22,7 @@ class ClickhouseSessionsList:
         offset = filter.pagination.get("offset", 0)
         filter = set_default_dates(filter)
 
-        filters, params = parse_prop_clauses(filter.properties, team.pk)
+        filters, params = parse_prop_clauses(filter.person_filter_properties, team.pk)
         filters_select_clause, filters_timestamps_clause, filters_having, action_filter_params = format_action_filters(
             filter
         )
