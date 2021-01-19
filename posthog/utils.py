@@ -473,7 +473,7 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
     return new_string, named_params
 
 
-def flatten(l: List[Any]) -> Generator:
+def flatten(l: Union[List, Tuple]) -> Generator:
     for el in l:
         if isinstance(el, list):
             yield from flatten(el)
