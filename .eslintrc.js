@@ -1,7 +1,7 @@
 module.exports = {
     parser: '@typescript-eslint/parser',
     plugins: ['@typescript-eslint'],
-    extends: ['plugin:@typescript-eslint/recommended', 'plugin:prettier/recommended', 'prettier/@typescript-eslint'],
+    extends: ['plugin:@typescript-eslint/recommended'],
     ignorePatterns: ['bin', 'dist', 'node_modules'],
     rules: {
         '@typescript-eslint/no-unused-vars': 'off',
