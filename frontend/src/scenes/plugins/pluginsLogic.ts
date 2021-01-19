@@ -168,6 +168,14 @@ export const pluginsLogic = kea<
     }),
 
     reducers: {
+        installingPluginUrl: [
+            null as string | null,
+            {
+                installPlugin: (_, { pluginUrl }) => pluginUrl,
+                installPluginSuccess: () => null,
+                installPluginFailure: () => null,
+            },
+        ],
         editingPluginId: [
             null as number | null,
             {

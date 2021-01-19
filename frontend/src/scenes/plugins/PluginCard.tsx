@@ -34,7 +34,7 @@ export function PluginCard({
     maintainer,
 }: PluginCardProps): JSX.Element {
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError } = useActions(pluginsLogic)
-    const { loading } = useValues(pluginsLogic)
+    const { loading, installingPluginUrl } = useValues(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
     const switchDisabled = (pluginConfig && pluginConfig.global) || !pluginConfig || !pluginConfig.id
@@ -122,7 +122,8 @@ export function PluginCard({
                             <Button
                                 type="primary"
                                 className="padding-under-500"
-                                loading={loading}
+                                loading={loading && installingPluginUrl === url}
+                                disabled={loading && installingPluginUrl !== url}
                                 onClick={url ? () => installPlugin(url, PluginInstallationType.Repository) : undefined}
                                 icon={<PlusOutlined />}
                             >
