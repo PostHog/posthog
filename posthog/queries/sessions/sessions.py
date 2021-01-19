@@ -1,6 +1,6 @@
+import datetime
 from typing import Any, Dict, List, Tuple
 
-import pandas as pd
 from dateutil.relativedelta import relativedelta
 from django.db import connection
 from django.db.models import F, Q, QuerySet
@@ -140,19 +140,20 @@ class Sessions(BaseQuery):
         if len(time_series_avg) == 0:
             return []
 
-        date_range = get_daterange(filter.date_from, filter.date_to, frequency= interval)
+        date_range = get_daterange(filter.date_from, filter.date_to, frequency=interval)
         data_array = [{"date": a[0], "count": a[1], "breakdown": "Total"} for a in time_series_avg]
-        
-        if interval == "week":
-            for df in dataframe:
-                df['date'] -=datetime.timedelta(days=df['date'].weekday()+1)
-        elif interval == "month":
-            for df in dataframe:
-                df['date'] = (df['date'].replace(day=1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-            
 
-        datewise_data = {d["date"]:d["count"] for d in data_array}  
-        values = {key: datewise_data.get(key,0) for key in time_index}
+        if interval == "week":
+            for df in data_array:
+                df["date"] -= datetime.timedelta(days=df["date"].weekday() + 1)
+        elif interval == "month":
+            for df in data_array:
+                df["date"] = (df["date"].replace(day=1) + datetime.timedelta(days=32)).replace(
+                    day=1
+                ) - datetime.timedelta(days=1)
+
+        datewise_data = {d["date"]: d["count"] for d in data_array}
+        values = {key: datewise_data.get(key, 0) for key in date_range}
 
         time_series_data = append_data(values, interval=filter.interval, math=None)
         # calculate average
