@@ -2,7 +2,7 @@ from freezegun import freeze_time
 
 from posthog.models import Event
 from posthog.models.filters.sessions_filter import SessionsFilter
-from posthog.queries.sessions import Sessions
+from posthog.queries.sessions.sessions import Sessions
 from posthog.test.base import BaseTest
 
 

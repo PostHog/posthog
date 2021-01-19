@@ -5,7 +5,7 @@ import { userLogicType } from 'types/scenes/userLogicType'
 import { UserType, UserUpdateType } from '~/types'
 import posthog from 'posthog-js'
 
-interface EventProperty {
+export interface EventProperty {
     value: string
     label: string
 }

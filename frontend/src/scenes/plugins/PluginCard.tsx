@@ -11,6 +11,7 @@ import { PluginError } from 'scenes/plugins/PluginError'
 import { LocalPluginTag } from 'scenes/plugins/LocalPluginTag'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { SourcePluginTag } from 'scenes/plugins/SourcePluginTag'
+import { CommunityPluginTag } from './CommunityPluginTag'
 
 interface PluginCardProps {
     name: string
@@ -20,6 +21,7 @@ interface PluginCardProps {
     pluginType?: PluginInstallationType
     pluginId?: number
     error?: PluginErrorType
+    maintainer: string
 }
 
 export function PluginCard({
@@ -30,6 +32,7 @@ export function PluginCard({
     pluginConfig,
     pluginId,
     error,
+    maintainer,
 }: PluginCardProps): JSX.Element {
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError } = useActions(pluginsLogic)
     const { loading } = useValues(pluginsLogic)
@@ -60,6 +63,7 @@ export function PluginCard({
                 style={{ height: '100%', display: 'flex', marginBottom: 20 }}
                 bodyStyle={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}
             >
+                {!pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
                 {pluginType === 'source' ? (
                     <SourcePluginTag style={{ position: 'absolute', top: 10, left: 10, cursor: 'pointer' }} />
                 ) : null}

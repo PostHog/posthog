@@ -147,35 +147,29 @@ function DatePickerDropdown(props) {
             <div style={{ padding: '0 1rem' }}>
                 <label className="secondary">From date</label>
                 <br />
-                <DatePicker
-                    popupStyle={{ zIndex: 999999 }}
-                    onOpenChange={(open) => {
-                        setCalendarOpen(open)
-                    }}
-                    defaultValue={
+                <DatePicker.RangePicker
+                    defaultValue={[
                         props.rangeDateFrom
                             ? moment.isMoment(props.rangeDateFrom)
                                 ? props.rangeDateFrom
                                 : moment(props.rangeDateFrom)
-                            : null
-                    }
-                    onChange={props.onDateFromChange}
-                />
-                <br />
-                <br />
-                <label className="secondary">To date</label>
-                <br />
-                <DatePicker
-                    popupStyle={{ zIndex: 999999 }}
-                    onOpenChange={(open) => setCalendarOpen(open)}
-                    defaultValue={
+                            : null,
                         props.rangeDateTo
                             ? moment.isMoment(props.rangeDateTo)
                                 ? props.rangeDateTo
                                 : moment(props.rangeDateTo)
-                            : null
-                    }
-                    onChange={props.onDateToChange}
+                            : null,
+                    ]}
+                    onOpenChange={(open) => {
+                        setCalendarOpen(open)
+                    }}
+                    onChange={(dates) => {
+                        if (dates.length === 2) {
+                            props.onDateFromChange(dates[0])
+                            props.onDateToChange(dates[1])
+                        }
+                    }}
+                    popupStyle={{ zIndex: 999999 }}
                 />
                 <br />
                 <Button

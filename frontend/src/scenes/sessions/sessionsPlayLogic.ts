@@ -18,7 +18,7 @@ interface SessionPlayerData {
 
 export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, EventIndex>>({
     connect: {
-        values: [sessionsTableLogic, ['sessions', 'nextOffset', 'orderedSessionRecordingIds']],
+        values: [sessionsTableLogic, ['sessions', 'pagination', 'orderedSessionRecordingIds']],
         actions: [sessionsTableLogic, ['fetchNextSessions', 'appendNewSessions', 'closeSessionPlayer']],
     },
     actions: {
@@ -73,7 +73,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
             if (values.recordingIndex < values.orderedSessionRecordingIds.length - 1) {
                 const id = values.orderedSessionRecordingIds[values.recordingIndex + 1]
                 actions.loadRecording(id)
-            } else if (values.nextOffset) {
+            } else if (values.pagination) {
                 // :TRICKY: Load next page of sessions, which will call appendNewSessions which will call goToNext again
                 actions.openNextRecordingOnLoad()
                 actions.fetchNextSessions()
@@ -143,9 +143,9 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
         ],
         showPrev: [(selectors) => [selectors.recordingIndex], (index: number): boolean => index > 0],
         showNext: [
-            (selectors) => [selectors.recordingIndex, selectors.orderedSessionRecordingIds, selectors.nextOffset],
-            (index: number, ids: SessionRecordingId[], offset: number | null) =>
-                index > -1 && (index < ids.length - 1 || offset !== null),
+            (selectors) => [selectors.recordingIndex, selectors.orderedSessionRecordingIds, selectors.pagination],
+            (index: number, ids: SessionRecordingId[], pagination: Record<string, any> | null) =>
+                index > -1 && (index < ids.length - 1 || pagination !== null),
         ],
     },
 })

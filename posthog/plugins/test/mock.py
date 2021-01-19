@@ -4,6 +4,7 @@ import json
 from .plugin_archives import (
     HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP,
     HELLO_WORLD_PLUGIN_GITHUB_ZIP,
+    HELLO_WORLD_PLUGIN_GITLAB_ZIP,
     HELLO_WORLD_PLUGIN_NPM_TGZ,
 )
 
@@ -62,6 +63,11 @@ def mocked_plugin_requests_get(*args, **kwargs):
         HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0]
     ):
         return MockBase64Response(HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[1], 200)
+
+    if args[0] == "https://gitlab.com/mariusandra/helloworldplugin/-/archive/{}/helloworldplugin-{}.zip".format(
+        HELLO_WORLD_PLUGIN_GITLAB_ZIP[0], HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
+    ):
+        return MockBase64Response(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1], 200)
 
     if args[0] == "https://registry.npmjs.org/posthog-helloworld-plugin/-/posthog-helloworld-plugin-0.0.0.tgz":
         return MockBase64Response(HELLO_WORLD_PLUGIN_NPM_TGZ[1], 200)

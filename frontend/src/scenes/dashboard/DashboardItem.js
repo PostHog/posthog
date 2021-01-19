@@ -102,7 +102,7 @@ export const displayMap = {
         link: ({ id, dashboard, name, filters }) => {
             return combineUrl(
                 `/insights`,
-                { insight: ViewType.Retention, ...filters },
+                { insight: ViewType.RETENTION, ...filters },
                 { fromItem: id, fromItemName: name, fromDashboard: dashboard }
             ).url
         },

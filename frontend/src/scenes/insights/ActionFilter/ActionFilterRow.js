@@ -151,7 +151,7 @@ const determineFilterLabel = (visible, filter) => {
     return 'Add filters'
 }
 
-export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
+export function ActionFilterRow({ logic, filter, index, hideMathSelector, singleFilter }) {
     const node = useRef()
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
     const {
@@ -215,12 +215,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
         <div>
             <Row gutter={8} className="mt">
                 <Col>
-                    <Button
-                        data-attr={'trend-element-subject-' + index}
-                        ref={node}
-                        onClick={onClick}
-                        className="ant-btn-md"
-                    >
+                    <Button data-attr={'trend-element-subject-' + index} ref={node} onClick={onClick}>
                         {name || 'Select action'}
                         <DownOutlined style={{ fontSize: 10 }} />
                     </Button>
@@ -263,15 +258,17 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                 >
                     {determineFilterLabel(visible, filter)}
                 </Button>
-                <CloseButton
-                    onClick={onClose}
-                    style={{
-                        float: 'none',
-                        position: 'absolute',
-                        marginTop: 3,
-                        marginLeft: 4,
-                    }}
-                />
+                {!singleFilter && (
+                    <CloseButton
+                        onClick={onClose}
+                        style={{
+                            float: 'none',
+                            position: 'absolute',
+                            marginTop: 3,
+                            marginLeft: 4,
+                        }}
+                    />
+                )}
             </div>
 
             {visible && (

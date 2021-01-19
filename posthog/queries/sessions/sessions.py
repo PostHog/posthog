@@ -30,44 +30,7 @@ Query = str
 QueryParams = Tuple[Any, ...]
 
 
-class BaseSessions(BaseQuery):
-    def events_query(self, filter: Filter, team: Team) -> QuerySet:
-        return (
-            Event.objects.filter(team=team)
-            .add_person_id(team.pk)
-            .filter(properties_to_Q(filter.properties, team_id=team.pk))
-            .order_by("-timestamp")
-        )
-
-    def build_all_sessions_query(self, events: QuerySet, _date_gte=Q()) -> Tuple[Query, QueryParams]:
-        sessions = events.filter(_date_gte).annotate(
-            previous_timestamp=Window(
-                expression=Lag("timestamp", default=None), partition_by=F("distinct_id"), order_by=F("timestamp").asc(),
-            )
-        )
-
-        sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
-        all_sessions = """
-            SELECT *,
-                SUM(new_session) OVER (ORDER BY distinct_id, timestamp) AS global_session_id
-                FROM (
-                    SELECT
-                        id, team_id, distinct_id, event, elements_hash, timestamp, properties,
-                        CASE
-                            WHEN EXTRACT('EPOCH' FROM (timestamp - previous_timestamp)) >= (60 * 30) OR previous_timestamp IS NULL
-                            THEN 1
-                            ELSE 0
-                        END AS new_session
-                    FROM ({}) AS inner_sessions
-                ) AS outer_sessions
-        """.format(
-            sessions_sql
-        )
-
-        return all_sessions, sessions_sql_params
-
-
-class Sessions(BaseSessions):
+class Sessions(BaseQuery):
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         events = self.events_query(filter, team)
         calculated = []
@@ -107,6 +70,41 @@ class Sessions(BaseSessions):
             return self._session_avg(all_sessions, sessions_sql_params, filter)
         else:  # SESSION_DIST
             return self._session_dist(all_sessions, sessions_sql_params)
+
+    def events_query(self, filter: Filter, team: Team) -> QuerySet:
+        return (
+            Event.objects.filter(team=team)
+            .add_person_id(team.pk)
+            .filter(properties_to_Q(filter.properties, team_id=team.pk))
+            .order_by("-timestamp")
+        )
+
+    def build_all_sessions_query(self, events: QuerySet, _date_gte=Q()) -> Tuple[Query, QueryParams]:
+        sessions = events.filter(_date_gte).annotate(
+            previous_timestamp=Window(
+                expression=Lag("timestamp", default=None), partition_by=F("distinct_id"), order_by=F("timestamp").asc(),
+            )
+        )
+
+        sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
+        all_sessions = """
+            SELECT *,
+                SUM(new_session) OVER (ORDER BY distinct_id, timestamp) AS global_session_id
+                FROM (
+                    SELECT
+                        id, team_id, distinct_id, event, elements_hash, timestamp, properties,
+                        CASE
+                            WHEN EXTRACT('EPOCH' FROM (timestamp - previous_timestamp)) >= (60 * 30) OR previous_timestamp IS NULL
+                            THEN 1
+                            ELSE 0
+                        END AS new_session
+                    FROM ({}) AS inner_sessions
+                ) AS outer_sessions
+        """.format(
+            sessions_sql
+        )
+
+        return all_sessions, sessions_sql_params
 
     def _session_avg(self, base_query: Query, params: QueryParams, filter: Filter) -> List[Dict[str, Any]]:
         def _determineInterval(interval):

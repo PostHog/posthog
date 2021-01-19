@@ -7,7 +7,7 @@ import { changeType } from 'lib/utils/changeType'
 import { Button, Modal, Tabs } from 'antd'
 import { CheckCircleTwoTone, DeleteOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
-import { SessionsTable } from '../sessions/SessionsTable'
+import { SessionsView } from '../sessions/SessionsView'
 import { PageHeader } from 'lib/components/PageHeader'
 import { EventsTable } from 'scenes/events'
 import { MergePerson } from './MergePerson'
@@ -175,7 +175,7 @@ function PersonV1({ _: distinctId, id }) {
                     fixedFilters={{ person_id: person.id }}
                 />
             ) : (
-                <SessionsTable
+                <SessionsView
                     key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                     personIds={person.distinct_ids}
                     isPersonPage={true}

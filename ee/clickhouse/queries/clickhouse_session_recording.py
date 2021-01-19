@@ -6,10 +6,10 @@ from ee.clickhouse.client import sync_execute
 from posthog.models import Team
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.base import BaseQuery
-from posthog.queries.session_recording import DistinctId
-from posthog.queries.session_recording import SessionRecording as BaseSessionRecording
-from posthog.queries.session_recording import Snapshots
-from posthog.queries.session_recording import filter_sessions_by_recordings as _filter_sessions_by_recordings
+from posthog.queries.sessions.session_recording import DistinctId
+from posthog.queries.sessions.session_recording import SessionRecording as BaseSessionRecording
+from posthog.queries.sessions.session_recording import Snapshots
+from posthog.queries.sessions.session_recording import filter_sessions_by_recordings as _filter_sessions_by_recordings
 
 OPERATORS = {"gt": ">", "lt": "<"}
 
@@ -64,10 +64,10 @@ def query_sessions_in_range(
 ) -> List[dict]:
     filter_query, filter_params = "", {}
 
-    if filter.duration_operator:
-        filter_query = f"AND duration {OPERATORS[filter.duration_operator]} %(min_recording_duration)s"
+    if filter.duration_filter_property:
+        filter_query = f"AND duration {OPERATORS[filter.duration_filter_property.operator]} %(min_recording_duration)s"
         filter_params = {
-            "min_recording_duration": filter.duration,
+            "min_recording_duration": filter.duration_filter_property.value,
         }
 
     results = sync_execute(
