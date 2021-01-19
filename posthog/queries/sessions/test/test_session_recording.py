@@ -86,6 +86,15 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 [[{"id": "1", "viewed": False}, {"id": "3", "viewed": False}]],
             )
 
+        def test_filter_sessions_by_unseen_recording(self):
+            SessionRecordingViewed.objects.create(team=self.team, user_id=self.user.pk, session_id="2")
+            self._test_filter_sessions(
+                SessionsFilter(
+                    data={"filters": [{"type": "recording", "key": "unseen", "value": 1}], "user_id": self.user.pk}
+                ),
+                [[{"id": "1", "viewed": False}, {"id": "3", "viewed": False}]],
+            )
+
         def test_filter_sessions_by_recording_duration_lt(self):
             self._test_filter_sessions(
                 SessionsFilter(

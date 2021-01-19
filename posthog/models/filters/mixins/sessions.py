@@ -74,6 +74,13 @@ class SessionsFiltersMixin(BaseParamMixin):
         )
 
     @cached_property
+    def recording_unseen_filter(self) -> bool:
+        return any(
+            filter["type"] == SESSIONS_FILTER_RECORDING_TYPE and filter["key"] == "unseen"
+            for filter in self._all_filters
+        )
+
+    @cached_property
     def _all_filters(self) -> List[Dict]:
         _props = self._data.get("filters")
         return json.loads(_props) if isinstance(_props, str) else _props or []

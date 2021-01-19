@@ -197,12 +197,19 @@ interface CohortPropertyFilter extends BasePropertyFilter {
     type: 'cohort'
 }
 
-export interface RecordingPropertyFilter extends BasePropertyFilter {
+interface RecordingDurationFilter extends BasePropertyFilter {
     type: 'recording'
     key: 'duration'
     value: number
     operator: 'lt' | 'gt'
 }
+
+interface RecordingNotViewedFilter extends BasePropertyFilter {
+    type: 'recording'
+    key: 'unseen'
+}
+
+export type RecordingPropertyFilter = RecordingDurationFilter | RecordingNotViewedFilter
 
 interface ActionTypePropertyFilter extends BasePropertyFilter {
     type: 'action_type'

@@ -109,7 +109,7 @@ def filter_sessions_by_recordings(
 
     for session in sessions_results:
         session["session_recordings"] = list(
-            collect_matching_recordings(session, session_recordings, viewed_session_recordings)
+            collect_matching_recordings(session, session_recordings, filter, viewed_session_recordings)
         )
 
     if filter.limit_by_recordings:
@@ -118,16 +118,17 @@ def filter_sessions_by_recordings(
 
 
 def collect_matching_recordings(
-    session: Any, session_recordings: List[Any], viewed: Set[str]
+    session: Any, session_recordings: List[Any], filter: SessionsFilter, viewed: Set[str]
 ) -> Generator[Dict, None, None]:
     for recording in session_recordings:
-        if matches(session, recording):
+        if matches(session, recording, filter, viewed):
             yield {"id": recording["session_id"], "viewed": recording["session_id"] in viewed}
 
 
-def matches(session: Any, session_recording: Any) -> bool:
+def matches(session: Any, session_recording: Any, filter: SessionsFilter, viewed: Set[str]) -> bool:
     return (
         session["distinct_id"] == session_recording["distinct_id"]
         and session["start_time"] <= session_recording["end_time"]
         and session["end_time"] >= session_recording["start_time"]
+        and (not filter.recording_unseen_filter or session_recording["session_id"] not in viewed)
     )
