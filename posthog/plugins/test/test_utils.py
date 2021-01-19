@@ -97,6 +97,20 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(parsed_url["project"], "gitlab-org/gl-openshift/openshift-demos/openshift-custom-pipeline")
         self.assertEqual(parsed_url["tag"], "master")
 
+        # private tokens
+        parsed_url = parse_url("https://gitlab.com/mariusandra/helloworldplugin?private_token=PRIVATE")
+        self.assertEqual(parsed_url["type"], "gitlab")
+        self.assertEqual(parsed_url["project"], "mariusandra/helloworldplugin")
+        self.assertEqual(parsed_url.get("tag", None), None)
+        self.assertEqual(parsed_url["private_token"], "PRIVATE")
+
+        parsed_url = parse_url(
+            "https://gitlab.com/gitlab-org/gl-openshift/openshift-demos/openshift-custom-pipeline/-/commit/2b6494bdf8ad35073aafe36ca8a1bdfaf3dc72d1?private_token=PRIVATE"
+        )
+        self.assertEqual(parsed_url["project"], "gitlab-org/gl-openshift/openshift-demos/openshift-custom-pipeline")
+        self.assertEqual(parsed_url["tag"], "2b6494bdf8ad35073aafe36ca8a1bdfaf3dc72d1")
+        self.assertEqual(parsed_url["private_token"], "PRIVATE")
+
     def test_parse_npm_urls(self, mock_get):
         parsed_url = parse_url("https://www.npmjs.com/package/posthog-helloworld-plugin")
         self.assertEqual(parsed_url["type"], "npm")
@@ -135,6 +149,12 @@ class TestPluginsUtils(BaseTest):
     def test_download_plugin_archive_gitlab(self, mock_get):
         plugin_gitlab = download_plugin_archive(
             "https://www.gitlab.com/mariusandra/helloworldplugin/-/commit/ff78cbe1d70316055c610a962a8355a4616d874b",
+            HELLO_WORLD_PLUGIN_GITLAB_ZIP[0],
+        )
+        self.assertEqual(plugin_gitlab, base64.b64decode(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1]))
+
+        plugin_gitlab = download_plugin_archive(
+            "https://www.gitlab.com/mariusandra/helloworldplugin/-/commit/ff78cbe1d70316055c610a962a8355a4616d874b?private_token=PRIVATE_TOKEN",
             HELLO_WORLD_PLUGIN_GITLAB_ZIP[0],
         )
         self.assertEqual(plugin_gitlab, base64.b64decode(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1]))
