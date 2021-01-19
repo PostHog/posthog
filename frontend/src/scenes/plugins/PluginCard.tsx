@@ -82,25 +82,16 @@ export function PluginCard({
                             ) : error ? (
                                 <PluginError error={error} />
                             ) : null}
-                            {url ? (
-                                <Link className="plugin-title-link" to={url} target="_blank" rel="noopener noreferrer">
-                                    <strong>{name}</strong>
-                                </Link>
-                            ) : (
-                                <strong>{name}</strong>
-                            )}
+                            <strong>{name}</strong>
                             {url?.startsWith('file:') ? (
                                 <LocalPluginTag url={url} title="Local" style={{ marginLeft: 10 }} />
                             ) : null}
-<<<<<<< HEAD
                             {!pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
                             {!pluginConfig && url && (
                                 <Link to={url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 10 }}>
                                     Learn more
                                 </Link>
                             )}
-=======
->>>>>>> plugin cards in mobile mode
                         </div>
                         <div>
                             {pluginType === 'source' ? <SourcePluginTag style={{ marginRight: 10 }} /> : null}
