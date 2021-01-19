@@ -1,56 +1,89 @@
 import React from 'react'
-import { Button, Card, Col, Row } from 'antd'
+import { Button, Card, Divider, Space } from 'antd'
 import { useActions, useValues } from 'kea'
-import { DownOutlined, PlusCircleOutlined } from '@ant-design/icons'
+import { DownOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
 import { EventTypePropertyFilter, PersonPropertyFilter, RecordingPropertyFilter } from '~/types'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { EventPropertyFilter } from 'scenes/sessions/filters/EventPropertyFilter'
 import { PersonFilter } from 'scenes/sessions/filters/UserFilter'
 import { DurationFilter } from 'scenes/sessions/filters/DurationFilter'
+import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
+import { AddFilterButton } from 'scenes/sessions/filters/AddFilterButton'
 
 interface Props {
     onSubmit: () => void
 }
 
-const SECTIONS: Record<string, { label: string; description: string }> = {
+const SECTIONS: Record<string, { label: string; description: JSX.Element }> = {
     recording: {
         label: 'Recording filters',
-        description: 'Find sessions with recordings matching the following',
+        description: (
+            <>
+                Find sessions <b>with recordings</b> matching the following
+            </>
+        ),
     },
     person: {
         label: 'User property filters',
-        description: 'Find sessions where user properties match the following',
+        description: (
+            <>
+                Find sessions where user properties match <b>all</b> of the following
+            </>
+        ),
     },
     action_type: {
         label: 'Action filters',
-        description: 'Find sessions where user has done a given action',
+        description: (
+            <>
+                Find sessions where a given <b>action</b> has been triggered
+            </>
+        ),
     },
     event_type: {
         label: 'Event filters',
-        description: 'Find sessions where user has done a given event',
+        description: (
+            <>
+                Find sessions where a given <b>event</b> has been triggered
+            </>
+        ),
     },
     cohort: {
         label: 'Cohort filters',
-        description: 'Find sessions by users in the following cohorts',
+        description: (
+            <>
+                Find sessions by <b>users in</b> the following cohorts
+            </>
+        ),
     },
 }
 
-export function EditFiltersPanel({ onSubmit }: Props): JSX.Element {
-    const { displayedFilters } = useValues(sessionsFiltersLogic)
-    const { openFilterSelect, removeFilter } = useActions(sessionsFiltersLogic)
+export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
+    const { activeFilter, displayedFilterCount, displayedFilters } = useValues(sessionsFiltersLogic)
+    const { openFilterSelect, openEditFilter, removeFilter } = useActions(sessionsFiltersLogic)
+
+    if (displayedFilterCount === 0) {
+        return null
+    }
+
+    const andTag = (visible: boolean): JSX.Element => (
+        <span className="stateful-badge and" style={{ visibility: visible ? 'initial' : 'hidden', marginLeft: 16 }}>
+            AND
+        </span>
+    )
 
     return (
         <Card>
             {Object.entries(displayedFilters).map(([key, filters]) => (
                 <div key={key}>
                     <div className="sessions-filter-title">
-                        <strong>{SECTIONS[key].label}</strong> · {SECTIONS[key].description}
+                        <h3>{SECTIONS[key].label}</h3>
+                        <p className="text-muted">{SECTIONS[key].description}</p>
                     </div>
-                    {filters.map(({ item, selector }) => (
+                    {filters.map(({ item, selector }, index) => (
                         <div className="sessions-filter-row" key={selector}>
-                            <Row style={{ width: '100%' }}>
-                                <Col span={6}>
+                            <div className="sessions-filter-row-filters">
+                                <div>
                                     <Button
                                         onClick={() => openFilterSelect(selector)}
                                         className="full-width"
@@ -60,10 +93,11 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element {
                                             alignItems: 'center',
                                         }}
                                     >
-                                        {item.label}
+                                        <strong>{item.label}</strong>
                                         <DownOutlined style={{ fontSize: 12, color: '#bfbfbf' }} />
                                     </Button>
-                                </Col>
+                                    <SessionsFilterBox selector={selector} />
+                                </div>
                                 {['event_type', 'action_type'].includes(item.type) && (
                                     <EventPropertyFilter filter={item as EventTypePropertyFilter} selector={selector} />
                                 )}
@@ -73,24 +107,34 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element {
                                 {item.type === 'recording' && item.key === 'duration' && (
                                     <DurationFilter filter={item as RecordingPropertyFilter} selector={selector} />
                                 )}
-                            </Row>
+                            </div>
+                            {filters.length > 1 && andTag(index < filters.length - 1)}
                             <CloseButton onClick={() => removeFilter(selector)} style={{ marginLeft: 8 }} />
                         </div>
                     ))}
+                    <div className="sessions-filter-row">
+                        <div className="sessions-filter-row-filters">
+                            <AddFilterButton selector={`new-${key}`} />
+                        </div>
+                        {filters.length > 1 && andTag(false)}
+                        <CloseButton style={{ marginLeft: 8, visibility: 'hidden' }} />
+                    </div>
+                    <Divider />
                 </div>
             ))}
 
-            <div style={{ marginBottom: 8 }}>
-                <Button onClick={() => openFilterSelect('new')}>
-                    <PlusCircleOutlined />
+            <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Button disabled={!!activeFilter} onClick={() => openEditFilter({ id: null })}>
+                    <span>
+                        <SaveOutlined /> Save filter
+                    </span>
                 </Button>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center' }}>
                 <Button type="primary" onClick={onSubmit}>
-                    Apply filters
+                    <span>
+                        <SearchOutlined /> Apply filters
+                    </span>
                 </Button>
-            </div>
+            </Space>
         </Card>
     )
 }

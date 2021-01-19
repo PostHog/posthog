@@ -1,5 +1,60 @@
 @import '~/vars';
 
+.sessions-filters-menu {
+    border-right: unset;
+    max-width: 260px;
+
+    .ant-menu-item-group-title {
+        text-transform: uppercase;
+        color: $text_muted;
+        font-weight: bold;
+    }
+
+    .ant-menu-item {
+        padding: 0px;
+    }
+
+    .ant-menu-item a {
+        padding-left: 16px;
+        padding-right: 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        min-width: 250px;
+
+        & > span {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    }
+
+    .edit-filter-button {
+        flex-shrink: 0;
+
+        & > .anticon {
+            font-size: 16px;
+            margin-right: 0px;
+        }
+    }
+}
+
+.sessions-divider {
+    margin-top: calc(3 * #{$default_spacing});
+    margin-left: 19px;
+    margin-right: 19px;
+    height: calc(100vh - #{$top_nav_height} - 6 * #{$default_spacing});
+}
+
+.add-session-filter {
+    color: $text_muted;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px dashed $text_muted;
+}
+
 .sessions-player-button {
     color: $success;
     font-size: 16px;
@@ -101,17 +156,22 @@
     }
 }
 
-.sessions-filter-title {
-    width: 100%;
-    margin-bottom: 5px;
-    padding: 8px;
-
-    border-bottom: 1px solid #ccc;
-}
-
 .sessions-filter-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin-bottom: $default_spacing;
+
+    .sessions-filter-row-filters {
+        display: flex;
+        width: 100%;
+    }
+
+    .sessions-filter-row-filters > * {
+        flex: 1;
+    }
+
+    .sessions-filter-row-filters > *:not(:last-child) {
+        margin-right: 16px;
+    }
 }

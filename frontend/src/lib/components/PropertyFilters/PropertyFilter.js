@@ -84,6 +84,7 @@ function PropertyPaneContents({
                                 onComplete()
                             }
                         }}
+                        columnOptions={{ flex: 1 }}
                     />
                 )}
             </Row>
