@@ -314,8 +314,8 @@ export const pluginsLogic = kea<
 
     listeners: ({ values, actions }) => ({
         generatePosthogApiDetails: async (form) => {
-            const { editingPlugin, personalApiKey } = values
             const { createKey } = actions
+            const { editingPlugin, personalApiKey } = values
             if (editingPlugin) {
                 const pluginConfig = editingPlugin.pluginConfig.config
                 if (getConfigSchemaArray(editingPlugin.config_schema).length > 0) {
