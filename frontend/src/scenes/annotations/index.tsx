@@ -76,12 +76,6 @@ function _Annotations(): JSX.Element {
             },
         },
         {
-            title: 'Status',
-            render: function RenderStatus(annotation): JSX.Element {
-                return annotation.deleted ? <Tag color="red">Deleted</Tag> : <Tag color="green">Active</Tag>
-            },
-        },
-        {
             title: 'Type',
             render: function RenderType(annotation): JSX.Element {
                 return annotation.scope !== 'dashboard_item' ? (
