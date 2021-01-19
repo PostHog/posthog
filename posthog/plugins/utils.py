@@ -39,7 +39,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, s
     return parsed
 
 
-def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, str]]:
+def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
     url = url.strip("/")
     match = re.search(r"^https?:\/\/(?:www\.)?gitlab\.com\/([A-Za-z0-9_.\-\/]+)$", url,)
     if not match:
