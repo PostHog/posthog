@@ -10,7 +10,7 @@ from zipfile import BadZipFile, ZipFile
 import requests
 
 
-def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, str]]:
+def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
     url = url.strip("/")
     match = re.search(
         r"^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)((\/commit|\/tree|\/releases\/tag)\/([A-Za-z0-9_.\-\/]+))?$",
@@ -23,7 +23,12 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, s
         )
     if not match:
         return None
-    parsed = {"type": "github", "user": match.group(1), "repo": match.group(2), "tag": match.group(5)}
+    parsed: Dict[str, Optional[str]] = {
+        "type": "github",
+        "user": match.group(1),
+        "repo": match.group(2),
+        "tag": match.group(5),
+    }
     parsed["root_url"] = "https://github.com/{}/{}".format(parsed["user"], parsed["repo"])
     if get_latest_if_none and not parsed["tag"]:
         try:
@@ -41,18 +46,19 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, s
 
 def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
     url = url.strip("/")
-    match = re.search(r"^https?:\/\/(?:www\.)?gitlab\.com\/([A-Za-z0-9_.\-\/]+)$", url,)
+    match = re.search(r"^https?:\/\/(?:www\.)?gitlab\.com\/([A-Za-z0-9_.\-\/]+)$", url)
     if not match:
         return None
-    project = match.group(1)
-    if "/-/" in project:
-        parsed = {
-            "type": "gitlab",
-            "project": match.group(1).split("/-/")[0],
-            "tag": project.split("/-/")[1].split("/")[1],
-        }
-    else:
-        parsed = {"type": "gitlab", "project": match.group(1), "tag": None}
+
+    parsed: Dict[str, Optional[str]] = {"type": "gitlab", "project": match.group(1), "tag": None}
+
+    if parsed["project"] is None:  # really just needed for mypy
+        return None
+
+    if "/-/" in parsed["project"]:
+        project, path = parsed["project"].split("/-/")
+        parsed["project"] = project
+        parsed["tag"] = path.split("/")[1]
 
     parsed["root_url"] = "https://gitlab.com/{}".format(parsed["project"])
     if get_latest_if_none and not parsed["tag"]:
@@ -60,7 +66,7 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
             commits_url = "https://gitlab.com/api/v4/projects/{}/repository/commits".format(quote(parsed["project"]))
             commits = requests.get(commits_url).json()
             if len(commits) > 0 and commits[0].get("web_url", None):
-                return parse_url(commits[0]["web_url"])
+                return parse_gitlab_url(commits[0]["web_url"])
             raise
         except Exception:
             raise Exception("Could not get latest commit for: {}".format(parsed["root_url"]))
@@ -69,11 +75,11 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
     return parsed
 
 
-def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, str]]:
+def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
     match = re.search(r"^https?:\/\/(?:www\.)?npmjs\.com\/package\/([a-z0-9_-]+)\/?(v\/([A-Za-z0-9_.-]+)\/?|)$", url)
     if not match:
         return None
-    parsed = {"type": "npm", "pkg": match.group(1), "version": match.group(3)}
+    parsed: Dict[str, Optional[str]] = {"type": "npm", "pkg": match.group(1), "version": match.group(3)}
     parsed["root_url"] = "https://www.npmjs.com/package/{}".format(parsed["pkg"])
     if get_latest_if_none and not parsed["version"]:
         try:
@@ -86,7 +92,7 @@ def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, str]
     return parsed
 
 
-def parse_url(url: str, get_latest_if_none=False) -> Dict[str, str]:
+def parse_url(url: str, get_latest_if_none=False) -> Dict[str, Optional[str]]:
     parsed_url = parse_github_url(url, get_latest_if_none)
     if parsed_url:
         return parsed_url
@@ -110,10 +116,12 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
             user=parsed_url["user"], repo=parsed_url["repo"], tag=tag or parsed_url["tag"]
         )
     elif parsed_url["type"] == "gitlab":
-        if not (tag or parsed_url.get("tag", None)):
-            raise Exception("No GitLab tag given!")
+        url_tag = tag or parsed_url.get("tag", None)
+        url_project = parsed_url["project"]
+        if not url_tag or not url_project:
+            raise Exception("No GitLab tag or project given!")
         url = "https://gitlab.com/{project}/-/archive/{tag}/{repo}-{tag}.zip".format(
-            project=parsed_url["project"], repo=parsed_url["project"].split("/")[-1], tag=tag or parsed_url["tag"]
+            project=url_project, repo=url_project.split("/")[-1], tag=url_tag
         )
     elif parsed_url["type"] == "npm":
         if not (tag or parsed_url.get("version", None)):
