@@ -24,6 +24,7 @@ from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
 from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import convert_property_value, flatten
 
 
@@ -143,11 +144,17 @@ class ClickhouseEventsViewSet(EventViewSet):
     # /event/session_recording
     # params:
     # - session_recording_id: (string) id of the session recording
+    # - save_view: (boolean) save view of the recording
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         session_recording = SessionRecording().run(
             team=self.team, filter=Filter(request=request), session_recording_id=request.GET["session_recording_id"]
         )
+
+        if request.GET.get("save_view"):
+            SessionRecordingViewed.objects.get_or_create(
+                team=self.team, user=request.user, session_id=request.GET["session_recording_id"]
+            )
 
         return Response({"result": session_recording})
