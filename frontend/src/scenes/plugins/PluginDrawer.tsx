@@ -13,7 +13,6 @@ import { getConfigSchemaArray } from 'scenes/plugins/utils'
 import Markdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/SourcePluginTag'
 import { PluginSource } from 'scenes/plugins/PluginSource'
-import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 
 function EnabledDisabledSwitch({
     value,
@@ -33,7 +32,9 @@ function EnabledDisabledSwitch({
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
     const { editingPlugin, loading, editingSource, personalApiKey } = useValues(pluginsLogic)
-    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, createKey } = useActions(pluginsLogic)
+    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, generatePosthogApiDetails } = useActions(
+        pluginsLogic
+    )
 
     const [form] = Form.useForm()
 
@@ -41,26 +42,7 @@ export function PluginDrawer(): JSX.Element {
 
     useEffect(() => {
         if (editingPlugin) {
-            const pluginConfig = editingPlugin.pluginConfig.config
-            if (getConfigSchemaArray(editingPlugin.config_schema).length > 0) {
-                const pluginConfigSchemaKeys = (getConfigSchemaArray(
-                    editingPlugin.config_schema
-                ) as PluginConfigSchema[]).map((schemaObject: PluginConfigSchema) => schemaObject.key)
-                if (pluginConfigSchemaKeys.includes('posthogApiKey') && !pluginConfig.posthogApiKey) {
-                    if (!personalApiKey || personalApiKey.length === 0) {
-                        createKey('Plugins')
-                    } else {
-                        pluginConfig.posthogApiKey = personalApiKey.value
-                    }
-                }
-                if (pluginConfigSchemaKeys.includes('posthogHost') && !pluginConfig.posthogHost) {
-                    pluginConfig.posthogHost = window.location.origin
-                }
-            }
-            form.setFieldsValue({
-                ...(pluginConfig || {}),
-                __enabled: editingPlugin.pluginConfig.enabled,
-            })
+            generatePosthogApiDetails(form)
         } else {
             form.resetFields()
         }

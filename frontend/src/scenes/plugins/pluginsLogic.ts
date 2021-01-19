@@ -4,9 +4,11 @@ import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
 import { PluginInstallationType, PluginRepositoryEntry, PluginTypeWithConfig } from './types'
 import { userLogic } from 'scenes/userLogic'
-import { getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
+import { getConfigSchemaObject, getPluginConfigFormData, getConfigSchemaArray } from 'scenes/plugins/utils'
 import { PersonalAPIKeyType } from '~/types'
 import posthog from 'posthog-js'
+import { PluginConfigSchema } from '@posthog/plugin-scaffold'
+import { FormInstance } from 'antd/lib/form'
 
 function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
     posthog.capture(event, {
@@ -33,6 +35,7 @@ export const pluginsLogic = kea<
         resetPluginConfigError: (id: number) => ({ id }),
         editPluginSource: (values: { id: number; name: string; source: string; configSchema: Record<string, any> }) =>
             values,
+        generatePosthogApiDetails: (form: FormInstance<any>) => form,
     },
 
     loaders: ({ values }) => ({
@@ -305,6 +308,36 @@ export const pluginsLogic = kea<
 
             if (userLogic.values.user?.plugin_access.install) {
                 actions.loadRepository()
+            }
+        },
+    }),
+
+    listeners: ({ values, actions }) => ({
+        generatePosthogApiDetails: async (form) => {
+            const { editingPlugin, personalApiKey } = values
+            const { createKey } = actions
+            if (editingPlugin) {
+                const pluginConfig = editingPlugin.pluginConfig.config
+                if (getConfigSchemaArray(editingPlugin.config_schema).length > 0) {
+                    const pluginConfigSchemaKeys = (getConfigSchemaArray(
+                        editingPlugin.config_schema
+                    ) as PluginConfigSchema[]).map((schemaObject: PluginConfigSchema) => schemaObject.key)
+                    if (pluginConfigSchemaKeys.includes('posthogApiKey') && !pluginConfig.posthogApiKey) {
+                        if (!personalApiKey.value) {
+                            createKey('Plugins')
+                        } else {
+                            pluginConfig.posthogApiKey = personalApiKey.value
+                        }
+                    }
+                    if (pluginConfigSchemaKeys.includes('posthogHost') && !pluginConfig.posthogHost) {
+                        pluginConfig.posthogHost = window.location.origin
+                    }
+                }
+
+                form.setFieldsValue({
+                    ...(pluginConfig || {}),
+                    __enabled: editingPlugin.pluginConfig.enabled,
+                })
             }
         },
     }),
