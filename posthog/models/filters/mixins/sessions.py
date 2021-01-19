@@ -53,8 +53,8 @@ class SessionsFiltersMixin(BaseParamMixin):
 
     @cached_property
     def person_filter_properties(self) -> List[Property]:
-        if len(self.properties) > 0:
-            return self.properties
+        if len(self.properties) > 0:  # type: ignore
+            return self.properties  # type: ignore
 
         return [
             Property(**filter)
