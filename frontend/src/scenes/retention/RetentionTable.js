@@ -25,7 +25,7 @@ export function RetentionTable({ dashboardItemId = null }) {
         {
             title: 'Date',
             key: 'date',
-            render: (row) => moment(row.date).format(period === 'h' ? 'MMM D, h a' : 'MMM D'),
+            render: (row) => moment.utc(row.date).format(period === 'h' ? 'MMM D, h a' : 'MMM D'),
             align: 'center',
         },
         {
