@@ -145,11 +145,8 @@ export function PluginLoading(): JSX.Element {
                 <Col key={i} style={{ marginBottom: 20, width: '100%' }}>
                     <Card className="plugin-card">
                         <Row align="middle" className="plugin-card-row">
-                            <Col style={{ width: 30 }}>
-                                <Skeleton title paragraph={false} active />
-                            </Col>
                             <Col className="hide-plugin-image-below-500">
-                                <Skeleton.Image style={{ width: 60, height: 60 }} />
+                                <Skeleton.Avatar active size="large" shape="square" />
                             </Col>
                             <Col style={{ flex: 1 }}>
                                 <Skeleton title={false} paragraph={{ rows: 2 }} active />
