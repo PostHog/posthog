@@ -222,6 +222,7 @@ export const pluginsLogic = kea<
             'installed',
             {
                 setPluginTab: (_, { tab }) => tab,
+                installPluginSuccess: () => 'installed',
             },
         ],
     },
