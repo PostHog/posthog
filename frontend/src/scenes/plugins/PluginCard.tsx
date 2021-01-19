@@ -20,7 +20,7 @@ interface PluginCardProps {
     pluginType?: PluginInstallationType
     pluginId?: number
     error?: PluginErrorType
-    maintainer: string
+    maintainer?: string
 }
 
 export function PluginCard({
@@ -75,7 +75,7 @@ export function PluginCard({
                     <Col style={{ flex: 1 }}>
                         <div>
                             <strong style={{ marginRight: 10 }}>{name}</strong>
-                            {!pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
+                            {maintainer && !pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
                             {!description && !url ? <br /> : null}
                             {pluginConfig?.error ? (
                                 <PluginError
