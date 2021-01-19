@@ -2,6 +2,7 @@
 
 .sessions-filters-menu {
     border-right: unset;
+    max-width: 260px;
 
     .ant-menu-item-group-title {
         text-transform: uppercase;
@@ -20,11 +21,21 @@
         justify-content: space-between;
         align-items: center;
         min-width: 250px;
+
+        & > span {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
     }
 
-    .edit-filter-button .anticon {
-        font-size: 16px;
-        margin-right: 0px;
+    .edit-filter-button {
+        flex-shrink: 0;
+
+        & > .anticon {
+            font-size: 16px;
+            margin-right: 0px;
+        }
     }
 }
 
