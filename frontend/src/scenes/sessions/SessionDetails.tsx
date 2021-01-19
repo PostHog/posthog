@@ -69,7 +69,7 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
             columns={columns}
             rowKey="id"
             rowClassName={(event: EventType) =>
-                (session.action_filter_times || []).includes(event.timestamp) ? 'sessions-event-highlighted' : ''
+                (session.matching_events || []).includes(event.id) ? 'sessions-event-highlighted' : ''
             }
             dataSource={events}
             loading={!events}

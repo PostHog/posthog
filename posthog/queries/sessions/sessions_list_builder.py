@@ -101,36 +101,36 @@ class SessionListBuilder:
         self._sessions_check(None)
 
     def _session_start(self, event: EventWithCurrentUrl):
-        distinct_id, timestamp, current_url, *action_filter_matches = event
+        distinct_id, timestamp, id, current_url, *action_filter_matches = event
         self.running_sessions[distinct_id] = {
             "distinct_id": distinct_id,
             "end_time": timestamp,
             "event_count": 0,
             "start_url": current_url,
             "email": self.emails.get(distinct_id),
-            "action_filter_times": [[] for _ in range(self.action_filter_count)],
+            "matching_events": [[] for _ in range(self.action_filter_count)],
         }
         self._session_update(event)
 
     def _session_update(self, event: EventWithCurrentUrl):
-        distinct_id, timestamp, current_url, *action_filter_matches = event
+        distinct_id, timestamp, id, current_url, *action_filter_matches = event
         self.running_sessions[distinct_id]["start_time"] = timestamp
         self.running_sessions[distinct_id]["event_count"] += 1
         self.running_sessions[distinct_id]["end_url"] = current_url
 
         for index, is_match in enumerate(action_filter_matches):
             if is_match:
-                self.running_sessions[distinct_id]["action_filter_times"][index].append(timestamp)
+                self.running_sessions[distinct_id]["matching_events"][index].append(id)
 
     def _session_end(self, distinct_id: str):
         self.sessions_count += 1
         session = self.running_sessions[distinct_id]
         # :TRICKY: Remove sessions where some filtered actions did not occur _after_ limiting to avoid running into pagination issues
-        if self.action_filter_count == 0 or all(len(times) > 0 for times in session["action_filter_times"]):
+        if self.action_filter_count == 0 or all(len(ids) > 0 for ids in session["matching_events"]):
             self._sessions.append(
                 {
                     **session,
-                    "action_filter_times": list(sorted(set(flatten(session["action_filter_times"])))),
+                    "matching_events": list(sorted(set(flatten(session["matching_events"])))),
                     "global_session_id": f"{distinct_id}-{session['start_time']}",
                     "length": (session["end_time"] - session["start_time"]).seconds,
                 }

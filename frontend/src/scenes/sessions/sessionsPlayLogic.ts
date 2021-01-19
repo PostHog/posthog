@@ -163,7 +163,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
                     return []
                 }
                 const events = session.events || sessionEvents[session.global_session_id] || []
-                return events.filter((e) => (session.action_filter_times || []).includes(e.timestamp))
+                return events.filter((e) => (session.matching_events || []).includes(e.id))
             },
         ],
         shownPlayerEvents: [

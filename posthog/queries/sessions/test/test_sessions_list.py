@@ -145,15 +145,7 @@ def sessions_list_test_factory(sessions, event_factory):
             )
 
             self.assertLength(sessions, 1)
-
-            self.assertEqual(
-                sessions[0]["action_filter_times"],
-                [
-                    datetime(2012, 1, 15, 3, 59, 34).replace(tzinfo=pytz.UTC),
-                    datetime(2012, 1, 15, 3, 59, 35).replace(tzinfo=pytz.UTC),
-                    datetime(2012, 1, 15, 4, 1, 34).replace(tzinfo=pytz.UTC),
-                ],
-            )
+            self.assertLength(sessions[0]["matching_events"], 3)
 
         def run_query(self, sessions_filter):
             return sessions().run(sessions_filter, self.team)[0]
