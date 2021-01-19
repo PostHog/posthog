@@ -16,12 +16,11 @@ export function createPosthog(server: PluginsServer, pluginConfig: PluginConfig)
     const producer = server.KAFKA_ENABLED ? server.kafka!.producer() : null // Kafka
     producer?.connect()
 
-    function sendEventRedis(event: string, properties: Record<string, any> = {}) {
-        const utcNow = DateTime.utc().toISO()
+    function sendEventRedis(event: string, properties: Record<string, any>, timestamp: string) {
         const data = {
             distinct_id: distinctId,
             event,
-            timestamp: utcNow,
+            timestamp,
             properties: {
                 $lib: 'posthog-plugin-server',
                 $lib_version: version,
@@ -31,18 +30,17 @@ export function createPosthog(server: PluginsServer, pluginConfig: PluginConfig)
 
         client!.sendTask(
             'posthog.tasks.process_event.process_event_with_plugins',
-            [distinctId, null, null, data, pluginConfig.team_id, utcNow, utcNow],
+            [distinctId, null, null, data, pluginConfig.team_id, timestamp, timestamp],
             {}
         )
     }
 
-    function sendEventKafka(event: string, properties: Record<string, any> = {}) {
-        const utcNow = DateTime.utc().toISO()
+    function sendEventKafka(event: string, properties: Record<string, any>, timestamp: string) {
         const uuid = new UUIDT().toString()
         const data = {
             distinct_id: distinctId,
             event,
-            timestamp: utcNow,
+            timestamp,
             properties: {
                 $lib: 'posthog-plugin-server',
                 $lib_version: version,
@@ -61,8 +59,8 @@ export function createPosthog(server: PluginsServer, pluginConfig: PluginConfig)
                         site_url: '',
                         data: JSON.stringify(data),
                         team_id: pluginConfig.team_id,
-                        now: utcNow,
-                        sent_at: utcNow,
+                        now: timestamp,
+                        sent_at: timestamp,
                         uuid,
                     } as RawEventMessage),
                 },
@@ -74,7 +72,8 @@ export function createPosthog(server: PluginsServer, pluginConfig: PluginConfig)
 
     return {
         capture(event, properties = {}) {
-            sendEvent(event, properties)
+            const { timestamp, ...otherProperties } = properties
+            sendEvent(event, otherProperties, timestamp || DateTime.utc().toISO())
         },
     }
 }

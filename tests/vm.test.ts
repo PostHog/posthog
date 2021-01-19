@@ -47,11 +47,11 @@ test('setupPlugin sync', async () => {
     const indexJs = `
         function setupPlugin (meta) {
             meta.global.data = 'haha'
-        } 
+        }
         function processEvent (event, meta) {
             event.event = meta.global.data
             return event
-        }  
+        }
     `
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
@@ -64,11 +64,11 @@ test('setupPlugin async', async () => {
         async function setupPlugin (meta) {
             await new Promise(resolve => __jestSetTimeout(resolve, 500))
             meta.global.data = 'haha'
-        } 
+        }
         function processEvent (event, meta) {
             event.event = meta.global.data
             return event
-        }  
+        }
     `
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
@@ -81,7 +81,7 @@ test('processEvent', async () => {
         function processEvent (event, meta) {
             event.event = 'changed event'
             return event
-        }  
+        }
     `
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
@@ -114,7 +114,7 @@ test('async processEvent', async () => {
         async function processEvent (event, meta) {
             event.event = 'changed event'
             return event
-        }  
+        }
     `
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
@@ -149,7 +149,7 @@ test('processEventBatch', async () => {
                 event.event = 'changed event'
                 return event
             })
-        }  
+        }
     `
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
@@ -184,7 +184,7 @@ test('async processEventBatch', async () => {
                 event.event = 'changed event'
                 return event
             })
-        }  
+        }
     `
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
@@ -217,13 +217,13 @@ test('processEvent && processEventBatch', async () => {
         function processEvent (event, meta) {
             event.event = 'changed event 1'
             return event
-        }  
+        }
         function processEventBatch (events, meta) {
             return events.map(event => {
                 event.event = 'changed event 2'
                 return event
             })
-        }  
+        }
     `
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
@@ -255,7 +255,7 @@ test('processEvent without returning', async () => {
     const indexJs = `
         function processEvent (event, meta) {
             event.event = 'changed event'
-        }  
+        }
     `
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
@@ -280,7 +280,7 @@ test('async processEvent', async () => {
             event.event = 'changed event'
             await new Promise((resolve) => resolve())
             return event
-        }  
+        }
     `
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
@@ -300,7 +300,7 @@ test('module.exports override', async () => {
             event.event = 'changed event';
             return event
         }
-        module.exports = { processEvent: myProcessEventFunction }  
+        module.exports = { processEvent: myProcessEventFunction }
     `
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
@@ -320,7 +320,7 @@ test('module.exports set', async () => {
             event.event = 'changed event';
             return event
         }
-        module.exports.processEvent = myProcessEventFunction  
+        module.exports.processEvent = myProcessEventFunction
     `
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
@@ -340,7 +340,7 @@ test('exports override', async () => {
             event.event = 'changed event';
             return event
         }
-        exports = { processEvent: myProcessEventFunction }  
+        exports = { processEvent: myProcessEventFunction }
     `
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
@@ -359,7 +359,7 @@ test('exports set', async () => {
             event.event = 'changed event';
             return event
         }
-        exports.processEvent = myProcessEventFunction  
+        exports.processEvent = myProcessEventFunction
     `
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
@@ -611,7 +611,7 @@ test('fetch', async () => {
         async function processEvent (event, meta) {
             const response = await fetch('https://google.com/results.json?query=' + event.event)
             event.properties = await response.json()
-            return event             
+            return event
         }
     `
     await resetTestDatabase(indexJs)
@@ -631,7 +631,7 @@ test('attachments', async () => {
     const indexJs = `
         async function processEvent (event, meta) {
             event.properties = meta.attachments
-            return event             
+            return event
         }
     `
     const attachments = {
@@ -662,13 +662,13 @@ test('attachments', async () => {
 test('runEvery', async () => {
     const indexJs = `
         function runEveryMinute (meta) {
-            
+
         }
         function runEveryHour (meta) {
-            
+
         }
         function runEveryDay (meta) {
-            
+
         }
     `
     await resetTestDatabase(indexJs)
@@ -683,7 +683,7 @@ test('runEvery', async () => {
 test('runEvery must be a function', async () => {
     const indexJs = `
         function runEveryMinute(meta) {
-            
+
         }
         const runEveryHour = false
         const runEveryDay = { some: 'object' }
@@ -724,6 +724,45 @@ test('posthog in runEvery', async () => {
         null,
         null,
         expect.objectContaining({
+            distinct_id: 'plugin-id-60',
+            event: 'my-new-event',
+            properties: expect.objectContaining({ $lib: 'posthog-plugin-server', random: 'properties' }),
+        }),
+        2,
+        mockSendTask.mock.calls[0][1][5],
+        mockSendTask.mock.calls[0][1][6],
+    ])
+    expect(mockSendTask.mock.calls[0][2]).toEqual({})
+})
+
+test('posthog in runEvery with timestamp', async () => {
+    const indexJs = `
+        function runEveryMinute(meta) {
+            posthog.capture('my-new-event', { random: 'properties', timestamp: '2020-02-23T02:15:00Z' })
+            return 'haha'
+        }
+    `
+    await resetTestDatabase(indexJs)
+    const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
+
+    expect(Client).not.toHaveBeenCalled
+
+    const response = await vm.tasks.runEveryMinute.exec()
+    expect(response).toBe('haha')
+
+    expect(Client).toHaveBeenCalledTimes(1)
+    expect((Client as any).mock.calls[0][1]).toEqual(mockServer.PLUGINS_CELERY_QUEUE)
+
+    const mockClientInstance = (Client as any).mock.instances[0]
+    const mockSendTask = mockClientInstance.sendTask
+
+    expect(mockSendTask.mock.calls[0][0]).toEqual('posthog.tasks.process_event.process_event_with_plugins')
+    expect(mockSendTask.mock.calls[0][1]).toEqual([
+        'plugin-id-60',
+        null,
+        null,
+        expect.objectContaining({
+            timestamp: '2020-02-23T02:15:00Z', // taken out of the properties
             distinct_id: 'plugin-id-60',
             event: 'my-new-event',
             properties: expect.objectContaining({ $lib: 'posthog-plugin-server', random: 'properties' }),
