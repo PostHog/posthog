@@ -189,6 +189,7 @@ export const pluginsLogic = kea<
             {} as Record<string, any>,
             {
                 editPlugin: (_, { pluginConfigChanges }) => pluginConfigChanges,
+                installPluginSuccess: () => ({ __enabled: true }),
             },
         ],
         editingSource: [
