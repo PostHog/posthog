@@ -93,7 +93,8 @@ def build_dataarray(aggregates: QuerySet, interval: str, breakdown: Optional[str
         ]
 
     if interval == "week":
-        data_array["date"] -= datetime.timedelta(days=data_array["date"].weekday() + 1)
+        for df in data_array:
+            df["date"] -= datetime.timedelta(days=df["date"].weekday() + 1)
     return data_array, cohort_keys
 
 
