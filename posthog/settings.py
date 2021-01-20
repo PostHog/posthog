@@ -104,6 +104,7 @@ if not TEST:
             integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration()],
             request_bodies="always",
             send_default_pii=True,
+            environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
         )
 
 if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
