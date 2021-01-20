@@ -323,6 +323,7 @@ export const trendsLogic = kea({
         },
         setFilters: async () => {
             insightLogic.actions.setAllFilters(values.filters)
+            actions.loadResults()
         },
         loadResultsSuccess: () => {
             if (!props.dashboardItemId) {
@@ -401,7 +402,6 @@ export const trendsLogic = kea({
                 }
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)
-                    actions.loadResults()
                 } else {
                     /* Edge case when opening a trends graph from a dashboard or sometimes when trends are loaded
                     with filters already set, `setAllFilters` action is not triggered, and therefore usage is not reported */
