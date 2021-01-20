@@ -13,7 +13,15 @@ function _Sessions(): JSX.Element {
     if (featureFlags['filter_by_session_props']) {
         return (
             <div style={{ display: 'flex', flexDirection: 'row' }}>
-                <div style={{ display: 'flex', flexDirection: 'row', position: 'fixed' }}>
+                <div
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'row',
+                        position: 'fixed',
+                        overflow: 'auto',
+                        height: '100%',
+                    }}
+                >
                     <div>
                         <PageHeader title="Sessions" />
                         <SavedFiltersMenu />
