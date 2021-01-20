@@ -111,9 +111,7 @@ export function deleteWithUndo({ undo = false, ...props }: Record<string, any>):
                 deleteWithUndo({ undo: true, ...props })
             },
             onClose: () => {
-                if (props.endpoint === 'annotation') {
-                    api.delete(`api/${props.endpoint}/${props.object.id}`)
-                }
+                api.delete(`api/${props.endpoint}/${props.object.id}`)
             },
         })
     })
