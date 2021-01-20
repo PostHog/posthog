@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .graph-container {
     position: absolute;
     width: 100%;
@@ -16,5 +18,44 @@
     }
     hr {
         margin: 1rem 0;
+    }
+}
+
+.insight-empty-state {
+    padding-top: $default_spacing * 2;
+    padding-bottom: $default_spacing * 2;
+    &.error-message {
+        .illustration-main {
+            color: $danger;
+        }
+
+        h3 {
+            color: $danger;
+        }
+    }
+
+    &.timeout-message {
+        .illustration-main {
+            color: $warning;
+        }
+
+        h3 {
+            color: $warning;
+        }
+    }
+
+    .illustration-main {
+        font-size: 3rem;
+        line-height: 1em;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+
+    h3 {
+        text-align: center;
+    }
+
+    ol {
+        margin-top: $default_spacing / 2;
     }
 }
