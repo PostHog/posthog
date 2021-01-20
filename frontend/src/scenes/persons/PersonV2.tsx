@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
 import { hot } from 'react-hot-loader/root'
-import { SessionsTable } from '../sessions/SessionsTable'
+import { SessionsView } from '../sessions/SessionsView'
 import { EventsTable } from 'scenes/events'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
@@ -61,7 +61,7 @@ function _PersonV2(): JSX.Element {
                                     fixedFilters={{ person_id: person.id }}
                                 />
                             ) : (
-                                <SessionsTable
+                                <SessionsView
                                     key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                                     personIds={person.distinct_ids}
                                     isPersonPage

@@ -9,7 +9,7 @@ from django.utils.timezone import now
 from posthog.models import Filter, Team, User
 from posthog.models.dashboard_item import DashboardItem
 from posthog.models.filters.utils import get_filter
-from posthog.settings import CACHED_RESULTS_TTL
+from posthog.settings import TEMP_CACHE_RESULTS_TTL
 from posthog.utils import generate_cache_key
 
 from .utils import generate_cache_key
@@ -49,7 +49,7 @@ def cached_function():
             # cache new data
             if result is not None and (not isinstance(result, dict) or not result.get("loading")):
                 cache.set(
-                    cache_key, {"result": result, "details": payload,}, CACHED_RESULTS_TTL,
+                    cache_key, {"result": result, "details": payload,}, TEMP_CACHE_RESULTS_TTL,
                 )
                 if filter:
                     dashboard_items = DashboardItem.objects.filter(team_id=team.pk, filters_hash=cache_key)

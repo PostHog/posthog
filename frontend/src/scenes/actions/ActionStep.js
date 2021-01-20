@@ -214,7 +214,7 @@ export class ActionStep extends Component {
         const AndC = () => {
             return (
                 <div className="text-center">
-                    <span className="match-condition-badge mc-and">AND</span>
+                    <span className="stateful-badge and">AND</span>
                 </div>
             )
         }
@@ -276,7 +276,7 @@ export class ActionStep extends Component {
         return (
             <Col span={24} md={12}>
                 <Card className="action-step" style={{ overflow: 'visible' }}>
-                    {index > 0 && <div className="match-condition-badge mc-main mc-or">OR</div>}
+                    {index > 0 && <div className="stateful-badge mc-main or">OR</div>}
                     <div>
                         {!isOnlyStep && (
                             <div className="remove-wrapper">

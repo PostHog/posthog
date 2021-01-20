@@ -225,6 +225,7 @@ export function LineGraph({
                                   },
                                   footer: () => 'Click to see users related to the datapoint',
                               },
+                              itemSort: (a, b) => b.yLabel - a.yLabel,
                           },
                           hover: {
                               mode: 'nearest',

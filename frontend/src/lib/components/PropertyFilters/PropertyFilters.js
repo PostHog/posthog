@@ -56,10 +56,7 @@ const FilterRow = React.memo(function FilterRow({
                 />
             )}
             {key && showConditionBadge && index + 1 < totalCount && (
-                <span
-                    style={{ marginLeft: 16, right: 16, position: 'absolute' }}
-                    className="match-condition-badge mc-and"
-                >
+                <span style={{ marginLeft: 16, right: 16, position: 'absolute' }} className="stateful-badge and">
                     AND
                 </span>
             )}
@@ -72,7 +69,7 @@ export function PropertyFilters({
     propertyFilters = null,
     onChange = null,
     pageKey,
-    showConditionBadges = false,
+    showConditionBadge = false,
 }) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
@@ -90,7 +87,7 @@ export function PropertyFilters({
                             totalCount={filters.length - 1} // empty state
                             filters={filters}
                             pageKey={pageKey}
-                            showConditionBadge={showConditionBadges}
+                            showConditionBadge={showConditionBadge}
                         />
                     )
                 })}

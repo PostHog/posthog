@@ -1,11 +1,12 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import moment from 'moment'
+import equal from 'fast-deep-equal'
 import { toParams } from 'lib/utils'
 import { sessionsTableLogicType } from 'types/scenes/sessions/sessionsTableLogicType'
-import { EntityWithProperties, PropertyFilter, SessionType } from '~/types'
+import { EventType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
-import { eventWithTime } from 'rrweb/typings/types'
+import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 
 type Moment = moment.Moment
 
@@ -14,26 +15,19 @@ type SessionRecordingId = string
 interface Params {
     date?: string
     properties?: any
-    duration?: any
     sessionRecordingId?: SessionRecordingId
-    actionFilter?: EntityWithProperties
+    filters?: Array<SessionsPropertyFilter>
 }
 
-export type RecordingDurationFilter = ['lt' | 'gt', number | null, 's' | 'm' | 'h']
-
 export const sessionsTableLogic = kea<
-    sessionsTableLogicType<
-        Moment,
-        SessionType,
-        SessionRecordingId,
-        eventWithTime,
-        PropertyFilter,
-        RecordingDurationFilter,
-        EntityWithProperties
-    >
+    sessionsTableLogicType<Moment, SessionType, SessionRecordingId, PropertyFilter, SessionsPropertyFilter, EventType>
 >({
     props: {} as {
         personIds?: string[]
+    },
+    connect: {
+        values: [sessionsFiltersLogic, ['filters']],
+        actions: [sessionsFiltersLogic, ['setAllFilters']],
     },
     loaders: ({ actions, values, props }) => ({
         sessions: {
@@ -45,35 +39,30 @@ export const sessionsTableLogic = kea<
                     date_to: selectedDateURLparam,
                     offset: 0,
                     distinct_id: props.personIds ? props.personIds[0] : '',
+                    filters: values.filters,
                     properties: values.properties,
-                    action_filter: values.actionFilter || undefined,
-                    ...values.durationFilter,
                 })
                 await breakpoint(10)
                 const response = await api.get(`api/event/sessions/?${params}`)
                 breakpoint()
-                if (response.offset) {
-                    actions.setNextOffset(response.offset)
-                }
+                actions.setPagination(response.pagination)
                 return response.result
             },
         },
     }),
     actions: () => ({
-        setNextOffset: (nextOffset: number | null) => ({ nextOffset }),
+        setPagination: (pagination: Record<string, any> | null) => ({ pagination }),
         fetchNextSessions: true,
         appendNewSessions: (sessions) => ({ sessions }),
         previousDay: true,
         nextDay: true,
-        setFilters: (
-            properties: Array<PropertyFilter>,
-            selectedDate: Moment | null,
-            duration: RecordingDurationFilter | null,
-            actionFilter: EntityWithProperties | null
-        ) => ({ properties, selectedDate, duration, actionFilter }),
+        applyFilters: true,
+        setFilters: (properties: Array<PropertyFilter>, selectedDate: Moment | null) => ({ properties, selectedDate }),
         setSessionRecordingId: (sessionRecordingId: SessionRecordingId) => ({ sessionRecordingId }),
-        updateActionFilter: (actionFilter: EntityWithProperties | null) => ({ actionFilter }),
         closeSessionPlayer: true,
+        loadSessionEvents: (session: SessionType) => ({ session }),
+        addSessionEvents: (session: SessionType, events: EventType[]) => ({ session, events }),
+        setLastAppliedFilters: (filters: SessionsPropertyFilter[]) => ({ filters }),
     }),
     reducers: {
         sessions: {
@@ -81,20 +70,14 @@ export const sessionsTableLogic = kea<
             loadSessionsFailure: () => [],
         },
         isLoadingNext: [false, { fetchNextSessions: () => true, appendNewSessions: () => false }],
-        nextOffset: [
-            null as null | number,
+        pagination: [
+            null as Record<string, any> | null,
             {
-                setNextOffset: (_, { nextOffset }) => nextOffset,
+                setPagination: (_, { pagination }) => pagination,
                 loadSessionsFailure: () => null,
             },
         ],
         selectedDate: [null as null | Moment, { setFilters: (_, { selectedDate }) => selectedDate }],
-        duration: [
-            null as RecordingDurationFilter | null,
-            {
-                setFilters: (_, { duration }) => duration,
-            },
-        ],
         properties: [
             [] as PropertyFilter[],
             {
@@ -108,27 +91,24 @@ export const sessionsTableLogic = kea<
                 closeSessionPlayer: () => null,
             },
         ],
-        actionFilter: [
-            null as EntityWithProperties | null,
+        loadedSessionEvents: [
+            {} as Record<string, EventType[] | undefined>,
             {
-                setFilters: (_, { actionFilter }) => actionFilter,
+                addSessionEvents: (state, { session, events }) => ({
+                    ...state,
+                    [session.global_session_id]: events,
+                }),
+            },
+        ],
+        lastAppliedFilters: [
+            [] as SessionsPropertyFilter[],
+            {
+                setLastAppliedFilters: (_, { filters }) => filters,
             },
         ],
     },
     selectors: {
         selectedDateURLparam: [(s) => [s.selectedDate], (selectedDate) => selectedDate?.format('YYYY-MM-DD')],
-        durationFilter: [
-            (selectors) => [selectors.duration],
-            (duration: RecordingDurationFilter | null) => {
-                if (!duration) {
-                    return undefined
-                }
-
-                const multipliers = { s: 1, m: 60, h: 3600 }
-                const seconds = (duration[1] || 0) * multipliers[duration[2]]
-                return { duration_operator: duration[0], duration: seconds }
-            },
-        ],
         orderedSessionRecordingIds: [
             (selectors) => [selectors.sessions],
             (sessions: SessionType[]): SessionRecordingId[] =>
@@ -138,48 +118,53 @@ export const sessionsTableLogic = kea<
             (selectors) => [selectors.orderedSessionRecordingIds],
             (ids: SessionRecordingId[]): SessionRecordingId | null => ids[0] || null,
         ],
+        filtersDirty: [
+            (selectors) => [selectors.filters, selectors.lastAppliedFilters],
+            (filters, lastFilters): boolean => !equal(filters, lastFilters),
+        ],
     },
     listeners: ({ values, actions, props }) => ({
         fetchNextSessions: async (_, breakpoint) => {
             const params = toParams({
                 date_from: values.selectedDateURLparam,
                 date_to: values.selectedDateURLparam,
-                offset: values.nextOffset,
+                pagination: values.pagination,
                 distinct_id: props.personIds ? props.personIds[0] : '',
                 properties: values.properties,
-                ...values.durationFilter,
             })
             const response = await api.get(`api/event/sessions/?${params}`)
             breakpoint()
-            if (response.offset) {
-                actions.setNextOffset(response.offset)
-            } else {
-                actions.setNextOffset(null)
-            }
+            actions.setPagination(response.pagination)
             actions.appendNewSessions(response.result)
         },
-        updateActionFilter: ({ actionFilter }) => {
-            actions.setFilters(values.properties, values.selectedDate, values.duration, actionFilter)
+        applyFilters: () => {
+            actions.setPagination(null)
+            actions.loadSessions(true)
+            actions.setLastAppliedFilters(values.filters)
         },
         setFilters: () => {
-            actions.setNextOffset(null)
+            actions.setPagination(null)
             actions.loadSessions(true)
         },
         previousDay: () => {
-            actions.setFilters(
-                values.properties,
-                moment(values.selectedDate).add(-1, 'day'),
-                values.duration,
-                values.actionFilter
-            )
+            actions.setFilters(values.properties, moment(values.selectedDate).add(-1, 'day'))
         },
         nextDay: () => {
-            actions.setFilters(
-                values.properties,
-                moment(values.selectedDate).add(1, 'day'),
-                values.duration,
-                values.actionFilter
-            )
+            actions.setFilters(values.properties, moment(values.selectedDate).add(1, 'day'))
+        },
+        loadSessionEvents: async ({ session }, breakpoint) => {
+            if (!values.loadedSessionEvents[session.global_session_id]) {
+                const params = {
+                    distinct_id: session.distinct_id,
+                    date_from: session.start_time,
+                    date_to: session.end_time,
+                }
+
+                await breakpoint(200)
+
+                const response = await api.get(`api/event/session_events?${toParams(params)}`)
+                actions.addSessionEvents(session, response.result)
+            }
         },
     }),
     actionToUrl: ({ values }) => {
@@ -191,9 +176,8 @@ export const sessionsTableLogic = kea<
             const params: Params = {
                 date: values.selectedDateURLparam !== today ? values.selectedDateURLparam : undefined,
                 properties: properties || undefined,
-                duration: values.duration || undefined,
                 sessionRecordingId: values.sessionRecordingId || undefined,
-                actionFilter: values.actionFilter || undefined,
+                filters: values.filters,
                 ...overrides,
             }
 
@@ -202,6 +186,7 @@ export const sessionsTableLogic = kea<
 
         return {
             setFilters: () => buildURL(),
+            loadSessions: () => buildURL(),
             setSessionRecordingId: () => buildURL(),
             closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),
         }
@@ -212,23 +197,21 @@ export const sessionsTableLogic = kea<
 
             if (
                 JSON.stringify(params.properties || []) !== JSON.stringify(values.properties) ||
-                JSON.stringify(params.duration || {}) !== JSON.stringify(values.duration || {}) ||
-                JSON.stringify(params.actionFilter || {}) !== JSON.stringify(values.actionFilter || {}) ||
                 !values.selectedDate ||
                 values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD')
             ) {
-                actions.setFilters(
-                    params.properties || [],
-                    newDate,
-                    params.duration || null,
-                    params.actionFilter || null
-                )
+                actions.setFilters(params.properties || [], newDate)
             } else if (values.sessions.length === 0) {
                 actions.loadSessions(true)
             }
 
             if (params.sessionRecordingId && params.sessionRecordingId !== values.sessionRecordingId) {
                 actions.setSessionRecordingId(params.sessionRecordingId)
+            }
+
+            if (JSON.stringify(params.filters || {}) !== JSON.stringify(values.filters)) {
+                actions.setAllFilters(params.filters || [])
+                actions.applyFilters()
             }
         },
     }),

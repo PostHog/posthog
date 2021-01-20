@@ -676,6 +676,32 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 ],
             )
 
+        def test_interval_rounding(self):
+            self._test_events_with_dates(
+                dates=["2020-11-01", "2020-11-10", "2020-11-11", "2020-11-18"],
+                interval="week",
+                date_from="2020-11-04",
+                date_to="2020-11-24",
+                result=[
+                    {
+                        "action": {
+                            "id": "event_name",
+                            "type": "events",
+                            "order": None,
+                            "name": "event_name",
+                            "math": None,
+                            "math_property": None,
+                            "properties": [],
+                        },
+                        "label": "event_name",
+                        "count": 3.0,
+                        "data": [2.0, 1.0, 0.0],
+                        "labels": ["Sun. 8 November", "Sun. 15 November", "Sun. 22 November"],
+                        "days": ["2020-11-08", "2020-11-15", "2020-11-22"],
+                    }
+                ],
+            )
+
         def test_today_timerange(self):
             self._test_events_with_dates(
                 dates=["2020-11-01 10:20:00", "2020-11-01 10:22:00", "2020-11-01 10:25:00"],

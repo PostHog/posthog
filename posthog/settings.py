@@ -342,15 +342,33 @@ elif os.environ.get("POSTHOG_DB_NAME"):
             "PORT": os.environ.get("POSTHOG_POSTGRES_PORT", "5432"),
             "CONN_MAX_AGE": 0,
             "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
+            "SSL_OPTIONS": {
+                "sslmode": os.environ.get("POSTHOG_POSTGRES_SSL_MODE", None),
+                "sslrootcert": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_CA", None),
+                "sslcert": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_CRT", None),
+                "sslkey": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_KEY", None),
+            },
         }
     }
-    DATABASE_URL = "postgres://{}{}{}{}:{}/{}".format(
+
+    ssl_configurations = []
+    for ssl_option, value in DATABASES["default"]["SSL_OPTIONS"].items():
+        if value:
+            ssl_configurations.append("{}={}".format(ssl_option, value))
+
+    if ssl_configurations:
+        ssl_configuration = "?{}".format("&".join(ssl_configurations))
+    else:
+        ssl_configuration = ""
+
+    DATABASE_URL = "postgres://{}{}{}{}:{}/{}{}".format(
         DATABASES["default"]["USER"],
         ":" + DATABASES["default"]["PASSWORD"] if DATABASES["default"]["PASSWORD"] else "",
         "@" if DATABASES["default"]["USER"] or DATABASES["default"]["PASSWORD"] else "",
         DATABASES["default"]["HOST"],
         DATABASES["default"]["PORT"],
         DATABASES["default"]["NAME"],
+        ssl_configuration,
     )
 else:
     raise ImproperlyConfigured(
@@ -401,6 +419,7 @@ CELERY_IGNORE_RESULT = True  # only applies to delay(), must do @shared_task(ign
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
+TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached results for
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
@@ -450,8 +469,8 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
-    "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "PAGE_SIZE": 100,
+    "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
 }
 
 EXCEPTIONS_HOG = {

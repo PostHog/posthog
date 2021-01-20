@@ -1,4 +1,3 @@
-from datetime import datetime
 from distutils.util import strtobool
 from typing import Any, Dict, List
 
@@ -16,14 +15,14 @@ from posthog.api.user import UserSerializer
 from posthog.celery import update_cache_item_task
 from posthog.constants import FROM_DASHBOARD, INSIGHT, INSIGHT_FUNNELS, INSIGHT_PATHS, TRENDS_STICKINESS
 from posthog.decorators import CacheType, cached_function
-from posthog.models import DashboardItem, Event, Filter, Person, Team
-from posthog.models.action import Action
+from posthog.models import DashboardItem, Event, Filter, Team
 from posthog.models.filters import Filter, RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.queries import paths, retention, sessions, stickiness, trends
+from posthog.queries import paths, retention, stickiness, trends
+from posthog.queries.sessions.sessions import Sessions
 from posthog.utils import generate_cache_key
 
 
@@ -178,7 +177,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @cached_function()
     def calculate_session(self, request: request.Request) -> List[Dict[str, Any]]:
-        return sessions.Sessions().run(filter=SessionsFilter(request=request), team=self.team)
+        return Sessions().run(filter=SessionsFilter(request=request), team=self.team)
 
     # ******************************************
     # /insight/funnel

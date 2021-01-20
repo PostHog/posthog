@@ -22,7 +22,7 @@ class ClickhouseSessionsAvg:
         filters, params = parse_prop_clauses(filter.properties, team.pk)
 
         interval_notation = get_trunc_func_ch(filter.interval)
-        num_intervals, seconds_in_interval = get_time_diff(
+        num_intervals, seconds_in_interval, _ = get_time_diff(
             filter.interval or "day", filter.date_from, filter.date_to, team.pk
         )
 

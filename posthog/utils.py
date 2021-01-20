@@ -175,7 +175,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     # Get the current user's team (or first team in the instance) to set opt out capture & self capture configs
     team: Optional[Team] = None
     try:
-        team = request.user.team
+        team = request.user.team  # type: ignore
     except (Team.DoesNotExist, AttributeError):
         team = Team.objects.first()
 
@@ -473,7 +473,7 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
     return new_string, named_params
 
 
-def flatten(l: List[Any]) -> Generator:
+def flatten(l: Union[List, Tuple]) -> Generator:
     for el in l:
         if isinstance(el, list):
             yield from flatten(el)

@@ -10,6 +10,7 @@ DROP_PERSON_DISTINCT_ID_TABLE_SQL = """
 DROP TABLE person_distinct_id
 """
 
+
 PERSONS_TABLE = "person"
 
 PERSONS_TABLE_BASE_SQL = """
@@ -121,6 +122,50 @@ FROM kafka_{table_name}
 """.format(
     table_name=PERSONS_DISTINCT_ID_TABLE
 )
+
+#
+# Static Cohort
+#
+
+PERSON_STATIC_COHORT_TABLE = "person_static_cohort"
+PERSON_STATIC_COHORT_BASE_SQL = """
+CREATE TABLE {table_name} 
+(
+    id UUID,
+    person_id UUID,
+    cohort_id Int64,
+    team_id Int64
+    {extra_fields}
+) ENGINE = {engine} 
+"""
+
+PERSON_STATIC_COHORT_TABLE_SQL = (
+    PERSON_STATIC_COHORT_BASE_SQL
+    + """Order By (team_id, cohort_id, person_id, id)
+{storage_policy}
+"""
+).format(
+    table_name=PERSON_STATIC_COHORT_TABLE,
+    engine=table_engine(PERSON_STATIC_COHORT_TABLE, "_timestamp"),
+    storage_policy=STORAGE_POLICY,
+    extra_fields=KAFKA_COLUMNS,
+)
+
+DROP_PERSON_STATIC_COHORT_TABLE_SQL = """
+DROP TABLE {}
+""".format(
+    PERSON_STATIC_COHORT_TABLE
+)
+
+INSERT_PERSON_STATIC_COHORT = """
+INSERT INTO {} (id, person_id, cohort_id, team_id, _timestamp) VALUES 
+""".format(
+    PERSON_STATIC_COHORT_TABLE
+)
+
+#
+# Other queries
+#
 
 GET_DISTINCT_IDS_SQL = """
 SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s

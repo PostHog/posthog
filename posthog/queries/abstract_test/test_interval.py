@@ -21,3 +21,7 @@ class AbstractIntervalTest(ABC):
     @abstractmethod
     def test_month_interval(self):
         pass
+
+    @abstractmethod
+    def test_interval_rounding(self):
+        pass

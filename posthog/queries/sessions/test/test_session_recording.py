@@ -4,7 +4,7 @@ from freezegun import freeze_time
 
 from posthog.models import Person, SessionRecordingEvent
 from posthog.models.filters.sessions_filter import SessionsFilter
-from posthog.queries.session_recording import SessionRecording, filter_sessions_by_recordings
+from posthog.queries.sessions.session_recording import SessionRecording, filter_sessions_by_recordings
 from posthog.test.base import BaseTest
 
 
@@ -29,10 +29,11 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                     ],
                 )
                 self.assertEqual(session["person"]["properties"], {"$some_prop": "something"})
+                self.assertEqual(session["start_time"], now())
 
         def test_query_run_with_no_such_session(self):
             session = session_recording().run(team=self.team, session_recording_id="xxx")
-            self.assertEqual(session, {"snapshots": [], "person": None})
+            self.assertEqual(session, {"snapshots": [], "person": None, "start_time": None})
 
         def _test_filter_sessions(self, filter, expected):
             with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -70,10 +71,20 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
             self._test_filter_sessions(SessionsFilter(data={"offset": 0}), [["1", "3"], [], ["2"], []])
 
         def test_filter_sessions_by_recording_duration_gt(self):
-            self._test_filter_sessions(SessionsFilter(data={"duration_operator": "gt", "duration": 15}), [["1", "3"]])
+            self._test_filter_sessions(
+                SessionsFilter(
+                    data={"filters": [{"type": "recording", "key": "duration", "operator": "gt", "value": 15}]}
+                ),
+                [["1", "3"]],
+            )
 
         def test_filter_sessions_by_recording_duration_lt(self):
-            self._test_filter_sessions(SessionsFilter(data={"duration_operator": "lt", "duration": 30}), [["1"], ["2"]])
+            self._test_filter_sessions(
+                SessionsFilter(
+                    data={"filters": [{"type": "recording", "key": "duration", "operator": "lt", "value": 30}]}
+                ),
+                [["1"], ["2"]],
+            )
 
         def test_query_run_with_no_sessions(self):
             self.assertEqual(filter_sessions(self.team, [], SessionsFilter(data={"offset": 0})), [])

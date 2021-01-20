@@ -14,6 +14,7 @@ from posthog.models.event import Event
 from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person import Person
+from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.test.base import BaseTest
 
@@ -192,3 +193,34 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(results), 2)
         self.assertIn(user1.uuid, results)
         self.assertIn(user3.uuid, results)
+
+    def test_insert_by_distinct_id_or_email(self):
+        Person.objects.create(team_id=self.team.pk, properties={"email": "email@example.org"}, distinct_ids=["1"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["123"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["2"])
+        # Team leakage
+        team2 = Team.objects.create(organization=self.organization)
+        Person.objects.create(team=team2, properties={"email": "email@example.org"})
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        cohort.insert_users_by_list(["email@example.org", "123"])
+        cohort = Cohort.objects.get()
+        results = get_person_ids_by_cohort_id(self.team, cohort.id)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(cohort.is_calculating, False)
+
+        # test SQLi
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["'); truncate person_static_cohort; --"])
+        cohort.insert_users_by_list(["'); truncate person_static_cohort; --", "123"])
+        results = sync_execute("select count(1) from person_static_cohort")[0][0]
+        self.assertEqual(results, 3)
+
+        #  If we accidentally call calculate_people it shouldn't erase people
+        cohort.calculate_people()
+        results = get_person_ids_by_cohort_id(self.team, cohort.id)
+        self.assertEqual(len(results), 3)
+
+        # if we add people again, don't increase the number of people in cohort
+        cohort.insert_users_by_list(["123"])
+        results = get_person_ids_by_cohort_id(self.team, cohort.id)
+        self.assertEqual(len(results), 3)
