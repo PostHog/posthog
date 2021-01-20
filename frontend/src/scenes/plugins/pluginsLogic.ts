@@ -159,7 +159,9 @@ export const pluginsLogic = kea<
                     const results = await api.get('api/organizations/@current/plugins/repository')
                     const repository: Record<string, PluginRepositoryEntry> = {}
                     for (const plugin of results as PluginRepositoryEntry[]) {
-                        repository[plugin.url] = plugin
+                        if (plugin.url) {
+                            repository[plugin.url.replace(/\/+$/, '')] = plugin
+                        }
                     }
                     return repository
                 },
