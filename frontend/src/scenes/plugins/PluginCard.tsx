@@ -37,7 +37,7 @@ export function PluginCard({
     const { loading, installingPluginUrl } = useValues(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
-    const switchDisabled = pluginConfig && pluginConfig.global
+    const switchDisabled = pluginConfig?.global
 
     return (
         <Col
