@@ -492,6 +492,14 @@ def flatten(l: List[Any]) -> Generator:
 def get_daterange(
     start_date: Optional[datetime.datetime], end_date: Optional[datetime.datetime], frequency: str
 ) -> List[Any]:
+    """
+    Returns list of a fixed frequency Datetime objects between given bounds.
+
+    Parameters:
+        start_date: Left bound for generating dates.
+        end_date: Right bound for generating dates.
+        frequency: Possible options => minute, hour, day, week, month
+    """
 
     delta = DATERANGE_MAP[frequency]
 

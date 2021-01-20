@@ -69,8 +69,8 @@ def build_dataarray(
     aggregates: QuerySet, interval: str, breakdown: Optional[str] = None
 ) -> Tuple[List[Dict[str, Any]], List[Any]]:
     data_array = []
-    cohort_dict: Dict[Any, Any] = {}
-    cohort_keys = []
+    cohort_dict: Dict[Any, Any] = {}  # keeps data of total count per breakdown
+    cohort_keys = []  # contains unique breakdown values
     if breakdown == "cohorts":
         cohort_keys = [key for key in aggregates[0].keys() if key.startswith("cohort_")]
         # Convert queryset with day, count, cohort_88, cohort_99, ... to multiple rows, for example:
@@ -93,8 +93,9 @@ def build_dataarray(
             data_array.append(
                 {"date": a[interval], "count": a["count"], "breakdown": key,}
             )
-        cohort_keys = list(dict.fromkeys(cohort_keys))
+        cohort_keys = list(dict.fromkeys(cohort_keys))  # getting unique breakdowns keeping their order
 
+    # following finds top 20 breakdown in given queryset then removes other rows from data array
     if len(cohort_keys) > 20:
         top20keys = [x[0] for x in sorted(cohort_dict.items(), key=lambda x: -x[1])[:20]]
         cohort_keys = [key for key in top20keys if key in cohort_keys]
