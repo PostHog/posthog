@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import moment from 'moment'
+import equal from 'fast-deep-equal'
 import { toParams } from 'lib/utils'
 import { sessionsTableLogicType } from 'types/scenes/sessions/sessionsTableLogicType'
 import { EventType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
@@ -61,6 +62,7 @@ export const sessionsTableLogic = kea<
         closeSessionPlayer: true,
         loadSessionEvents: (session: SessionType) => ({ session }),
         addSessionEvents: (session: SessionType, events: EventType[]) => ({ session, events }),
+        setLastAppliedFilters: (filters: SessionsPropertyFilter[]) => ({ filters }),
     }),
     reducers: {
         sessions: {
@@ -98,6 +100,12 @@ export const sessionsTableLogic = kea<
                 }),
             },
         ],
+        lastAppliedFilters: [
+            [] as SessionsPropertyFilter[],
+            {
+                setLastAppliedFilters: (_, { filters }) => filters,
+            },
+        ],
     },
     selectors: {
         selectedDateURLparam: [(s) => [s.selectedDate], (selectedDate) => selectedDate?.format('YYYY-MM-DD')],
@@ -109,6 +117,10 @@ export const sessionsTableLogic = kea<
         firstRecordingId: [
             (selectors) => [selectors.orderedSessionRecordingIds],
             (ids: SessionRecordingId[]): SessionRecordingId | null => ids[0] || null,
+        ],
+        filtersDirty: [
+            (selectors) => [selectors.filters, selectors.lastAppliedFilters],
+            (filters, lastFilters): boolean => !equal(filters, lastFilters),
         ],
     },
     listeners: ({ values, actions, props }) => ({
@@ -128,6 +140,7 @@ export const sessionsTableLogic = kea<
         applyFilters: () => {
             actions.setPagination(null)
             actions.loadSessions(true)
+            actions.setLastAppliedFilters(values.filters)
         },
         setFilters: () => {
             actions.setPagination(null)

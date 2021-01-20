@@ -1,10 +1,9 @@
-import { Button, Card, Col, Popconfirm, Skeleton, Switch } from 'antd'
+import { Button, Card, Col, Popconfirm, Row, Skeleton, Switch } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from './pluginsLogic'
-import { someParentMatchesSelector } from 'lib/utils'
 import { PluginConfigType, PluginErrorType } from '~/types'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined, SettingOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
 import { PluginError } from 'scenes/plugins/PluginError'
@@ -21,7 +20,7 @@ interface PluginCardProps {
     pluginType?: PluginInstallationType
     pluginId?: number
     error?: PluginErrorType
-    maintainer: string
+    maintainer?: string
 }
 
 export function PluginCard({
@@ -35,68 +34,20 @@ export function PluginCard({
     maintainer,
 }: PluginCardProps): JSX.Element {
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError } = useActions(pluginsLogic)
-    const { loading } = useValues(pluginsLogic)
+    const { loading, installingPluginUrl } = useValues(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
-    const handleClick = (e: React.MouseEvent<HTMLDivElement, MouseEvent>): void => {
-        if (someParentMatchesSelector(e.target as HTMLElement, '.ant-popover,.ant-tag')) {
-            return
-        }
-        if (canConfigure) {
-            editPlugin(pluginId || null)
-        }
-    }
-
     const switchDisabled = (pluginConfig && pluginConfig.global) || !pluginConfig || !pluginConfig.id
 
     return (
         <Col
-            sm={12}
-            md={12}
-            lg={8}
-            xl={6}
-            style={{ cursor: pluginConfig && canConfigure ? 'pointer' : 'inherit', width: '100%', marginBottom: 20 }}
-            onClick={handleClick}
+            style={{ width: '100%', marginBottom: 20 }}
             data-attr={`plugin-card-${pluginConfig ? 'installed' : 'available'}`}
         >
-            <Card
-                style={{ height: '100%', display: 'flex', marginBottom: 20 }}
-                bodyStyle={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}
-            >
-                {!pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
-                {pluginType === 'source' ? (
-                    <SourcePluginTag style={{ position: 'absolute', top: 10, left: 10, cursor: 'pointer' }} />
-                ) : null}
-                {url?.startsWith('file:') ? (
-                    <LocalPluginTag
-                        url={url}
-                        title="Local"
-                        style={{ position: 'absolute', top: 10, left: 10, cursor: 'pointer' }}
-                    />
-                ) : null}
-                {pluginConfig?.error ? (
-                    <PluginError
-                        error={pluginConfig.error}
-                        reset={() => resetPluginConfigError(pluginConfig?.id || 0)}
-                    />
-                ) : error ? (
-                    <PluginError error={error} />
-                ) : null}
-                <PluginImage pluginType={pluginType} url={url} />
-                <div className="text-center mb" style={{ marginBottom: 16 }}>
-                    <b>{name}</b>
-                </div>
-                <div style={{ flexGrow: 1, paddingBottom: 16 }}>{description}</div>
-                <div style={{ display: 'flex', minHeight: 44, alignItems: 'center' }}>
-                    <div
-                        style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}
-                        onClick={(e) => {
-                            if (!switchDisabled) {
-                                e.stopPropagation()
-                            }
-                        }}
-                    >
-                        {pluginConfig && (
+            <Card className="plugin-card">
+                <Row align="middle" className="plugin-card-row">
+                    {pluginConfig && (
+                        <Col>
                             <Popconfirm
                                 placement="topLeft"
                                 title={`Are you sure you wish to ${
@@ -116,29 +67,72 @@ export function PluginCard({
                                     )}
                                 </div>
                             </Popconfirm>
+                        </Col>
+                    )}
+                    <Col className={pluginConfig ? 'hide-plugin-image-below-500' : ''}>
+                        <PluginImage pluginType={pluginType} url={url} />
+                    </Col>
+                    <Col style={{ flex: 1 }}>
+                        <div>
+                            <strong style={{ marginRight: 8 }}>{name}</strong>
+                            {maintainer && !pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
+                            {!description && !url ? <br /> : null}
+                            {pluginConfig?.error ? (
+                                <PluginError
+                                    error={pluginConfig.error}
+                                    reset={() => resetPluginConfigError(pluginConfig?.id || 0)}
+                                />
+                            ) : error ? (
+                                <PluginError error={error} />
+                            ) : null}
+                            {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
+                            {pluginType === 'source' ? <SourcePluginTag /> : null}
+                        </div>
+                        <div>
+                            {description}
+                            {url && (
+                                <span>
+                                    {description ? ' ' : ''}
+                                    <Link
+                                        to={url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        style={{ whiteSpace: 'nowrap' }}
+                                    >
+                                        Learn more
+                                    </Link>
+                                    .
+                                </span>
+                            )}
+                        </div>
+                    </Col>
+                    <Col>
+                        {canConfigure && (
+                            <Button
+                                type="primary"
+                                className="padding-under-500"
+                                onClick={() => editPlugin(pluginId || null)}
+                            >
+                                <span className="show-over-500">Configure</span>
+                                <span className="hide-over-500">
+                                    <SettingOutlined />
+                                </span>
+                            </Button>
                         )}
-                        {!pluginConfig && url && (
-                            <>
-                                <Link to={url} target="_blank" rel="noopener noreferrer">
-                                    Learn more
-                                </Link>
-                            </>
-                        )}
-                    </div>
-                    <div>
-                        {canConfigure && <Button type="primary">Configure</Button>}
                         {!pluginId && (
                             <Button
                                 type="primary"
-                                loading={loading}
+                                className="padding-under-500"
+                                loading={loading && installingPluginUrl === url}
+                                disabled={loading && installingPluginUrl !== url}
                                 onClick={url ? () => installPlugin(url, PluginInstallationType.Repository) : undefined}
                                 icon={<PlusOutlined />}
                             >
-                                Install
+                                <span className="show-over-500">Install</span>
                             </Button>
                         )}
-                    </div>
-                </div>
+                    </Col>
+                </Row>
             </Card>
         </Col>
     )
@@ -147,19 +141,28 @@ export function PluginCard({
 export function PluginLoading(): JSX.Element {
     return (
         <>
-            {[1, 2, 3].map((i) => {
-                return (
-                    <Col sm={12} md={12} lg={8} xl={6} key={i} style={{ marginBottom: 20 }}>
-                        <Card>
-                            <div className="text-center">
-                                <Skeleton.Image />
-                            </div>
-
-                            <Skeleton paragraph={{ rows: 4 }} active />
-                        </Card>
-                    </Col>
-                )
-            })}
+            {[1, 2, 3].map((i) => (
+                <Col key={i} style={{ marginBottom: 20, width: '100%' }}>
+                    <Card className="plugin-card">
+                        <Row align="middle" className="plugin-card-row">
+                            <Col className="hide-plugin-image-below-500">
+                                <Skeleton.Avatar active size="large" shape="square" />
+                            </Col>
+                            <Col style={{ flex: 1 }}>
+                                <Skeleton title={false} paragraph={{ rows: 2 }} active />
+                            </Col>
+                            <Col>
+                                <span className="show-over-500">
+                                    <Skeleton.Button style={{ width: 100 }} />
+                                </span>
+                                <span className="hide-over-500">
+                                    <Skeleton.Button style={{ width: 32 }} />
+                                </span>
+                            </Col>
+                        </Row>
+                    </Card>
+                </Col>
+            ))}
         </>
     )
 }

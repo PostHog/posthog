@@ -2,7 +2,7 @@ import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Button, Form, Input, Popconfirm, Switch } from 'antd'
-import { DeleteOutlined, ArrowRightOutlined, CodeOutlined } from '@ant-design/icons'
+import { DeleteOutlined, CodeOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from './PluginImage'
 import { Link } from 'lib/components/Link'
@@ -95,15 +95,26 @@ export function PluginDrawer(): JSX.Element {
                                 </div>
                                 <div style={{ flexGrow: 1, paddingLeft: 16 }}>
                                     {editingPlugin.description}
+                                    {editingPlugin.description?.substr(-1) !== '.' ? '.' : ''}
+                                    {editingPlugin.url ? (
+                                        <span>
+                                            {editingPlugin.description ? ' ' : ''}
+                                            <Link
+                                                to={editingPlugin.url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                style={{ whiteSpace: 'nowrap' }}
+                                            >
+                                                Learn More
+                                            </Link>
+                                            .
+                                        </span>
+                                    ) : null}
                                     <div style={{ marginTop: 5 }}>
                                         {editingPlugin?.plugin_type === 'local' && editingPlugin.url ? (
                                             <LocalPluginTag url={editingPlugin.url} title="Installed Locally" />
                                         ) : editingPlugin.plugin_type === 'source' ? (
                                             <SourcePluginTag />
-                                        ) : editingPlugin.url ? (
-                                            <Link to={editingPlugin.url} target="_blank" rel="noopener noreferrer">
-                                                View plugin <ArrowRightOutlined />
-                                            </Link>
                                         ) : null}
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', marginTop: 5 }}>

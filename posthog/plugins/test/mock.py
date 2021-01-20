@@ -66,6 +66,10 @@ def mocked_plugin_requests_get(*args, **kwargs):
 
     if args[0] == "https://gitlab.com/mariusandra/helloworldplugin/-/archive/{}/helloworldplugin-{}.zip".format(
         HELLO_WORLD_PLUGIN_GITLAB_ZIP[0], HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
+    ) or args[
+        0
+    ] == "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha={}&private_token={}".format(
+        HELLO_WORLD_PLUGIN_GITLAB_ZIP[0], "PRIVATE_TOKEN"
     ):
         return MockBase64Response(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1], 200)
 

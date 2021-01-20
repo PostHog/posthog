@@ -1,30 +1,28 @@
 import React from 'react'
-import {
-    AimOutlined,
-    SearchOutlined,
-    UsergroupAddOutlined,
-    ContainerOutlined,
-    PlaySquareOutlined,
-} from '@ant-design/icons'
-import { Button } from 'antd'
+import { AimOutlined, UsergroupAddOutlined, ContainerOutlined, PlaySquareOutlined } from '@ant-design/icons'
 import { SelectBox, SelectBoxItem, SelectedItem } from 'lib/components/SelectBox'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType, CohortType } from '~/types'
 import { EntityTypes } from 'scenes/insights/trendsLogic'
 import { ActionInfo } from 'scenes/insights/ActionFilter/ActionFilterDropdown'
-import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
+import { FilterSelector, sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { Link } from 'lib/components/Link'
 import { cohortsModel } from '~/models/cohortsModel'
 import { userLogic } from 'scenes/userLogic'
 
-export function SessionsFilterBox(): JSX.Element {
+export function SessionsFilterBox({ selector }: { selector: FilterSelector }): JSX.Element | null {
     const { openFilter, personProperties } = useValues(sessionsFiltersLogic)
-    const { openFilterSelect, closeFilterSelect, dropdownSelected } = useActions(sessionsFiltersLogic)
+
+    const { closeFilterSelect, dropdownSelected } = useActions(sessionsFiltersLogic)
 
     const { user } = useValues(userLogic)
     const { actions } = useValues(actionsModel)
     const { cohorts } = useValues(cohortsModel)
+
+    if (openFilter !== selector) {
+        return null
+    }
 
     const groups: Array<SelectBoxItem> = [
         {
@@ -174,22 +172,11 @@ export function SessionsFilterBox(): JSX.Element {
     })
 
     return (
-        <>
-            <Button
-                data-attr="sessions-filter-open"
-                onClick={() => (openFilter ? closeFilterSelect() : openFilterSelect('new'))}
-            >
-                <SearchOutlined />
-                <span className="text-muted">Search for users, events, actions...</span>
-            </Button>
-            {openFilter !== null && (
-                <SelectBox
-                    selectedItemKey={undefined}
-                    onDismiss={closeFilterSelect}
-                    onSelect={dropdownSelected}
-                    items={groups}
-                />
-            )}
-        </>
+        <SelectBox
+            selectedItemKey={undefined}
+            onDismiss={closeFilterSelect}
+            onSelect={dropdownSelected}
+            items={groups}
+        />
     )
 }

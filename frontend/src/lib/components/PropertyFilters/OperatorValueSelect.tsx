@@ -3,12 +3,14 @@ import { PropertyOperator } from '~/types'
 import { Col, Select } from 'antd'
 import { isOperatorFlag, operatorMap } from 'lib/utils'
 import { PropertyValue } from 'lib/components/PropertyFilters/PropertyValue'
+import { ColProps } from 'antd/lib/col'
 
 interface OperatorValueSelectProps {
     type: string
     propkey: string
     operator: PropertyOperator | undefined
     value: string | number | null
+    columnOptions?: ColProps
     onChange: (operator: PropertyOperator, value: string | number | null) => void
 }
 
@@ -23,13 +25,14 @@ export function OperatorValueSelect({
     propkey,
     operator,
     value,
+    columnOptions,
     onChange,
 }: OperatorValueSelectProps): JSX.Element {
     const [currentOperator, setCurrentOperator] = useState(operator)
 
     return (
         <>
-            <Col flex={1}>
+            <Col {...columnOptions}>
                 <OperatorSelect
                     operator={currentOperator || 'exact'}
                     operators={Object.keys(operatorMap) as Array<PropertyOperator>}
@@ -46,7 +49,7 @@ export function OperatorValueSelect({
                 />
             </Col>
             {!isOperatorFlag(currentOperator || 'exact') && (
-                <Col flex={1}>
+                <Col {...columnOptions}>
                     <PropertyValue
                         type={type}
                         key={propkey}

@@ -77,9 +77,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
                 {"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
             )
         elif filter.interval == "week":
-            data.update(
-                {"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
-            )
+            data.update({"date_to": (date_from + relativedelta(weeks=1)).strftime("%Y-%m-%d %H:%M:%S")})
         elif filter.interval == "hour":
             data.update({"date_to": date_from + timedelta(hours=1)})
         elif filter.interval == "minute":
