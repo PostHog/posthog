@@ -131,9 +131,9 @@ def group_events_to_date(
             datewise_data = {d["date"]: d["count"] for d in filtered}
             if value is None:
                 value = "nan"
-            response[value] = {key: float(datewise_data.get(key, 0)) for key in time_index}
+            response[value] = {key: datewise_data.get(key, 0) for key in time_index}
     else:
-        response["total"] = {key: 0.0 for key in time_index}
+        response["total"] = {key: 0 for key in time_index}
 
     return response
 
