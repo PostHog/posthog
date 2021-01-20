@@ -56,8 +56,8 @@ class PluginSerializer(serializers.ModelSerializer):
             raise ValidationError("Plugin installation via the web is disabled!")
         if validated_data.get("plugin_type", None) != Plugin.PluginType.SOURCE:
             self._update_validated_data_from_url(validated_data, validated_data["url"])
-        if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
-            raise ValidationError('Plugin with name "{}" already installed!'.format(validated_data["name"]))
+            if len(Plugin.objects.filter(url=validated_data["url"])) > 0:
+                raise ValidationError('Plugin from URL "{}" already installed!'.format(validated_data["url"]))
         validated_data["organization_id"] = self.context["organization_id"]
         plugin = super().create(validated_data)
         reload_plugins_on_workers()
