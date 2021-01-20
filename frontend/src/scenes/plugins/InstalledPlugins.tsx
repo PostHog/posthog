@@ -12,7 +12,8 @@ export function InstalledPlugins(): JSX.Element {
         <div>
             <Subtitle
                 subtitle={
-                    'Installed' + (!loading || installedPlugins.length > 0 ? ` (${installedPlugins.length})` : '')
+                    'Installed Plugins' +
+                    (!loading || installedPlugins.length > 0 ? ` (${installedPlugins.length})` : '')
                 }
             />
             <Row gutter={16} style={{ marginTop: 16 }}>

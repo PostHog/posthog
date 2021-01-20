@@ -68,7 +68,9 @@ function _Plugins(): JSX.Element {
                                         message="Advanced Features Ahead"
                                         description={
                                             <>
-                                                Please check out the{' '}
+                                                Create and install your <b>own plugins</b> or plugins from{' '}
+                                                <b>third-parties</b>. If you're looking for officially supported
+                                                plugins, try the{' '}
                                                 <a
                                                     href="#"
                                                     onClick={(e) => {
@@ -77,15 +79,15 @@ function _Plugins(): JSX.Element {
                                                     }}
                                                 >
                                                     Plugin Repository
-                                                </a>{' '}
-                                                for a list of curated plugins you can directly install.
+                                                </a>
+                                                .
                                             </>
                                         }
                                         type="warning"
                                         showIcon
                                         closable
                                     />
-                                    <Subtitle subtitle="Install Custom Plugins" />
+                                    <Subtitle subtitle="Custom Plugins" />
                                     <SourcePlugin />
                                     <CustomPlugin />
                                     <LocalPlugin />

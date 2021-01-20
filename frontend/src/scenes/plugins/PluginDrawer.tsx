@@ -95,9 +95,10 @@ export function PluginDrawer(): JSX.Element {
                                 </div>
                                 <div style={{ flexGrow: 1, paddingLeft: 16 }}>
                                     {editingPlugin.description}
+                                    {editingPlugin.description?.substr(-1) !== '.' ? '.' : ''}
                                     {editingPlugin.url ? (
                                         <span>
-                                            {editingPlugin.description ? <> &nbsp; </> : ''}
+                                            {editingPlugin.description ? ' ' : ''}
                                             <Link
                                                 to={editingPlugin.url}
                                                 target="_blank"
@@ -106,6 +107,7 @@ export function PluginDrawer(): JSX.Element {
                                             >
                                                 Learn More
                                             </Link>
+                                            .
                                         </span>
                                     ) : null}
                                     <div style={{ marginTop: 5 }}>

@@ -74,7 +74,7 @@ export function PluginCard({
                     </Col>
                     <Col style={{ flex: 1 }}>
                         <div>
-                            <strong style={{ marginRight: 10 }}>{name}</strong>
+                            <strong style={{ marginRight: 8 }}>{name}</strong>
                             {maintainer && !pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
                             {!description && !url ? <br /> : null}
                             {pluginConfig?.error ? (
@@ -92,7 +92,7 @@ export function PluginCard({
                             {description}
                             {url && (
                                 <span>
-                                    {description ? <> &nbsp; </> : ''}
+                                    {description ? ' ' : ''}
                                     <Link
                                         to={url}
                                         target="_blank"
@@ -101,6 +101,7 @@ export function PluginCard({
                                     >
                                         Learn more
                                     </Link>
+                                    .
                                 </span>
                             )}
                         </div>
