@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { pluginsLogicType } from 'types/scenes/plugins/pluginsLogicType'
 import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
-import { PluginInstallationType, PluginRepositoryEntry, PluginTypeWithConfig } from './types'
+import { PluginInstallationType, PluginRepositoryEntry, PluginTab, PluginTypeWithConfig } from './types'
 import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 import posthog from 'posthog-js'
@@ -17,7 +17,14 @@ function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInst
 }
 
 export const pluginsLogic = kea<
-    pluginsLogicType<PluginType, PluginConfigType, PluginRepositoryEntry, PluginTypeWithConfig, PluginInstallationType>
+    pluginsLogicType<
+        PluginType,
+        PluginConfigType,
+        PluginRepositoryEntry,
+        PluginTypeWithConfig,
+        PluginInstallationType,
+        PluginTab
+    >
 >({
     actions: {
         editPlugin: (id: number | null) => ({ id }),
@@ -27,7 +34,7 @@ export const pluginsLogic = kea<
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
         setLocalPluginUrl: (localPluginUrl: string) => ({ localPluginUrl }),
         setSourcePluginName: (sourcePluginName: string) => ({ sourcePluginName }),
-        setPluginTab: (tab: string) => ({ tab }),
+        setPluginTab: (tab: PluginTab) => ({ tab }),
         setEditingSource: (editingSource: boolean) => ({ editingSource }),
         resetPluginConfigError: (id: number) => ({ id }),
         editPluginSource: (values: { id: number; name: string; source: string; configSchema: Record<string, any> }) =>
@@ -161,6 +168,14 @@ export const pluginsLogic = kea<
     }),
 
     reducers: {
+        installingPluginUrl: [
+            null as string | null,
+            {
+                installPlugin: (_, { pluginUrl }) => pluginUrl,
+                installPluginSuccess: () => null,
+                installPluginFailure: () => null,
+            },
+        ],
         editingPluginId: [
             null as number | null,
             {
@@ -219,9 +234,10 @@ export const pluginsLogic = kea<
             },
         },
         pluginTab: [
-            'installed',
+            PluginTab.Installed as PluginTab,
             {
                 setPluginTab: (_, { tab }) => tab,
+                installPluginSuccess: () => PluginTab.Installed,
             },
         ],
     },

@@ -38,7 +38,7 @@ export function PluginError({ error, reset }: { error: PluginErrorType; reset?: 
             trigger="click"
             placement="bottom"
         >
-            <Tag color="red" style={{ position: 'absolute', top: 10, right: 0, cursor: 'pointer' }}>
+            <Tag color="red" style={{ cursor: 'pointer' }}>
                 ERROR
             </Tag>
         </Popover>
