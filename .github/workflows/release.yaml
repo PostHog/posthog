@@ -73,7 +73,7 @@ jobs:
 
             - name: Publish the package in the npm registry
               if: steps.version.outputs.IS_NEW_VERSION == 'true'
-              run: yarn publish --access public
+              run: npm publish --access public
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   REDIS_URL: 'redis://localhost'
@@ -97,6 +97,6 @@ jobs:
 
             - name: Publish the package in the GitHub registry
               if: steps.version.outputs.IS_NEW_VERSION == 'true'
-              run: yarn publish --access public
+              run: npm publish --access public
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
