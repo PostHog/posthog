@@ -10,6 +10,7 @@ DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL = """
 DROP TABLE events_with_array_props_view
 """
 
+
 EVENTS_TABLE = "events"
 
 EVENTS_TABLE_BASE_SQL = """
@@ -22,6 +23,10 @@ CREATE TABLE {table_name}
     team_id Int64,
     distinct_id VARCHAR,
     elements_chain VARCHAR,
+    properties_issampledevent VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'isSampledEvent')), 
+    properties_currentscreen VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'currentScreen')),
+    properties_objectname VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'objectName')), 
+    properties_test_prop VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'test_prop')), 
     created_at DateTime64(6, 'UTC')
     {extra_fields}
 ) ENGINE = {engine} 
