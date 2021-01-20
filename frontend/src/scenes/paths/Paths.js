@@ -256,7 +256,7 @@ export function Paths({ dashboardItemId = null, filters = null }) {
             >
                 {pathsLoading && <Loading />}
                 <div ref={canvas} className="paths" data-attr="paths-viz">
-                    {paths && paths.nodes.length === 0 && <NoData />}
+                    {!pathsLoading && paths && paths.nodes.length === 0 && !paths.error && <NoData />}
                 </div>
             </div>
             <Modal
