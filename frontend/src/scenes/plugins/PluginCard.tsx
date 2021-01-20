@@ -56,7 +56,7 @@ export function PluginCard({
                                 onConfirm={() =>
                                     pluginConfig.id
                                         ? toggleEnabled({ id: pluginConfig.id, enabled: !pluginConfig.enabled })
-                                        : editPlugin(pluginId || null)
+                                        : editPlugin(pluginId || null, { __enabled: true })
                                 }
                                 okText="Yes"
                                 cancelText="No"

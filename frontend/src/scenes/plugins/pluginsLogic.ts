@@ -27,7 +27,7 @@ export const pluginsLogic = kea<
     >
 >({
     actions: {
-        editPlugin: (id: number | null) => ({ id }),
+        editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
         installPlugin: (pluginUrl: string, pluginType: PluginInstallationType) => ({ pluginUrl, pluginType }),
         uninstallPlugin: (name: string) => ({ name }),
@@ -183,6 +183,12 @@ export const pluginsLogic = kea<
                 savePluginConfigSuccess: () => null,
                 uninstallPluginSuccess: () => null,
                 installPluginSuccess: (_, { plugins }) => Object.values(plugins).pop()?.id || null,
+            },
+        ],
+        editingPluginInitialChanges: [
+            {} as Record<string, any>,
+            {
+                editPlugin: (_, { pluginConfigChanges }) => pluginConfigChanges,
             },
         ],
         editingSource: [

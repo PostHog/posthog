@@ -31,7 +31,7 @@ function EnabledDisabledSwitch({
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { editingPlugin, loading, editingSource } = useValues(pluginsLogic)
+    const { editingPlugin, editingPluginInitialChanges, loading, editingSource } = useValues(pluginsLogic)
     const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource } = useActions(pluginsLogic)
     const [form] = Form.useForm()
 
@@ -42,6 +42,7 @@ export function PluginDrawer(): JSX.Element {
             form.setFieldsValue({
                 ...(editingPlugin.pluginConfig.config || {}),
                 __enabled: editingPlugin.pluginConfig.enabled,
+                ...editingPluginInitialChanges,
             })
         } else {
             form.resetFields()
