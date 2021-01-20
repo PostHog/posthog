@@ -126,12 +126,13 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
             ))}
 
             <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                {filtersDirty && <div className="text-warning">There are unapplied filters.</div>}
                 <Button disabled={!!activeFilter} onClick={() => openEditFilter({ id: null })}>
                     <span>
                         <SaveOutlined /> Save filter
                     </span>
                 </Button>
-                <Button type={filtersDirty ? 'primary' : undefined} onClick={onSubmit}>
+                <Button type="primary" onClick={onSubmit}>
                     <span>
                         <SearchOutlined /> Apply filters
                     </span>
