@@ -564,7 +564,7 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler",},},
-    "root": {"handlers": ["console"], "level": "WARNING",},
+    "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING")},
     "loggers": {
         "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
     },
