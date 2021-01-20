@@ -18,7 +18,7 @@ async function getJSONOrThrow(response) {
     try {
         return await response.json()
     } catch (e) {
-        return { statusText: response.statusText }
+        throw new Error('Something went wrong when parsing the response from the server.')
     }
 }
 
@@ -27,13 +27,7 @@ class Api {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
-
-        let response
-        try {
-            response = await fetch(url)
-        } catch (e) {
-            throw { status: 0, message: e }
-        }
+        const response = await fetch(url)
 
         if (!response.ok) {
             const data = await getJSONOrThrow(response)

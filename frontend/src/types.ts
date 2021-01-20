@@ -23,7 +23,6 @@ export interface UserType {
     is_staff: boolean
     is_debug: boolean
     is_impersonated: boolean
-    ee_enabled: boolean
     email_service_available: boolean
 }
 
