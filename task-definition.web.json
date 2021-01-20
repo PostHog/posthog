@@ -97,6 +97,10 @@
                 {
                     "name": "DEPLOYMENT",
                     "value": "Posthog Cloud"
+                },
+                {
+                    "name": "CLICKHOUSE_DENORMALIZED_PROPERTIES",
+                    "value": "issampledevent,currentscreen,objectname"
                 }
             ],
             "secrets": [
