@@ -37,7 +37,7 @@ export function PluginCard({
     const { loading, installingPluginUrl } = useValues(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
-    const switchDisabled = (pluginConfig && pluginConfig.global) || !pluginConfig || !pluginConfig.id
+    const switchDisabled = pluginConfig?.global
 
     return (
         <Col
@@ -53,18 +53,17 @@ export function PluginCard({
                                 title={`Are you sure you wish to ${
                                     pluginConfig.enabled ? 'disable' : 'enable'
                                 } this plugin?`}
-                                onConfirm={() => toggleEnabled({ id: pluginConfig.id, enabled: !pluginConfig.enabled })}
+                                onConfirm={() =>
+                                    pluginConfig.id
+                                        ? toggleEnabled({ id: pluginConfig.id, enabled: !pluginConfig.enabled })
+                                        : editPlugin(pluginId || null, { __enabled: true })
+                                }
                                 okText="Yes"
                                 cancelText="No"
                                 disabled={switchDisabled}
                             >
                                 <div>
                                     <Switch checked={pluginConfig.enabled} disabled={switchDisabled} />
-                                    {pluginConfig.global && (
-                                        <span style={{ marginLeft: 10, fontSize: 11 }} className="text-muted">
-                                            Globally enabled
-                                        </span>
-                                    )}
                                 </div>
                             </Popconfirm>
                         </Col>

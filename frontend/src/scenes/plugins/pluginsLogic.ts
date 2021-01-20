@@ -27,7 +27,7 @@ export const pluginsLogic = kea<
     >
 >({
     actions: {
-        editPlugin: (id: number | null) => ({ id }),
+        editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
         installPlugin: (pluginUrl: string, pluginType: PluginInstallationType) => ({ pluginUrl, pluginType }),
         uninstallPlugin: (name: string) => ({ name }),
@@ -159,7 +159,9 @@ export const pluginsLogic = kea<
                     const results = await api.get('api/organizations/@current/plugins/repository')
                     const repository: Record<string, PluginRepositoryEntry> = {}
                     for (const plugin of results as PluginRepositoryEntry[]) {
-                        repository[plugin.name] = plugin
+                        if (plugin.url) {
+                            repository[plugin.url.replace(/\/+$/, '')] = plugin
+                        }
                     }
                     return repository
                 },
@@ -183,6 +185,13 @@ export const pluginsLogic = kea<
                 savePluginConfigSuccess: () => null,
                 uninstallPluginSuccess: () => null,
                 installPluginSuccess: (_, { plugins }) => Object.values(plugins).pop()?.id || null,
+            },
+        ],
+        editingPluginInitialChanges: [
+            {} as Record<string, any>,
+            {
+                editPlugin: (_, { pluginConfigChanges }) => pluginConfigChanges,
+                installPluginSuccess: () => ({ __enabled: true }),
             },
         ],
         editingSource: [
@@ -272,22 +281,24 @@ export const pluginsLogic = kea<
                     .map((plugin, index) => ({ ...plugin, order: index + 1 }))
             },
         ],
-        installedPluginNames: [
+        installedPluginUrls: [
             (s) => [s.installedPlugins],
             (installedPlugins) => {
                 const names: Record<string, boolean> = {}
                 installedPlugins.forEach((plugin) => {
-                    names[plugin.name] = true
+                    if (plugin.url) {
+                        names[plugin.url.replace(/\/+$/, '')] = true
+                    }
                 })
                 return names
             },
         ],
         uninstalledPlugins: [
-            (s) => [s.installedPluginNames, s.repository],
-            (installedPluginNames, repository) => {
+            (s) => [s.installedPluginUrls, s.repository],
+            (installedPluginUrls, repository) => {
                 return Object.keys(repository)
-                    .filter((name) => !installedPluginNames[name])
-                    .map((name) => repository[name])
+                    .filter((url) => !installedPluginUrls[url.replace(/\/+$/, '')])
+                    .map((url) => repository[url.replace(/\/+$/, '')])
             },
         ],
         editingPlugin: [
