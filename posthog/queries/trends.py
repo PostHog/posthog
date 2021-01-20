@@ -42,15 +42,6 @@ from posthog.utils import append_data, get_daterange
 
 from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
 
-FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "MS"}
-
-DATERANGE_MAP = {
-    "minute": datetime.timedelta(minutes=1),
-    "hour": datetime.timedelta(hours=1),
-    "day": datetime.timedelta(days=1),
-    "week": datetime.timedelta(weeks=1),
-    "month": datetime.timedelta(days=31),
-}
 MATH_TO_AGGREGATE_FUNCTION: Dict[str, Callable] = {
     "sum": Sum,
     "avg": Avg,
