@@ -138,13 +138,9 @@
                     &:before {
                         background-color: $blue_300 !important;
                     }
-                }
 
-                &.current {
                     .ant-tag {
-                        background-color: $blue_100;
-                        border-color: $blue_500;
-                        color: $blue_700;
+                        font-weight: bold;
                     }
                 }
 
@@ -178,4 +174,8 @@
     .sessions-filter-row-filters > *:not(:last-child) {
         margin-right: 16px;
     }
+}
+
+.sessions-event-highlighted {
+    background-color: #fdedc9;
 }

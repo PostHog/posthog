@@ -4970,6 +4970,11 @@ fflate@^0.4.1:
   resolved "https://registry.yarnpkg.com/fflate/-/fflate-0.4.2.tgz#90be9712dae6e874ce9d61f9678355da15ec7011"
   integrity sha512-othuEXeiFBIaYC8crEkvcYjLw4tAFD4WypT7iyivcT6NxAN1Ib+w/pmeM1SyvwxlsbWPAvoUiMmfClaxq/yVow==
 
+fflate@^0.4.4:
+  version "0.4.8"
+  resolved "https://registry.yarnpkg.com/fflate/-/fflate-0.4.8.tgz#f90b82aefbd8ac174213abb338bd7ef848f0f5ae"
+  integrity sha512-FJqqoDBR00Mdj9ppamLa/Y7vxm+PRmNWA67N846RvsoYVMKB4q3y/de5PA7gUmRMYK/8CMz2GDZQmCRN1wBcWA==
+
 figgy-pudding@^3.5.1:
   version "3.5.2"
   resolved "https://registry.yarnpkg.com/figgy-pudding/-/figgy-pudding-3.5.2.tgz#b4eee8148abb01dcf1d1ac34367d59e12fa61d6e"
@@ -7989,7 +7994,7 @@ p-try@^2.0.0:
   resolved "https://registry.yarnpkg.com/p-try/-/p-try-2.2.0.tgz#cb2868540e313d61de58fafbe35ce9004d5540e6"
   integrity sha512-R4nPAVTAU0B9D35/Gk3uJf/7XYbQcyohSKdvAxIRSNghFl4e71hVoGnBNQz9cWaXxO2I10KTC+3jMdvvoKw6dQ==
 
-pako@^1.0.11, pako@~1.0.5:
+pako@~1.0.5:
   version "1.0.11"
   resolved "https://registry.yarnpkg.com/pako/-/pako-1.0.11.tgz#6c9599d340d54dfd3946380252a35705a6b992bf"
   integrity sha512-4hLB8Py4zZce5s4yd9XzopqwVv/yGNhV1Bl8NTmCq1763HeK2+EwVTv+leGeL13Dnh2wfbqowVPXCIO0z4taYw==
@@ -8595,10 +8600,10 @@ posthog-js@1.8.3:
   dependencies:
     fflate "^0.4.1"
 
-posthog-react-rrweb-player@^1.0.11:
-  version "1.0.11"
-  resolved "https://registry.yarnpkg.com/posthog-react-rrweb-player/-/posthog-react-rrweb-player-1.0.11.tgz#960c6198af179242e5c94aebdb8301d2439eb51a"
-  integrity sha512-aCBcTQfbKWj/k1OAxIIe8m0FBLmJpvAyCYe9dcgmGLuac8G92CaMaV9RKUvPaZPpLexyxGRaB117w1MX9g7RKg==
+posthog-react-rrweb-player@^1.0.12:
+  version "1.0.12"
+  resolved "https://registry.yarnpkg.com/posthog-react-rrweb-player/-/posthog-react-rrweb-player-1.0.12.tgz#ad12aed7a6a6444af99b0a7d4cee078d4efa6090"
+  integrity sha512-8LPXIlsciPR2trXo6Zpo70SqKMAtoZ2gb8SvDuIv6zuQV40pNiOZXAJLgLlSPu07Q8EpzjLGsCkJUHg5iSW4yQ==
   dependencies:
     rc-slider "^9.6.2"
     rc-tooltip "^5.0.1"
@@ -9117,9 +9122,9 @@ rc-select@~11.4.0:
     warning "^4.0.3"
 
 rc-slider@^9.6.2:
-  version "9.6.4"
-  resolved "https://registry.yarnpkg.com/rc-slider/-/rc-slider-9.6.4.tgz#19af39ad22927de2f6d524e0a14f3b1cf17ba659"
-  integrity sha512-TgmfOh1Jj9fHsW2eDeldFy4mOKwyHn4krl4K6gqbXhGFND7jVRdfA0m7TDUx3gGeX7A17fM1QZymMO/NRJmoLw==
+  version "9.7.1"
+  resolved "https://registry.yarnpkg.com/rc-slider/-/rc-slider-9.7.1.tgz#63535177a74a3ee44f090909e8c6f98426eb9dba"
+  integrity sha512-r9r0dpFA3PEvxBhIfVi1lVzxuSogWxeY+tGvi2AqMM1rPgaOXQ7WbtT+9kVFkJ9K8TntA/vYPgiCCKfN29KTkw==
   dependencies:
     "@babel/runtime" "^7.10.1"
     classnames "^2.2.5"
@@ -9831,37 +9836,21 @@ ripemd160@^2.0.0, ripemd160@^2.0.1:
     hash-base "^3.0.0"
     inherits "^2.0.1"
 
-rrweb-snapshot@^0.8.4:
-  version "0.8.4"
-  resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-0.8.4.tgz#3f8bf1270975f9dfad60321a29067d2ea39e3c39"
-  integrity sha512-6zY4lEUpA6qEd/ArAo1crWefxsmiXMuK/fTToGmsW+ehR8/pglxTsqpMPEkgQO9uBUIWIUE9I3CyIQkigmt4ug==
-
 rrweb-snapshot@^1.0.1:
   version "1.0.1"
   resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.0.1.tgz#f3800f4deb434da02b6086533c5c38e23e7e796b"
   integrity sha512-HKbfbTTDSTy4T0h/w9SubI1E5kL/qLiK08pJZRLA0MmGtqJ5nCTMtpEZXgCKMUncH3lb1rbiu+sDIoxKD+Anng==
 
-rrweb@^0.9.11:
-  version "0.9.11"
-  resolved "https://registry.yarnpkg.com/rrweb/-/rrweb-0.9.11.tgz#2917df2abe1be40eaa894062b6ec33083bb02212"
-  integrity sha512-0g9cUo7IGUwG0GSu0DvJPMTBVFBeIN6LJ7zR/1e9TCWgcyVUW3xJdRyZXURZkS7do5TYjcyLmwvJ4smY+vu+xA==
+rrweb@^0.9.13, rrweb@^0.9.9:
+  version "0.9.13"
+  resolved "https://registry.yarnpkg.com/rrweb/-/rrweb-0.9.13.tgz#53e08da14f48bd3e6a79b704dde6081496b96265"
+  integrity sha512-yQn/rVKyHmzK0/VYZ+EgyKRMdjJRS+RRmpA+QDRKiRW3LkML7c6ZpGDkD2dxsA4yvRlZSyvYMqd1vpNxYQ4vCw==
   dependencies:
     "@types/css-font-loading-module" "0.0.4"
     "@xstate/fsm" "^1.4.0"
+    fflate "^0.4.4"
     mitt "^1.1.3"
-    pako "^1.0.11"
     rrweb-snapshot "^1.0.1"
-
-rrweb@^0.9.9:
-  version "0.9.9"
-  resolved "https://registry.yarnpkg.com/rrweb/-/rrweb-0.9.9.tgz#d502271f08620cd880a2be452e78ab78186173cb"
-  integrity sha512-w7KcyQp4r1vhHmPfxSnk2JriDdR9F9w6ABnEylwfhKjQR267T3WEYh9niRc1CBvXIrybTk6bzMuOqqXg4ziOWw==
-  dependencies:
-    "@types/css-font-loading-module" "0.0.4"
-    "@xstate/fsm" "^1.4.0"
-    mitt "^1.1.3"
-    pako "^1.0.11"
-    rrweb-snapshot "^0.8.4"
 
 rsvp@^4.8.4:
   version "4.8.5"
@@ -9996,10 +9985,15 @@ schema-utils@^3.0.0:
     ajv "^6.12.5"
     ajv-keywords "^3.5.2"
 
-screenfull@^5.0.0, screenfull@^5.0.2:
+screenfull@^5.0.0:
   version "5.0.2"
   resolved "https://registry.yarnpkg.com/screenfull/-/screenfull-5.0.2.tgz#b9acdcf1ec676a948674df5cd0ff66b902b0bed7"
   integrity sha512-cCF2b+L/mnEiORLN5xSAz6H3t18i2oHh9BA8+CQlAh5DRw2+NFAGQJOSYbcGw8B2k04g/lVvFcfZ83b3ysH5UQ==
+
+screenfull@^5.0.2:
+  version "5.1.0"
+  resolved "https://registry.yarnpkg.com/screenfull/-/screenfull-5.1.0.tgz#85c13c70f4ead4c1b8a935c70010dfdcd2c0e5c8"
+  integrity sha512-dYaNuOdzr+kc6J6CFcBrzkLCfyGcMg+gWkJ8us93IQ7y1cevhQAugFsaCdMHb6lw8KV3xPzSxzH7zM1dQap9mA==
 
 scroll-into-view-if-needed@^2.2.25:
   version "2.2.26"
@@ -11287,14 +11281,14 @@ url@^0.11.0:
     querystring "0.2.0"
 
 use-debounce@^5.1.0:
-  version "5.1.0"
-  resolved "https://registry.yarnpkg.com/use-debounce/-/use-debounce-5.1.0.tgz#3df34bd7449da7dd2dbb10a6513efe701fc79d02"
-  integrity sha512-fU7O7iel2bA19fxSiPfRkieVGxrow503phSUAGZ/EqiJtCPrU9AdUdrKOAdgh803IrjdIzhj+8eDsDGn4OPy8g==
+  version "5.2.0"
+  resolved "https://registry.yarnpkg.com/use-debounce/-/use-debounce-5.2.0.tgz#3cb63f5c46f40092c570356e441dbc016ffb2f8b"
+  integrity sha512-lW4tbPsTnvPKYqOYXp5xZ7SP7No/ARLqqQqoyRKuSzP0HxR9arhSAhznXUZFoNPWDRij8fog+N6sYbjb8c3kzw==
 
 use-local-storage-state@^6.0.0:
-  version "6.0.0"
-  resolved "https://registry.yarnpkg.com/use-local-storage-state/-/use-local-storage-state-6.0.0.tgz#017c69c64178faa336a2c02ea7910fc146e8168a"
-  integrity sha512-lLql7/6CFNM6xDz5xpNDsK8oxVjjskRDMm3gKhLkWT+mJ2zePbH4XtDp1x+sOhtVr4INPtDcb41/ut8iQ+SKFg==
+  version "6.0.3"
+  resolved "https://registry.yarnpkg.com/use-local-storage-state/-/use-local-storage-state-6.0.3.tgz#65add61b8450b071354ce31b5a69b8908e69b497"
+  integrity sha512-VvaMTPhBcV+pT/MSkJKG1gdU9jTdY+liJ7XUXsuCcOKa2+P/WBB7Fe5/k+20XzgqCG8AloIiTOuoHfV9FlnYmQ==
 
 use@^3.1.0:
   version "3.1.1"

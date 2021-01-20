@@ -271,7 +271,7 @@ export interface EventType {
     elements: ElementType[]
     elements_hash: string | null
     event: string
-    id: number
+    id: number | string
     properties: Record<string, any>
     timestamp: string
 }
@@ -288,6 +288,7 @@ export interface SessionType {
     start_url?: string
     end_url?: string
     email?: string
+    matching_events: Array<number | string>
 }
 
 export interface OrganizationBilling {

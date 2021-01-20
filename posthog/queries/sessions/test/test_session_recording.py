@@ -29,10 +29,11 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                     ],
                 )
                 self.assertEqual(session["person"]["properties"], {"$some_prop": "something"})
+                self.assertEqual(session["start_time"], now())
 
         def test_query_run_with_no_such_session(self):
             session = session_recording().run(team=self.team, session_recording_id="xxx")
-            self.assertEqual(session, {"snapshots": [], "person": None})
+            self.assertEqual(session, {"snapshots": [], "person": None, "start_time": None})
 
         def _test_filter_sessions(self, filter, expected):
             with freeze_time("2020-09-13T12:26:40.000Z"):

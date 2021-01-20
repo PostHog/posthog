@@ -68,7 +68,7 @@ class SessionsList:
             )
             keys.append(key)
 
-        return events.values_list("distinct_id", "timestamp", "current_url", *keys)
+        return events.values_list("distinct_id", "timestamp", "id", "current_url", *keys)
 
     def query_people_in_range(
         self, team: Team, filter: SessionsFilter, date_filter: Q, limit: int

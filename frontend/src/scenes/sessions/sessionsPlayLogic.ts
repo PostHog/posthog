@@ -1,9 +1,9 @@
 import { kea } from 'kea'
 import { eventWithTime } from 'rrweb/typings/types'
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
+import { eventToName, toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from 'types/scenes/sessions/sessionsPlayLogicType'
-import { PersonType } from '~/types'
+import { PersonType, SessionType } from '~/types'
 import moment from 'moment'
 import { EventIndex } from 'posthog-react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
@@ -14,12 +14,16 @@ type SessionRecordingId = string
 interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
+    start_time: string
 }
 
-export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, EventIndex>>({
+export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, EventIndex, SessionType>>({
     connect: {
-        values: [sessionsTableLogic, ['sessions', 'pagination', 'orderedSessionRecordingIds']],
-        actions: [sessionsTableLogic, ['fetchNextSessions', 'appendNewSessions', 'closeSessionPlayer']],
+        values: [sessionsTableLogic, ['sessions', 'pagination', 'orderedSessionRecordingIds', 'loadedSessionEvents']],
+        actions: [
+            sessionsTableLogic,
+            ['fetchNextSessions', 'appendNewSessions', 'closeSessionPlayer', 'loadSessionEvents'],
+        ],
     },
     actions: {
         toggleAddingTagShown: () => {},
@@ -125,18 +129,16 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
         sessionDate: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData: SessionPlayerData): string | null => {
-                if (!sessionPlayerData?.snapshots.length || !sessionPlayerData.snapshots[0].timestamp) {
+                if (!sessionPlayerData?.start_time) {
                     return null
                 }
-                // :KLUDGE: This is not using the session timestamp but client-side timestamp
-                return moment(sessionPlayerData.snapshots[0].timestamp).format('MMM Do')
+                return moment(sessionPlayerData.start_time).format('MMM Do')
             },
         ],
         eventIndex: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData: SessionPlayerData): EventIndex => new EventIndex(sessionPlayerData?.snapshots || []),
         ],
-        pageVisitEvents: [(selectors) => [selectors.eventIndex], (eventIndex) => eventIndex.pageChangeEvents()],
         recordingIndex: [
             (selectors) => [selectors.orderedSessionRecordingIds, selectors.sessionRecordingId],
             (recordingIds: SessionRecordingId[], id: SessionRecordingId): number => recordingIds.indexOf(id),
@@ -146,6 +148,49 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
             (selectors) => [selectors.recordingIndex, selectors.orderedSessionRecordingIds, selectors.pagination],
             (index: number, ids: SessionRecordingId[], pagination: Record<string, any> | null) =>
                 index > -1 && (index < ids.length - 1 || pagination !== null),
+        ],
+        session: [
+            (selectors) => [selectors.sessionRecordingId, selectors.sessions],
+            (id: SessionRecordingId, sessions: Array<SessionType>): SessionType | null => {
+                const [session] = sessions.filter((s) => s.session_recording_ids.includes(id))
+                return session
+            },
+        ],
+        shouldLoadSessionEvents: [
+            (selectors) => [selectors.session, selectors.loadedSessionEvents],
+            (session, sessionEvents) => session && !session.events && !sessionEvents[session.global_session_id],
+        ],
+        highlightedSessionEvents: [
+            (selectors) => [selectors.session, selectors.loadedSessionEvents],
+            (session, sessionEvents) => {
+                if (!session) {
+                    return []
+                }
+                const events = session.events || sessionEvents[session.global_session_id] || []
+                return events.filter((e) => (session.matching_events || []).includes(e.id))
+            },
+        ],
+        shownPlayerEvents: [
+            (selectors) => [selectors.sessionPlayerData, selectors.eventIndex, selectors.highlightedSessionEvents],
+            (sessionPlayerData, eventIndex, events) => {
+                if (!sessionPlayerData) {
+                    return []
+                }
+                const startTime = +moment(sessionPlayerData.start_time)
+
+                const pageChangeEvents = eventIndex.pageChangeEvents().map(({ playerTime, href }) => ({
+                    playerTime,
+                    text: href,
+                    color: 'blue',
+                }))
+                const highlightedEvents = events.map((event) => ({
+                    playerTime: +moment(event.timestamp) - startTime,
+                    text: eventToName(event),
+                    color: 'orange',
+                }))
+
+                return pageChangeEvents.concat(highlightedEvents).sort((a, b) => a.playerTime - b.playerTime)
+            },
         ],
     },
 })

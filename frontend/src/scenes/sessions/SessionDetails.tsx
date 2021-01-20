@@ -1,29 +1,24 @@
 import React, { useEffect, useState } from 'react'
 import { Table } from 'antd'
-import { humanFriendlyDiff, humanFriendlyDetailedTime, toParams } from '~/lib/utils'
+import { humanFriendlyDiff, humanFriendlyDetailedTime } from '~/lib/utils'
 import { EventDetails } from 'scenes/events'
 import { Property } from 'lib/components/Property'
 import { eventToName } from 'lib/utils'
 import { EventType, SessionType } from '~/types'
-import api from 'lib/api'
+import { useActions, useValues } from 'kea'
+import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 
 export function SessionDetails({ session }: { session: SessionType }): JSX.Element {
-    const [events, setEvents] = useState(session.events || [])
-    const [eventsLoading, setEventsLoading] = useState(session.events === undefined)
+    const { loadedSessionEvents } = useValues(sessionsTableLogic)
+    const { loadSessionEvents } = useActions(sessionsTableLogic)
 
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(50)
-
-    async function loadSessionEvents(): Promise<void> {
-        const params = { distinct_id: session.distinct_id, date_from: session.start_time, date_to: session.end_time }
-        const response = await api.get(`api/event/session_events?${toParams(params)}`)
-        setEvents(response.result)
-        setEventsLoading(false)
-    }
+    const events = session.events || loadedSessionEvents[session.global_session_id]
 
     useEffect(() => {
-        if (eventsLoading) {
-            loadSessionEvents()
+        if (!events) {
+            loadSessionEvents(session)
         }
     }, [])
 
@@ -73,8 +68,11 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
         <Table
             columns={columns}
             rowKey="id"
+            rowClassName={(event: EventType) =>
+                (session.matching_events || []).includes(event.id) ? 'sessions-event-highlighted' : ''
+            }
             dataSource={events}
-            loading={eventsLoading}
+            loading={!events}
             pagination={{
                 pageSize: pageSize,
                 hideOnSinglePage: !events || events.length < 10,

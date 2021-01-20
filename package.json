@@ -55,7 +55,7 @@
         "moment": "^2.24.0",
         "posthog-js": "1.8.3",
         "posthog-js-lite": "^0.0.3",
-        "posthog-react-rrweb-player": "^1.0.11",
+        "posthog-react-rrweb-player": "^1.0.12",
         "prop-types": "^15.7.2",
         "query-selector-shadow-dom": "0.8.0",
         "react": "^16.13.1",
@@ -71,7 +71,7 @@
         "react-toastify": "^5.5.0",
         "redux": "^4.0.5",
         "reselect": "^4.0.0",
-        "rrweb": "^0.9.11",
+        "rrweb": "^0.9.13",
         "sass": "^1.26.2",
         "zxcvbn": "^4.4.2"
     },

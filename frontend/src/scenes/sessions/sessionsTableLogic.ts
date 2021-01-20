@@ -4,7 +4,7 @@ import moment from 'moment'
 import equal from 'fast-deep-equal'
 import { toParams } from 'lib/utils'
 import { sessionsTableLogicType } from 'types/scenes/sessions/sessionsTableLogicType'
-import { PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
+import { EventType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 
@@ -20,7 +20,7 @@ interface Params {
 }
 
 export const sessionsTableLogic = kea<
-    sessionsTableLogicType<Moment, SessionType, SessionRecordingId, PropertyFilter, SessionsPropertyFilter>
+    sessionsTableLogicType<Moment, SessionType, SessionRecordingId, PropertyFilter, SessionsPropertyFilter, EventType>
 >({
     props: {} as {
         personIds?: string[]
@@ -60,6 +60,8 @@ export const sessionsTableLogic = kea<
         setFilters: (properties: Array<PropertyFilter>, selectedDate: Moment | null) => ({ properties, selectedDate }),
         setSessionRecordingId: (sessionRecordingId: SessionRecordingId) => ({ sessionRecordingId }),
         closeSessionPlayer: true,
+        loadSessionEvents: (session: SessionType) => ({ session }),
+        addSessionEvents: (session: SessionType, events: EventType[]) => ({ session, events }),
         setLastAppliedFilters: (filters: SessionsPropertyFilter[]) => ({ filters }),
     }),
     reducers: {
@@ -87,6 +89,15 @@ export const sessionsTableLogic = kea<
             {
                 setSessionRecordingId: (_, { sessionRecordingId }) => sessionRecordingId,
                 closeSessionPlayer: () => null,
+            },
+        ],
+        loadedSessionEvents: [
+            {} as Record<string, EventType[] | undefined>,
+            {
+                addSessionEvents: (state, { session, events }) => ({
+                    ...state,
+                    [session.global_session_id]: events,
+                }),
             },
         ],
         lastAppliedFilters: [
@@ -140,6 +151,20 @@ export const sessionsTableLogic = kea<
         },
         nextDay: () => {
             actions.setFilters(values.properties, moment(values.selectedDate).add(1, 'day'))
+        },
+        loadSessionEvents: async ({ session }, breakpoint) => {
+            if (!values.loadedSessionEvents[session.global_session_id]) {
+                const params = {
+                    distinct_id: session.distinct_id,
+                    date_from: session.start_time,
+                    date_to: session.end_time,
+                }
+
+                await breakpoint(200)
+
+                const response = await api.get(`api/event/session_events?${toParams(params)}`)
+                actions.addSessionEvents(session, response.result)
+            }
         },
     }),
     actionToUrl: ({ values }) => {

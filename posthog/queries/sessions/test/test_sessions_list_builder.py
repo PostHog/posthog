@@ -6,8 +6,8 @@ from posthog.queries.sessions.sessions_list_builder import SessionListBuilder
 from posthog.test.base import BaseTest
 
 
-def mock_event(distinct_id, timestamp, matches_action_filter=[], current_url=None):
-    return (distinct_id, timestamp, current_url, *matches_action_filter)
+def mock_event(distinct_id, timestamp, id=1, matches_action_filter=[], current_url=None):
+    return (distinct_id, timestamp, id, current_url, *matches_action_filter)
 
 
 @freeze_time("2021-01-13")
@@ -165,20 +165,16 @@ class TestSessionListBuilder(BaseTest):
     def test_filter_sessions_by_action_filter(self):
         sessions = self.build(
             [
-                mock_event("1", now(), [False, True]),
-                mock_event("1", now() - relativedelta(minutes=1), [False, False]),
-                mock_event("1", now() - relativedelta(minutes=2), [False, True]),
-                mock_event("1", now() - relativedelta(minutes=3), [True, False]),
-                mock_event("2", now() - relativedelta(minutes=4), [True, False]),
+                mock_event("1", now(), 1, [False, True]),
+                mock_event("1", now() - relativedelta(minutes=1), 2, [False, False]),
+                mock_event("1", now() - relativedelta(minutes=2), 3, [False, True]),
+                mock_event("1", now() - relativedelta(minutes=3), 4, [True, False]),
+                mock_event("2", now() - relativedelta(minutes=4), 5, [True, False]),
             ],
             action_filter_count=2,
         )
 
         self.assertEqual(len(sessions), 1)
         self.assertDictContainsSubset(
-            {
-                "distinct_id": "1",
-                "action_filter_times": [now() - relativedelta(minutes=3), now() - relativedelta(minutes=2)],
-            },
-            sessions[0],
+            {"distinct_id": "1", "matching_events": [1, 3, 4],}, sessions[0],
         )
