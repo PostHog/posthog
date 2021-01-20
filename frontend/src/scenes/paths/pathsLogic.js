@@ -53,16 +53,8 @@ export const pathsLogic = kea({
                         return { paths: props.cachedResults, filter }
                     }
                     const params = toParams(filter)
-                    let paths
-                    insightLogic.actions.startQuery()
-                    try {
-                        paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
-                    } catch (e) {
-                        insightLogic.actions.endQuery(ViewType.PATHS, e)
-                        return { paths: [], filter, error: true }
-                    }
+                    const paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
                     breakpoint()
-                    insightLogic.actions.endQuery(ViewType.PATHS)
                     return { paths, filter }
                 },
             },
@@ -109,7 +101,7 @@ export const pathsLogic = kea({
         paths: [
             (s) => [s.results],
             (results) => {
-                const { paths, error } = results
+                const { paths } = results
 
                 const nodes = {}
                 for (const path of paths) {
@@ -124,7 +116,6 @@ export const pathsLogic = kea({
                 const response = {
                     nodes: Object.values(nodes),
                     links: paths,
-                    error,
                 }
                 return response
             },
