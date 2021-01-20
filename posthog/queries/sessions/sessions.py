@@ -153,7 +153,7 @@ class Sessions(BaseQuery):
                 ) - datetime.timedelta(days=1)
 
         datewise_data = {d["date"]: d["count"] for d in data_array}
-        values = {key: datewise_data.get(key, 0) for key in date_range}
+        values = [(key, datewise_data.get(key, 0)) for key in date_range]
 
         time_series_data = append_data(values, interval=filter.interval, math=None)
         # calculate average
