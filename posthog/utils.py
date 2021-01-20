@@ -489,18 +489,26 @@ def flatten(l: List[Any]) -> Generator:
             yield el
 
 
-def get_daterange(start_date, end_date, frequency):
+def get_daterange(
+    start_date: Optional[datetime.datetime], end_date: Optional[datetime.datetime], frequency: str
+) -> List[Any]:
 
     delta = DATERANGE_MAP[frequency]
 
+    if not start_date or not end_date:
+        return []
+
     time_range = []
+    if frequency == "week":
+        start_date += datetime.timedelta(days=6 - start_date.weekday())
     if frequency != "month":
-        while start_date < end_date:
+        while start_date <= end_date:
             time_range.append(start_date)
             start_date += delta
     else:
-        start_date = (start_date.replace(day=1) + delta).replace(day=1)
-        while start_date < end_date:
+        if start_date.day != 1:
+            start_date = (start_date.replace(day=1) + delta).replace(day=1)
+        while start_date <= end_date:
             time_range.append(start_date)
             start_date = (start_date.replace(day=1) + delta).replace(day=1)
     return time_range

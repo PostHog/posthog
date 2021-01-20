@@ -65,15 +65,18 @@ MATH_TO_AGGREGATE_STRING: Dict[str, str] = {
 }
 
 
-def build_dataarray(aggregates: QuerySet, interval: str, breakdown: Optional[str] = None) -> list:
+def build_dataarray(
+    aggregates: QuerySet, interval: str, breakdown: Optional[str] = None
+) -> Tuple[List[Dict[str, Any]], List[Any]]:
     data_array = []
+    cohort_dict: Dict[Any, Any] = {}
+    cohort_keys = []
     if breakdown == "cohorts":
         cohort_keys = [key for key in aggregates[0].keys() if key.startswith("cohort_")]
         # Convert queryset with day, count, cohort_88, cohort_99, ... to multiple rows, for example:
         # 2020-01-01..., 1, cohort_88
         # 2020-01-01..., 3, cohort_99
-        cohort_dict = {}
-        data_dict = {}
+        data_dict: Dict[Any, Any] = {}
         for a in aggregates:
             for key in cohort_keys:
                 if a[key]:
@@ -82,20 +85,25 @@ def build_dataarray(aggregates: QuerySet, interval: str, breakdown: Optional[str
 
         data_array = [{"date": key[0], "count": value, "breakdown": key[1]} for key, value in data_dict.items()]
 
-        if len(cohort_keys) > 20:
-            cohort_keys = [x[0] for x in sorted(cohort_keys.iteritems(), key=lambda x: -x[1])[:20]]
-            data_array = list(filter(lambda d: d["breakdown"] in cohort_keys, data_array))
     else:
-        cohort_keys = [a[breakdown] if breakdown else "Total"]
-        data_array = [
-            {"date": a[interval], "count": a["count"], "breakdown": a[breakdown] if breakdown else "Total",}
-            for a in aggregates
-        ]
+        for a in aggregates:
+            key = a[breakdown] if breakdown else "Total"
+            cohort_keys.append(key)
+            cohort_dict[key] = cohort_dict.get(key, 0) + a["count"]
+            data_array.append(
+                {"date": a[interval], "count": a["count"], "breakdown": key,}
+            )
+        cohort_keys = list(dict.fromkeys(cohort_keys))
+
+    if len(cohort_keys) > 20:
+        top20keys = [x[0] for x in sorted(cohort_dict.items(), key=lambda x: -x[1])[:20]]
+        cohort_keys = [key for key in top20keys if key in cohort_keys]
+        data_array = list(filter(lambda d: d["breakdown"] in cohort_keys, data_array))
 
     if interval == "week":
         for df in data_array:
             df["date"] -= datetime.timedelta(days=df["date"].weekday() + 1)
-    return data_array, cohort_keys
+    return data_array, list(dict.fromkeys(cohort_keys))
 
 
 def group_events_to_date(
@@ -120,9 +128,11 @@ def group_events_to_date(
         for value in unique_cohorts:
             filtered = list(filter(lambda d: d["breakdown"] == value, dataframe))
             datewise_data = {d["date"]: d["count"] for d in filtered}
-            response[value] = {key: datewise_data.get(key, 0) for key in time_index}
+            if value is None:
+                value = "nan"
+            response[value] = {key: float(datewise_data.get(key, 0)) for key in time_index}
     else:
-        response["total"] = {key: 0 for key in time_index}
+        response["total"] = {key: 0.0 for key in time_index}
 
     return response
 
