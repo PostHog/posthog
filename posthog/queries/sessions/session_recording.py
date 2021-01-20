@@ -2,7 +2,6 @@ import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from django.db import connection
-from django.db.models import F, Max, Min
 
 from posthog.models import Person, SessionRecordingEvent, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
@@ -40,25 +39,31 @@ SESSIONS_IN_RANGE_QUERY = """
 
 
 class SessionRecording:
-    def query_recording_snapshots(self, team: Team, session_id: str) -> Tuple[Optional[DistinctId], Snapshots]:
-        events = SessionRecordingEvent.objects.filter(team=team, session_id=session_id)
+    def query_recording_snapshots(
+        self, team: Team, session_id: str
+    ) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots]:
+        events = SessionRecordingEvent.objects.filter(team=team, session_id=session_id).order_by("timestamp")
 
         if len(events) == 0:
-            return None, []
+            return None, None, []
 
-        return events[0].distinct_id, [e.snapshot_data for e in events]
+        return events[0].distinct_id, events[0].timestamp, [e.snapshot_data for e in events]
 
     def run(self, team: Team, session_recording_id: str, *args, **kwargs) -> Dict[str, Any]:
         from posthog.api.person import PersonSerializer
 
-        distinct_id, snapshots = self.query_recording_snapshots(team, session_recording_id)
+        distinct_id, start_time, snapshots = self.query_recording_snapshots(team, session_recording_id)
         person = (
             PersonSerializer(Person.objects.get(team=team, persondistinctid__distinct_id=distinct_id)).data
             if distinct_id
             else None
         )
 
-        return {"snapshots": list(sorted(snapshots, key=lambda s: s["timestamp"])), "person": person}
+        return {
+            "snapshots": snapshots,
+            "person": person,
+            "start_time": start_time,
+        }
 
 
 def query_sessions_in_range(

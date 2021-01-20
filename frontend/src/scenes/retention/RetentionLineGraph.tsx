@@ -32,6 +32,9 @@ export function RetentionLineGraph({
     }
     const peopleData = people?.result
     const peopleNext = people?.next
+    if (results.length === 0) {
+        return null
+    }
 
     return resultsLoading ? (
         <Loading />

@@ -23,6 +23,7 @@ export interface UserType {
     is_staff: boolean
     is_debug: boolean
     is_impersonated: boolean
+    ee_enabled: boolean
     email_service_available: boolean
 }
 
@@ -271,7 +272,7 @@ export interface EventType {
     elements: ElementType[]
     elements_hash: string | null
     event: string
-    id: number
+    id: number | string
     properties: Record<string, any>
     timestamp: string
 }
@@ -288,6 +289,7 @@ export interface SessionType {
     start_url?: string
     end_url?: string
     email?: string
+    matching_events: Array<number | string>
 }
 
 export interface OrganizationBilling {
@@ -363,6 +365,7 @@ export interface PluginType {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     error?: PluginErrorType
+    maintainer?: string
 }
 
 export interface PluginConfigType {

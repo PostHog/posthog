@@ -173,6 +173,11 @@ style files without adding already imported styles. */
     float: left;
 }
 
+.space-between-items {
+    display: flex;
+    justify-content: space-between;
+}
+
 .main-app-content {
     /* top | horizontal | bottom */
     padding: 0px $default_spacing * 3 $default_spacing * 3;
@@ -419,5 +424,22 @@ style files without adding already imported styles. */
     cursor: pointer;
     &:hover {
         border-color: $primary;
+    }
+}
+
+// Stateful badges
+
+.stateful-badge {
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-weight: bold;
+
+    &.or {
+        background-color: $blue_300;
+    }
+
+    &.and {
+        background-color: $yellow_100;
+        color: $primary_alt;
     }
 }

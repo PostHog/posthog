@@ -1,18 +1,17 @@
 import './ActionsPie.scss'
 
-import React, { useEffect, useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Loading } from 'lib/utils'
 import { LineGraph } from './LineGraph'
 import { getChartColors } from 'lib/colors'
-import { useValues, useActions } from 'kea'
+import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/insights/trendsLogic'
 
 export function ActionsPie({ dashboardItemId, view, filters: filtersParam, color, cachedResults }) {
     const [data, setData] = useState(null)
     const [total, setTotal] = useState(0)
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
-    const { filters, results, resultsLoading } = useValues(logic)
-    const { loadResults } = useActions(logic)
+    const { results, resultsLoading } = useValues(logic)
 
     function updateData() {
         const data = results
@@ -34,10 +33,6 @@ export function ActionsPie({ dashboardItemId, view, filters: filtersParam, color
         ])
         setTotal(data.reduce((prev, item) => prev + item.aggregated_value, 0))
     }
-
-    useEffect(() => {
-        loadResults()
-    }, [filters, color])
 
     useEffect(() => {
         updateData()

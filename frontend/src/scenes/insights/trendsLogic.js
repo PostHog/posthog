@@ -52,6 +52,7 @@ export const disableHourFor = {
 
 function cleanFilters(filters) {
     return {
+        insight: ViewType.TRENDS,
         ...filters,
         interval: autocorrectInterval(filters),
         display:
@@ -129,7 +130,7 @@ function parsePeopleParams(peopleParams, filters) {
 // - filters
 export const trendsLogic = kea({
     key: (props) => {
-        return props.dashboardItemId || 'trends_' + props.view || 'all_trends'
+        return props.dashboardItemId || 'all_trends'
     },
 
     connect: {
@@ -156,25 +157,28 @@ export const trendsLogic = kea({
                 if (props.cachedResults && !refresh) {
                     return props.cachedResults
                 }
+                insightLogic.actions.startQuery()
                 let response
-                if (
-                    props.view === ViewType.SESSIONS ||
-                    props.filters?.insight === ViewType.SESSIONS ||
-                    props.filters?.session
-                ) {
-                    response = await api.get(
-                        'api/insight/session/?' +
-                            (refresh ? 'refresh=true&' : '') +
-                            toAPIParams(filterClientSideParams(values.filters))
-                    )
-                    response = response.result
-                } else {
-                    response = await api.get(
-                        'api/insight/trend/?' +
-                            (refresh ? 'refresh=true&' : '') +
-                            toAPIParams(filterClientSideParams(values.filters))
-                    )
+                try {
+                    if (values.filters?.insight === ViewType.SESSIONS || values.filters?.session) {
+                        response = await api.get(
+                            'api/insight/session/?' +
+                                (refresh ? 'refresh=true&' : '') +
+                                toAPIParams(filterClientSideParams(values.filters))
+                        )
+                        response = response.result
+                    } else {
+                        response = await api.get(
+                            'api/insight/trend/?' +
+                                (refresh ? 'refresh=true&' : '') +
+                                toAPIParams(filterClientSideParams(values.filters))
+                        )
+                    }
+                } catch (e) {
+                    insightLogic.actions.endQuery(values.filters.insight, e)
+                    return []
                 }
+                insightLogic.actions.endQuery(values.filters.insight)
                 breakpoint()
                 return response
             },
@@ -347,8 +351,8 @@ export const trendsLogic = kea({
                 people.next
             )
         },
-        [actions.setFilters]: async () => {
-            actions.setAllFilters(values.filters)
+        setFilters: async () => {
+            insightLogic.actions.setAllFilters(values.filters)
         },
         loadResultsSuccess: () => {
             if (!props.dashboardItemId) {
@@ -357,6 +361,12 @@ export const trendsLogic = kea({
                     insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
                 })
             }
+        },
+    }),
+
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.loadResults()
         },
     }),
 
@@ -379,6 +389,7 @@ export const trendsLogic = kea({
                 searchParams.insight === ViewType.LIFECYCLE
             ) {
                 if (props.dashboardItemId) {
+                    actions.loadResults()
                     return // don't use the URL if on the dashboard
                 }
 
@@ -420,6 +431,7 @@ export const trendsLogic = kea({
                 }
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)
+                    actions.loadResults()
                 } else {
                     /* Edge case when opening a trends graph from a dashboard or sometimes when trends are loaded
                     with filters already set, `setAllFilters` action is not triggered, and therefore usage is not reported */

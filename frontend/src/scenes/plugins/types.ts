@@ -18,3 +18,9 @@ export enum PluginInstallationType {
     Repository = 'repository',
     Source = 'source',
 }
+
+export enum PluginTab {
+    Installed = 'installed',
+    Repository = 'repository',
+    Custom = 'custom',
+}

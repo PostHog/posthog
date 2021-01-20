@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space, Tooltip, Drawer, Divider } from 'antd'
+import { Table, Button, Spin, Space, Tooltip, Drawer } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -19,7 +19,6 @@ import {
 import { SessionsPlayerButton, sessionPlayerUrl } from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
-import { PageHeader } from 'lib/components/PageHeader'
 import { SessionsPlay } from './SessionsPlay'
 import { userLogic } from 'scenes/userLogic'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
@@ -27,7 +26,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
 import { EditFiltersPanel } from 'scenes/sessions/filters/EditFiltersPanel'
-import { SavedFiltersDropdown } from 'scenes/sessions/filters/SavedFiltersDropdown'
+import { SearchAllBox } from 'scenes/sessions/filters/SearchAllBox'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -48,7 +47,7 @@ function SessionPlayerDrawer({ isPersonPage = false }: { isPersonPage: boolean }
     )
 }
 
-export function SessionsTable({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
+export function SessionsView({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
     const {
         sessions,
@@ -173,15 +172,18 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
 
     return (
         <div className="events" data-attr="events-table">
-            {!isPersonPage && <PageHeader title="Sessions" />}
             <Space className="mb-05">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
                 <DatePicker value={selectedDate} onChange={(date) => setFilters(properties, date)} allowClear={false} />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
-
-                {featureFlags['filter_by_session_props'] && <SessionsFilterBox />}
-                {featureFlags['filter_by_session_props'] && <SavedFiltersDropdown />}
             </Space>
+
+            {featureFlags['filter_by_session_props'] && (
+                <>
+                    <SearchAllBox />
+                    <SessionsFilterBox selector="new" />
+                </>
+            )}
 
             {featureFlags['filter_by_session_props'] ? (
                 <EditFiltersPanel onSubmit={applyFilters} />
@@ -189,9 +191,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
             )}
 
-            <Divider />
-
-            <div className="text-right mb">
+            <div className="text-right mb mt">
                 <Tooltip title={playAllCTA}>
                     <span>
                         <LinkButton

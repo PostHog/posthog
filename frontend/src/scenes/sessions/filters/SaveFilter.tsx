@@ -1,41 +1,66 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Button, Input } from 'antd'
+import { DeleteOutlined, SaveOutlined } from '@ant-design/icons'
+import { SavedFilter, sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
+import { useActions } from 'kea'
 
 interface Props {
-    onSubmit: (name: string) => void
+    filter: SavedFilter | { id: null }
 }
 
-export function SaveFilter({ onSubmit }: Props): JSX.Element {
-    const [name, setName] = useState('')
+export function SaveFilter({ filter }: Props): JSX.Element {
+    const [name, setName] = useState(filter.id !== null ? filter.name : '')
+    const { upsertSessionsFilter, deleteSessionsFilter } = useActions(sessionsFiltersLogic)
+
+    const inputRef = useRef<Input>(null)
+    useEffect(() => {
+        setTimeout(() => {
+            if (inputRef.current) {
+                inputRef.current.focus()
+            }
+        })
+    })
 
     return (
         <div style={{ maxWidth: 350 }} className="mb">
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
-                    onSubmit(name)
+                    upsertSessionsFilter(filter.id, name)
                 }}
             >
                 <div className="mb">
                     <Input
+                        ref={inputRef}
                         required
-                        autoFocus
-                        placeholder="Session filter name"
+                        placeholder="Name your filter"
+                        maxLength={24}
                         value={name}
                         data-attr="sessions-filter.name"
                         onChange={(e) => setName(e.target.value)}
                     />
                 </div>
-                <div className="mt">
+                <div className="mt space-between-items">
                     <Button
                         type="primary"
                         htmlType="submit"
                         disabled={name.length < 2}
                         data-attr="save-sessions-filter"
-                        style={{ marginTop: '1rem' }}
+                        icon={<SaveOutlined />}
                     >
-                        Save filter
+                        Save
                     </Button>
+
+                    {filter.id !== null && (
+                        <Button
+                            danger
+                            data-attr="delete-sessions-filter"
+                            icon={<DeleteOutlined />}
+                            onClick={() => deleteSessionsFilter(filter.id)}
+                        >
+                            Delete
+                        </Button>
+                    )}
                 </div>
             </form>
         </div>
