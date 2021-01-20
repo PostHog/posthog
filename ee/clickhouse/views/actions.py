@@ -71,27 +71,11 @@ class ClickhouseActionsViewSet(ActionViewSet):
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
         filter = Filter(request=request)
-        shown_as = request.GET.get("shown_as")
 
         if len(filter.entities) >= 1:
             entity = filter.entities[0]
         else:
             entity = Entity({"id": request.GET["entityId"], "type": request.GET["type"]})
-
-        # adhoc date handling. parsed differently with django orm
-        date_from = filter.date_from or timezone.now()
-        data = {}
-        if filter.interval == "month":
-            data.update(
-                {"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
-            )
-        elif filter.interval == "week":
-            data.update({"date_to": (date_from + relativedelta(weeks=1)).strftime("%Y-%m-%d %H:%M:%S")})
-        elif filter.interval == "hour":
-            data.update({"date_to": date_from + timedelta(hours=1)})
-        elif filter.interval == "minute":
-            data.update({"date_to": date_from + timedelta(minutes=1)})
-        filter = Filter(data={**filter._data, **data})
 
         current_url = request.get_full_path()
         serialized_people = calculate_entity_people(team, entity, filter)
@@ -118,7 +102,27 @@ class ClickhouseActionsViewSet(ActionViewSet):
         )
 
 
+def _handle_date_interval(filter: Filter) -> Filter:
+    # adhoc date handling. parsed differently with django orm
+    date_from = filter.date_from or timezone.now()
+    data = {}
+    if filter.interval == "month":
+        data.update(
+            {"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
+        )
+    elif filter.interval == "week":
+        data.update({"date_to": (date_from + relativedelta(weeks=1)).strftime("%Y-%m-%d %H:%M:%S")})
+    elif filter.interval == "hour":
+        data.update({"date_to": date_from + timedelta(hours=1)})
+    elif filter.interval == "minute":
+        data.update({"date_to": date_from + timedelta(minutes=1)})
+    return Filter(data={**filter._data, **data})
+
+
 def _process_content_sql(team: Team, entity: Entity, filter: Filter):
+
+    filter = _handle_date_interval(filter)
+
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
     entity_sql, entity_params = format_entity_filter(entity=entity)
     person_filter = ""

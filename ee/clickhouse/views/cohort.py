@@ -22,6 +22,7 @@ class ClickhouseCohortSerializer(CohortSerializer):
             entity = filter.entities[0]
         else:
             entity = Entity({"id": filter.target_entity_id, "type": filter.target_entity_type})
+        print(filter.to_dict())
         insert_cohort_from_query.delay(cohort.pk, INSIGHT_TRENDS, filter.to_dict(), entity_data=entity.to_dict())
 
 
