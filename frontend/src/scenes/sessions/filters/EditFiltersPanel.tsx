@@ -10,6 +10,7 @@ import { PersonFilter } from 'scenes/sessions/filters/UserFilter'
 import { DurationFilter } from 'scenes/sessions/filters/DurationFilter'
 import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
 import { AddFilterButton } from 'scenes/sessions/filters/AddFilterButton'
+import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 
 interface Props {
     onSubmit: () => void
@@ -61,6 +62,7 @@ const SECTIONS: Record<string, { label: string; description: JSX.Element }> = {
 export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
     const { activeFilter, displayedFilterCount, displayedFilters } = useValues(sessionsFiltersLogic)
     const { openFilterSelect, openEditFilter, removeFilter } = useActions(sessionsFiltersLogic)
+    const { filtersDirty } = useValues(sessionsTableLogic)
 
     if (displayedFilterCount === 0) {
         return null
@@ -124,6 +126,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
             ))}
 
             <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                {filtersDirty && <div className="text-warning">There are unapplied filters.</div>}
                 <Button disabled={!!activeFilter} onClick={() => openEditFilter({ id: null })}>
                     <span>
                         <SaveOutlined /> Save filter

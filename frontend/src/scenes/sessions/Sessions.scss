@@ -1,8 +1,20 @@
 @import '~/vars';
 
+.sessions-with-filters {
+    margin-top: 30px;
+    margin-left: 299px;
+}
+
+.sessions-divider {
+    margin-top: calc(3 * #{$default_spacing});
+    margin-left: 19px;
+    margin-right: 19px;
+    height: calc(100vh - #{$top_nav_height} - 6 * #{$default_spacing});
+}
+
 .sessions-filters-menu {
     border-right: unset;
-    max-width: 260px;
+    width: 260px;
 
     .ant-menu-item-group-title {
         text-transform: uppercase;
@@ -20,7 +32,6 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        min-width: 250px;
 
         & > span {
             white-space: nowrap;
@@ -37,13 +48,6 @@
             margin-right: 0px;
         }
     }
-}
-
-.sessions-divider {
-    margin-top: calc(3 * #{$default_spacing});
-    margin-left: 19px;
-    margin-right: 19px;
-    height: calc(100vh - #{$top_nav_height} - 6 * #{$default_spacing});
 }
 
 .add-session-filter {

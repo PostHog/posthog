@@ -76,7 +76,7 @@ class SessionsList:
         events_query = (
             Event.objects.filter(team=team)
             .add_person_id(team.pk)
-            .filter(properties_to_Q(filter.properties, team_id=team.pk))
+            .filter(properties_to_Q(filter.person_filter_properties, team_id=team.pk))
             .filter(date_filter)
             .order_by("-timestamp")
             .only("distinct_id")
