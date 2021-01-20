@@ -9,7 +9,7 @@ from posthog.models.action_step import ActionStep
 from posthog.models.event import Selector
 
 
-def format_action_filter(action: Action, prepend: str = "action", index=0, use_loop: bool = False) -> Tuple[str, Dict]:
+def format_action_filter(action: Action, prepend: str = "action", use_loop: bool = False) -> Tuple[str, Dict]:
     # get action steps
     params = {"team_id": action.team.pk}
     steps = action.steps.all()
@@ -22,12 +22,12 @@ def format_action_filter(action: Action, prepend: str = "action", index=0, use_l
         conditions: List[str] = []
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
-            el_conditions, element_params = filter_element(step, "{}{}".format(index, prepend))
+            el_conditions, element_params = filter_element(step, "{}_{}{}".format(action.pk, index, prepend))
             params = {**params, **element_params}
             conditions += el_conditions
 
         # filter event conditions (ie URL)
-        event_conditions, event_params = filter_event(step, "{}{}".format(index, prepend), index)
+        event_conditions, event_params = filter_event(step, "{}_{}{}".format(action.pk, index, prepend), index)
         params = {**params, **event_params}
         conditions += event_conditions
 
@@ -37,7 +37,7 @@ def format_action_filter(action: Action, prepend: str = "action", index=0, use_l
             prop_query, prop_params = parse_prop_clauses(
                 Filter(data={"properties": step.properties}).properties,
                 action.team.pk,
-                prepend="action_props_{}".format(index),
+                prepend="action_props_{}".format(action.pk),
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}
