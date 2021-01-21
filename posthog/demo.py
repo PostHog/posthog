@@ -211,7 +211,11 @@ def demo(request):
         team = organization.teams.get(name=TEAM_NAME)
     except Team.DoesNotExist:
         team = Team.objects.create_with_data(
-            organization=organization, name=TEAM_NAME, ingested_event=True, completed_snippet_onboarding=True
+            organization=organization,
+            name=TEAM_NAME,
+            ingested_event=True,
+            completed_snippet_onboarding=True,
+            is_demo=True,
         )
         _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo"))
         _create_funnel(team=team, base_url=request.build_absolute_uri("/demo"))
