@@ -54,17 +54,13 @@ class PluginSerializer(serializers.ModelSerializer):
 
     def _raise_if_plugin_installed(self, url: str) -> bool:
         url_without_private_key = url.split("?")[0]
-        if (
-            len(
-                Plugin.objects.filter(
-                    Q(url=url_without_private_key) | Q(url__startswith="{}?".format(url_without_private_key))
-                )
-            )
-            > 0
-        ):
+        if Plugin.objects.filter(
+            Q(url=url_without_private_key) | Q(url__startswith="{}?".format(url_without_private_key))
+        ).exists():
             raise ValidationError('Plugin from URL "{}" already installed!'.format(url_without_private_key))
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
+        validated_data["url"] = self.initial_data.get("url", None)
         if not can_install_plugins_via_api(self.context["organization_id"]):
             raise ValidationError("Plugin installation via the web is disabled!")
         if validated_data.get("plugin_type", None) != Plugin.PluginType.SOURCE:
@@ -79,6 +75,7 @@ class PluginSerializer(serializers.ModelSerializer):
         if not can_install_plugins_via_api(self.context["organization_id"]):
             raise ValidationError("Plugin upgrades via the web are disabled!")
         if plugin.plugin_type != Plugin.PluginType.SOURCE:
+            validated_data["url"] = self.initial_data.get("url", None)
             validated_data = self._update_validated_data_from_url(validated_data, validated_data["url"])
         response = super().update(plugin, validated_data)
         reload_plugins_on_workers()
