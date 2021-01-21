@@ -53,6 +53,26 @@ def mocked_plugin_requests_get(*args, **kwargs):
             200,
         )
 
+    if args[0].startswith("https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits"):
+        return MockJSONResponse(
+            [
+                {
+                    "web_url": "https://gitlab.com/mariusandra/helloworldplugin/-/commit/ff78cbe1d70316055c610a962a8355a4616d874b"
+                }
+            ],
+            200,
+        )
+
+    if args[0].startswith("https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin-other/repository/commits"):
+        return MockJSONResponse(
+            [
+                {
+                    "web_url": "https://gitlab.com/mariusandra/helloworldplugin-other/-/commit/ff78cbe1d70316055c610a962a8355a4616d874b"
+                }
+            ],
+            200,
+        )
+
     if args[0] == "https://registry.npmjs.org/posthog-helloworld-plugin/latest":
         return MockJSONResponse({"pkg": "posthog-helloworld-plugin", "version": "MOCK"}, 200)
 
@@ -64,15 +84,27 @@ def mocked_plugin_requests_get(*args, **kwargs):
     ):
         return MockBase64Response(HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[1], 200)
 
-    if args[0] == "https://gitlab.com/mariusandra/helloworldplugin/-/archive/{}/helloworldplugin-{}.zip".format(
-        HELLO_WORLD_PLUGIN_GITLAB_ZIP[0], HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
-    ) or args[
-        0
-    ] == "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha={}&private_token={}".format(
-        HELLO_WORLD_PLUGIN_GITLAB_ZIP[0], "PRIVATE_TOKEN"
+    if (
+        args[0]
+        == "https://gitlab.com/mariusandra/helloworldplugin/-/archive/{}/helloworldplugin-{}.zip".format(
+            HELLO_WORLD_PLUGIN_GITLAB_ZIP[0], HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
+        )
+        or args[0]
+        == "https://gitlab.com/mariusandra/helloworldplugin-other/-/archive/{}/helloworldplugin-other-{}.zip".format(
+            HELLO_WORLD_PLUGIN_GITLAB_ZIP[0], HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
+        )
+        or args[0].startswith(
+            "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha={}&private_token=".format(
+                HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
+            )
+        )
+        or args[0].startswith(
+            "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin-other/repository/archive.zip?sha={}&private_token=".format(
+                HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
+            )
+        )
     ):
         return MockBase64Response(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1], 200)
-
     if args[0] == "https://registry.npmjs.org/posthog-helloworld-plugin/-/posthog-helloworld-plugin-0.0.0.tgz":
         return MockBase64Response(HELLO_WORLD_PLUGIN_NPM_TGZ[1], 200)
 
