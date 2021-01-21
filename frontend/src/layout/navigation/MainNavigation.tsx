@@ -31,6 +31,8 @@ import { navigationLogic } from './navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import { dashboardsModel } from '~/models'
 import { DashboardType } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 // to show the right page in the sidebar
 const sceneOverride: Record<string, string> = {
@@ -77,6 +79,8 @@ const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.
 
 export const MainNavigation = hot(_MainNavigation)
 function _MainNavigation(): JSX.Element {
+    const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { menuCollapsed, toolbarModalOpen, pinnedDashboardsVisible } = useValues(navigationLogic)
     const { setMenuCollapsed, collapseMenu, setToolbarModalOpen, setPinnedDashboardsVisible } = useActions(
         navigationLogic
@@ -220,7 +224,9 @@ function _MainNavigation(): JSX.Element {
                         to="/feature_flags"
                     />
                     <div className="divider" />
-                    <MenuItem title="Plugins" icon={<ApiFilled />} identifier="plugins" to="/project/plugins" />
+                    {featureFlags['plugins-cloud'] || user?.realm !== 'cloud' ? (
+                        <MenuItem title="Plugins" icon={<ApiFilled />} identifier="plugins" to="/project/plugins" />
+                    ) : null}
                     <MenuItem
                         title="Annotations"
                         icon={<MessageOutlined />}

@@ -24,6 +24,7 @@ export interface UserType {
     is_debug: boolean
     is_impersonated: boolean
     email_service_available: boolean
+    realm: 'cloud' | 'hosted'
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */

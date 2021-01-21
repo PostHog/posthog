@@ -118,7 +118,7 @@ function _App(): JSX.Element | null {
         <>
             <UpgradeModal />
             <Layout>
-                {featureFlags['navigation-1775'] ? (
+                {true ? (
                     <MainNavigation />
                 ) : (
                     <Sidebar
