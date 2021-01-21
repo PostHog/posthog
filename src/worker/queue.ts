@@ -3,23 +3,29 @@ import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 import Worker from '../celery/worker'
 import Client from '../celery/client'
-import { PluginsServer, Queue, RawEventMessage } from '../types'
+import { PluginsServer, Queue } from '../types'
+import { status } from '../status'
 import { KafkaQueue } from '../ingestion/kafka-queue'
 
-export function startQueue(
+export async function startQueue(
     server: PluginsServer,
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>,
     processEventBatch: (event: PluginEvent[]) => Promise<(PluginEvent | null)[]>
-): Queue {
+): Promise<Queue> {
     const relevantStartQueue = server.KAFKA_ENABLED ? startQueueKafka : startQueueRedis
-    return relevantStartQueue(server, processEvent, processEventBatch)
+    try {
+        return await relevantStartQueue(server, processEvent, processEventBatch)
+    } catch (error) {
+        status.error('💥', 'Failed to start event queue:\n', error)
+        throw error
+    }
 }
 
-function startQueueRedis(
+async function startQueueRedis(
     server: PluginsServer,
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>,
     processEventBatch: (event: PluginEvent[]) => Promise<(PluginEvent | null)[]>
-): Queue {
+): Promise<Queue> {
     const worker = new Worker(server.redis, server.PLUGINS_CELERY_QUEUE)
     const client = new Client(server.redis, server.CELERY_DEFAULT_QUEUE)
 
@@ -60,11 +66,11 @@ function startQueueRedis(
     return worker
 }
 
-function startQueueKafka(
+async function startQueueKafka(
     server: PluginsServer,
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>,
     processEventBatch: (event: PluginEvent[]) => Promise<(PluginEvent | null)[]>
-): Queue {
+): Promise<Queue> {
     const kafkaQueue = new KafkaQueue(server, processEventBatch, async (event: PluginEvent) => {
         const { distinct_id, ip, site_url, team_id, now, sent_at } = event
         await server.eventsProcessor.process_event_ee(
@@ -78,7 +84,7 @@ function startQueueKafka(
         )
     })
 
-    kafkaQueue.start()
+    await kafkaQueue.start()
 
     return kafkaQueue
 }

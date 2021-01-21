@@ -46,29 +46,29 @@ export async function createPluginConfigVM(
         // two ways packages could export themselves (plus "global")
         const module = { exports: {} };
         let exports = {};
-        
+
         // helpers to get globals
         const __getExportDestinations = () => [exports, module.exports, global]
         const __getExported = (key) => __getExportDestinations().find(a => a[key])?.[key];
-        
-        // the plugin JS code        
+
+        // the plugin JS code
         ${libJs};
         ${indexJs};
 
         // inject the meta object + shareable 'global' to the end of each exported function
-        const __pluginMeta = { 
-            ...__pluginHostMeta, 
+        const __pluginMeta = {
+            ...__pluginHostMeta,
             global: {}
         };
         function __bindMeta (keyOrFunc) {
             const func = typeof keyOrFunc === 'function' ? keyOrFunc : __getExported(keyOrFunc);
-            if (func) return (...args) => func(...args, __pluginMeta); 
+            if (func) return (...args) => func(...args, __pluginMeta);
         }
         function __callWithMeta (keyOrFunc, ...args) {
             const func = __bindMeta(keyOrFunc);
-            if (func) return func(...args); 
+            if (func) return func(...args);
         }
-        
+
         // we have processEvent, but not processEventBatch
         if (!__getExported('processEventBatch') && __getExported('processEvent')) {
             exports.processEventBatch = async function processEventBatch (batch, meta) {
@@ -90,13 +90,13 @@ export async function createPluginConfigVM(
                 return (await (__getExported('processEventBatch'))([event], meta))?.[0]
             }
         }
-        
+
         // export various functions
         const __methods = {
             processEvent: __bindMeta('processEvent'),
             processEventBatch: __bindMeta('processEventBatch')
         };
-        
+
         // gather the runEveryX commands and export in __tasks
         const __tasks = {};
         for (const exportDestination of __getExportDestinations().reverse()) {
@@ -110,7 +110,7 @@ export async function createPluginConfigVM(
                 }
             }
         }
-        
+
         // run the plugin setup script, if present
         const __setupPlugin = async () => __callWithMeta('setupPlugin');
         `

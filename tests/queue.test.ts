@@ -67,7 +67,7 @@ test('worker and task passing via redis', async () => {
     expect(args2).toEqual(args)
     expect(kwargs2).toEqual({})
 
-    const queue = startQueue(
+    const queue = await startQueue(
         server,
         (event) => runPlugins(server, event),
         (events) => Promise.all(events.map((event) => runPlugins(server, event)))
@@ -132,7 +132,7 @@ test('process multiple tasks', async () => {
     expect(await server.redis.llen(server.PLUGINS_CELERY_QUEUE)).toBe(3)
     expect(await server.redis.llen(server.CELERY_DEFAULT_QUEUE)).toBe(0)
 
-    const queue = startQueue(
+    const queue = await startQueue(
         server,
         (event) => runPlugins(server, event),
         (events) => Promise.all(events.map((event) => runPlugins(server, event)))
@@ -199,7 +199,7 @@ test('pause and resume queue', async () => {
     expect(await server.redis.llen(server.PLUGINS_CELERY_QUEUE)).toBe(6)
     expect(await server.redis.llen(server.CELERY_DEFAULT_QUEUE)).toBe(0)
 
-    const queue = startQueue(
+    const queue = await startQueue(
         server,
         (event) => runPlugins(server, event),
         (events) => Promise.all(events.map((event) => runPlugins(server, event)))

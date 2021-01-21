@@ -4,6 +4,7 @@ import { processError } from '../error'
 import * as schedule from 'node-schedule'
 import Redlock from 'redlock'
 import * as Sentry from '@sentry/node'
+import { status } from '../status'
 
 const LOCKED_RESOURCE = 'plugin-server:locks:schedule'
 
@@ -12,7 +13,7 @@ export async function startSchedule(
     piscina: Piscina,
     onLock?: () => void
 ): Promise<() => Promise<void>> {
-    console.info(`⏰ Starting scheduling service`)
+    status.info('⏰', 'Starting scheduling service')
 
     let stopped = false
     let weHaveTheLock = false
@@ -33,7 +34,7 @@ export async function startSchedule(
         if (stopped) {
             return
         }
-        console.error('🔴 Redlock clientError', error)
+        status.error('🔴', 'Redlock client error occurred:\n', error)
         Sentry.captureException(error)
     })
 
@@ -42,7 +43,7 @@ export async function startSchedule(
             lock = await redlock.lock(LOCKED_RESOURCE, lockTTL)
             weHaveTheLock = true
 
-            console.info(`🔒 Scheduler lock acquired!`)
+            status.info('🔒', 'Scheduler lock acquired!')
 
             const extendLock = async () => {
                 if (stopped) {
@@ -52,7 +53,7 @@ export async function startSchedule(
                     lock = await lock.extend(lockTTL)
                     lockTimeout = setTimeout(extendLock, extendDelay)
                 } catch (error) {
-                    console.error('🔴 Redlock can not extend lock!', error)
+                    status.error('🔴', 'Redlock cannot extend lock:\n', error)
                     Sentry.captureException(error)
                     weHaveTheLock = false
                     lockTimeout = setTimeout(tryToGetTheLock, 0)
@@ -71,7 +72,7 @@ export async function startSchedule(
                 lockTimeout = setTimeout(tryToGetTheLock, retryDelay)
             } else {
                 Sentry.captureException(error)
-                console.error('🔴 Redlock Error', error)
+                status.error('🔴', 'Redlock error:\n', error)
             }
         }
     }

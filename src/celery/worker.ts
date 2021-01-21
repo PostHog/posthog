@@ -45,7 +45,9 @@ export class Worker extends Base implements Queue {
      */
     public start(): Promise<any> {
         status.info('🍆', 'Starting Celery worker...')
-        return this.run().catch((err) => console.error(err))
+        return this.run().catch((error) =>
+            status.error('⚠️', 'An error occured while starting Celery worker:\n', error)
+        )
     }
 
     /**

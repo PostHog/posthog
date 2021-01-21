@@ -1,4 +1,5 @@
 import * as Redis from 'ioredis'
+import { status } from '../status'
 import { v4 } from 'uuid'
 import { Pausable } from '../types'
 import { Message } from './message'
@@ -132,7 +133,7 @@ export default class RedisBroker implements Pausable {
      * @param {Function} callback
      */
     private receiveFast(resolve: () => void, queue: string, callback: (message: Message) => any): void {
-        process.nextTick(() => this.recieveOneOnNextTick(resolve, queue, callback))
+        process.nextTick(() => this.receiveOneOnNextTick(resolve, queue, callback))
     }
 
     /**
@@ -143,7 +144,7 @@ export default class RedisBroker implements Pausable {
      * @param {Function} callback
      */
     private receiveSlow(resolve: () => void, queue: string, callback: (message: Message) => any): void {
-        setTimeout(() => this.recieveOneOnNextTick(resolve, queue, callback), 50)
+        setTimeout(() => this.receiveOneOnNextTick(resolve, queue, callback), 50)
     }
 
     /**
@@ -153,7 +154,7 @@ export default class RedisBroker implements Pausable {
      * @param {Function} callback
      * @returns {Promise}
      */
-    private async recieveOneOnNextTick(
+    private async receiveOneOnNextTick(
         resolve: () => void,
         queue: string,
         callback: (message: Message) => any
@@ -177,7 +178,7 @@ export default class RedisBroker implements Pausable {
                     this.receiveSlow(resolve, queue, callback)
                 }
             })
-            .catch((err) => console.error(err))
+            .catch((error) => status.error('⚠️', 'An error occured in Celery broker:\n', error))
     }
 
     /**

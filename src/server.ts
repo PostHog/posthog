@@ -31,8 +31,7 @@ export async function createServer(
     redis
         .on('error', (error) => {
             Sentry.captureException(error)
-            console.error('🔴 Redis error encountered! Trying to reconnect...')
-            console.error(error)
+            status.error('🔴', 'Redis error encountered! Trying to reconnect...\n', error)
         })
         .on('ready', () => {
             if (process.env.NODE_ENV !== 'test') {
@@ -43,6 +42,7 @@ export async function createServer(
 
     const db = new Pool({
         connectionString: serverConfig.DATABASE_URL,
+        ssl: process.env.DEPLOYMENT?.startsWith('Heroku') || undefined,
     })
 
     let kafkaSsl: ConnectionOptions | undefined
@@ -165,7 +165,9 @@ export async function startPluginsServer(
         pingJob && schedule.cancelJob(pingJob)
         statsJob && schedule.cancelJob(statsJob)
         await stopSchedule?.()
-        await stopPiscina(piscina!)
+        if (piscina) {
+            await stopPiscina(piscina)
+        }
         await closeServer()
 
         // wait an extra second for any misc async task to finish
@@ -201,7 +203,7 @@ export async function startPluginsServer(
             fastifyInstance = await startFastifyInstance(server)
         }
 
-        queue = startQueue(server, processEvent, processEventBatch)
+        queue = await startQueue(server, processEvent, processEventBatch)
         piscina.on('drain', () => {
             queue?.resume()
         })
@@ -213,9 +215,11 @@ export async function startPluginsServer(
                 status.info('⚡', 'Reloading plugins!')
                 await queue?.stop()
                 await stopSchedule?.()
-                await stopPiscina(piscina!)
+                if (piscina) {
+                    await stopPiscina(piscina)
+                }
                 piscina = makePiscina(serverConfig!)
-                queue = startQueue(server!, processEvent, processEventBatch)
+                queue = await startQueue(server!, processEvent, processEventBatch)
                 stopSchedule = await startSchedule(server!, piscina)
             }
         })
@@ -240,10 +244,9 @@ export async function startPluginsServer(
         status.info('🚀', 'All systems go.')
     } catch (error) {
         Sentry.captureException(error)
-        console.error(`💥 Launchpad failure!\n${error.stack}`)
+        status.error('💥', 'Launchpad failure!', error)
         Sentry.flush().then(() => true) // flush in the background
         await closeJobs()
-
         process.exit(1)
     }
 
