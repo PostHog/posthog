@@ -44,13 +44,13 @@ export function createdByColumn(items: Record<string, any>[]): Record<string, an
             if (b.value === user?.id) {
                 return 10
             }
-            return (a.text + '').localeCompare(b.text)
+            return (a.text + '').localeCompare(b.text + '')
         }),
         onFilter: (value: string, item: Record<string, any>) =>
             (value === null && item.created_by === null) || item.created_by?.id === value,
         sorter: (a: Record<string, any>, b: Record<string, any>) =>
-            (a.created_by?.first_name || a.created_by?.email).localeCompare(
-                b.created_by?.first_name || b.created_by?.email
+            (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
+                b.created_by?.first_name || b.created_by?.email || ''
             ),
     }
 }
