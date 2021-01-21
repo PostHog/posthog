@@ -1,3 +1,4 @@
+from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
 from unittest.mock import patch
 
 from freezegun import freeze_time
@@ -326,6 +327,65 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[0]["count"], 1)
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 0)
+
+        def test_funnel_trends(self):
+            # test person created way before funnel events happened
+            with freeze_time("2020-12-02T01:01:01.000Z"):
+                dropped_1 = person_factory(distinct_ids=["dropped_1"], team_id=self.team.pk)
+            with freeze_time("2021-01-01T03:21:34.000Z"):
+                dropped_2 = person_factory(distinct_ids=["dropped_2"], team_id=self.team.pk)
+                completed_1 = person_factory(distinct_ids=["completed_1"], team_id=self.team.pk)
+                across_days = person_factory(distinct_ids=["across_days"], team_id=self.team.pk)
+                event_factory(event='sign up', distinct_id='dropped_1', team_id=self.team.pk)
+                event_factory(event='sign up', distinct_id='dropped_2', team_id=self.team.pk)
+                event_factory(event='sign up', distinct_id='completed_1', team_id=self.team.pk)
+                event_factory(event='sign up', distinct_id='across_days', team_id=self.team.pk)
+                event_factory(event='pay', distinct_id='completed_1', team_id=self.team.pk)
+
+            with freeze_time("2021-01-02T03:21:34.000Z"):
+                dropped_3 = person_factory(distinct_ids=["dropped_3"], team_id=self.team.pk)
+                completed_2 = person_factory(distinct_ids=["completed_2"], team_id=self.team.pk)
+                event_factory(event='sign up', distinct_id='dropped_3', team_id=self.team.pk)
+                event_factory(event='sign up', distinct_id='completed_2', team_id=self.team.pk)
+                event_factory(event='pay', distinct_id='completed_2', team_id=self.team.pk)
+                event_factory(event='pay', distinct_id='across_days', team_id=self.team.pk)
+
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                daily_interval = Funnel(team=self.team, filter=Filter(data={
+                    'insight': INSIGHT_FUNNELS,
+                    'display': TRENDS_LINEAR,
+                    'events': [
+                        {'id': 'sign up', 'order': 0},
+                        {'id': 'pay', 'order': 1},
+                    ]
+                })).get_trends()[0]['data']
+                weekly_interval = Funnel(team=self.team, filter=Filter(data={
+                    'insight': INSIGHT_FUNNELS,
+                    'display': TRENDS_LINEAR,
+                    'interval': 'week',
+                    'date_from': '-2m',
+                    'events': [
+                        {'id': 'sign up', 'order': 0},
+                        {'id': 'pay', 'order': 1},
+                    ]
+                })).get_trends()[0]['data']
+                # monthly_interval = Funnel(team=self.team, filter=Filter(data={
+                #     'insight': INSIGHT_FUNNELS,
+                #     'display': TRENDS_LINEAR,
+                #     'interval': 'month',
+                #     'events': [
+                #         {'id': 'sign up', 'order': 0},
+                #         {'id': 'pay', 'order': 1},
+                #     ]
+                # })).get_trends()[0]['data']
+            print(weekly_interval)
+            self.assertEqual(daily_interval[len(daily_interval)-2], 50)
+            self.assertEqual(daily_interval[len(daily_interval)-1], 50)
+            self.assertEqual(weekly_interval[len(weekly_interval)-1], 50)
+            self.assertEqual(monthly_interval[len(monthly_interval)-1], 50)
+
+
+
 
     return TestGetFunnel
 

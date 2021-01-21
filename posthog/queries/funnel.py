@@ -1,3 +1,6 @@
+from posthog.queries.trends import FREQ_MAP
+from posthog.utils import append_data
+import pandas as pd
 import re
 import uuid
 from collections import defaultdict
@@ -157,6 +160,74 @@ class Funnel(BaseQuery):
         query_footer = QUERY_FOOTER.format(step0=steps[0], group_by=person_fields)
         query = query + sql.SQL(" ").join(lateral_joins) + query_footer
         return query
+
+    def _build_trends_query(self, filter: Filter) -> sql.SQL:
+        # TODO: Only select from_step and to_step in _build_steps_query
+        particular_steps = (
+            sql.SQL(f'COUNT("step_{index}") as "step_{index}_count"') for index in range(len(filter.entities))
+        )
+        trends_query = sql.SQL(
+            """
+            SELECT
+                date_trunc({interval}, {interval_field}) as "date",
+                {particular_steps}
+            FROM (
+                {steps_query}
+            ) steps_at_dates GROUP BY "date"
+        """
+        ).format(
+            interval=sql.Literal(filter.interval),
+            particular_steps=sql.SQL(",\n").join(particular_steps),
+            steps_query=self._build_query(self._gen_lateral_bodies()),
+            interval_field=sql.SQL("step_0") if filter.interval != 'week' else sql.SQL("(\"step_0\" + interval '1 day') AT TIME ZONE 'UTC'")
+        )
+        return trends_query
+
+    def _serialize_trends(self, filter: Filter, *, from_step: int, to_step: int) -> Dict[str, Any]:
+        serialized: Dict[str, Any] = {
+            "count": 0,
+            "data": [],
+            "days": [],
+        }
+        with connection.cursor() as cursor:
+            qstring = self._build_trends_query(filter).as_string(cursor.connection)
+            print(qstring)
+            cursor.execute(qstring)
+            steps_at_dates = namedtuplefetchall(cursor)
+        conversion_over_date_df = pd.DataFrame(
+            data=[row[to_step + 1] for row in steps_at_dates],
+            index=[row[0] for row in steps_at_dates],
+            columns=["conversion_percentage"],
+            dtype=float,
+        )  # +1 because date takes up 0th index
+        conversion_over_date_df.index.name = "date"
+        conversion_over_date_df["conversion_percentage"] = round(
+            conversion_over_date_df["conversion_percentage"] / [row[from_step + 1] for row in steps_at_dates] * 100, 1
+        )
+        import ipdb; ipdb.set_trace()
+        time_index = pd.date_range(
+            filter.date_from - pd.offsets.MonthBegin(), filter.date_to, freq=FREQ_MAP[filter.interval]
+        )
+        conversion_over_date_df = conversion_over_date_df.reindex(time_index, fill_value=0.0)
+        serialized.update(append_data(conversion_over_date_df.itertuples(), filter.interval, math=None))
+        return serialized
+
+    def get_trends(self, *, from_step: Optional[int] = None, to_step: Optional[int] = None) -> List[Dict[str, Any]]:
+        if (from_step is None) ^ (to_step is None):
+            raise ValueError("Either both or neither from_step and to_step must be specified.")
+
+        if from_step is not None and to_step is not None:
+            try:
+                from_step = int(from_step)
+                to_step = int(to_step)
+            except ValueError:
+                raise ValueError("Parameters from_step and to_step must be valid integers.")
+
+        if from_step is None:
+            from_step = 0
+            to_step = len(self._filter.entities) - 1
+
+        return [self._serialize_trends(self._filter, from_step=from_step, to_step=to_step)]
 
     def data_to_return(self, results: List[Person]) -> List[Dict[str, Any]]:
         steps = []

@@ -154,6 +154,8 @@ def get_interval_annotation(key: str) -> Dict[str, Any]:
     if func is None:
         return {"day": map.get("day")}  # default
 
+    if key == 'week':
+        import ipdb; ipdb.set_trace()
     return {key: func}
 
 
