@@ -186,17 +186,15 @@ def log_event(
     if settings.DEBUG:
         print(f'Logging event {data["event"]} to Kafka topics {" and ".join(topics)}')
     producer = KafkaProducer()
+    data = {
+        "uuid": str(event_uuid),
+        "distinct_id": distinct_id,
+        "ip": ip,
+        "site_url": site_url,
+        "data": json.dumps(data),
+        "team_id": team_id,
+        "now": now.isoformat(),
+        "sent_at": sent_at.isoformat() if sent_at else "",
+    }
     for topic in topics:
-        producer.produce(
-            topic=topic,
-            data={
-                "uuid": str(event_uuid),
-                "distinct_id": distinct_id,
-                "ip": ip,
-                "site_url": site_url,
-                "data": json.dumps(data),
-                "team_id": team_id,
-                "now": now.isoformat(),
-                "sent_at": sent_at.isoformat() if sent_at else "",
-            },
-        )
+        producer.produce(topic=topic, data=data)
