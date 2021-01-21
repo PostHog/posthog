@@ -119,7 +119,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
         ],
         sessionPlayerData: {
             loadRecording: async (sessionRecordingId: string): Promise<SessionPlayerData> => {
-                const params = toParams({ session_recording_id: sessionRecordingId })
+                const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
                 const response = await api.get(`api/event/session_recording?${params}`)
                 return response.result
             },

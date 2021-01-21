@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { FilterOutlined, PlaySquareOutlined, UserOutlined, EditOutlined } from '@ant-design/icons'
+import { FilterOutlined, PlaySquareOutlined, UserOutlined, EditOutlined, EyeInvisibleOutlined } from '@ant-design/icons'
 import { SavedFilter, sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { Button, Menu, Skeleton } from 'antd'
 import { Link } from 'lib/components/Link'
@@ -12,6 +12,7 @@ import { SaveFilter } from 'scenes/sessions/filters/SaveFilter'
 const ICONS: Record<SavedFilter['id'], JSX.Element | undefined> = {
     all: <UserOutlined />,
     withrecordings: <PlaySquareOutlined />,
+    unseen: <EyeInvisibleOutlined />,
 }
 
 export function SavedFiltersMenu(): JSX.Element {

@@ -19,6 +19,7 @@ from posthog.models import Element, ElementGroup, Event, Filter, Person, PersonD
 from posthog.models.action import Action
 from posthog.models.event import EventManager
 from posthog.models.filters.sessions_filter import SessionEventsFilter, SessionsFilter
+from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.base import properties_to_Q
 from posthog.queries.sessions.session_recording import SessionRecording
@@ -299,11 +300,17 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # /event/session_recording
     # params:
     # - session_recording_id: (string) id of the session recording
+    # - save_view: (boolean) save view of the recording
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording = SessionRecording().run(
             team=self.team, filter=Filter(request=request), session_recording_id=request.GET["session_recording_id"]
         )
+
+        if request.GET.get("save_view"):
+            SessionRecordingViewed.objects.get_or_create(
+                team=self.team, user=request.user, session_id=request.GET["session_recording_id"]
+            )
 
         return response.Response({"result": session_recording})
