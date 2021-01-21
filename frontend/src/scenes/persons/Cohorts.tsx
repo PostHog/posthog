@@ -8,7 +8,6 @@ import { useValues, useActions, kea } from 'kea'
 import { hot } from 'react-hot-loader/root'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
-import { Created } from 'lib/components/Created'
 import { Cohort } from './Cohort'
 import { Drawer } from 'lib/components/Drawer'
 import { CohortType } from '~/types'
@@ -16,6 +15,7 @@ import api from 'lib/api'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './cohorts.scss'
 import Fuse from 'fuse.js'
+import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 
 const cohortsUrlLogic = kea({
     actions: {
@@ -73,23 +73,8 @@ function _Cohorts(): JSX.Element {
             },
             sorter: (a: CohortType, b: CohortType) => a.count - b.count,
         },
-        {
-            title: 'Created',
-            render: function RenderCreatedAt(_, cohort: CohortType): JSX.Element | undefined | '' {
-                return cohort.created_at && <Created timestamp={cohort.created_at} />
-            },
-            sorter: (a: CohortType, b: CohortType) => (new Date(a.created_at) > new Date(b.created_at) ? 1 : -1),
-        },
-        {
-            title: 'Created by',
-            render: function RenderCreatedBy(_, cohort: CohortType) {
-                return cohort.created_by ? cohort.created_by.first_name || cohort.created_by.email : '-'
-            },
-            sorter: (a: CohortType, b: CohortType) =>
-                (a.created_by?.first_name || a.created_by?.email).localeCompare(
-                    b.created_by?.first_name || b.created_by?.email
-                ),
-        },
+        createdAtColumn(),
+        createdByColumn(cohorts),
         {
             title: (
                 <span>
