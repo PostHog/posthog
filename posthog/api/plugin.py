@@ -52,7 +52,7 @@ class PluginSerializer(serializers.ModelSerializer):
         # remove ?private_token=... from url
         return str(plugin.url).split("?")[0] if plugin.url else None
 
-    def _raise_if_plugin_installed(self, url: str) -> bool:
+    def _raise_if_plugin_installed(self, url: str):
         url_without_private_key = url.split("?")[0]
         if Plugin.objects.filter(
             Q(url=url_without_private_key) | Q(url__startswith="{}?".format(url_without_private_key))
