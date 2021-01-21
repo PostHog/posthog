@@ -8,7 +8,7 @@ staticfiles
 settings.yml
 .DS_Store
 debug.log
-*.swp
+*.swpdsdsfsd
 *.swo
 impliu/static/CACHE/*
 node_modules/*
