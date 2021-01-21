@@ -2,5 +2,5 @@
 
 set -e
 python manage.py migrate
-
+# X
 python manage.py runserver 0.0.0.0:8000 & ./bin/docker-frontend
