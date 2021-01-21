@@ -1,4 +1,4 @@
-from posthog.models import Cohort, FeatureFlag, Person, feature_flag
+from posthog.models import Cohort, FeatureFlag, Person
 from posthog.test.base import BaseTest
 
 
@@ -28,8 +28,10 @@ class TestFeatureFlag(BaseTest):
                 ]
             }
         )
-        self.assertTrue(feature_flag.distinct_id_matches("example_id"))
-        self.assertTrue(feature_flag.distinct_id_matches("another_id"))
+        with self.assertNumQueries(1):
+            self.assertTrue(feature_flag.distinct_id_matches("example_id"))
+        with self.assertNumQueries(1):
+            self.assertTrue(feature_flag.distinct_id_matches("another_id"))
         self.assertFalse(feature_flag.distinct_id_matches("false_id"))
 
     def test_user_in_cohort(self):

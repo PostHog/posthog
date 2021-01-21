@@ -1,12 +1,16 @@
 import hashlib
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import posthoganalytics
 from django.contrib.postgres.fields import JSONField
 from django.db import models
+from django.db.models.expressions import ExpressionWrapper
+from django.db.models.fields import BooleanField
+from django.db.models.query import QuerySet
 from django.dispatch import receiver
 from django.utils import timezone
 
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team import Team
 from posthog.queries.base import properties_to_Q
 
@@ -33,39 +37,7 @@ class FeatureFlag(models.Model):
     active: models.BooleanField = models.BooleanField(default=True)
 
     def distinct_id_matches(self, distinct_id: str) -> bool:
-        return any(self.distinct_id_matches_group(distinct_id, group) for group in self.groups)
-
-    def distinct_id_matches_group(self, distinct_id: str, group: Dict):
-        rollout_percentage = group.get("rollout_percentage")
-        if len(group.get("properties", [])) > 0:
-            if not self._match_distinct_id(distinct_id, group):
-                return False
-            elif not rollout_percentage:
-                return True
-
-        if rollout_percentage is not None:
-            hash = self._hash(self.key, distinct_id)
-            if hash <= (rollout_percentage / 100):
-                return True
-
-        return False
-
-    def _match_distinct_id(self, distinct_id: str, group: Dict) -> bool:
-        filter = Filter(data=group)
-        return (
-            Person.objects.filter(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
-            .filter(properties_to_Q(filter.properties, team_id=self.team_id, is_person_query=True))
-            .exists()
-        )
-
-    # This function takes a distinct_id and a feature flag key and returns a float between 0 and 1.
-    # Given the same distinct_id and key, it'll always return the same float. These floats are
-    # uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
-    # we can do _hash(key, distinct_id) < 0.2
-    def _hash(self, key: str, distinct_id: str) -> float:
-        hash_key = "%s.%s" % (key, distinct_id)
-        hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
-        return hash_val / __LONG_SCALE__
+        return FeatureFlagMatcher(distinct_id, self).is_match()
 
     def get_analytics_metadata(self) -> Dict:
         filter_count = sum(len(group.get("properties", [])) for group in self.groups)
@@ -93,6 +65,60 @@ class FeatureFlag(models.Model):
                     {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}
                 ]
             }
+
+
+class FeatureFlagMatcher:
+    def __init__(self, distinct_id: str, feature_flag: FeatureFlag):
+        self.distinct_id = distinct_id
+        self.feature_flag = feature_flag
+
+    def is_match(self):
+        return any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.groups))
+
+    def is_group_match(self, group: Dict, group_index: int):
+        rollout_percentage = group.get("rollout_percentage")
+        if len(group.get("properties", [])) > 0:
+            if not self._match_distinct_id(group_index):
+                return False
+            elif not rollout_percentage:
+                return True
+
+        if rollout_percentage is not None:
+            if self._hash <= (rollout_percentage / 100):
+                return True
+
+        return False
+
+    def _match_distinct_id(self, group_index: int) -> bool:
+        return len(self.query_groups) > 0 and self.query_groups[0][group_index]
+
+    @cached_property
+    def query_groups(self) -> List[List[bool]]:
+        query: QuerySet = Person.objects.filter(
+            team_id=self.feature_flag.team_id, persondistinctid__distinct_id=self.distinct_id
+        )
+
+        fields = []
+        for index, group in enumerate(self.feature_flag.groups):
+            key = f"group_{index}"
+
+            subquery = properties_to_Q(
+                Filter(data=group).properties, team_id=self.feature_flag.team_id, is_person_query=True
+            )
+            query = query.annotate(**{key: ExpressionWrapper(subquery, output_field=BooleanField())})
+            fields.append(key)
+
+        return query.values_list(*fields)
+
+    # This function takes a distinct_id and a feature flag key and returns a float between 0 and 1.
+    # Given the same distinct_id and key, it'll always return the same float. These floats are
+    # uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
+    # we can do _hash(key, distinct_id) < 0.2
+    @cached_property
+    def _hash(self) -> float:
+        hash_key = "%s.%s" % (self.feature_flag.key, self.distinct_id)
+        hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
+        return hash_val / __LONG_SCALE__
 
 
 @receiver(models.signals.post_save, sender=FeatureFlag)
