@@ -42,7 +42,12 @@ export async function createServer(
 
     const db = new Pool({
         connectionString: serverConfig.DATABASE_URL,
-        ssl: process.env.DEPLOYMENT?.startsWith('Heroku') || undefined,
+        ssl: process.env.DEPLOYMENT?.startsWith('Heroku')
+            ? {
+                  rejectUnauthorized: true,
+                  checkServerIdentity: () => undefined,
+              }
+            : undefined,
     })
 
     let kafkaSsl: ConnectionOptions | undefined
