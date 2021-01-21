@@ -14,7 +14,7 @@ export async function resetTestDatabase(code: string): Promise<void> {
 
     const team_ids = mocks.pluginConfigRows.map((c) => c.team_id)
     for (const team_id of team_ids) {
-        await insertRow(db, 'posthog_team', { id: team_id, name: 'TEST' })
+        await insertRow(db, 'posthog_team', { id: team_id, name: 'TEST', plugins_opt_in: true })
     }
     for (const plugin of mocks.pluginRows) {
         await insertRow(db, 'posthog_plugin', plugin)
