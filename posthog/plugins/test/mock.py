@@ -98,6 +98,11 @@ def mocked_plugin_requests_get(*args, **kwargs):
                 HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
             )
         )
+        or args[0].startswith(
+            "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin-other/repository/archive.zip?sha={}&private_token=".format(
+                HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
+            )
+        )
     ):
         return MockBase64Response(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1], 200)
     if args[0] == "https://registry.npmjs.org/posthog-helloworld-plugin/-/posthog-helloworld-plugin-0.0.0.tgz":
