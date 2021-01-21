@@ -26,7 +26,7 @@ def set_default_dates(filter: SessionsFilter) -> SessionsFilter:
             data.update({"date_from": relative_date_parse("-7d")})
         if not filter._date_to:
             data.update({"date_to": timezone.now()})
-    return SessionsFilter(data={**filter._data, **data})
+    return SessionsFilter(data={**filter._data, **data, "user_id": filter.user_id})
 
 
 class ClickhouseSessions(BaseQuery, ClickhouseSessionsAvg, ClickhouseSessionsDist):

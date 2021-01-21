@@ -67,10 +67,10 @@ def query_sessions_in_range(
 ) -> List[dict]:
     filter_query, filter_params = "", {}
 
-    if filter.duration_filter_property:
-        filter_query = f"AND duration {OPERATORS[filter.duration_filter_property.operator]} %(min_recording_duration)s"
+    if filter.recording_duration_filter:
+        filter_query = f"AND duration {OPERATORS[filter.recording_duration_filter.operator]} %(min_recording_duration)s"
         filter_params = {
-            "min_recording_duration": filter.duration_filter_property.value,
+            "min_recording_duration": filter.recording_duration_filter.value,
         }
 
     results = sync_execute(

@@ -197,12 +197,19 @@ interface CohortPropertyFilter extends BasePropertyFilter {
     type: 'cohort'
 }
 
-export interface RecordingPropertyFilter extends BasePropertyFilter {
+interface RecordingDurationFilter extends BasePropertyFilter {
     type: 'recording'
     key: 'duration'
     value: number
     operator: 'lt' | 'gt'
 }
+
+interface RecordingNotViewedFilter extends BasePropertyFilter {
+    type: 'recording'
+    key: 'unseen'
+}
+
+export type RecordingPropertyFilter = RecordingDurationFilter | RecordingNotViewedFilter
 
 interface ActionTypePropertyFilter extends BasePropertyFilter {
     type: 'action_type'
@@ -284,7 +291,7 @@ export interface SessionType {
     length: number
     start_time: string
     end_time: string
-    session_recording_ids: string[]
+    session_recordings: Array<{ id: string; viewed: boolean }>
     start_url?: string
     end_url?: string
     email?: string
