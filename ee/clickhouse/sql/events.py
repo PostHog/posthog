@@ -23,13 +23,17 @@ CREATE TABLE {table_name}
     team_id Int64,
     distinct_id VARCHAR,
     elements_chain VARCHAR,
-    properties_issampledevent VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'isSampledEvent')), 
-    properties_currentscreen VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'currentScreen')),
-    properties_objectname VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'objectName')), 
-    properties_test_prop VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'test_prop')), 
     created_at DateTime64(6, 'UTC')
+    {materialized_columns}
     {extra_fields}
 ) ENGINE = {engine} 
+"""
+
+EVENTS_TABLE_MATERIALIZED_COLUMNS = """
+    , properties_issampledevent VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'isSampledEvent'))
+    , properties_currentscreen VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'currentScreen'))
+    , properties_objectname VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'objectName'))
+    , properties_test_prop VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'test_prop'))
 """
 
 EVENTS_TABLE_SQL = (
@@ -43,6 +47,7 @@ SAMPLE BY uuid
     table_name=EVENTS_TABLE,
     engine=table_engine(EVENTS_TABLE, "_timestamp"),
     extra_fields=KAFKA_COLUMNS,
+    materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
 
@@ -50,6 +55,7 @@ KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_" + EVENTS_TABLE,
     engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
     extra_fields="",
+    materialized_columns="",
 )
 
 EVENTS_TABLE_MV_SQL = """
