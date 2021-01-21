@@ -60,7 +60,7 @@ function _Dashboards(): JSX.Element {
                         onClick={() => deleteDashboard({ id, redirect: false })}
                         className="text-danger"
                     >
-                        <DeleteOutlined /> Delete
+                        <DeleteOutlined />
                     </span>
                 )
             },
