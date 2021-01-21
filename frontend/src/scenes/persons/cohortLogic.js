@@ -5,6 +5,7 @@ import { Spin } from 'antd'
 import api from 'lib/api'
 import { router } from 'kea-router'
 import { cohortsModel } from '~/models'
+import { Link } from 'lib/components/Link'
 
 export const cohortLogic = kea({
     key: (props) => props.cohort.id || 'new',
@@ -101,7 +102,12 @@ export const cohortLogic = kea({
             } else {
                 toast.update(values.toastId, {
                     render: function RenderToast() {
-                        return <span data-attr="success-toast">Cohort saved!</span>
+                        return (
+                            <div data-attr="success-toast">
+                                Cohort Saved&nbsp;
+                                <Link to={`/cohorts/${cohort.id}`}>Click here to see it.</Link>
+                            </div>
+                        )
                     },
                     autoClose: 5000,
                 })
