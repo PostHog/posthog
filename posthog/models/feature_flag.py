@@ -80,12 +80,19 @@ class FeatureFlag(models.Model):
 
     @property
     def groups(self):
+        return self.get_filters().get("groups", [])
+
+    def get_filters(self):
         if "groups" in self.filters:
-            return self.filters.get("groups", [])
+            return self.filters
         else:
             # :TRICKY: Keep this backwards compatible.
             #   We don't want to migrate to avoid /decide endpoint downtime until this code has been deployed
-            return [{"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}]
+            return {
+                "groups": [
+                    {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}
+                ]
+            }
 
 
 @receiver(models.signals.post_save, sender=FeatureFlag)

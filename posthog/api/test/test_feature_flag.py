@@ -12,8 +12,8 @@ class TestFeatureFlag(TransactionBaseTest):
     def test_key_exists(self):
         feature_flag = self.client.post(
             "/api/feature_flag/",
-            data={"name": "Beta feature", "key": "beta-feature", "rollout_percentage": 50,},
-            content_type="application/json",
+            data={"name": "Beta feature", "key": "beta-feature", "filters": {"groups": [{"rollout_percentage": 50}]}},
+            format="json",
         ).json()
         self.assertEqual(FeatureFlag.objects.get(pk=feature_flag["id"]).name, "Beta feature")
         self.assertTrue(feature_flag["is_simple_flag"])
@@ -57,10 +57,19 @@ class TestFeatureFlag(TransactionBaseTest):
             data={
                 "name": "Beta feature",
                 "key": "beta-feature",
-                "rollout_percentage": 50,
-                "filters": {"properties": [{"key": "email", "value": "tim@posthog.com"}]},
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains",},
+                            ],
+                        }
+                    ]
+                },
             },
             content_type="application/json",
+            format="json",
         ).json()
         self.assertFalse(feature_flag["is_simple_flag"])
 
@@ -76,7 +85,9 @@ class TestAPIFeatureFlag(APIBaseTest):
         self.client.force_login(self.user)
 
         response = self.client.post(
-            "/api/feature_flag/", {"name": "Alpha feature", "key": "alpha-feature", "rollout_percentage": 50,},
+            "/api/feature_flag/",
+            {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 50}]}},
+            format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         instance = FeatureFlag.objects.get(id=response.data["id"])  # type: ignore
@@ -86,7 +97,13 @@ class TestAPIFeatureFlag(APIBaseTest):
         mock_capture.assert_called_once_with(
             self.user.distinct_id,
             "feature flag created",
-            {"rollout_percentage": 50, "has_filters": False, "filter_count": 0, "created_at": instance.created_at,},
+            {
+                "groups_count": 1,
+                "has_rollout_percentage": True,
+                "has_filters": False,
+                "filter_count": 0,
+                "created_at": instance.created_at,
+            },
         )
 
     @patch("posthoganalytics.capture")
@@ -98,11 +115,15 @@ class TestAPIFeatureFlag(APIBaseTest):
             f"/api/feature_flag/{instance.pk}",
             {
                 "name": "Updated name",
-                "rollout_percentage": 65,
                 "filters": {
-                    "properties": [
-                        {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains",},
-                    ],
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains",},
+                            ],
+                        }
+                    ]
                 },
             },
             format="json",
@@ -110,13 +131,19 @@ class TestAPIFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         instance.refresh_from_db()
         self.assertEqual(instance.name, "Updated name")
-        self.assertEqual(instance.rollout_percentage, 65)
+        self.assertEqual(instance.groups[0]["rollout_percentage"], 65)
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
             self.user.distinct_id,
             "feature flag updated",
-            {"rollout_percentage": 65, "has_filters": True, "filter_count": 1, "created_at": instance.created_at,},
+            {
+                "groups_count": 1,
+                "has_rollout_percentage": True,
+                "has_filters": True,
+                "filter_count": 1,
+                "created_at": instance.created_at,
+            },
         )
 
     def test_deleting_feature_flag(self):
@@ -135,7 +162,13 @@ class TestAPIFeatureFlag(APIBaseTest):
         mock_capture.assert_called_once_with(
             new_user.distinct_id,
             "feature flag deleted",
-            {"rollout_percentage": None, "has_filters": False, "filter_count": 0, "created_at": instance.created_at,},
+            {
+                "groups_count": 1,
+                "has_rollout_percentage": False,
+                "has_filters": False,
+                "filter_count": 0,
+                "created_at": instance.created_at,
+            },
         )
 
     @patch("posthoganalytics.capture")
@@ -155,9 +188,7 @@ class TestAPIFeatureFlag(APIBaseTest):
 
         self.client.force_login(self.user)
 
-        response = self.client.post(
-            "/api/feature_flag/", {"name": "Alpha feature", "key": "alpha-feature", "rollout_percentage": 50,},
-        )
+        response = self.client.post("/api/feature_flag/", {"name": "Alpha feature", "key": "alpha-feature"},)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         instance = FeatureFlag.objects.get(id=response.data["id"])  # type: ignore
         self.assertEqual(instance.key, "alpha-feature")
