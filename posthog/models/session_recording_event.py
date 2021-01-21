@@ -23,8 +23,8 @@ class SessionRecordingEvent(models.Model):
 
 class SessionRecordingViewed(models.Model):
     class Meta:
-        unique_together = (("team_id", "user", "session_id"),)
-        indexes = [models.Index(fields=["team_id", "user", "session_id"])]
+        unique_together = (("team_id", "user_id", "session_id"),)
+        indexes = [models.Index(fields=["team_id", "user_id", "session_id"])]
 
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)

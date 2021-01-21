@@ -24,9 +24,9 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="sessionrecordingviewed",
-            index=models.Index(fields=["team_id", "user", "session_id"], name="posthog_ses_team_id_465af1_idx"),
+            index=models.Index(fields=["team_id", "user_id", "session_id"], name="posthog_ses_team_id_465af1_idx"),
         ),
         migrations.AlterUniqueTogether(
-            name="sessionrecordingviewed", unique_together={("team_id", "user", "session_id")},
+            name="sessionrecordingviewed", unique_together={("team_id", "user_id", "session_id")},
         ),
     ]
