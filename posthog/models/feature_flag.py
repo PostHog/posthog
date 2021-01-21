@@ -68,11 +68,12 @@ class FeatureFlag(models.Model):
         return hash_val / __LONG_SCALE__
 
     def get_analytics_metadata(self) -> Dict:
-        filter_count: int = len(self.filters.get("properties", []),) if self.filters else 0
+        filter_count = sum(len(group.get("properties", [])) for group in self.groups)
 
         return {
-            "groups_count": self.rollout_percentage,
-            "has_filters": True if self.filters and self.filters.get("properties") else False,
+            "groups_count": len(self.groups),
+            "has_filters": filter_count > 0,
+            "has_rollout_percentage": any(group.get("rollout_percentage") for group in self.groups),
             "filter_count": filter_count,
             "created_at": self.created_at,
         }
