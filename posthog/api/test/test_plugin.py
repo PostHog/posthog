@@ -37,6 +37,31 @@ class TestPluginAPI(APIBaseTest):
             response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
             self.assertEqual(response.status_code, 400)  # already installed, tested separately below
 
+    def test_plugin_private_token_url_unique(self, mock_get, mock_reload):
+        repo_url = "https://gitlab.com/mariusandra/helloworldplugin"
+        with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
+            response = self.client.post(
+                "/api/organizations/@current/plugins/", {"url": "{}?private_token=123".format(repo_url)}
+            )
+            self.assertEqual(response.status_code, 201)
+            response = self.client.post(
+                "/api/organizations/@current/plugins/", {"url": "{}?private_token=123".format(repo_url)}
+            )
+            self.assertEqual(response.status_code, 400)
+            response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
+            self.assertEqual(response.status_code, 400)
+            response = self.client.post(
+                "/api/organizations/@current/plugins/", {"url": "{}?private_token=567".format(repo_url)}
+            )
+            self.assertEqual(response.status_code, 400)
+
+            response = self.client.post("/api/organizations/@current/plugins/", {"url": "{}-other".format(repo_url)})
+            self.assertEqual(response.status_code, 201)
+            response = self.client.post(
+                "/api/organizations/@current/plugins/", {"url": "{}-other?private_token=567".format(repo_url)}
+            )
+            self.assertEqual(response.status_code, 400)
+
     def test_update_plugin_auth(self, mock_get, mock_reload):
         repo_url = "https://github.com/PostHog/helloworldplugin"
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):

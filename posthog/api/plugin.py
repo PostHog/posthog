@@ -111,7 +111,7 @@ class PluginSerializer(serializers.ModelSerializer):
                 validated_data["config_schema"] = plugin_json.get("config", {})
                 validated_data["source"] = None
             else:
-                raise ValidationError("Must be a GitHub repository or a NPM package URL!")
+                raise ValidationError("Must be a GitHub/GitLab repository or a npm package URL!")
 
             # Keep plugin type as "repository" or reset to "custom" if it was something else.
             if (
