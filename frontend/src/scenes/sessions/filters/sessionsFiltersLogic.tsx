@@ -2,11 +2,11 @@ import { kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
-import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
+import { SESSIONS_WITH_RECORDINGS_FILTER, SESSIONS_WITH_UNSEEN_RECORDINGS } from 'scenes/sessions/filters/constants'
 import { sessionsFiltersLogicType } from 'types/scenes/sessions/filters/sessionsFiltersLogicType'
 import { SessionsPropertyFilter } from '~/types'
 
-type FilterSelector = number | 'new'
+export type FilterSelector = number | string
 
 export interface PersonProperty {
     name: string
@@ -19,6 +19,7 @@ export interface SavedFilter {
     filters: {
         properties: Array<SessionsPropertyFilter>
     }
+    type: 'global' | 'custom'
 }
 
 type FilterPropertyType = SessionsPropertyFilter['type']
@@ -37,7 +38,10 @@ export const sessionsFiltersLogic = kea<
             id,
             label,
         }),
-        createSessionsFilter: (name: string) => ({ name }),
+        upsertSessionsFilter: (id: number | string | null, name: string) => ({ id, name }),
+        deleteSessionsFilter: (id: number | string | null) => ({ id }),
+        openEditFilter: (filter: SavedFilter | { id: null }) => ({ filter }),
+        closeEditFilter: true,
     }),
     reducers: {
         filters: [
@@ -45,7 +49,7 @@ export const sessionsFiltersLogic = kea<
             {
                 setAllFilters: (_, { filters }) => filters,
                 updateFilter: (state, { property, selector }) => {
-                    if (selector === 'new') {
+                    if (typeof selector === 'string') {
                         return [...state, property]
                     }
                     const newState = [...state]
@@ -67,8 +71,16 @@ export const sessionsFiltersLogic = kea<
                 closeFilterSelect: () => null,
             },
         ],
+        editedFilter: [
+            null as SavedFilter | { id: null } | null,
+            {
+                openEditFilter: (_, { filter }) => filter,
+                closeEditFilter: () => null,
+            },
+        ],
     },
     selectors: {
+        displayedFilterCount: [(s) => [s.filters], (filters) => filters.length],
         displayedFilters: [
             (s) => [s.filters],
             (filters: Array<SessionsPropertyFilter>) => {
@@ -87,11 +99,19 @@ export const sessionsFiltersLogic = kea<
                     id: 'all',
                     name: 'All sessions',
                     filters: { properties: [] },
+                    type: 'global',
                 },
                 {
                     id: 'withrecordings',
                     name: 'Sessions with recordings',
                     filters: { properties: [SESSIONS_WITH_RECORDINGS_FILTER] },
+                    type: 'global',
+                },
+                {
+                    id: 'unseen',
+                    name: 'Unseen recordings',
+                    filters: { properties: [SESSIONS_WITH_UNSEEN_RECORDINGS] },
+                    type: 'global',
                 },
                 ...customFilters,
             ],
@@ -113,9 +133,12 @@ export const sessionsFiltersLogic = kea<
         customFilters: [
             [] as Array<SavedFilter>,
             {
-                loadCustomFilters: async (): Promise<Array<SavedFilter>> => {
+                loadCustomFilters: async (toastMessage?: string): Promise<Array<SavedFilter>> => {
                     const { results } = await api.get('api/sessions_filter')
-                    return results
+                    if (toastMessage) {
+                        toast(toastMessage)
+                    }
+                    return results.map((entry: Omit<SavedFilter, 'type'>) => ({ ...entry, type: 'custom' }))
                 },
             },
         ],
@@ -132,11 +155,23 @@ export const sessionsFiltersLogic = kea<
                 }
             }
         },
-        createSessionsFilter: async ({ name }) => {
-            await api.create('api/sessions_filter', { name, filters: { properties: values.filters } })
+        upsertSessionsFilter: async ({ id, name }) => {
+            actions.closeEditFilter()
 
-            actions.loadCustomFilters()
-            toast('Filter saved')
+            if (id === null) {
+                await api.create('api/sessions_filter', { name, filters: { properties: values.filters } })
+            } else {
+                await api.update(`api/sessions_filter/${id}`, { name })
+            }
+
+            actions.loadCustomFilters('Filter saved')
+        },
+        deleteSessionsFilter: async ({ id }) => {
+            actions.closeEditFilter()
+
+            await api.delete(`api/sessions_filter/${id}`)
+
+            actions.loadCustomFilters('Filter deleted')
         },
     }),
     events: ({ actions }) => ({

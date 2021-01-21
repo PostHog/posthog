@@ -10,10 +10,10 @@ import { NewActionButton } from './NewActionButton'
 import imgGrouping from 'public/actions-tutorial-grouping.svg'
 import imgStandardized from 'public/actions-tutorial-standardized.svg'
 import imgRetroactive from 'public/actions-tutorial-retroactive.svg'
-import { Created } from 'lib/components/Created'
 import { ActionType } from '~/types'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
+import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -107,22 +107,8 @@ export function ActionsTable(): JSX.Element {
                 )
             },
         },
-        {
-            title: 'Created by',
-            render: function RenderCreatedBy(_, action: ActionType) {
-                if (!action.created_by) {
-                    return 'Unknown'
-                }
-                return action.created_by.first_name || action.created_by.email
-            },
-        },
-        {
-            title: 'Created',
-            render: function RenderCreatedAt(_, action: ActionType) {
-                return <Created timestamp={action.created_at} />
-            },
-            sorter: (a: ActionType, b: ActionType) => (new Date(a.created_at) > new Date(b.created_at) ? 1 : -1),
-        },
+        createdAtColumn(),
+        createdByColumn(actions),
         {
             title: '',
             render: function RenderActions(action: ActionType) {

@@ -1,29 +1,19 @@
 import React from 'react'
-import { Button, Col, Row } from 'antd'
-import { useActions, useValues } from 'kea'
+import { Col, Row } from 'antd'
+import { useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PlusOutlined } from '@ant-design/icons'
 import { PluginCard, PluginLoading } from './PluginCard'
-import { userLogic } from 'scenes/userLogic'
 import { Subtitle } from 'lib/components/PageHeader'
 
 export function InstalledPlugins(): JSX.Element {
     const { installedPlugins, loading } = useValues(pluginsLogic)
-    const { setPluginTab } = useActions(pluginsLogic)
-    const { user } = useValues(userLogic)
 
     return (
         <div>
             <Subtitle
                 subtitle={
-                    'Installed' + (!loading || installedPlugins.length > 0 ? ` (${installedPlugins.length})` : '')
-                }
-                buttons={
-                    user?.plugin_access.install && (
-                        <Button type="primary" icon={<PlusOutlined />} onClick={() => setPluginTab('available')}>
-                            Install new plugin
-                        </Button>
-                    )
+                    'Installed Plugins' +
+                    (!loading || installedPlugins.length > 0 ? ` (${installedPlugins.length})` : '')
                 }
             />
             <Row gutter={16} style={{ marginTop: 16 }}>
@@ -40,7 +30,6 @@ export function InstalledPlugins(): JSX.Element {
                                     pluginType={plugin.plugin_type}
                                     pluginConfig={plugin.pluginConfig}
                                     error={plugin.error}
-                                    maintainer={plugin.maintainer || 'community'}
                                 />
                             )
                         })}

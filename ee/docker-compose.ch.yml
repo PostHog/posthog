@@ -97,6 +97,7 @@ services:
         volumes:
             - ./idl:/idl
             - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
     zookeeper:
         image: wurstmeister/zookeeper
     kafka:

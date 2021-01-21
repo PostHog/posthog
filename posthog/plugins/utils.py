@@ -4,7 +4,7 @@ import os
 import re
 import tarfile
 from typing import Dict, Optional
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote
 from zipfile import BadZipFile, ZipFile
 
 import requests
@@ -45,12 +45,23 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
 
 
 def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
+    private_token = None
+    if "?" in url:
+        url, query = url.split("?")
+        params = {k: v[0] for k, v in parse_qs(query).items()}
+        private_token = params.get("private_token", None)
+
     url = url.strip("/")
     match = re.search(r"^https?:\/\/(?:www\.)?gitlab\.com\/([A-Za-z0-9_.\-\/]+)$", url)
     if not match:
         return None
 
-    parsed: Dict[str, Optional[str]] = {"type": "gitlab", "project": match.group(1), "tag": None}
+    parsed: Dict[str, Optional[str]] = {
+        "type": "gitlab",
+        "project": match.group(1),
+        "tag": None,
+        "private_token": private_token,
+    }
 
     if parsed["project"] is None:  # really just needed for mypy
         return None
@@ -60,18 +71,30 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
         parsed["project"] = project
         parsed["tag"] = path.split("/")[1]
 
-    parsed["root_url"] = "https://gitlab.com/{}".format(parsed["project"])
+    parsed["root_url"] = "https://gitlab.com/{}{}".format(
+        parsed["project"], "?private_token={}".format(private_token) if private_token else ""
+    )
+
     if get_latest_if_none and not parsed["tag"]:
         try:
-            commits_url = "https://gitlab.com/api/v4/projects/{}/repository/commits".format(quote(parsed["project"]))
+            commits_url = "https://gitlab.com/api/v4/projects/{}/repository/commits{}".format(
+                quote(parsed["project"], safe=""), "?private_token={}".format(private_token) if private_token else ""
+            )
             commits = requests.get(commits_url).json()
             if len(commits) > 0 and commits[0].get("web_url", None):
-                return parse_gitlab_url(commits[0]["web_url"])
+                web_url = commits[0]["web_url"]
+                if private_token:
+                    web_url += "?private_token={}".format(private_token)
+                return parse_gitlab_url(web_url)
             raise
         except Exception:
             raise Exception("Could not get latest commit for: {}".format(parsed["root_url"]))
+
     if parsed["tag"]:
-        parsed["tagged_url"] = "https://gitlab.com/{}/-/tree/{}".format(parsed["project"], parsed["tag"])
+        parsed["tagged_url"] = "https://gitlab.com/{}/-/tree/{}{}".format(
+            parsed["project"], parsed["tag"], "?private_token={}".format(private_token) if private_token else ""
+        )
+
     return parsed
 
 
@@ -120,9 +143,15 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
         url_project = parsed_url["project"]
         if not url_tag or not url_project:
             raise Exception("No GitLab tag or project given!")
-        url = "https://gitlab.com/{project}/-/archive/{tag}/{repo}-{tag}.zip".format(
-            project=url_project, repo=url_project.split("/")[-1], tag=url_tag
-        )
+
+        if parsed_url.get("private_token", None):
+            url = "https://gitlab.com/api/v4/projects/{project}/repository/archive.zip?sha={tag}&private_token={token}".format(
+                project=quote(url_project, safe=""), tag=url_tag, token=parsed_url["private_token"]
+            )
+        else:
+            url = "https://gitlab.com/{project}/-/archive/{tag}/{repo}-{tag}.zip".format(
+                project=url_project, repo=url_project.split("/")[-1], tag=url_tag
+            )
     elif parsed_url["type"] == "npm":
         if not (tag or parsed_url.get("version", None)):
             raise Exception("No NPM version given")

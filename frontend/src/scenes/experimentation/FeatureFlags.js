@@ -2,8 +2,7 @@ import React, { useState } from 'react'
 import { hot } from 'react-hot-loader/root'
 import { useValues, useActions } from 'kea'
 import { featureFlagLogic } from './featureFlagLogic'
-import { Table, Switch, Drawer, Button, Tooltip } from 'antd'
-import moment from 'moment'
+import { Table, Switch, Drawer, Button } from 'antd'
 import { EditFeatureFlag } from './EditFeatureFlag'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { Link } from 'lib/components/Link'
@@ -11,6 +10,7 @@ import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/PropertyFiltersDisplay'
+import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 
 export const FeatureFlags = hot(_FeatureFlags)
 function _FeatureFlags() {
@@ -30,28 +30,8 @@ function _FeatureFlags() {
             dataIndex: 'key',
             sorter: (a, b) => ('' + a.key).localeCompare(b.key),
         },
-
-        {
-            title: 'Created',
-            render: function RenderCreatedAt(_, featureFlag) {
-                return (
-                    <Tooltip title={moment(featureFlag.created_at).format('LLL')}>
-                        {moment(featureFlag.created_at).fromNow()}
-                    </Tooltip>
-                )
-            },
-            sorter: (a, b) => (new Date(a.created_at) > new Date(b.created_at) ? 1 : -1),
-        },
-        {
-            title: 'Created by',
-            render: function RenderCreatedBy(_, featureFlag) {
-                return featureFlag.created_by.first_name || featureFlag.created_by.email
-            },
-            sorter: (a, b) =>
-                (a.created_by.first_name || a.created_by.email).localeCompare(
-                    b.created_by.first_name || b.created_by.email
-                ),
-        },
+        createdAtColumn(),
+        createdByColumn(featureFlags),
         {
             title: 'Rollout Percentage',
             render: function RenderRolloutPercentage(_, featureFlag) {

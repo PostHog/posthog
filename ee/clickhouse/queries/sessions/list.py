@@ -11,6 +11,7 @@ from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.sessions.list import SESSION_SQL
 from posthog.models import Entity, Person, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.utils import flatten
 
 Session = Dict
 SESSIONS_LIST_DEFAULT_LIMIT = 50
@@ -22,7 +23,7 @@ class ClickhouseSessionsList:
         offset = filter.pagination.get("offset", 0)
         filter = set_default_dates(filter)
 
-        filters, params = parse_prop_clauses(filter.properties, team.pk)
+        filters, params = parse_prop_clauses(filter.person_filter_properties, team.pk)
         filters_select_clause, filters_timestamps_clause, filters_having, action_filter_params = format_action_filters(
             filter
         )
@@ -105,7 +106,7 @@ class ClickhouseSessionsList:
                     "event_count": len(result[4]),
                     "events": list(events),
                     "properties": {},
-                    "action_filter_times": [action_time for (action_time,) in result[10:]],
+                    "matching_events": list(sorted(set(flatten(result[10:])))),
                 }
             )
 
@@ -121,11 +122,11 @@ def format_action_filters(filter: SessionsFilter) -> Tuple[str, str, str, Dict]:
     params: Dict = {}
 
     for index, entity in enumerate(filter.action_filters):
-        timestamp, filter_params = format_action_filter_aggregate(entity, prepend=f"entity_{index}")
+        timestamp, filter_params = format_action_filter_aggregate(entity, prepend=f"event_matcher_{index}")
 
-        timestamps_clause += f", {timestamp} as action_filter_timestamp_{index}"
-        select_clause += f", groupArray(1)(action_filter_timestamp_{index}) as action_filter_timestamp_{index}"
-        having_clause.append(f"notEmpty(action_filter_timestamp_{index})")
+        timestamps_clause += f", {timestamp} as event_match_{index}"
+        select_clause += f", groupArray(event_match_{index}) as event_match_{index}"
+        having_clause.append(f"notEmpty(event_match_{index})")
 
         params = {**params, **filter_params}
 
@@ -139,4 +140,4 @@ def format_action_filter_aggregate(entity: Entity, prepend: str):
         filter_sql += f" {filters}"
         params = {**params, **filter_params}
 
-    return f"({filter_sql}) ? timestamp : NULL", params
+    return f"({filter_sql}) ? uuid : NULL", params

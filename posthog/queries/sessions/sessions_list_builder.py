@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.utils import flatten
 
 RunningSession = Dict
 Session = Dict
@@ -31,6 +32,7 @@ class SessionListBuilder:
         self.action_filter_count: int = action_filter_count
         self.session_timeout: timedelta = session_timeout
         self.max_session_duration: timedelta = max_session_duration
+        self.sessions_count = 0
 
         self.running_sessions: Dict[str, RunningSession] = {}
         self._sessions: List[Session] = []
@@ -38,9 +40,6 @@ class SessionListBuilder:
     @cached_property
     def sessions(self):
         sessions = list(sorted(self._sessions, key=lambda session: session["end_time"], reverse=True))[: self.limit]
-        # :TRICKY: Remove sessions where some filtered actions did not occur _after_ limiting to avoid running into pagination issues
-        if self.action_filter_count > 0:
-            sessions = [session for session in sessions if all(session["action_filter_times"])]
         return sessions
 
     @cached_property
@@ -90,48 +89,52 @@ class SessionListBuilder:
                         self._session_start(event)
                     else:
                         self._session_update(event)
-                elif len(self.running_sessions) + len(self._sessions) < self.limit:
+                elif len(self.running_sessions) + self.sessions_count < self.limit:
                     self._session_start(event)
 
             if index % 300 == 0:
                 self._sessions_check(timestamp)
 
-            if len(self._sessions) >= self.limit:
+            if self.sessions_count >= self.limit:
                 break
 
         self._sessions_check(None)
 
     def _session_start(self, event: EventWithCurrentUrl):
-        distinct_id, timestamp, current_url, *action_filter_matches = event
+        distinct_id, timestamp, id, current_url, *action_filter_matches = event
         self.running_sessions[distinct_id] = {
             "distinct_id": distinct_id,
             "end_time": timestamp,
             "event_count": 0,
             "start_url": current_url,
             "email": self.emails.get(distinct_id),
-            "action_filter_times": [None] * self.action_filter_count,
+            "matching_events": [[] for _ in range(self.action_filter_count)],
         }
         self._session_update(event)
 
     def _session_update(self, event: EventWithCurrentUrl):
-        distinct_id, timestamp, current_url, *action_filter_matches = event
+        distinct_id, timestamp, id, current_url, *action_filter_matches = event
         self.running_sessions[distinct_id]["start_time"] = timestamp
         self.running_sessions[distinct_id]["event_count"] += 1
         self.running_sessions[distinct_id]["end_url"] = current_url
 
         for index, is_match in enumerate(action_filter_matches):
             if is_match:
-                self.running_sessions[distinct_id]["action_filter_times"][index] = timestamp
+                self.running_sessions[distinct_id]["matching_events"][index].append(id)
 
     def _session_end(self, distinct_id: str):
+        self.sessions_count += 1
         session = self.running_sessions[distinct_id]
-        self._sessions.append(
-            {
-                **session,
-                "global_session_id": f"{distinct_id}-{session['start_time']}",
-                "length": (session["end_time"] - session["start_time"]).seconds,
-            }
-        )
+        # :TRICKY: Remove sessions where some filtered actions did not occur _after_ limiting to avoid running into pagination issues
+        if self.action_filter_count == 0 or all(len(ids) > 0 for ids in session["matching_events"]):
+            self._sessions.append(
+                {
+                    **session,
+                    "matching_events": list(sorted(set(flatten(session["matching_events"])))),
+                    "global_session_id": f"{distinct_id}-{session['start_time']}",
+                    "length": (session["end_time"] - session["start_time"]).seconds,
+                }
+            )
         del self.running_sessions[distinct_id]
 
     def _has_session_timed_out(self, distinct_id: str, timestamp: datetime):

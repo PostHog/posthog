@@ -173,6 +173,11 @@ style files without adding already imported styles. */
     float: left;
 }
 
+.space-between-items {
+    display: flex;
+    justify-content: space-between;
+}
+
 .main-app-content {
     /* top | horizontal | bottom */
     padding: 0px $default_spacing * 3 $default_spacing * 3;

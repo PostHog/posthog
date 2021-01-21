@@ -1,6 +1,6 @@
+import datetime
 from typing import Any, Dict, List, Tuple
 
-import pandas as pd
 from dateutil.relativedelta import relativedelta
 from django.db import connection
 from django.db.models import F, Q, QuerySet
@@ -11,7 +11,7 @@ from django.utils.timezone import now
 from posthog.constants import SESSION_AVG
 from posthog.models import Event, Filter, Team
 from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter, properties_to_Q
-from posthog.utils import append_data, friendly_time
+from posthog.utils import append_data, friendly_time, get_daterange
 
 DIST_LABELS = [
     "0 seconds (1 event)",
@@ -140,16 +140,20 @@ class Sessions(BaseQuery):
         if len(time_series_avg) == 0:
             return []
 
-        date_range = pd.date_range(filter.date_from, filter.date_to, freq=interval_freq,)
-        df = pd.DataFrame([{"date": a[0], "count": a[1], "breakdown": "Total"} for a in time_series_avg])
-        if interval == "week":
-            df["date"] = df["date"].apply(lambda x: x - pd.offsets.Week(weekday=6))
-        elif interval == "month":
-            df["date"] = df["date"].apply(lambda x: x - pd.offsets.MonthEnd(n=0))
+        date_range = get_daterange(filter.date_from, filter.date_to, frequency=interval)
+        data_array = [{"date": a[0], "count": a[1], "breakdown": "Total"} for a in time_series_avg]
 
-        df_dates = pd.DataFrame(df.groupby("date").mean(), index=date_range)
-        df_dates = df_dates.fillna(0)
-        values = [(key, round(value[0])) if len(value) > 0 else (key, 0) for key, value in df_dates.iterrows()]
+        if interval == "week":
+            for df in data_array:
+                df["date"] -= datetime.timedelta(days=df["date"].weekday() + 1)
+        elif interval == "month":
+            for df in data_array:
+                df["date"] = (df["date"].replace(day=1) + datetime.timedelta(days=32)).replace(
+                    day=1
+                ) - datetime.timedelta(days=1)
+
+        datewise_data = {d["date"]: d["count"] for d in data_array}
+        values = [(key, datewise_data.get(key, 0)) for key in date_range]
 
         time_series_data = append_data(values, interval=filter.interval, math=None)
         # calculate average
