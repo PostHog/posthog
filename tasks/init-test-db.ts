@@ -18,7 +18,8 @@ const createTeam = `
         id            serial  NOT NULL
             CONSTRAINT posthog_team_pkey
                 PRIMARY KEY,
-        name          varchar(200)
+        name          varchar(200),
+        plugins_opt_in boolean NOT NULL
     );
 `
 
@@ -62,10 +63,10 @@ const createPluginAttachment = `
                 REFERENCES posthog_team
                 DEFERRABLE INITIALLY DEFERRED
     );
-    
+
     CREATE INDEX posthog_pluginattachment_plugin_config_id_cc94a1b9
         ON posthog_pluginattachment (plugin_config_id);
-    
+
     CREATE INDEX posthog_pluginattachment_team_id_415eacc7
         ON posthog_pluginattachment (team_id);
 `
@@ -89,10 +90,10 @@ const createPluginConfig = `
         config    jsonb   NOT NULL,
         error     jsonb
     );
-    
+
     CREATE INDEX posthog_pluginconfig_team_id_71185766
         ON posthog_pluginconfig (team_id);
-    
+
     CREATE INDEX posthog_pluginconfig_plugin_id_d014ca1c
         ON posthog_pluginconfig (plugin_id);
 `
