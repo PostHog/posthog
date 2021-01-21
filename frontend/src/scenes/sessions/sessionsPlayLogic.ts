@@ -152,7 +152,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
         session: [
             (selectors) => [selectors.sessionRecordingId, selectors.sessions],
             (id: SessionRecordingId, sessions: Array<SessionType>): SessionType | null => {
-                const [session] = sessions.filter((s) => s.session_recording_ids.includes(id))
+                const [session] = sessions.filter((s) => (s.session_recording_ids || []).includes(id))
                 return session
             },
         ],
