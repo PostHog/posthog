@@ -47,12 +47,12 @@ cd plugins
 echo "🧐 Verifying installed packages..."
 yarn --frozen-lockfile
 if [ $? -ne 0 ]; then
-    echo "💥 Verification failed!"
-    exit 1
+  echo "💥 Verification failed!"
+  exit 1
 fi
 
 if [[ -n $NO_RESTART_LOOP ]]; then
-echo "▶️ Starting plugin server..."
+  echo "▶️ Starting plugin server..."
   yarn start
 else
   echo "🔁 Starting plugin server in a resiliency loop..."
