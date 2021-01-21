@@ -66,7 +66,6 @@ function startQueueKafka(
     processEventBatch: (event: PluginEvent[]) => Promise<(PluginEvent | null)[]>
 ): Queue {
     const kafkaQueue = new KafkaQueue(server, processEventBatch, async (event: PluginEvent) => {
-        const singleIngestionTimer = new Date()
         const { distinct_id, ip, site_url, team_id, now, sent_at } = event
         await server.eventsProcessor.process_event_ee(
             distinct_id,
@@ -77,7 +76,6 @@ function startQueueKafka(
             DateTime.fromISO(now),
             sent_at ? DateTime.fromISO(sent_at) : null
         )
-        server.statsd?.timing('single-ingestion', singleIngestionTimer)
     })
 
     kafkaQueue.start()

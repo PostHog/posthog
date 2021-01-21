@@ -47,6 +47,7 @@ export class KafkaQueue implements Queue {
                 isRunning,
                 isStale,
             }) => {
+                const batchProcessingTimer = new Date()
                 const rawEvents: RawEventMessage[] = batch.messages.map((message) => ({
                     ...JSON.parse(message.value!.toString()),
                     kafka_offset: message.offset,
@@ -64,6 +65,7 @@ export class KafkaQueue implements Queue {
                     await this.processEventBatch(pluginEvents)
                 ).filter((event: PluginEvent[] | false | null | undefined) => Boolean(event))
                 for (const event of processedEvents) {
+                    const singleIngestionTimer = new Date()
                     if (!isRunning()) {
                         status.info('😮', 'Consumer not running anymore, canceling batch processing!')
                         return
@@ -76,7 +78,9 @@ export class KafkaQueue implements Queue {
                     resolveOffset(event.kafka_offset!)
                     await heartbeat()
                     await commitOffsetsIfNecessary()
+                    this.pluginsServer.statsd?.timing('kafka_queue.single_ingestion', singleIngestionTimer)
                 }
+                this.pluginsServer.statsd?.timing('kafka_queue.each_batch', batchProcessingTimer)
             },
         })
         this.wasConsumerRan = true
