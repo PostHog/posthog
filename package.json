@@ -1,6 +1,6 @@
 {
     "name": "@posthog/plugin-server",
-    "version": "0.6.7",
+    "version": "0.6.8",
     "description": "PostHog Plugin Server",
     "types": "dist/src/index.d.ts",
     "main": "dist/src/index.js",
@@ -17,7 +17,7 @@
         "lint:fix": "eslint --fix .",
         "prettier": "prettier --write .",
         "prettier:check": "prettier --check .",
-        "prepublishOnly": "yarn test && yarn build",
+        "prepublishOnly": "yarn build",
         "task:init-test-db": "NODE_ENV=test ts-node ./tasks/init-test-db.ts"
     },
     "bin": {
