@@ -37,11 +37,11 @@ function _FeatureFlags() {
             render: function RenderRolloutPercentage(_, featureFlag) {
                 return (
                     <div data-attr="rollout-percentage">
-                        {featureFlag.rollout_percentage ? `${featureFlag.rollout_percentage}%` : 'N/A'}
+                        {rollout(featureFlag) != null ? `${rollout(featureFlag)}%` : 'N/A'}
                     </div>
                 )
             },
-            sorter: (a, b) => a.rollout_percentage - b.rollout_percentage,
+            sorter: (a, b) => rollout(a) - rollout(b),
         },
         {
             title: 'Filters',
@@ -150,4 +150,9 @@ function _FeatureFlags() {
             </Drawer>
         </div>
     )
+}
+
+function rollout(featureFlag) {
+    const groups = featureFlag.filters?.groups || []
+    return groups.length === 1 ? groups[0].rollout_percentage : null
 }
