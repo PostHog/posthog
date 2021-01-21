@@ -1,5 +1,5 @@
 import hashlib
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import posthoganalytics
 from django.contrib.postgres.fields import JSONField
@@ -33,20 +33,25 @@ class FeatureFlag(models.Model):
     active: models.BooleanField = models.BooleanField(default=True)
 
     def distinct_id_matches(self, distinct_id: str) -> bool:
-        if len(self.filters.get("properties", [])) > 0:
-            if not self._match_distinct_id(distinct_id):
+        return any(self.distinct_id_matches_group(distinct_id, group) for group in self.groups)
+
+    def distinct_id_matches_group(self, distinct_id: str, group: Dict):
+        rollout_percentage = group.get("rollout_percentage")
+        if len(group.get("properties", [])) > 0:
+            if not self._match_distinct_id(distinct_id, group):
                 return False
-            elif not self.rollout_percentage:
+            elif not rollout_percentage:
                 return True
 
-        if self.rollout_percentage:
+        if rollout_percentage is not None:
             hash = self._hash(self.key, distinct_id)
-            if hash <= (self.rollout_percentage / 100):
+            if hash <= (rollout_percentage / 100):
                 return True
+
         return False
 
-    def _match_distinct_id(self, distinct_id: str) -> bool:
-        filter = Filter(data=self.filters)
+    def _match_distinct_id(self, distinct_id: str, group: Dict) -> bool:
+        filter = Filter(data=group)
         return (
             Person.objects.filter(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
             .filter(properties_to_Q(filter.properties, team_id=self.team_id, is_person_query=True))
@@ -66,11 +71,20 @@ class FeatureFlag(models.Model):
         filter_count: int = len(self.filters.get("properties", []),) if self.filters else 0
 
         return {
-            "rollout_percentage": self.rollout_percentage,
+            "groups_count": self.rollout_percentage,
             "has_filters": True if self.filters and self.filters.get("properties") else False,
             "filter_count": filter_count,
             "created_at": self.created_at,
         }
+
+    @property
+    def groups(self):
+        if "groups" in self.filters:
+            return self.filters.get("groups", [])
+        else:
+            # :TRICKY: Keep this backwards compatible.
+            #   We don't want to migrate to avoid /decide endpoint downtime until this code has been deployed
+            return [{"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}]
 
 
 @receiver(models.signals.post_save, sender=FeatureFlag)
