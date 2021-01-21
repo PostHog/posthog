@@ -156,7 +156,10 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                 <PlaySquareOutlined /> Recording properties
             </>
         ),
-        dataSource: [{ key: 'duration', name: 'Recording duration', value: 'duration' }],
+        dataSource: [
+            { key: 'duration', name: 'Recording duration', value: 'duration' },
+            { key: 'unseen', name: 'Unseen recordings', value: 'unseen' },
+        ],
         renderInfo: function recordingProperty({ item }) {
             return (
                 <>

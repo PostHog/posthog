@@ -1,5 +1,7 @@
 import json
-from typing import Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Optional
+
+from django.http.request import HttpRequest
 
 from posthog.constants import (
     DISTINCT_ID_FILTER,
@@ -12,6 +14,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.models.entity import Entity
+from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.models.property import Property
@@ -63,7 +66,7 @@ class SessionsFiltersMixin(BaseParamMixin):
         ]
 
     @cached_property
-    def duration_filter_property(self) -> Optional[Property]:
+    def recording_duration_filter(self) -> Optional[Property]:
         return next(
             (
                 Property(**filter)
@@ -74,6 +77,13 @@ class SessionsFiltersMixin(BaseParamMixin):
         )
 
     @cached_property
+    def recording_unseen_filter(self) -> bool:
+        return any(
+            filter["type"] == SESSIONS_FILTER_RECORDING_TYPE and filter["key"] == "unseen"
+            for filter in self._all_filters
+        )
+
+    @cached_property
     def _all_filters(self) -> List[Dict]:
         _props = self._data.get("filters")
         return json.loads(_props) if isinstance(_props, str) else _props or []
@@ -81,3 +91,11 @@ class SessionsFiltersMixin(BaseParamMixin):
     @include_dict
     def filters_to_dict(self):
         return {"filters": self._all_filters}
+
+
+class UserIdMixin(BaseFilter):
+    user_id: Optional[int]
+
+    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
+        self.user_id = request.user.pk if request else (data or {}).get("user_id")
+        super().__init__(data, request)

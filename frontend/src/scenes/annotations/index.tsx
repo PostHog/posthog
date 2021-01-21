@@ -2,7 +2,6 @@ import { hot } from 'react-hot-loader/root'
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
 import { Table, Tag, Button, Modal, Input, DatePicker, Row, Spin, Menu, Dropdown } from 'antd'
-import { Link } from 'lib/components/Link'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import moment from 'moment'
 import { annotationsModel } from '~/models/annotationsModel'
@@ -10,9 +9,9 @@ import { annotationsTableLogic } from './logic'
 import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, DownOutlined } from '@ant-design/icons'
 import { AnnotationScope, annotationScopeToName } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
+import { createdByColumn } from 'lib/components/Table'
 
 const { TextArea } = Input
 
@@ -46,23 +45,7 @@ function _Annotations(): JSX.Element {
             },
             ellipsis: true,
         },
-        {
-            title: 'Created By',
-            key: 'person',
-            render: function RenderPerson(annotation): JSX.Element {
-                const { created_by } = annotation
-
-                return (
-                    <Link
-                        to={`/person/${encodeURIComponent(created_by.id)}`}
-                        className={rrwebBlockClass + ' ph-no-capture'}
-                    >
-                        {created_by?.name || created_by?.email}
-                    </Link>
-                )
-            },
-            ellipsis: true,
-        },
+        createdByColumn(annotations),
         {
             title: 'Date Marker',
             render: function RenderDateMarker(annotation): JSX.Element {

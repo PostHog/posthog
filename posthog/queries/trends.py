@@ -3,7 +3,6 @@ import datetime
 from itertools import accumulate
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import pandas as pd
 from django.db import connection
 from django.db.models import (
     Avg,
@@ -39,11 +38,9 @@ from posthog.models import (
 )
 from posthog.models.utils import Percentile
 from posthog.queries.lifecycle import LifecycleTrend
-from posthog.utils import append_data
+from posthog.utils import append_data, get_daterange
 
 from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
-
-FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "MS"}
 
 MATH_TO_AGGREGATE_FUNCTION: Dict[str, Callable] = {
     "sum": Sum,
@@ -68,29 +65,46 @@ MATH_TO_AGGREGATE_STRING: Dict[str, str] = {
 }
 
 
-def build_dataframe(aggregates: QuerySet, interval: str, breakdown: Optional[str] = None) -> pd.DataFrame:
+def build_dataarray(
+    aggregates: QuerySet, interval: str, breakdown: Optional[str] = None
+) -> Tuple[List[Dict[str, Any]], List[Any]]:
+    data_array = []
+    cohort_dict: Dict[Any, Any] = {}  # keeps data of total count per breakdown
+    cohort_keys = []  # contains unique breakdown values
     if breakdown == "cohorts":
         cohort_keys = [key for key in aggregates[0].keys() if key.startswith("cohort_")]
         # Convert queryset with day, count, cohort_88, cohort_99, ... to multiple rows, for example:
         # 2020-01-01..., 1, cohort_88
         # 2020-01-01..., 3, cohort_99
-        dataframe = pd.melt(
-            pd.DataFrame(aggregates), id_vars=[interval, "count"], value_vars=cohort_keys, var_name="breakdown",
-        ).rename(columns={interval: "date"})
-        # Filter out false values
-        dataframe = dataframe[dataframe["value"] == True]
-        # Sum dates with same cohort
-        dataframe = dataframe.groupby(["breakdown", "date"], as_index=False).sum()
+        data_dict: Dict[Any, Any] = {}
+        for a in aggregates:
+            for key in cohort_keys:
+                if a[key]:
+                    cohort_dict[key] = cohort_dict.get(key, 0) + a["count"]
+                    data_dict[(a[interval], key)] = data_dict.get((a[interval], key), 0) + a["count"]
+
+        data_array = [{"date": key[0], "count": value, "breakdown": key[1]} for key, value in data_dict.items()]
+
     else:
-        dataframe = pd.DataFrame(
-            [
-                {"date": a[interval], "count": a["count"], "breakdown": a[breakdown] if breakdown else "Total",}
-                for a in aggregates
-            ]
-        )
+        for a in aggregates:
+            key = a[breakdown] if breakdown else "Total"
+            cohort_keys.append(key)
+            cohort_dict[key] = cohort_dict.get(key, 0) + a["count"]
+            data_array.append(
+                {"date": a[interval], "count": a["count"], "breakdown": key,}
+            )
+        cohort_keys = list(dict.fromkeys(cohort_keys))  # getting unique breakdowns keeping their order
+
+    # following finds top 20 breakdown in given queryset then removes other rows from data array
+    if len(cohort_keys) > 20:
+        top20keys = [x[0] for x in sorted(cohort_dict.items(), key=lambda x: -x[1])[:20]]
+        cohort_keys = [key for key in top20keys if key in cohort_keys]
+        data_array = list(filter(lambda d: d["breakdown"] in cohort_keys, data_array))
+
     if interval == "week":
-        dataframe["date"] = dataframe["date"].apply(lambda x: x - pd.offsets.Week(weekday=6))
-    return dataframe
+        for df in data_array:
+            df["date"] -= datetime.timedelta(days=df["date"].weekday() + 1)
+    return data_array, list(dict.fromkeys(cohort_keys))
 
 
 def group_events_to_date(
@@ -108,34 +122,18 @@ def group_events_to_date(
         if date_to:
             date_to = date_to.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    time_index = pd.date_range(date_from, date_to, freq=FREQ_MAP[interval])
+    time_index = get_daterange(date_from, date_to, frequency=interval)
     if len(aggregates) > 0:
-        dataframe = build_dataframe(aggregates, interval, breakdown)
+        dataframe, unique_cohorts = build_dataarray(aggregates, interval, breakdown)
 
-        # extract top 20 if more than 20 breakdowns
-        if breakdown and dataframe["breakdown"].nunique() > 20:
-            counts = (
-                dataframe.groupby(["breakdown"])["count"]
-                .sum()
-                .reset_index(name="total")
-                .sort_values(by=["total"], ascending=False)[:20]
-            )
-            top_breakdown = counts["breakdown"].to_list()
-            dataframe = dataframe[dataframe.breakdown.isin(top_breakdown)]
-        dataframe = dataframe.astype({"breakdown": str})
-        for value in dataframe["breakdown"].unique():
-            filtered = (
-                dataframe.loc[dataframe["breakdown"] == value]
-                if value
-                else dataframe.loc[dataframe["breakdown"].isnull()]
-            )
-            df_dates = pd.DataFrame(filtered.groupby("date").mean(), index=time_index)
-            df_dates = df_dates.fillna(0)
-            response[value] = {key: value[0] if len(value) > 0 else 0 for key, value in df_dates.iterrows()}
+        for value in unique_cohorts:
+            filtered = list(filter(lambda d: d["breakdown"] == value, dataframe))
+            datewise_data = {d["date"]: d["count"] for d in filtered}
+            if value is None:
+                value = "nan"
+            response[value] = {key: datewise_data.get(key, 0) for key in time_index}
     else:
-        dataframe = pd.DataFrame([], index=time_index)
-        dataframe = dataframe.fillna(0)
-        response["total"] = {key: value[0] if len(value) > 0 else 0 for key, value in dataframe.iterrows()}
+        response["total"] = {key: 0 for key in time_index}
 
     return response
 
@@ -289,7 +287,7 @@ def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optiona
         ret_dict["label"] = "{} - {}".format(
             entity.name, value if value and value != "None" and value != "nan" else "Other",
         )
-        ret_dict["breakdown_value"] = value if value and not pd.isna(value) else None
+        ret_dict["breakdown_value"] = value if value else None
     else:
         if value == "cohort_all":
             ret_dict["label"] = "{} - all users".format(entity.name)

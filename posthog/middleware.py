@@ -52,6 +52,7 @@ class AllowIP(object):
             "batch",
             "e",
             "static",
+            "_health",
         ]:
             return response
         ip = self.extract_client_ip(request)

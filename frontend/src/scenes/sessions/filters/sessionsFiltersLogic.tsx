@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
-import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
+import { SESSIONS_WITH_RECORDINGS_FILTER, SESSIONS_WITH_UNSEEN_RECORDINGS } from 'scenes/sessions/filters/constants'
 import { sessionsFiltersLogicType } from 'types/scenes/sessions/filters/sessionsFiltersLogicType'
 import { SessionsPropertyFilter } from '~/types'
 
@@ -105,6 +105,12 @@ export const sessionsFiltersLogic = kea<
                     id: 'withrecordings',
                     name: 'Sessions with recordings',
                     filters: { properties: [SESSIONS_WITH_RECORDINGS_FILTER] },
+                    type: 'global',
+                },
+                {
+                    id: 'unseen',
+                    name: 'Unseen recordings',
+                    filters: { properties: [SESSIONS_WITH_UNSEEN_RECORDINGS] },
                     type: 'global',
                 },
                 ...customFilters,

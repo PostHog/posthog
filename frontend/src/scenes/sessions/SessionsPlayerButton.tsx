@@ -14,17 +14,17 @@ export const sessionPlayerUrl = (sessionRecordingId: string): string => {
 }
 
 export function SessionsPlayerButton({ session }: SessionsPlayerButtonProps): JSX.Element | null {
-    if (!session.session_recording_ids) {
+    if (!session.session_recordings) {
         return null
     }
 
     return (
         <>
-            {session.session_recording_ids.map((sessionRecordingId: string) => (
+            {session.session_recordings.map(({ id, viewed }) => (
                 <Link
-                    to={sessionPlayerUrl(sessionRecordingId)}
-                    className="sessions-player-button"
-                    key={sessionRecordingId}
+                    to={sessionPlayerUrl(id)}
+                    className={`sessions-player-button ${viewed ? 'viewed' : ''}`}
+                    key={id}
                     onClick={(event) => event.stopPropagation()}
                 >
                     <PlayCircleOutlined />

@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { Loading } from '../../lib/utils'
+import React, { useEffect, useState } from 'react'
+import { Loading, toParams } from '../../lib/utils'
 import { LineGraph } from './LineGraph'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/insights/trendsLogic'
@@ -22,13 +22,17 @@ export function ActionsLineGraph({
         cachedResults,
     })
     const { filters, results, resultsLoading } = useValues(logic)
-    const { loadPeople } = useActions(logic)
+    const { loadResults, loadPeople } = useActions(logic)
 
     const { people_action, people_day, ...otherFilters } = filters // eslint-disable-line
     const [{ fromItem }] = useState(router.values.hashParams)
 
+    useEffect(() => {
+        loadResults()
+    }, [toParams(otherFilters)])
+
     return results && !resultsLoading ? (
-        results.reduce((total, item) => total + item.count, 0) !== 0 ? (
+        filters.session || results.reduce((total, item) => total + item.count, 0) !== 0 ? (
             <LineGraph
                 pageKey={'trends-annotations'}
                 data-attr="trend-line-graph"

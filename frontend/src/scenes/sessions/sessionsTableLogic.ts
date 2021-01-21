@@ -112,7 +112,7 @@ export const sessionsTableLogic = kea<
         orderedSessionRecordingIds: [
             (selectors) => [selectors.sessions],
             (sessions: SessionType[]): SessionRecordingId[] =>
-                Array.from(new Set(sessions.flatMap((session) => session.session_recording_ids))),
+                Array.from(new Set(sessions.flatMap((session) => session.session_recordings.map(({ id }) => id)))),
         ],
         firstRecordingId: [
             (selectors) => [selectors.orderedSessionRecordingIds],
