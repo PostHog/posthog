@@ -8,7 +8,7 @@ while test $# -gt 0; do
       echo " "
       echo "FLAGS:"
       echo "    -h, --help           Print this help information."
-      echo "    --no-restart-loop    Run without restart loop. Recommended when deffering resiliency to e.g. docker-compose."
+      echo "    --no-restart-loop    Run without restart loop. Recommended when deferring resiliency to e.g. docker-compose."
       exit 0
       ;;
     --no-restart-loop)
