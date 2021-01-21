@@ -18,8 +18,8 @@ export async function startFastifyInstance(pluginsServer: PluginsServer): Promis
     try {
         const address = await fastifyInstance.listen(pluginsServer.WEB_PORT, pluginsServer.WEB_HOSTNAME)
         status.info('✅', `Web server listening on ${address}!`)
-    } catch (e) {
-        status.error('🛑', `Web server could not start! ${e}`)
+    } catch (error) {
+        status.error('🛑', 'Web server could not start:\n', error)
         return fastifyInstance
     }
     return fastifyInstance

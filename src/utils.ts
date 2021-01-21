@@ -174,9 +174,9 @@ export class UUID {
     /**
      * Convert to string format of the form:
      * XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
-     * Adapted from https://github.com/uuidjs/uuid/blob/master/src/stringify.js
      */
     toString(): string {
+        // Adapted from https://github.com/uuidjs/uuid/blob/master/src/stringify.js
         // Note: Be careful editing this code! It's been tuned for performance and works in ways you may not expect.
         // See https://github.com/uuidjs/uuid/pull/434
         const arr = this.array
@@ -230,14 +230,13 @@ export class UUIDT extends UUID {
 
     /** Get per-millisecond series integer in range [0-65536). */
     static getSeries(unixTimeMs: number): number {
-        const series = UUIDT.currentSeriesPerMs.get(unixTimeMs)
+        const series = UUIDT.currentSeriesPerMs.get(unixTimeMs) ?? 0
         if (UUIDT.currentSeriesPerMs.size > 10_000) {
             // Clear class dict periodically
             UUIDT.currentSeriesPerMs.clear()
         }
-        const nextSeries = typeof series === 'number' ? (series + 1) % 65_536 : 0
-        UUIDT.currentSeriesPerMs.set(unixTimeMs, nextSeries)
-        return nextSeries
+        UUIDT.currentSeriesPerMs.set(unixTimeMs, (series + 1) % 65_536)
+        return series
     }
 
     constructor(unixTimeMs?: number) {
