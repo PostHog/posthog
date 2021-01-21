@@ -87,7 +87,7 @@ export class KafkaQueue implements Queue {
                 // discards some events, leaving us with no kafka_offset to resolve when in fact it should be resolved.
                 autoCommitInterval: 500, // autocommit every 500 ms…
                 autoCommitThreshold: 1000, // …or every 1000 messages, whichever is sooner
-                eachBatch: this.eachBatch,
+                eachBatch: this.eachBatch.bind(this),
             })
         })
         return await startPromise
