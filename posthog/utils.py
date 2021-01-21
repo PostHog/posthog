@@ -37,6 +37,14 @@ from sentry_sdk import capture_exception, push_scope
 from posthog.redis import get_client
 from posthog.settings import print_warning
 
+DATERANGE_MAP = {
+    "minute": datetime.timedelta(minutes=1),
+    "hour": datetime.timedelta(hours=1),
+    "day": datetime.timedelta(days=1),
+    "week": datetime.timedelta(weeks=1),
+    "month": datetime.timedelta(days=31),
+}
+
 
 def absolute_uri(url: Optional[str] = None) -> str:
     """
@@ -479,3 +487,36 @@ def flatten(l: Union[List, Tuple]) -> Generator:
             yield from flatten(el)
         else:
             yield el
+
+
+def get_daterange(
+    start_date: Optional[datetime.datetime], end_date: Optional[datetime.datetime], frequency: str
+) -> List[Any]:
+    """
+    Returns list of a fixed frequency Datetime objects between given bounds.
+
+    Parameters:
+        start_date: Left bound for generating dates.
+        end_date: Right bound for generating dates.
+        frequency: Possible options => minute, hour, day, week, month
+    """
+
+    delta = DATERANGE_MAP[frequency]
+
+    if not start_date or not end_date:
+        return []
+
+    time_range = []
+    if frequency == "week":
+        start_date += datetime.timedelta(days=6 - start_date.weekday())
+    if frequency != "month":
+        while start_date <= end_date:
+            time_range.append(start_date)
+            start_date += delta
+    else:
+        if start_date.day != 1:
+            start_date = (start_date.replace(day=1) + delta).replace(day=1)
+        while start_date <= end_date:
+            time_range.append(start_date)
+            start_date = (start_date.replace(day=1) + delta).replace(day=1)
+    return time_range
