@@ -16,7 +16,7 @@ class ClickhouseTestRunner(DiscoverRunner):
         return Database(
             CLICKHOUSE_DATABASE,
             db_url=CLICKHOUSE_HTTP_URL,
-            user=CLICKHOUSE_USER,
+            username=CLICKHOUSE_USER,
             password=CLICKHOUSE_PASSWORD,
             verify_ssl_cert=CLICKHOUSE_VERIFY,
         )
