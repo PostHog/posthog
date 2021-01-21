@@ -11,7 +11,7 @@ from ee.clickhouse.sql.sessions.average_all import AVERAGE_SQL
 from ee.clickhouse.sql.sessions.average_per_period import AVERAGE_PER_PERIOD_SQL
 from ee.clickhouse.sql.sessions.no_events import SESSIONS_NO_EVENTS_SQL
 from posthog.models import Filter, Team
-from posthog.queries.sessions import scale_time_series
+from posthog.queries.sessions.sessions import scale_time_series
 from posthog.utils import append_data, friendly_time
 
 
