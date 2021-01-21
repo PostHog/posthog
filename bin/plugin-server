@@ -4,7 +4,7 @@ while test $# -gt 0; do
   case "$1" in
     -h|--help)
       echo "USAGE:"
-      echo "    plugin-server [FLAGS]"
+      echo "    bin/plugin-server [FLAGS]"
       echo " "
       echo "FLAGS:"
       echo "    -h, --help           Print this help information."
