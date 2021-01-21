@@ -52,7 +52,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 if (!refresh && (props.cachedResults || props.preventLoading)) {
                     return props.cachedResults
                 }
-                const urlParams = toParams(values.filters)
+                const urlParams = toParams({ ...values.filters, ...(refresh ? { refresh: true } : {}) })
                 const res = await api.get(`api/insight/retention/?${urlParams}`)
                 breakpoint()
                 return res.data
