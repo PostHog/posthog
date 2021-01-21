@@ -46,7 +46,8 @@ function _FeatureFlags() {
         {
             title: 'Filters',
             render: function RenderFilters(featureFlag) {
-                return <PropertyFiltersDisplay filters={featureFlag.filters?.properties} />
+                const properties = featureFlag.filters?.groups?.flatMap((group) => group.properties || []) || []
+                return <PropertyFiltersDisplay filters={properties} />
             },
         },
         {
@@ -132,7 +133,7 @@ function _FeatureFlags() {
             />
             <Drawer
                 title={openFeatureFlag === 'new' ? 'New feature flag' : openFeatureFlag.name}
-                width={400}
+                width={500}
                 onClose={() => setOpenFeatureFlag(false)}
                 destroyOnClose={true}
                 visible={openFeatureFlag}
