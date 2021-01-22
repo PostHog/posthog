@@ -5,6 +5,6 @@ COPY package.json yarn.lock .eslintrc.js .prettierrc ./
 RUN yarn install --frozen-lockfile
 
 COPY ./ ./
-RUN yarn compile:typescript
+RUN yarn compile
 
 CMD [ "node", "dist/src/index.js" ]
