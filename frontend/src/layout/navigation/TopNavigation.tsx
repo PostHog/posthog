@@ -70,6 +70,9 @@ export function _TopNavigation(): JSX.Element {
             <div className="divider mt-05" />
             <div className="organizations">
                 {user?.organizations.map((organization) => {
+                    if (organization.id == user.organization?.id) {
+                        return undefined
+                    }
                     return (
                         <a key={organization.id} onClick={() => updateCurrentOrganization(organization.id)}>
                             <IconBuilding /> {organization.name}
