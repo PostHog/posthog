@@ -43,7 +43,7 @@ export function PluginCard({
     maintainer,
 }: PluginCardProps): JSX.Element {
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError } = useActions(pluginsLogic)
-    const { loading, installingPluginUrl, checkingForUpgrades } = useValues(pluginsLogic)
+    const { loading, installingPluginUrl, checkingForUpdates } = useValues(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
     const switchDisabled = pluginConfig?.global
@@ -100,14 +100,14 @@ export function PluginCard({
                                     <WarningOutlined /> Error checking for updates
                                 </Tag>
                             ) : upgrades?.currentTag !== upgrades?.nextTag ? (
-                                <Tag color="#108ee9">
-                                    <CloudDownloadOutlined /> Click to update!
+                                <Tag color="volcano">
+                                    <CloudDownloadOutlined /> Update available!
                                 </Tag>
                             ) : upgrades?.currentTag && upgrades.currentTag === upgrades.nextTag ? (
                                 <Tag color="green">
                                     <CheckOutlined /> Up To Date
                                 </Tag>
-                            ) : checkingForUpgrades && pluginType !== PluginInstallationType.Source ? (
+                            ) : checkingForUpdates && pluginType !== PluginInstallationType.Source ? (
                                 <Tag color="blue">
                                     <LoadingOutlined /> Checking...
                                 </Tag>

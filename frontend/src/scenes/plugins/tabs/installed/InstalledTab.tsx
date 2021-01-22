@@ -1,58 +1,61 @@
 import React from 'react'
 import { Button, Col, Row } from 'antd'
-import { CloudDownloadOutlined } from '@ant-design/icons'
+import { CloudDownloadOutlined, SyncOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginCard } from 'scenes/plugins/plugin/PluginCard'
 import { Subtitle } from 'lib/components/PageHeader'
 import { userLogic } from 'scenes/userLogic'
 import { PluginLoading } from 'scenes/plugins/plugin/PluginLoading'
+import { InstalledPlugin } from 'scenes/plugins/tabs/installed/InstalledPlugin'
 
 export function InstalledTab(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { installedPlugins, loading, checkingForUpgrades, hasNonSourcePlugins } = useValues(pluginsLogic)
-    const { checkForUpgrades } = useActions(pluginsLogic)
+    const { installedPlugins, loading, checkingForUpdates, hasNonSourcePlugins, pluginsNeedingUpdates } = useValues(
+        pluginsLogic
+    )
+    const { checkForUpdates } = useActions(pluginsLogic)
+
+    const upgradeButton =
+        user.plugin_access.install && hasNonSourcePlugins ? (
+            <Button
+                type="primary"
+                icon={pluginsNeedingUpdates.length > 0 ? <SyncOutlined /> : <CloudDownloadOutlined />}
+                onClick={checkForUpdates}
+                loading={checkingForUpdates}
+                disabled={checkingForUpdates}
+            >
+                {pluginsNeedingUpdates.length > 0 ? 'Check again' : 'Check for Updates'}
+            </Button>
+        ) : null
 
     return (
         <div>
+            {pluginsNeedingUpdates.length > 0 ? (
+                <>
+                    <Subtitle
+                        subtitle={`Plugins to update (${pluginsNeedingUpdates.length})`}
+                        buttons={<>{upgradeButton}</>}
+                    />
+                    <Row gutter={16} style={{ marginTop: 16 }}>
+                        {pluginsNeedingUpdates.map((plugin) => (
+                            <InstalledPlugin key={plugin.id} plugin={plugin} />
+                        ))}
+                    </Row>
+                </>
+            ) : null}
+
             <Subtitle
                 subtitle={
                     'Installed Plugins' +
                     (!loading || installedPlugins.length > 0 ? ` (${installedPlugins.length})` : '')
                 }
-                buttons={
-                    <>
-                        {user.plugin_access.install && hasNonSourcePlugins && (
-                            <Button
-                                type="primary"
-                                icon={<CloudDownloadOutlined />}
-                                onClick={checkForUpgrades}
-                                loading={checkingForUpgrades}
-                                disabled={checkingForUpgrades}
-                            >
-                                Check for Upgrades
-                            </Button>
-                        )}
-                    </>
-                }
+                buttons={<>{pluginsNeedingUpdates.length === 0 ? upgradeButton : null}</>}
             />
             <Row gutter={16} style={{ marginTop: 16 }}>
                 {(!loading || installedPlugins.length > 0) && (
                     <>
                         {installedPlugins.map((plugin) => {
-                            return (
-                                <PluginCard
-                                    key={plugin.id}
-                                    pluginId={plugin.id}
-                                    name={plugin.name}
-                                    url={plugin.url}
-                                    description={plugin.description}
-                                    pluginType={plugin.plugin_type}
-                                    pluginConfig={plugin.pluginConfig}
-                                    upgrades={plugin.upgrades}
-                                    error={plugin.error}
-                                />
-                            )
+                            return <InstalledPlugin key={plugin.id} plugin={plugin} />
                         })}
                         {installedPlugins.length == 0 && <Col span={24}>You don't have any plugins installed yet.</Col>}
                     </>

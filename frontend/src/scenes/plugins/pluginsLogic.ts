@@ -46,8 +46,8 @@ export const pluginsLogic = kea<
         resetPluginConfigError: (id: number) => ({ id }),
         editPluginSource: (values: { id: number; name: string; source: string; configSchema: Record<string, any> }) =>
             values,
-        checkForUpgrades: true,
-        checkedForUpgrades: true,
+        checkForUpdates: true,
+        checkedForUpdates: true,
         setUpgradeStatus: (id: number, currentTag: string, nextTag: string) => ({ id, currentTag, nextTag }),
         setUpgradeError: (id: number) => ({ id }),
     },
@@ -260,32 +260,32 @@ export const pluginsLogic = kea<
                 installPluginSuccess: () => PluginTab.Installed,
             },
         ],
-        availableUpgrades: [
+        availableUpdates: [
             {} as Record<string, PluginUpgradeType>,
             {
-                checkForUpgrades: () => ({}),
+                checkForUpdates: () => ({}),
                 setUpgradeStatus: (state, { id, currentTag, nextTag }) => ({ ...state, [id]: { currentTag, nextTag } }),
                 setUpgradeError: (state, { id }) => ({ ...state, [id]: { error: true } }),
             },
         ],
-        checkingForUpgrades: [
+        checkingForUpdates: [
             false,
             {
-                checkForUpgrades: () => true,
-                checkedForUpgrades: () => false,
+                checkForUpdates: () => true,
+                checkedForUpdates: () => false,
             },
         ],
     },
 
     selectors: {
         installedPlugins: [
-            (s) => [s.plugins, s.pluginConfigs, s.availableUpgrades],
-            (plugins, pluginConfigs, availableUpgrades): PluginTypeWithConfig[] => {
+            (s) => [s.plugins, s.pluginConfigs, s.availableUpdates],
+            (plugins, pluginConfigs, availableUpdates): PluginTypeWithConfig[] => {
                 const pluginValues = Object.values(plugins)
                 return pluginValues
                     .map((plugin, index) => {
                         let pluginConfig = pluginConfigs[plugin.id]
-                        const upgrades = availableUpgrades[plugin.id]
+                        const upgrades = availableUpdates[plugin.id]
                         if (!pluginConfig) {
                             const config: Record<string, any> = {}
                             Object.entries(getConfigSchemaObject(plugin.config_schema)).forEach(
@@ -307,6 +307,11 @@ export const pluginsLogic = kea<
                     .sort((a, b) => a.pluginConfig.order - b.pluginConfig.order)
                     .map((plugin, index) => ({ ...plugin, order: index + 1 }))
             },
+        ],
+        pluginsNeedingUpdates: [
+            (s) => [s.installedPlugins],
+            (installedPlugins) =>
+                installedPlugins.filter((p) => p.upgrades && p.upgrades.nextTag !== p.upgrades.currentTag),
         ],
         installedPluginUrls: [
             (s) => [s.installedPlugins],
@@ -345,7 +350,7 @@ export const pluginsLogic = kea<
     },
 
     listeners: ({ actions, values }) => ({
-        checkForUpgrades: async (_, breakpoint) => {
+        checkForUpdates: async (_, breakpoint) => {
             breakpoint()
             const { installedPlugins } = values
             const upgradablePlugins = installedPlugins.filter(
@@ -362,7 +367,7 @@ export const pluginsLogic = kea<
                 breakpoint()
             }
 
-            actions.checkedForUpgrades()
+            actions.checkedForUpdates()
         },
     }),
 
