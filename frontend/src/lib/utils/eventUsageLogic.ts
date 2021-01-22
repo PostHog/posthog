@@ -3,7 +3,7 @@ import { kea } from 'kea'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
-import { eventUsageLogicType } from 'types/lib/utils/eventUsageLogicType'
+import { eventUsageLogicType } from './eventUsageLogicType'
 import { AnnotationType, FilterType, DashboardType } from '~/types'
 
 const keyMappingKeys = Object.keys(keyMapping.event)

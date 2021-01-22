@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { teamLogicType } from 'types/scenes/teamLogicType'
+import { teamLogicType } from './teamLogicType'
 import { TeamType } from '~/types'
 
 export const teamLogic = kea<teamLogicType<TeamType>>({

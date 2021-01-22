@@ -5,7 +5,7 @@ import { ViewType } from 'scenes/insights/insightLogic'
 import { InsightHistory, SavedFunnel } from '~/types'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { funnelsModelType } from 'types/models/funnelsModelType'
+import { funnelsModelType } from './funnelsModelType'
 
 const parseSavedFunnel = (result: Record<string, any>): SavedFunnel => {
     return {

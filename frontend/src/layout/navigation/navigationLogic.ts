@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { userLogic } from 'scenes/userLogic'
-import { navigationLogicType } from 'types/layout/navigation/navigationLogicType'
+import { navigationLogicType } from './navigationLogicType'
 import { UserType } from '~/types'
 
 export const navigationLogic = kea<navigationLogicType<UserType>>({

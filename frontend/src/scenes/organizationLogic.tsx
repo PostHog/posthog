@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { organizationLogicType } from 'types/scenes/organizationLogicType'
+import { organizationLogicType } from './organizationLogicType'
 import { OrganizationType } from '~/types'
 
 export const organizationLogic = kea<organizationLogicType<OrganizationType>>({

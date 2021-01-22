@@ -6,7 +6,7 @@ import { DownOutlined, RightOutlined } from '@ant-design/icons'
 import { ActionType, CohortType } from '~/types'
 import { searchItems, selectBoxLogic } from 'lib/logic/selectBoxLogic'
 import './SelectBox.scss'
-import { selectBoxLogicType } from 'types/lib/logic/selectBoxLogicType'
+import { selectBoxLogicType } from './selectBoxLogicType'
 
 export interface SelectBoxItem {
     dataSource: SelectedItem[]

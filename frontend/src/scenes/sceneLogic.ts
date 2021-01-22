@@ -5,7 +5,7 @@ import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
 import posthog from 'posthog-js'
 import { userLogic } from './userLogic'
-import { sceneLogicType } from 'types/scenes/sceneLogicType'
+import { sceneLogicType } from './sceneLogicType'
 
 export enum Scene {
     // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link

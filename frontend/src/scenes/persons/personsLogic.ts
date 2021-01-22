@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
-import { personsLogicType } from 'types/scenes/persons/personsLogicType'
+import { personsLogicType } from './personsLogicType'
 import { PersonType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
