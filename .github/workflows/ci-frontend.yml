@@ -4,7 +4,7 @@ on:
     - pull_request
 
 jobs:
-    code-quality:
+    frontend-code-quality:
         name: Code quality checks
         runs-on: ubuntu-latest
         steps:
@@ -26,3 +26,7 @@ jobs:
 
             - name: Test with Jest
               run: yarn test
+
+            - name: Run typescript with strict
+              run: |
+                  ./bin/check-typescript-strict
