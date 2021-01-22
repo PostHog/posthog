@@ -16,24 +16,25 @@ jobs:
               with:
                   fetch-depth: 0
 
-            - name: Get package version
+            - name: Detect package version and set up image tags
               id: version
               # TODO: add DockerHub tags when we add DockerHub credentials
               run: |
                   PACKAGE_VERSION=$(node -p "require('./package.json').version")
                   PACKAGE_VERSION_TAG="v$PACKAGE_VERSION"
-                  DOCKER_TAGS="ghcr.io/posthog/plugin-server:latest,public.ecr.aws/p1o5l3m0/posthog-plugin-server:latest"
+                  DOCKER_TAGS="public.ecr.aws/p1o5l3m0/posthog-plugin-server:latest"
                   if git rev-parse "$PACKAGE_VERSION_TAG"; then
                     IS_NEW_VERSION=false
                   else
                     IS_NEW_VERSION=true
-                    DOCKER_TAGS="$DOCKER_TAGS,ghcr.io/posthog/plugin-server:$PACKAGE_VERSION,public.ecr.aws/p1o5l3m0/posthog-plugin-server:$PACKAGE_VERSION"
+                    DOCKER_TAGS="$DOCKER_TAGS,public.ecr.aws/p1o5l3m0/posthog-plugin-server:$PACKAGE_VERSION"
                   fi
                   echo "PACKAGE_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
                   echo "PACKAGE_VERSION_TAG=$PACKAGE_VERSION_TAG" >> $GITHUB_ENV
                   echo "IS_NEW_VERSION=$IS_NEW_VERSION" >> $GITHUB_ENV
                   echo "::set-output name=IS_NEW_VERSION::$IS_NEW_VERSION"
                   echo "::set-output name=DOCKER_TAGS::$DOCKER_TAGS"
+
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v1
 
@@ -46,13 +47,6 @@ jobs:
             #   with:
             #       username: ${{ secrets.DOCKERHUB_USERNAME }}
             #       password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-            - name: Log in to GitHub Container Registry
-              uses: docker/login-action@v1
-              with:
-                  registry: ghcr.io
-                  username: ${{ github.repository_owner }}
-                  password: ${{ secrets.CR_PAT }}
 
             - name: Log in to Public ECR
               uses: docker/login-action@v1
@@ -70,7 +64,7 @@ jobs:
                   tags: ${{ steps.version.outputs.DOCKER_TAGS }}
 
     release:
-        name: Release New Version
+        name: Publish release if new version
         runs-on: ubuntu-20.04
 
         steps:
@@ -79,7 +73,7 @@ jobs:
               with:
                   fetch-depth: 0
 
-            - name: Get package version
+            - name: Detect package version
               id: version
               run: |
                   PACKAGE_VERSION=$(node -p "require('./package.json').version")
