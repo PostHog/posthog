@@ -3,7 +3,6 @@
 echo "Refreshing typegen and running 'tsc -p tsconfig.strict.json'..."
 echo ""
 
-# yarn typescript:clean &> /dev/null
 yarn typegen:write &> /dev/null
 
 ALL_ERRORS=$(yarn typescript:check --strict 2> /dev/null | grep error | grep frontend)
@@ -12,6 +11,10 @@ NEW_ERRORS=$(echo "${ALL_ERRORS}" | grep --invert-match --fixed-strings --file=.
 NEW_ERRORS_COUNT="$(echo "${NEW_ERRORS}" | wc -l)"
 
 echo "In total there are ${ERRORS_COUNT} typescript errors."
+
+echo "-----"
+echo "${ALL_ERRORS}"
+echo "-----"
 
 if test -z "${NEW_ERRORS}"
 then
