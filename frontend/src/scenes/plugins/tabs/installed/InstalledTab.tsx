@@ -29,12 +29,12 @@ export function InstalledTab(): JSX.Element {
                 onClick={checkForUpdates}
                 loading={checkingForUpdates}
             >
-                {pluginsNeedingUpdates.length > 0
-                    ? 'Check again'
-                    : checkingForUpdates
+                {checkingForUpdates
                     ? `Checking plugin ${Object.keys(availableUpdates).length} out of ${
                           Object.keys(installedPluginUrls).length
                       }`
+                    : pluginsNeedingUpdates.length > 0
+                    ? 'Check again'
                     : 'Check for Updates'}
             </Button>
         ) : null

@@ -7,7 +7,7 @@ import {
     PluginRepositoryEntry,
     PluginTab,
     PluginTypeWithConfig,
-    PluginUpgradeType,
+    PluginUpdateType,
 } from './types'
 import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
@@ -29,7 +29,7 @@ export const pluginsLogic = kea<
         PluginRepositoryEntry,
         PluginTypeWithConfig,
         PluginInstallationType,
-        PluginUpgradeType,
+        PluginUpdateType,
         PluginTab
     >
 >({
@@ -48,11 +48,13 @@ export const pluginsLogic = kea<
             values,
         checkForUpdates: true,
         checkedForUpdates: true,
-        setUpgradeStatus: (id: number, currentTag: string, nextTag: string) => ({ id, currentTag, nextTag }),
-        setUpgradeError: (id: number) => ({ id }),
+        setUpdateStatus: (id: number, currentTag: string, nextTag: string) => ({ id, currentTag, nextTag }),
+        setUpdateError: (id: number) => ({ id }),
+        updatePlugin: (id: number) => ({ id }),
+        pluginUpdated: (id: number) => ({ id }),
     },
 
-    loaders: ({ values }) => ({
+    loaders: ({ actions, values }) => ({
         plugins: [
             {} as Record<number, PluginType>,
             {
@@ -91,6 +93,13 @@ export const pluginsLogic = kea<
                         config_schema: configSchema,
                     })
                     capturePluginEvent(`plugin source edited`, response)
+                    return { ...plugins, [id]: response }
+                },
+                updatePlugin: async ({ id }) => {
+                    const { plugins } = values
+                    const response = await api.update(`api/organizations/@current/plugins/${id}`, {})
+                    capturePluginEvent(`plugin updated`, response)
+                    actions.pluginUpdated(id)
                     return { ...plugins, [id]: response }
                 },
             },
@@ -261,12 +270,17 @@ export const pluginsLogic = kea<
             },
         ],
         availableUpdates: [
-            {} as Record<string, PluginUpgradeType>,
+            {} as Record<string, PluginUpdateType>,
             {
                 checkForUpdates: () => ({}),
-                setUpgradeStatus: (state, { id, currentTag, nextTag }) => ({ ...state, [id]: { currentTag, nextTag } }),
-                setUpgradeError: (state, { id }) => ({ ...state, [id]: { error: true } }),
+                setUpdateStatus: (state, { id, currentTag, nextTag }) => ({ ...state, [id]: { currentTag, nextTag } }),
+                setUpdateError: (state, { id }) => ({ ...state, [id]: { error: true } }),
+                pluginUpdated: (state, { id }) => ({ ...state, [id]: { updated: true } }),
             },
+        ],
+        updatingPlugin: [
+            null as number | null,
+            { updatePlugin: (_, { id }) => id, updatePluginSuccess: () => null, updatePluginFailure: () => null },
         ],
         checkingForUpdates: [
             false,
@@ -285,7 +299,7 @@ export const pluginsLogic = kea<
                 return pluginValues
                     .map((plugin, index) => {
                         let pluginConfig = pluginConfigs[plugin.id]
-                        const upgrades = availableUpdates[plugin.id]
+                        const updates = availableUpdates[plugin.id]
                         if (!pluginConfig) {
                             const config: Record<string, any> = {}
                             Object.entries(getConfigSchemaObject(plugin.config_schema)).forEach(
@@ -302,7 +316,7 @@ export const pluginsLogic = kea<
                                 order: pluginValues.length + index,
                             }
                         }
-                        return { ...plugin, pluginConfig, upgrades }
+                        return { ...plugin, pluginConfig, updates }
                     })
                     .sort((a, b) => a.pluginConfig.order - b.pluginConfig.order)
                     .map((plugin, index) => ({ ...plugin, order: index + 1 }))
@@ -311,7 +325,9 @@ export const pluginsLogic = kea<
         pluginsNeedingUpdates: [
             (s) => [s.installedPlugins],
             (installedPlugins) =>
-                installedPlugins.filter((p) => p.upgrades && p.upgrades.nextTag !== p.upgrades.currentTag),
+                installedPlugins.filter(
+                    ({ updates }) => updates && (updates.updated || updates.nextTag !== updates.currentTag)
+                ),
         ],
         installedPluginUrls: [
             (s) => [s.installedPlugins],
@@ -359,10 +375,10 @@ export const pluginsLogic = kea<
 
             for (const plugin of upgradablePlugins) {
                 try {
-                    const upgrades = await api.get(`api/organizations/@current/plugins/${plugin.id}/check_for_upgrades`)
-                    actions.setUpgradeStatus(plugin.id, upgrades.current_tag, upgrades.next_tag)
+                    const updates = await api.get(`api/organizations/@current/plugins/${plugin.id}/check_for_updates`)
+                    actions.setUpdateStatus(plugin.id, updates.current_tag, updates.next_tag)
                 } catch (e) {
-                    actions.setUpgradeError(plugin.id)
+                    actions.setUpdateError(plugin.id)
                 }
                 breakpoint()
             }

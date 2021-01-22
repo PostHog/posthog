@@ -11,13 +11,14 @@ export interface PluginRepositoryEntry {
 
 export interface PluginTypeWithConfig extends PluginType {
     pluginConfig: PluginConfigType
-    upgrades: PluginUpgradeType
+    updates: PluginUpdateType
 }
 
-export interface PluginUpgradeType {
+export interface PluginUpdateType {
     currentTag?: string
     nextTag?: string
     error?: boolean
+    updated?: boolean
 }
 
 export enum PluginInstallationType {

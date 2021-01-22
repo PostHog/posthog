@@ -75,10 +75,9 @@ class PluginSerializer(serializers.ModelSerializer):
         if not can_install_plugins_via_api(self.context["organization_id"]):
             raise ValidationError("Plugin upgrades via the web are disabled!")
         if plugin.plugin_type != Plugin.PluginType.SOURCE:
-            validated_data["url"] = self.initial_data.get("url", None)
-            validated_data = self._update_validated_data_from_url(validated_data, validated_data["url"])
-        response = super().update(plugin, validated_data)
-        reload_plugins_on_workers()
+            validated_data = self._update_validated_data_from_url({}, plugin.url)
+            response = super().update(plugin, validated_data)
+            reload_plugins_on_workers()
         return response
 
     # If remote plugin, download the archive and get up-to-date validated_data from there.
@@ -159,7 +158,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response({"status": "offline"})
 
     @action(methods=["GET"], detail=True)
-    def check_for_upgrades(self, request: request.Request, **kwargs):
+    def check_for_updates(self, request: request.Request, **kwargs):
         if not can_install_plugins_via_api(self.organization):
             raise ValidationError("Plugin installation via the web is disabled!")
 

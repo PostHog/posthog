@@ -18,7 +18,7 @@ export function InstalledPlugin({
             description={plugin.description}
             pluginType={plugin.plugin_type}
             pluginConfig={plugin.pluginConfig}
-            upgrades={plugin.upgrades}
+            updates={plugin.updates}
             error={plugin.error}
             showUpdateButton={showUpdateButton}
         />

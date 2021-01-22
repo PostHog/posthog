@@ -14,7 +14,7 @@ import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
 import { PluginError } from './PluginError'
 import { LocalPluginTag } from './LocalPluginTag'
-import { PluginInstallationType, PluginUpgradeType } from 'scenes/plugins/types'
+import { PluginInstallationType, PluginUpdateType } from 'scenes/plugins/types'
 import { SourcePluginTag } from './SourcePluginTag'
 import { CommunityPluginTag } from './CommunityPluginTag'
 
@@ -23,7 +23,7 @@ interface PluginCardProps {
     description?: string
     url?: string
     pluginConfig?: PluginConfigType
-    upgrades?: PluginUpgradeType
+    updates?: PluginUpdateType
     pluginType?: PluginInstallationType
     pluginId?: number
     error?: PluginErrorType
@@ -37,13 +37,13 @@ export function PluginCard({
     url,
     pluginType,
     pluginConfig,
-    upgrades,
+    updates,
     pluginId,
     error,
     maintainer,
     showUpdateButton,
 }: PluginCardProps): JSX.Element {
-    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError } = useActions(pluginsLogic)
+    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin } = useActions(pluginsLogic)
     const { loading, installingPluginUrl, checkingForUpdates } = useValues(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
@@ -96,15 +96,15 @@ export function PluginCard({
                             ) : null}
                             {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
 
-                            {upgrades?.error ? (
+                            {updates?.error ? (
                                 <Tag color="red">
                                     <WarningOutlined /> Error checking for updates
                                 </Tag>
-                            ) : upgrades?.currentTag !== upgrades?.nextTag ? (
+                            ) : updates?.currentTag !== updates?.nextTag ? (
                                 <Tag color="volcano">
                                     <CloudDownloadOutlined /> Update available!
                                 </Tag>
-                            ) : upgrades?.currentTag && upgrades.currentTag === upgrades.nextTag ? (
+                            ) : updates?.updated || (updates?.currentTag && updates.currentTag === updates.nextTag) ? (
                                 <Tag color="green">
                                     <CheckOutlined /> Up To Date
                                 </Tag>
@@ -135,21 +135,18 @@ export function PluginCard({
                         </div>
                     </Col>
                     <Col>
-                        {showUpdateButton ? (
+                        {showUpdateButton && pluginId ? (
                             <Button
-                                type="primary"
+                                type={updates?.updated ? 'default' : 'primary'}
                                 className="padding-under-500"
-                                onClick={() => editPlugin(pluginId || null)}
-                                icon={<CloudDownloadOutlined />}
+                                onClick={() => updates?.updated || updatePlugin(pluginId)}
+                                loading={loading}
+                                icon={updates?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
                             >
-                                <span className="show-over-500">Update</span>
+                                <span className="show-over-500">{updates?.updated ? 'Updated' : 'Update'}</span>
                             </Button>
-                        ) : canConfigure ? (
-                            <Button
-                                type="primary"
-                                className="padding-under-500"
-                                onClick={() => editPlugin(pluginId || null)}
-                            >
+                        ) : canConfigure && pluginId ? (
+                            <Button type="primary" className="padding-under-500" onClick={() => editPlugin(pluginId)}>
                                 <span className="show-over-500">Configure</span>
                                 <span className="hide-over-500">
                                     <SettingOutlined />
