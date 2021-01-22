@@ -33,7 +33,9 @@ def test_process_event_factory(
     process_event: Callable, get_events: Callable, get_session_recording_events: Callable, get_elements: Callable
 ) -> Callable:
     class TestProcessEvent(BaseTest):
-        def test_capture_new_person(self) -> None:
+        @patch("posthog.models.team.cache.get")
+        def test_capture_new_person(self, patch_cache: Any) -> None:
+            patch_cache.return_value = None
             user = self._create_user("tim")
             action1 = Action.objects.create(team=self.team)
             ActionStep.objects.create(action=action1, selector="a", event="$autocapture")
@@ -45,7 +47,7 @@ def test_process_event_factory(
 
             num_queries = 28
             if settings.EE_AVAILABLE:  # extra queries to check for hooks
-                num_queries += 4
+                num_queries += 3
             if settings.MULTI_TENANCY:  # extra query to check for billing plan
                 num_queries += 1
             with self.assertNumQueries(num_queries):
@@ -92,6 +94,32 @@ def test_process_event_factory(
                     {"key": "$ip", "usage_count": None, "volume": None},
                 ],
             )
+
+            # See effect of caching
+            patch_cache.return_value = team
+            num_queries = 23
+            if settings.EE_AVAILABLE:  # extra queries to check for hooks
+                num_queries += 2
+            with self.assertNumQueries(num_queries):
+                process_event(
+                    2,
+                    "",
+                    "",
+                    {
+                        "event": "$autocapture",
+                        "properties": {
+                            "distinct_id": 2,
+                            "token": self.team.api_token,
+                            "$elements": [
+                                {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                                {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
+                            ],
+                        },
+                    },
+                    team_id,
+                    now().isoformat(),
+                    now().isoformat(),
+                )
 
         def test_capture_no_element(self) -> None:
             user = self._create_user("tim")
@@ -850,7 +878,7 @@ def test_process_event_factory(
         def test_add_feature_flags_if_missing(self) -> None:
             self.assertListEqual(self.team.event_properties_numerical, [])
             FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test-ff", rollout_percentage=100)
-            with self.assertNumQueries(17):
+            with self.assertNumQueries(16):
                 process_event(
                     "xxx",
                     "",

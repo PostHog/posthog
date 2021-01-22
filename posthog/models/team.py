@@ -1,8 +1,11 @@
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 import posthoganalytics
 from django.contrib.postgres.fields import ArrayField, JSONField
+from django.core.cache import cache
 from django.db import models
+from django.db.models.signals import post_delete, post_save
+from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR, TRENDS_TABLE
@@ -12,7 +15,7 @@ from .dashboard import Dashboard
 from .dashboard_item import DashboardItem
 from .utils import UUIDT, generate_random_token, sane_repr
 
-TEAM_CACHE: Dict[str, "Team"] = {}
+TEAM_CACHE: Dict[int, "Team"] = {}
 
 
 class TeamManager(models.Manager):
@@ -65,13 +68,20 @@ class TeamManager(models.Manager):
             raise ValueError("Creating organization-less projects is prohibited")
         return super().create(*args, **kwargs)
 
-    def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
+    def get_team_from_token(self, token: Optional[str], only: Tuple) -> Optional["Team"]:
         if not token:
             return None
         try:
-            return Team.objects.get(api_token=token)
-        except Team.DoesNotExist:
+            return Team.objects.filter(api_token=token).only(*only)[0]
+        except IndexError:
             return None
+
+    def get_team_cached(self, pk: int) -> "Team":
+        team = cache.get("team_{}".format(pk))
+        if not team:
+            team = Team.objects.get(pk=pk)
+            cache.set("team_{}".format(pk), team)
+        return team
 
 
 class Team(models.Model):
@@ -119,3 +129,8 @@ class Team(models.Model):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
+
+
+@receiver(post_save, sender=Team)
+def person_saved(sender, instance: Team, **kwargs):
+    cache.set("team_{}".format(instance.pk), instance)
