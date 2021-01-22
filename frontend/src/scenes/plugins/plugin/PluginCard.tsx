@@ -139,7 +139,7 @@ export function PluginCard({
                             <Button
                                 type={updates?.updated ? 'default' : 'primary'}
                                 className="padding-under-500"
-                                onClick={() => updates?.updated || updatePlugin(pluginId)}
+                                onClick={() => (updates?.updated ? editPlugin(pluginId) : updatePlugin(pluginId))}
                                 loading={loading}
                                 icon={updates?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
                             >

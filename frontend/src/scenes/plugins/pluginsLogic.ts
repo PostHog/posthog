@@ -100,6 +100,18 @@ export const pluginsLogic = kea<
                     const response = await api.update(`api/organizations/@current/plugins/${id}`, {})
                     capturePluginEvent(`plugin updated`, response)
                     actions.pluginUpdated(id)
+
+                    // Check if we need to update the config (e.g. new required field) and if so, open the drawer.
+                    const schema = getConfigSchemaObject(response.config_schema)
+                    const pluginConfig = Object.values(values.pluginConfigs).filter((c) => c.plugin === id)[0]
+                    if (pluginConfig?.enabled) {
+                        if (
+                            Object.entries(schema).find(([key, { required }]) => required && !pluginConfig.config[key])
+                        ) {
+                            actions.editPlugin(id)
+                        }
+                    }
+
                     return { ...plugins, [id]: response }
                 },
             },
