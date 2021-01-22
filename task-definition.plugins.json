@@ -3,6 +3,7 @@
     "networkMode": "awsvpc",
     "executionRoleArn": "posthog-production-ecs-task",
     "taskRoleArn": "posthog-production-ecs-task",
+    "image": "public.ecr.aws/p1o5l3m0/posthog-plugin-server:latest",
     "containerDefinitions": [
         {
             "name": "posthog-production-plugins",
@@ -62,8 +63,7 @@
                     "name": "STATSD_HOST",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STATSD_HOST::"
                 }
-            ],
-            "entryPoint": ["./bin/plugin-server"]
+            ]
         }
     ],
     "requiresCompatibilities": ["FARGATE"],
