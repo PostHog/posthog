@@ -3,7 +3,6 @@
     "networkMode": "awsvpc",
     "executionRoleArn": "posthog-production-ecs-task",
     "taskRoleArn": "posthog-production-ecs-task",
-    "image": "public.ecr.aws/p1o5l3m0/posthog-plugin-server:latest",
     "containerDefinitions": [
         {
             "name": "posthog-production-plugins",
