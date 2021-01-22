@@ -1,0 +1,77 @@
+name: e2e
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    name: Perform E2E Tests on BrowserStack
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v2
+
+      - name: Get branch and commit
+        id: gitinfo
+        run: |
+          if [ -n "${{ github.event.pull_request.head.sha }}" ]; \
+          then echo "::set-output name=shapr::$(echo ${{ github.event.pull_request.head.sha }} | cut -c -7) - #${{ github.event.pull_request.number }}"; \
+          else echo "::set-output name=shapr::$(echo ${{ github.sha }} | cut -c -7)"; fi
+          echo "::set-output name=branch::${GITHUB_HEAD_REF:-main}"
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: echo "::set-output name=dir::$(yarn cache dir)"
+
+      - name: Cache node_modules
+        uses: actions/cache@v2
+        id: yarn-cache
+        with:
+          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+      - name: Set up NodeJS
+        uses: actions/setup-node@v2
+        with:
+          node-version: 14
+
+      - name: Install sponge utility
+        run: sudo apt-get install -yqq moreutils
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --prefer-offline
+
+      - name: Build test production build
+        run: yarn build:test
+
+      - name: Start http server
+        run: yarn serve:build &
+
+      - name: Set BrowserStack config values
+        run: jq '.run_settings.build_name = "${{ steps.gitinfo.outputs.shapr }} - ${{ steps.gitinfo.outputs.branch }}"' browserstack.json | sponge browserstack.json
+
+      - name: Set up BrowserStack environment
+        uses: 'browserstack/github-actions/setup-env@master'
+        with:
+          username: ${{ secrets.BROWSERSTACK_USERNAME }}
+          access-key: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+
+      - name: Set up BrowserStack local connection
+        uses: 'browserstack/github-actions/setup-local@master'
+        with:
+          local-testing: start
+          local-identifier: random
+
+      - name: Enable cypress videos
+        run: jq '.video = true' cypress.json | sponge cypress.json
+
+      - name: Run BrowserStack Tests
+        run: yarn run cy:browserstack
+
+      - name: Stop BrowserStack local connection
+        uses: 'browserstack/github-actions/setup-local@master'
+        with:
+          local-testing: stop
