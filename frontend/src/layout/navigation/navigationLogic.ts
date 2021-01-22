@@ -3,18 +3,18 @@ import api from 'lib/api'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogicType } from './navigationLogicType'
-import { UserType } from '~/types'
+import { SystemStatus, UserType } from '~/types'
 
-export const navigationLogic = kea<navigationLogicType<UserType>>({
+export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus>>({
     actions: {
-        setMenuCollapsed: (collapsed) => ({ collapsed }),
+        setMenuCollapsed: (collapsed: boolean) => ({ collapsed }),
         collapseMenu: () => {},
-        setSystemStatus: (status) => ({ status }),
-        setChangelogModalOpen: (isOpen) => ({ isOpen }),
-        updateCurrentOrganization: (id) => ({ id }),
-        updateCurrentProject: (id, dest) => ({ id, dest }),
-        setToolbarModalOpen: (isOpen) => ({ isOpen }),
-        setPinnedDashboardsVisible: (visible) => ({ visible }),
+        setSystemStatus: (status: SystemStatus) => ({ status }),
+        setChangelogModalOpen: (isOpen: boolean) => ({ isOpen }),
+        updateCurrentOrganization: (id: number) => ({ id }),
+        updateCurrentProject: (id: number, dest: string) => ({ id, dest }),
+        setToolbarModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
     },
     reducers: {
         menuCollapsed: [
@@ -52,7 +52,7 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
                 const aliveMetrics = ['redis_alive', 'db_alive']
                 let aliveSignals = 0
                 for (const metric of statusMetrics) {
-                    if (aliveMetrics.includes(metric.key) && metric.value) {
+                    if (metric.key && aliveMetrics.includes(metric.key) && metric.value) {
                         aliveSignals = aliveSignals + 1
                     }
                     if (aliveSignals >= aliveMetrics.length) {
@@ -72,7 +72,7 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
         currentTeam: [
             () => [userLogic.selectors.user],
             (user) => {
-                return user?.team.id
+                return user?.team?.id
             },
         ],
     },
