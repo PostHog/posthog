@@ -22,7 +22,7 @@ export function InstalledTab(): JSX.Element {
     const { checkForUpdates } = useActions(pluginsLogic)
 
     const upgradeButton =
-        user.plugin_access.install && hasNonSourcePlugins ? (
+        user?.plugin_access.install && hasNonSourcePlugins ? (
             <Button
                 type="primary"
                 icon={pluginsNeedingUpdates.length > 0 ? <SyncOutlined /> : <CloudDownloadOutlined />}
