@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { Fragment, useState } from 'react'
 import { hot } from 'react-hot-loader/root'
 import { useValues, useActions } from 'kea'
 import { featureFlagLogic } from './featureFlagLogic'
@@ -33,21 +33,15 @@ function _FeatureFlags() {
         createdAtColumn(),
         createdByColumn(featureFlags),
         {
-            title: 'Rollout Percentage',
-            render: function RenderRolloutPercentage(_, featureFlag) {
-                return (
-                    <div data-attr="rollout-percentage">
-                        {rollout(featureFlag) != null ? `${rollout(featureFlag)}%` : 'N/A'}
-                    </div>
-                )
-            },
-            sorter: (a, b) => rollout(a) - rollout(b),
-        },
-        {
             title: 'Filters',
-            render: function RenderFilters(featureFlag) {
-                const properties = featureFlag.filters?.groups?.flatMap((group) => group.properties || []) || []
-                return <PropertyFiltersDisplay filters={properties} />
+            render: function RenderGroups(featureFlag) {
+                if (!featureFlag.filters?.groups) {
+                    return 'N/A'
+                }
+                if (featureFlag.filters.groups.length > 1) {
+                    return 'Multiple groups'
+                }
+                return GroupFilters({ group: featureFlag.filters.groups[0] })
             },
         },
         {
@@ -152,7 +146,19 @@ function _FeatureFlags() {
     )
 }
 
-function rollout(featureFlag) {
-    const groups = featureFlag.filters?.groups || []
-    return groups.length === 1 ? groups[0].rollout_percentage : null
+function GroupFilters({ group }) {
+    if (group.properties && group.properties.length > 0 && group.rollout_percentage != null) {
+        return (
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+                <span style={{ flexShrink: 0, marginRight: 5 }}>{group.rollout_percentage}% of</span>
+                <PropertyFiltersDisplay filters={group.properties} style={{ margin: 0, width: '100%' }} />
+            </div>
+        )
+    } else if (group.properties && group.properties.length > 0) {
+        return <PropertyFiltersDisplay filters={group.properties} style={{ margin: 0 }} />
+    } else if (group.rollout_percentage) {
+        return `${group.rollout_percentage}% of all users`
+    } else {
+        return 'N/A'
+    }
 }
