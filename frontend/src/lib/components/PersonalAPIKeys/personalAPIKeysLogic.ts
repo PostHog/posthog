@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { toast } from 'react-toastify'
 import api from 'lib/api'
 import { PersonalAPIKeyType } from '~/types'
-import { personalAPIKeysLogicType } from './personalAPIKeysLogicType.ts'
+import { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 import { copyToClipboard } from 'lib/utils'
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType<PersonalAPIKeyType>>({
@@ -29,7 +29,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType<PersonalAPIKeyT
     }),
     listeners: () => ({
         createKeySuccess: ({ keys }: { keys: PersonalAPIKeyType[] }) => {
-            copyToClipboard(keys[0].value, 'personal API key value')
+            keys[0]?.value && copyToClipboard(keys[0].value, 'personal API key value')
         },
         deleteKeySuccess: ({}: { keys: PersonalAPIKeyType[] }) => {
             toast.success(`Personal API key deleted.`)
