@@ -44,7 +44,7 @@ export function PluginCard({
     showUpdateButton,
 }: PluginCardProps): JSX.Element {
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin } = useActions(pluginsLogic)
-    const { loading, installingPluginUrl, checkingForUpdates } = useValues(pluginsLogic)
+    const { loading, installingPluginUrl, checkingForUpdates, updatingPlugin } = useValues(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
     const switchDisabled = pluginConfig?.global
@@ -140,7 +140,7 @@ export function PluginCard({
                                 type={updates?.updated ? 'default' : 'primary'}
                                 className="padding-under-500"
                                 onClick={() => (updates?.updated ? editPlugin(pluginId) : updatePlugin(pluginId))}
-                                loading={loading}
+                                loading={!!updatingPlugin}
                                 icon={updates?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
                             >
                                 <span className="show-over-500">{updates?.updated ? 'Updated' : 'Update'}</span>
