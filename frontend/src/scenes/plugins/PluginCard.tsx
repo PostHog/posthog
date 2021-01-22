@@ -1,14 +1,21 @@
-import { Button, Card, Col, Popconfirm, Row, Skeleton, Switch } from 'antd'
+import { Button, Card, Col, Popconfirm, Row, Skeleton, Switch, Tag } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from './pluginsLogic'
 import { PluginConfigType, PluginErrorType } from '~/types'
-import { PlusOutlined, SettingOutlined } from '@ant-design/icons'
+import {
+    CheckOutlined,
+    CloudDownloadOutlined,
+    LoadingOutlined,
+    PlusOutlined,
+    SettingOutlined,
+    WarningOutlined,
+} from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
 import { PluginError } from 'scenes/plugins/PluginError'
 import { LocalPluginTag } from 'scenes/plugins/LocalPluginTag'
-import { PluginInstallationType } from 'scenes/plugins/types'
+import { PluginInstallationType, PluginUpgradeType } from 'scenes/plugins/types'
 import { SourcePluginTag } from 'scenes/plugins/SourcePluginTag'
 import { CommunityPluginTag } from './CommunityPluginTag'
 
@@ -17,6 +24,7 @@ interface PluginCardProps {
     description?: string
     url?: string
     pluginConfig?: PluginConfigType
+    upgrades?: PluginUpgradeType
     pluginType?: PluginInstallationType
     pluginId?: number
     error?: PluginErrorType
@@ -29,12 +37,13 @@ export function PluginCard({
     url,
     pluginType,
     pluginConfig,
+    upgrades,
     pluginId,
     error,
     maintainer,
 }: PluginCardProps): JSX.Element {
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError } = useActions(pluginsLogic)
-    const { loading, installingPluginUrl } = useValues(pluginsLogic)
+    const { loading, installingPluginUrl, checkingForUpgrades } = useValues(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
     const switchDisabled = pluginConfig?.global
@@ -85,7 +94,26 @@ export function PluginCard({
                                 <PluginError error={error} />
                             ) : null}
                             {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
-                            {pluginType === 'source' ? <SourcePluginTag /> : null}
+
+                            {upgrades?.error ? (
+                                <Tag color="red">
+                                    <WarningOutlined /> Error checking for updates
+                                </Tag>
+                            ) : upgrades?.currentTag !== upgrades?.nextTag ? (
+                                <Tag color="#108ee9">
+                                    <CloudDownloadOutlined /> Click to update!
+                                </Tag>
+                            ) : upgrades?.currentTag && upgrades.currentTag === upgrades.nextTag ? (
+                                <Tag color="green">
+                                    <CheckOutlined /> Up To Date
+                                </Tag>
+                            ) : checkingForUpgrades && pluginType !== PluginInstallationType.Source ? (
+                                <Tag color="blue">
+                                    <LoadingOutlined /> Checking...
+                                </Tag>
+                            ) : null}
+
+                            {pluginType === PluginInstallationType.Source ? <SourcePluginTag /> : null}
                         </div>
                         <div>
                             {description}

@@ -1,12 +1,16 @@
 import React from 'react'
-import { Col, Row } from 'antd'
-import { useValues } from 'kea'
+import { Button, Col, Row } from 'antd'
+import { CloudDownloadOutlined } from '@ant-design/icons'
+import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginCard, PluginLoading } from './PluginCard'
 import { Subtitle } from 'lib/components/PageHeader'
+import { userLogic } from 'scenes/userLogic'
 
 export function InstalledPlugins(): JSX.Element {
-    const { installedPlugins, loading } = useValues(pluginsLogic)
+    const { user } = useValues(userLogic)
+    const { installedPlugins, loading, checkingForUpgrades, hasNonSourcePlugins } = useValues(pluginsLogic)
+    const { checkForUpgrades } = useActions(pluginsLogic)
 
     return (
         <div>
@@ -14,6 +18,21 @@ export function InstalledPlugins(): JSX.Element {
                 subtitle={
                     'Installed Plugins' +
                     (!loading || installedPlugins.length > 0 ? ` (${installedPlugins.length})` : '')
+                }
+                buttons={
+                    <>
+                        {user.plugin_access.install && hasNonSourcePlugins && (
+                            <Button
+                                type="primary"
+                                icon={<CloudDownloadOutlined />}
+                                onClick={checkForUpgrades}
+                                loading={checkingForUpgrades}
+                                disabled={checkingForUpgrades}
+                            >
+                                Check for Upgrades
+                            </Button>
+                        )}
+                    </>
                 }
             />
             <Row gutter={16} style={{ marginTop: 16 }}>
@@ -29,6 +48,7 @@ export function InstalledPlugins(): JSX.Element {
                                     description={plugin.description}
                                     pluginType={plugin.plugin_type}
                                     pluginConfig={plugin.pluginConfig}
+                                    upgrades={plugin.upgrades}
                                     error={plugin.error}
                                 />
                             )

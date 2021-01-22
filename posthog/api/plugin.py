@@ -158,6 +158,21 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return Response({"status": "offline"})
 
+    @action(methods=["GET"], detail=True)
+    def check_for_upgrades(self, request: request.Request, **kwargs):
+        if not can_install_plugins_via_api(self.organization):
+            raise ValidationError("Plugin installation via the web is disabled!")
+
+        plugin = self.get_object()
+        next_url = parse_url(plugin.url, get_latest_if_none=True)
+        return Response(
+            {
+                "plugin": plugin.id,
+                "current_tag": plugin.tag,
+                "next_tag": next_url.get("tag", next_url.get("version", None)),
+            }
+        )
+
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:
         response = super().destroy(request, *args, **kwargs)
         reload_plugins_on_workers()

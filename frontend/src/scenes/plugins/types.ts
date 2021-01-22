@@ -10,6 +10,13 @@ export interface PluginRepositoryEntry {
 
 export interface PluginTypeWithConfig extends PluginType {
     pluginConfig: PluginConfigType
+    upgrades: PluginUpgradeType
+}
+
+export interface PluginUpgradeType {
+    currentTag?: string
+    nextTag?: string
+    error?: boolean
 }
 
 export enum PluginInstallationType {

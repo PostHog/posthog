@@ -2,7 +2,13 @@ import { kea } from 'kea'
 import { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
-import { PluginInstallationType, PluginRepositoryEntry, PluginTab, PluginTypeWithConfig } from './types'
+import {
+    PluginInstallationType,
+    PluginRepositoryEntry,
+    PluginTab,
+    PluginTypeWithConfig,
+    PluginUpgradeType,
+} from './types'
 import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 import posthog from 'posthog-js'
@@ -23,6 +29,7 @@ export const pluginsLogic = kea<
         PluginRepositoryEntry,
         PluginTypeWithConfig,
         PluginInstallationType,
+        PluginUpgradeType,
         PluginTab
     >
 >({
@@ -39,6 +46,10 @@ export const pluginsLogic = kea<
         resetPluginConfigError: (id: number) => ({ id }),
         editPluginSource: (values: { id: number; name: string; source: string; configSchema: Record<string, any> }) =>
             values,
+        checkForUpgrades: true,
+        checkedForUpgrades: true,
+        setUpgradeStatus: (id: number, currentTag: string, nextTag: string) => ({ id, currentTag, nextTag }),
+        setUpgradeError: (id: number) => ({ id }),
     },
 
     loaders: ({ values }) => ({
@@ -249,16 +260,32 @@ export const pluginsLogic = kea<
                 installPluginSuccess: () => PluginTab.Installed,
             },
         ],
+        availableUpgrades: [
+            {} as Record<string, PluginUpgradeType>,
+            {
+                checkForUpgrades: () => ({}),
+                setUpgradeStatus: (state, { id, currentTag, nextTag }) => ({ ...state, [id]: { currentTag, nextTag } }),
+                setUpgradeError: (state, { id }) => ({ ...state, [id]: { error: true } }),
+            },
+        ],
+        checkingForUpgrades: [
+            false,
+            {
+                checkForUpgrades: () => true,
+                checkedForUpgrades: () => false,
+            },
+        ],
     },
 
     selectors: {
         installedPlugins: [
-            (s) => [s.plugins, s.pluginConfigs],
-            (plugins, pluginConfigs): PluginTypeWithConfig[] => {
+            (s) => [s.plugins, s.pluginConfigs, s.availableUpgrades],
+            (plugins, pluginConfigs, availableUpgrades): PluginTypeWithConfig[] => {
                 const pluginValues = Object.values(plugins)
                 return pluginValues
                     .map((plugin, index) => {
                         let pluginConfig = pluginConfigs[plugin.id]
+                        const upgrades = availableUpgrades[plugin.id]
                         if (!pluginConfig) {
                             const config: Record<string, any> = {}
                             Object.entries(getConfigSchemaObject(plugin.config_schema)).forEach(
@@ -275,7 +302,7 @@ export const pluginsLogic = kea<
                                 order: pluginValues.length + index,
                             }
                         }
-                        return { ...plugin, pluginConfig }
+                        return { ...plugin, pluginConfig, upgrades }
                     })
                     .sort((a, b) => a.pluginConfig.order - b.pluginConfig.order)
                     .map((plugin, index) => ({ ...plugin, order: index + 1 }))
@@ -292,6 +319,10 @@ export const pluginsLogic = kea<
                 })
                 return names
             },
+        ],
+        hasNonSourcePlugins: [
+            (s) => [s.installedPluginUrls],
+            (installedPluginUrls) => Object.keys(installedPluginUrls).length > 0,
         ],
         uninstalledPlugins: [
             (s) => [s.installedPluginUrls, s.repository],
@@ -312,6 +343,28 @@ export const pluginsLogic = kea<
                 pluginsLoading || repositoryLoading || pluginConfigsLoading,
         ],
     },
+
+    listeners: ({ actions, values }) => ({
+        checkForUpgrades: async (_, breakpoint) => {
+            breakpoint()
+            const { installedPlugins } = values
+            const upgradablePlugins = installedPlugins.filter(
+                (plugin) => plugin.plugin_type !== PluginInstallationType.Source
+            )
+
+            for (const plugin of upgradablePlugins) {
+                try {
+                    const upgrades = await api.get(`api/organizations/@current/plugins/${plugin.id}/check_for_upgrades`)
+                    actions.setUpgradeStatus(plugin.id, upgrades.current_tag, upgrades.next_tag)
+                } catch (e) {
+                    actions.setUpgradeError(plugin.id)
+                }
+                breakpoint()
+            }
+
+            actions.checkedForUpgrades()
+        },
+    }),
 
     events: ({ actions }) => ({
         afterMount: () => {
