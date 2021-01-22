@@ -18,15 +18,16 @@ jobs:
 
             - name: Get package version
               id: version
+              # TODO: add DockerHub tags when we add DockerHub credentials
               run: |
                   PACKAGE_VERSION=$(node -p "require('./package.json').version")
                   PACKAGE_VERSION_TAG="v$PACKAGE_VERSION"
-                  DOCKER_TAGS="posthog/plugin-server:latest,ghcr.io/posthog/plugin-server:latest,public.ecr.aws/p1o5l3m0/posthog-plugin-server:latest"
+                  DOCKER_TAGS="ghcr.io/posthog/plugin-server:latest,public.ecr.aws/p1o5l3m0/posthog-plugin-server:latest"
                   if git rev-parse "$PACKAGE_VERSION_TAG"; then
                     IS_NEW_VERSION=false
                   else
                     IS_NEW_VERSION=true
-                    DOCKER_TAGS="$DOCKER_TAGS,posthog/plugin-server:$PACKAGE_VERSION,ghcr.io/posthog/plugin-server:$PACKAGE_VERSION,public.ecr.aws/p1o5l3m0/posthog-plugin-server:$PACKAGE_VERSION"
+                    DOCKER_TAGS="$DOCKER_TAGS,ghcr.io/posthog/plugin-server:$PACKAGE_VERSION,public.ecr.aws/p1o5l3m0/posthog-plugin-server:$PACKAGE_VERSION"
                   fi
                   echo "PACKAGE_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
                   echo "PACKAGE_VERSION_TAG=$PACKAGE_VERSION_TAG" >> $GITHUB_ENV
