@@ -24,9 +24,9 @@ jobs:
             - name: Lint with ESLint
               run: yarn eslint
 
-            - name: Run typescript with strict
-              run: |
-                  ./bin/check-typescript-strict
-
             - name: Test with Jest
               run: yarn test
+
+            - name: Run typescript with strict
+              run: |
+                  yarn build && ./bin/check-typescript-strict
