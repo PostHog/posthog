@@ -3,11 +3,12 @@ import { Button, Col, Row } from 'antd'
 import { CloudDownloadOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginCard, PluginLoading } from './PluginCard'
+import { PluginCard } from 'scenes/plugins/plugin/PluginCard'
 import { Subtitle } from 'lib/components/PageHeader'
 import { userLogic } from 'scenes/userLogic'
+import { PluginLoading } from 'scenes/plugins/plugin/PluginLoading'
 
-export function InstalledPlugins(): JSX.Element {
+export function InstalledTab(): JSX.Element {
     const { user } = useValues(userLogic)
     const { installedPlugins, loading, checkingForUpgrades, hasNonSourcePlugins } = useValues(pluginsLogic)
     const { checkForUpgrades } = useActions(pluginsLogic)

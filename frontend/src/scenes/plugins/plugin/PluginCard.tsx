@@ -1,7 +1,7 @@
-import { Button, Card, Col, Popconfirm, Row, Skeleton, Switch, Tag } from 'antd'
+import { Button, Card, Col, Popconfirm, Row, Switch, Tag } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
-import { pluginsLogic } from './pluginsLogic'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginConfigType, PluginErrorType } from '~/types'
 import {
     CheckOutlined,
@@ -13,10 +13,10 @@ import {
 } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
-import { PluginError } from 'scenes/plugins/PluginError'
-import { LocalPluginTag } from 'scenes/plugins/LocalPluginTag'
+import { PluginError } from './PluginError'
+import { LocalPluginTag } from './LocalPluginTag'
 import { PluginInstallationType, PluginUpgradeType } from 'scenes/plugins/types'
-import { SourcePluginTag } from 'scenes/plugins/SourcePluginTag'
+import { SourcePluginTag } from './SourcePluginTag'
 import { CommunityPluginTag } from './CommunityPluginTag'
 
 interface PluginCardProps {
@@ -162,34 +162,5 @@ export function PluginCard({
                 </Row>
             </Card>
         </Col>
-    )
-}
-
-export function PluginLoading(): JSX.Element {
-    return (
-        <>
-            {[1, 2, 3].map((i) => (
-                <Col key={i} style={{ marginBottom: 20, width: '100%' }}>
-                    <Card className="plugin-card">
-                        <Row align="middle" className="plugin-card-row">
-                            <Col className="hide-plugin-image-below-500">
-                                <Skeleton.Avatar active size="large" shape="square" />
-                            </Col>
-                            <Col style={{ flex: 1 }}>
-                                <Skeleton title={false} paragraph={{ rows: 2 }} active />
-                            </Col>
-                            <Col>
-                                <span className="show-over-500">
-                                    <Skeleton.Button style={{ width: 100 }} />
-                                </span>
-                                <span className="hide-over-500">
-                                    <Skeleton.Button style={{ width: 32 }} />
-                                </span>
-                            </Col>
-                        </Row>
-                    </Card>
-                </Col>
-            ))}
-        </>
     )
 }

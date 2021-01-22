@@ -6,6 +6,7 @@ export interface PluginRepositoryEntry {
     description: string
     tag: string
     config?: Record<string, PluginConfigType>
+    maintainer?: string
 }
 
 export interface PluginTypeWithConfig extends PluginType {
