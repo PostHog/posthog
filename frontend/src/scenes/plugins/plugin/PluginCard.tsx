@@ -9,6 +9,7 @@ import {
     LoadingOutlined,
     PlusOutlined,
     SettingOutlined,
+    SyncOutlined,
     WarningOutlined,
 } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
@@ -29,6 +30,7 @@ interface PluginCardProps {
     pluginId?: number
     error?: PluginErrorType
     maintainer?: string
+    showUpdateButton?: boolean
 }
 
 export function PluginCard({
@@ -41,6 +43,7 @@ export function PluginCard({
     pluginId,
     error,
     maintainer,
+    showUpdateButton,
 }: PluginCardProps): JSX.Element {
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError } = useActions(pluginsLogic)
     const { loading, installingPluginUrl, checkingForUpdates } = useValues(pluginsLogic)
@@ -134,7 +137,18 @@ export function PluginCard({
                         </div>
                     </Col>
                     <Col>
-                        {canConfigure && (
+                        {showUpdateButton ? (
+                            <Button
+                                type="primary"
+                                className="padding-under-500"
+                                onClick={() => editPlugin(pluginId || null)}
+                            >
+                                <span className="show-over-500">Update</span>
+                                <span className="hide-over-500">
+                                    <SyncOutlined />
+                                </span>
+                            </Button>
+                        ) : canConfigure ? (
                             <Button
                                 type="primary"
                                 className="padding-under-500"
@@ -145,8 +159,7 @@ export function PluginCard({
                                     <SettingOutlined />
                                 </span>
                             </Button>
-                        )}
-                        {!pluginId && (
+                        ) : !pluginId ? (
                             <Button
                                 type="primary"
                                 className="padding-under-500"
@@ -157,7 +170,7 @@ export function PluginCard({
                             >
                                 <span className="show-over-500">Install</span>
                             </Button>
-                        )}
+                        ) : null}
                     </Col>
                 </Row>
             </Card>

@@ -38,7 +38,7 @@ export function InstalledTab(): JSX.Element {
                     />
                     <Row gutter={16} style={{ marginTop: 16 }}>
                         {pluginsNeedingUpdates.map((plugin) => (
-                            <InstalledPlugin key={plugin.id} plugin={plugin} />
+                            <InstalledPlugin key={plugin.id} plugin={plugin} showUpdateButton />
                         ))}
                     </Row>
                 </>
