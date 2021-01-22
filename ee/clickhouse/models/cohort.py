@@ -33,7 +33,8 @@ def format_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
             action = Action.objects.get(pk=group["action_id"], team_id=cohort.team.pk)
             action_filter_query, action_params = format_action_filter(action, prepend="_{}_action".format(group_idx))
 
-            date_query, date_params = "", {}
+            date_query: str = ""
+            date_params: Dict[str, str] = {}
             if group.get("days"):
                 date_query, date_params = parse_action_timestamps(int(group.get("days")))
 
