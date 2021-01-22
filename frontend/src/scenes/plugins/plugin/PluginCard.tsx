@@ -7,9 +7,7 @@ import {
     CheckOutlined,
     CloudDownloadOutlined,
     LoadingOutlined,
-    PlusOutlined,
     SettingOutlined,
-    SyncOutlined,
     WarningOutlined,
 } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
@@ -142,11 +140,9 @@ export function PluginCard({
                                 type="primary"
                                 className="padding-under-500"
                                 onClick={() => editPlugin(pluginId || null)}
+                                icon={<CloudDownloadOutlined />}
                             >
                                 <span className="show-over-500">Update</span>
-                                <span className="hide-over-500">
-                                    <SyncOutlined />
-                                </span>
                             </Button>
                         ) : canConfigure ? (
                             <Button
@@ -166,7 +162,7 @@ export function PluginCard({
                                 loading={loading && installingPluginUrl === url}
                                 disabled={loading && installingPluginUrl !== url}
                                 onClick={url ? () => installPlugin(url, PluginInstallationType.Repository) : undefined}
-                                icon={<PlusOutlined />}
+                                icon={<CloudDownloadOutlined />}
                             >
                                 <span className="show-over-500">Install</span>
                             </Button>

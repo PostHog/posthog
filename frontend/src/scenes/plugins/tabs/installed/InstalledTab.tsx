@@ -10,9 +10,15 @@ import { InstalledPlugin } from 'scenes/plugins/tabs/installed/InstalledPlugin'
 
 export function InstalledTab(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { installedPlugins, loading, checkingForUpdates, hasNonSourcePlugins, pluginsNeedingUpdates } = useValues(
-        pluginsLogic
-    )
+    const {
+        installedPlugins,
+        loading,
+        checkingForUpdates,
+        hasNonSourcePlugins,
+        pluginsNeedingUpdates,
+        installedPluginUrls,
+        availableUpdates,
+    } = useValues(pluginsLogic)
     const { checkForUpdates } = useActions(pluginsLogic)
 
     const upgradeButton =
@@ -22,9 +28,14 @@ export function InstalledTab(): JSX.Element {
                 icon={pluginsNeedingUpdates.length > 0 ? <SyncOutlined /> : <CloudDownloadOutlined />}
                 onClick={checkForUpdates}
                 loading={checkingForUpdates}
-                disabled={checkingForUpdates}
             >
-                {pluginsNeedingUpdates.length > 0 ? 'Check again' : 'Check for Updates'}
+                {pluginsNeedingUpdates.length > 0
+                    ? 'Check again'
+                    : checkingForUpdates
+                    ? `Checking plugin ${Object.keys(availableUpdates).length} out of ${
+                          Object.keys(installedPluginUrls).length
+                      }`
+                    : 'Check for Updates'}
             </Button>
         ) : null
 
