@@ -183,11 +183,11 @@ export function RetentionTable({ dashboardItemId = null }) {
 
 const renderPercentage = (value, total, latest = false) => {
     const _percentage = total > 0 ? (100.0 * value) / total : 0
-    const backgroundColor = latest ? 'yellow' : `hsl(212, 63%, ${30 + (100 - _percentage) * 0.65}%)`
+    const backgroundColor = `hsl(212, 63%, ${30 + (100 - _percentage) * 0.65}%)`
     const color = _percentage >= 65 ? 'hsl(0, 0%, 80%)' : undefined
     return (
-        <div style={{ backgroundColor, color }} className="percentage-cell">
-            {_percentage.toFixed(1)}%
+        <div style={{ backgroundColor, color }} className={`percentage-cell${latest ? ' period-in-progress' : ''}`}>
+            {_percentage.toFixed(1)}%{latest && '*'}
         </div>
     )
 }
