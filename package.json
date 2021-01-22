@@ -28,7 +28,8 @@
         "typescript:check": "tsc",
         "eslint": "eslint frontend/src",
         "typegen:watch": "kea-typegen watch",
-        "format-python": "black . && isort ."
+        "format-python": "black . && isort .",
+        "ts-strict-build": "tsc -p tsconfig.strict.json"
     },
     "dependencies": {
         "@babel/core": "^7.10.4",

@@ -1,0 +1,16 @@
+#!/bin/bash
+
+echo "Running 'tsc -p tsconfig.strict.json'..."
+echo ""
+
+OUTPUT=$(yarn ts-strict-build 2> /dev/null | grep error | grep frontend | grep --invert-match --fixed-strings --file=.ts-strict-blacklist)
+
+if test -z "${OUTPUT}"
+then
+    echo "No new typescript errors found! 🚀"
+    exit 0
+else
+    echo "Found new typescript errors! 💥"
+    echo "${OUTPUT}"
+    exit 1
+fi
