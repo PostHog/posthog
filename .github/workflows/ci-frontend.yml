@@ -43,4 +43,4 @@ jobs:
 
             - name: Run typescript with strict
               run: |
-                  yarn typegen:write && ./bin/check-typescript-strict
+                  ./bin/check-typescript-strict
