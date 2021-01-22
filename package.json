@@ -26,10 +26,11 @@
         "prettier": "prettier --write \"./frontend/src/**/*.{js,ts,tsx,json,yml,css,scss}\"",
         "prettier:check": "prettier --check \"./**/*.{js,ts,tsx,json,yml,css,scss}\"",
         "typescript:check": "tsc",
+        "typescript:check-strict": "tsc -p tsconfig.strict.json",
         "eslint": "eslint frontend/src",
+        "typegen:write": "kea-typegen write",
         "typegen:watch": "kea-typegen watch",
-        "format-python": "black . && isort .",
-        "ts-strict-build": "tsc -p tsconfig.strict.json"
+        "format-python": "black . && isort ."
     },
     "dependencies": {
         "@babel/core": "^7.10.4",

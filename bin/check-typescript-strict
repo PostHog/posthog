@@ -3,7 +3,7 @@
 echo "Running 'tsc -p tsconfig.strict.json'..."
 echo ""
 
-ALL_ERRORS=$(yarn ts-strict-build 2> /dev/null | grep error | grep frontend)
+ALL_ERRORS=$(yarn typescript:check-strict 2> /dev/null | grep error | grep frontend)
 ERRORS_COUNT=$(echo "${ALL_ERRORS}" | wc -l)
 NEW_ERRORS=$(echo "${ALL_ERRORS}" | grep --invert-match --fixed-strings --file=.ts-strict-blacklist)
 
