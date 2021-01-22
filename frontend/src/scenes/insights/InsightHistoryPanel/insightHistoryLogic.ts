@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { toParams, deleteWithUndo } from 'lib/utils'
 import { toast } from 'react-toastify'
 import { DashboardItemType } from '~/types'
-import { insightHistoryLogicType } from 'types/scenes/insights/InsightHistoryPanel/insightHistoryLogicType'
+import { insightHistoryLogicType } from './insightHistoryLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 const updateInsightState = (

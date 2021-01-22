@@ -8,7 +8,7 @@ import { ActionsTable } from 'scenes/actions/ActionsTable'
 import { EventsTable } from './EventsTable'
 import { EventsVolumeTable } from './EventsVolumeTable'
 import { PropertiesVolumeTable } from './PropertiesVolumeTable'
-import { eventsLogicType } from 'types/scenes/events/EventsType'
+import { eventsLogicType } from './EventsType'
 
 const eventsLogic = kea<eventsLogicType>({
     actions: {

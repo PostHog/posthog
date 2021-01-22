@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { topContentLogicType } from 'types/layout/TopContent/topContentLogicType'
+import { topContentLogicType } from './topContentLogicType'
 
 interface BackTo {
     display: string

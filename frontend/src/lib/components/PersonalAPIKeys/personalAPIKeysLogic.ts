@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { toast } from 'react-toastify'
 import api from 'lib/api'
 import { PersonalAPIKeyType } from '~/types'
-import { personalAPIKeysLogicType } from 'types/lib/components/PersonalAPIKeys/personalAPIKeysLogicType.ts'
+import { personalAPIKeysLogicType } from './personalAPIKeysLogicType.ts'
 import { copyToClipboard } from 'lib/utils'
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType<PersonalAPIKeyType>>({

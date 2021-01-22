@@ -6,7 +6,7 @@ import { UploadOutlined, AimOutlined, ArrowLeftOutlined, InboxOutlined } from '@
 import { useValues, useActions } from 'kea'
 import { CohortType } from '~/types'
 import { Persons } from './Persons'
-import { cohortLogicType } from 'types/scenes/persons/cohortLogicType'
+import { cohortLogicType } from './cohortLogicType'
 import Dragger from 'antd/lib/upload/Dragger'
 
 const isSubmitDisabled = (cohort: CohortType): boolean => {

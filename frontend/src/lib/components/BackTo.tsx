@@ -3,7 +3,7 @@ import { Link } from './Link'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 
 import { kea, useValues } from 'kea'
-import { backToLogicType } from 'types/lib/components/BackToType'
+import { backToLogicType } from './BackToType'
 
 interface BackTo {
     display: string
