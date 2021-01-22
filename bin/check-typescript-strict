@@ -3,14 +3,18 @@
 echo "Running 'tsc -p tsconfig.strict.json'..."
 echo ""
 
-OUTPUT=$(yarn ts-strict-build 2> /dev/null | grep error | grep frontend | grep --invert-match --fixed-strings --file=.ts-strict-blacklist)
+ALL_ERRORS=$(yarn ts-strict-build 2> /dev/null | grep error | grep frontend)
+ERRORS_COUNT=$(echo "${ALL_ERRORS}" | wc -l)
+NEW_ERRORS=$(echo "${ALL_ERRORS}" | grep --invert-match --fixed-strings --file=.ts-strict-blacklist)
 
-if test -z "${OUTPUT}"
+echo "In total there are ${ERRORS_COUNT} typescript errors."
+
+if test -z "${NEW_ERRORS}"
 then
-    echo "No new typescript errors found! 🚀"
+    echo "No new typescript errors found in this PR! 🚀"
     exit 0
 else
-    echo "Found new typescript errors! 💥"
-    echo "${OUTPUT}"
+    echo "Found new typescript errors in this PR! 💥"
+    echo "${NEW_ERRORS}"
     exit 1
 fi
