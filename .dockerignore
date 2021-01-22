@@ -1,0 +1,7 @@
+*
+!package.json
+!yarn.lock
+!tsconfig.json
+!src
+!.eslintrc.js
+!.prettierrc
