@@ -3,6 +3,7 @@
 echo "Refreshing typegen and running 'tsc -p tsconfig.strict.json'..."
 echo ""
 
+# :HACK: Run kea typegen several times due to neeing to. :(
 yarn typegen:write
 yarn typegen:write
 yarn typegen:write
@@ -13,7 +14,6 @@ yarn typegen:write
 yarn typegen:write
 yarn typegen:write
 yarn typegen:write
-yarn typegen:check
 
 ALL_ERRORS=$(yarn typescript:check --strict 2> /dev/null | grep error | grep frontend)
 ERRORS_COUNT=$(echo "${ALL_ERRORS}" | wc -l)
@@ -21,10 +21,6 @@ NEW_ERRORS=$(echo "${ALL_ERRORS}" | grep --invert-match --fixed-strings --file=.
 NEW_ERRORS_COUNT="$(echo "${NEW_ERRORS}" | wc -l)"
 
 echo "In total there are ${ERRORS_COUNT} typescript errors."
-
-echo "-----"
-echo "${ALL_ERRORS}"
-echo "-----"
 
 if test -z "${NEW_ERRORS}"
 then
