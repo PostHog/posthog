@@ -4965,7 +4965,12 @@ fb-watchman@^2.0.0:
   dependencies:
     bser "2.1.1"
 
-fflate@^0.4.1, fflate@^0.4.4:
+fflate@^0.4.1:
+  version "0.4.2"
+  resolved "https://registry.yarnpkg.com/fflate/-/fflate-0.4.2.tgz#90be9712dae6e874ce9d61f9678355da15ec7011"
+  integrity sha512-othuEXeiFBIaYC8crEkvcYjLw4tAFD4WypT7iyivcT6NxAN1Ib+w/pmeM1SyvwxlsbWPAvoUiMmfClaxq/yVow==
+
+fflate@^0.4.4:
   version "0.4.8"
   resolved "https://registry.yarnpkg.com/fflate/-/fflate-0.4.8.tgz#f90b82aefbd8ac174213abb338bd7ef848f0f5ae"
   integrity sha512-FJqqoDBR00Mdj9ppamLa/Y7vxm+PRmNWA67N846RvsoYVMKB4q3y/de5PA7gUmRMYK/8CMz2GDZQmCRN1wBcWA==
@@ -6912,10 +6917,10 @@ kea-router@^0.5.1:
   dependencies:
     url-pattern "^1.0.3"
 
-kea-typegen@^0.5.0:
-  version "0.5.0"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.5.0.tgz#eb8bd485346f621dcb7383ed4ea619a7de9190bd"
-  integrity sha512-buEmlMm60dwVrz+ws/wEL2rmnYI/n7vVQ1F5QWQIXQal7TD8A9uDl7AYQH+HExVS/zuUwEj/kvJI/xuPeyqtsg==
+kea-typegen@^0.5.1:
+  version "0.5.1"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.5.1.tgz#d1ee5aaf0b7edb0f909ac31e08f5ea2898c40a13"
+  integrity sha512-Rxt6ygp9nJbjp9X7ZIQjwEzgK48k6/kRIfzmx2sQRaz32af2o2TCuwL69UwMG7bx1Y9feEAizDxTYIdmYd5rKw==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.8"
     prettier "^2.0.5"
