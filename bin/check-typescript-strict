@@ -3,7 +3,8 @@
 echo "Refreshing typegen and running 'tsc -p tsconfig.strict.json'..."
 echo ""
 
-yarn typegen:write &> /dev/null
+yarn typegen:write
+yarn typegen:check
 
 ALL_ERRORS=$(yarn typescript:check --strict 2> /dev/null | grep error | grep frontend)
 ERRORS_COUNT=$(echo "${ALL_ERRORS}" | wc -l)
