@@ -29,6 +29,7 @@
         "typescript:clean": "tsc --build --clean",
         "eslint": "eslint frontend/src",
         "typegen:write": "kea-typegen write",
+        "typegen:check": "kea-typegen check",
         "typegen:watch": "kea-typegen watch",
         "format-python": "black . && isort ."
     },
