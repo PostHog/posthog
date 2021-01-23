@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 import { Spin } from 'antd'
 import moment from 'moment'
 import { EventType } from '~/types'
-import { lightColors } from './colors'
+import { lightColors } from 'lib/colors'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
@@ -38,16 +38,16 @@ export function toParams(obj: Record<string, any>): string {
 }
 
 export function fromParams(): Record<string, any> {
-    return window.location.search === ''
+    return !window.location.search
         ? {}
         : window.location.search
               .slice(1)
               .split('&')
-              .reduce((a, b) => {
-                  b = b.split('=')
-                  a[b[0]] = decodeURIComponent(b[1])
-                  return a
-              }, {})
+              .reduce((paramsObject, paramString) => {
+                  const [key, value] = paramString.split('=')
+                  paramsObject[key] = decodeURIComponent(value)
+                  return paramsObject
+              }, {} as Record<string, any>)
 }
 
 export const colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
@@ -170,25 +170,6 @@ export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Parti
     }),
 }
 
-export function debounce(func: (...args: any) => void, wait: number, immediate: boolean, ...args: any): () => void {
-    let timeout: NodeJS.Timeout | undefined
-    return function () {
-        const context = this // eslint-disable-line
-        function later(): void {
-            timeout = undefined
-            if (!immediate) {
-                func.apply(context, args)
-            }
-        }
-        const callNow = immediate && !timeout
-        clearTimeout(timeout)
-        timeout = setTimeout(later, wait)
-        if (callNow) {
-            func.apply(context, args)
-        }
-    }
-}
-
 export function capitalizeFirstLetter(string: string): string {
     return string.charAt(0).toUpperCase() + string.slice(1)
 }
@@ -230,7 +211,14 @@ export function formatProperty(property: Record<string, any>): string {
 }
 
 // Format a label that gets returned from the /insights api
-export function formatLabel(label: string, action: Record<string, any>): string {
+export function formatLabel(
+    label: string,
+    action: {
+        math: string
+        math_property?: string
+        properties?: { operator: string; value: any }[]
+    }
+): string {
     if (action.math === 'dau') {
         label += ` (${action.math.toUpperCase()}) `
     } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math)) {
@@ -247,6 +235,7 @@ export function formatLabel(label: string, action: Record<string, any>): string 
 }
 
 export function deletePersonData(person: Record<string, any>, callback: () => void): void {
+    // DEPRECATED: Remove after releasing PersonsV2 (persons-2353)
     if (window.confirm('Are you sure you want to delete this user? This cannot be undone')) {
         api.delete('api/person/' + person.id).then(() => {
             toast('Person succesfully deleted.')
@@ -258,6 +247,7 @@ export function deletePersonData(person: Record<string, any>, callback: () => vo
 }
 
 export function savePersonData(person: Record<string, any>): void {
+    // DEPRECATED: Remove after releasing PersonsV2 (persons-2353)
     api.update('api/person/' + person.id, person).then(() => {
         toast('Person Updated')
     })
@@ -381,13 +371,13 @@ export function stripHTTP(url: string): string {
     return url
 }
 
-export function isURL(string: string): boolean {
-    if (!string) {
+export function isURL(input: any): boolean {
+    if (!input || typeof input !== 'string') {
         return false
     }
     // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
     const regexp = /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
-    return !!string.match?.(regexp)
+    return !!input.match?.(regexp)
 }
 
 export function isEmail(string: string): boolean {

@@ -28,7 +28,9 @@ class ClickhouseFunnel(Funnel):
         self._team = team
 
     def _build_filters(self, entity: Entity, index: int) -> str:
-        prop_filters, prop_filter_params = parse_prop_clauses(entity.properties, self._team.pk, prepend=str(index))
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            entity.properties, self._team.pk, prepend=str(index), allow_denormalized_props=True
+        )
         self.params.update(prop_filter_params)
         if entity.properties:
             return prop_filters
@@ -52,13 +54,17 @@ class ClickhouseFunnel(Funnel):
         return content_sql
 
     def _exec_query(self) -> List[Tuple]:
-        prop_filters, prop_filter_params = parse_prop_clauses(self._filter.properties, self._team.pk, prepend="global")
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            self._filter.properties, self._team.pk, prepend="global", allow_denormalized_props=True
+        )
 
         # format default dates
+        data = {}
         if not self._filter._date_from:
-            self._filter._date_from = relative_date_parse("-7d")
+            data.update({"date_from": relative_date_parse("-7d")})
         if not self._filter._date_to:
-            self._filter._date_to = timezone.now()
+            data.update({"date_to": timezone.now()})
+        self._filter = Filter(data={**self._filter._data, **data})
 
         parsed_date_from, parsed_date_to, _ = parse_timestamps(
             filter=self._filter, table="events.", team_id=self._team.pk
@@ -88,7 +94,7 @@ class ClickhouseFunnel(Funnel):
 
         for step in reversed(self._filter.entities):
             # Clickhouse step order starts at one, hence the +1
-            result_step = [x for x in results if step.order + 1 == x[0]]  # type: ignore
+            result_step = [x for x in results if step.order + 1 == x[0]]
             if len(result_step) > 0:
                 total_people += result_step[0][1]
                 relevant_people += result_step[0][2]

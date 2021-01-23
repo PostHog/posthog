@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { userLogic } from 'scenes/userLogic'
-import { navigationLogicType } from 'types/layout/navigation/navigationLogicType'
+import { navigationLogicType } from './navigationLogicType'
 import { UserType } from '~/types'
 
 export const navigationLogic = kea<navigationLogicType<UserType>>({
@@ -14,6 +14,7 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
         updateCurrentOrganization: (id) => ({ id }),
         updateCurrentProject: (id, dest) => ({ id, dest }),
         setToolbarModalOpen: (isOpen) => ({ isOpen }),
+        setPinnedDashboardsVisible: (visible) => ({ visible }),
     },
     reducers: {
         menuCollapsed: [
@@ -32,6 +33,12 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
             false,
             {
                 setToolbarModalOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
+        pinnedDashboardsVisible: [
+            false,
+            {
+                setPinnedDashboardsVisible: (_, { visible }) => visible,
             },
         ],
     },
@@ -104,7 +111,6 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
     }),
     events: ({ actions }) => ({
         afterMount: () => {
-            systemStatusLogic.actions.loadSystemStatus()
             actions.loadLatestVersion()
         },
     }),

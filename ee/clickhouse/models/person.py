@@ -156,8 +156,11 @@ def merge_people(team_id: int, target: Dict, old_id: UUID, old_props: Dict) -> N
 
 
 def delete_person(person_id: UUID, delete_events: bool = False, team_id: int = False) -> None:
-    if delete_events:
-        sync_execute(DELETE_PERSON_EVENTS_BY_ID, {"id": person_id, "team_id": team_id})
+    try:
+        if delete_events:
+            sync_execute(DELETE_PERSON_EVENTS_BY_ID, {"id": person_id, "team_id": team_id})
+    except:
+        pass  # cannot delete if the table is distributed
 
     sync_execute(DELETE_PERSON_BY_ID, {"id": person_id,})
     sync_execute(DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID, {"id": person_id,})

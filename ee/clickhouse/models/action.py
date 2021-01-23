@@ -3,13 +3,13 @@ from typing import Dict, List, Tuple
 
 from django.forms.models import model_to_dict
 
-from posthog.constants import AUTOCAPTURE_EVENT
-from posthog.models import Action, Filter
+from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
+from posthog.models import Action, Entity, Filter
 from posthog.models.action_step import ActionStep
 from posthog.models.event import Selector
 
 
-def format_action_filter(action: Action, prepend: str = "action", index=0, use_loop: bool = False) -> Tuple[str, Dict]:
+def format_action_filter(action: Action, prepend: str = "action", use_loop: bool = False) -> Tuple[str, Dict]:
     # get action steps
     params = {"team_id": action.team.pk}
     steps = action.steps.all()
@@ -22,12 +22,12 @@ def format_action_filter(action: Action, prepend: str = "action", index=0, use_l
         conditions: List[str] = []
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
-            el_conditions, element_params = filter_element(step, "{}{}".format(index, prepend))
+            el_conditions, element_params = filter_element(step, "{}_{}{}".format(action.pk, index, prepend))
             params = {**params, **element_params}
             conditions += el_conditions
 
         # filter event conditions (ie URL)
-        event_conditions, event_params = filter_event(step, "{}{}".format(index, prepend), index)
+        event_conditions, event_params = filter_event(step, "{}_{}{}".format(action.pk, index, prepend), index)
         params = {**params, **event_params}
         conditions += event_conditions
 
@@ -37,7 +37,7 @@ def format_action_filter(action: Action, prepend: str = "action", index=0, use_l
             prop_query, prop_params = parse_prop_clauses(
                 Filter(data={"properties": step.properties}).properties,
                 action.team.pk,
-                prepend="action_props_{}".format(index),
+                prepend="action_props_{}".format(action.pk),
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}
@@ -83,7 +83,10 @@ def _create_regex(selector: Selector) -> str:
     regex = r""
     for idx, tag in enumerate(selector.parts):
         if tag.data.get("tag_name") and isinstance(tag.data["tag_name"], str):
-            regex += tag.data["tag_name"]
+            if tag.data["tag_name"] == "*":
+                regex += ".+"
+            else:
+                regex += tag.data["tag_name"]
         if tag.data.get("attr_class__contains"):
             regex += r".*?\.{}".format(r"\..*?".join(sorted(tag.data["attr_class__contains"])))
         if tag.ch_attributes:
@@ -122,3 +125,18 @@ def filter_element(step: ActionStep, prepend: str = "") -> Tuple[List[str], Dict
         conditions.append("match(elements_chain, %({}attributes_regex)s)".format(prepend))
 
     return (conditions, params)
+
+
+def format_entity_filter(entity: Entity, prepend: str = "action") -> Tuple[str, Dict]:
+    if entity.type == TREND_FILTER_TYPE_ACTIONS:
+        try:
+            action = Action.objects.get(pk=entity.id)
+            entity_filter, params = format_action_filter(action, prepend=prepend)
+        except Action.DoesNotExist:
+            raise ValueError("This action does not exist")
+    else:
+        key = f"{prepend}_event"
+        entity_filter = f"event = %({key})s"
+        params = {key: entity.id}
+
+    return entity_filter, params

@@ -1,5 +1,6 @@
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { PluginConfigSchema } from 'posthog-plugins'
+import { PluginConfigSchema } from '@posthog/plugin-scaffold'
+import { PluginInstallationType } from 'scenes/plugins/types'
 export interface UserType {
     anonymize_data: boolean
     distinct_id: string
@@ -23,6 +24,15 @@ export interface UserType {
     is_debug: boolean
     is_impersonated: boolean
     email_service_available: boolean
+    realm: 'cloud' | 'hosted'
+}
+
+/* Type for User objects in nested serializers (e.g. created_by) */
+export interface UserNestedType {
+    id: number
+    distinct_id: string
+    first_name: string
+    email: string
 }
 
 export interface UserUpdateType {
@@ -156,11 +166,78 @@ export interface PropertyFilter {
     value: string | number
 }
 
+interface BasePropertyFilter {
+    key: string
+    value: string | number | null
+    label?: string
+}
+
+export type PropertyOperator =
+    | 'exact'
+    | 'is_not'
+    | 'icontains'
+    | 'not_icontains'
+    | 'regex'
+    | 'not_regex'
+    | 'gt'
+    | 'lt'
+    | 'is_set'
+    | 'is_not_set'
+
+interface EventPropertyFilter extends BasePropertyFilter {
+    type: 'event'
+    operator: PropertyOperator
+}
+
+export interface PersonPropertyFilter extends BasePropertyFilter {
+    type: 'person'
+    operator: PropertyOperator
+}
+
+interface CohortPropertyFilter extends BasePropertyFilter {
+    type: 'cohort'
+}
+
+interface RecordingDurationFilter extends BasePropertyFilter {
+    type: 'recording'
+    key: 'duration'
+    value: number
+    operator: 'lt' | 'gt'
+}
+
+interface RecordingNotViewedFilter extends BasePropertyFilter {
+    type: 'recording'
+    key: 'unseen'
+}
+
+export type RecordingPropertyFilter = RecordingDurationFilter | RecordingNotViewedFilter
+
+interface ActionTypePropertyFilter extends BasePropertyFilter {
+    type: 'action_type'
+    properties?: Array<EventPropertyFilter>
+}
+
+export interface EventTypePropertyFilter extends BasePropertyFilter {
+    type: 'event_type'
+    properties?: Array<EventPropertyFilter>
+}
+
+export type SessionsPropertyFilter =
+    | PersonPropertyFilter
+    | CohortPropertyFilter
+    | RecordingPropertyFilter
+    | ActionTypePropertyFilter
+    | EventTypePropertyFilter
+
 export interface Entity {
     id: string | number
     name: string
     order: number
-    type: string
+    type: 'actions' | 'events'
+}
+
+export interface EntityWithProperties extends Entity {
+    properties: Record<string, any>
 }
 
 export interface PersonType {
@@ -182,6 +259,7 @@ export interface CohortType {
     is_calculating?: boolean
     last_calculation?: string
     name?: string
+    csv?: File
     groups: Record<string, any>[]
 }
 
@@ -201,7 +279,7 @@ export interface EventType {
     elements: ElementType[]
     elements_hash: string | null
     event: string
-    id: number
+    id: number | string
     properties: Record<string, any>
     timestamp: string
 }
@@ -209,13 +287,16 @@ export interface EventType {
 export interface SessionType {
     distinct_id: string
     event_count: number
-    events: EventType[]
+    events?: EventType[]
     global_session_id: string
     length: number
-    properties: Record<string, any>
     start_time: string
     end_time: string
-    session_recording_ids: string[]
+    session_recordings: Array<{ id: string; viewed: boolean }>
+    start_url?: string
+    end_url?: string
+    email?: string
+    matching_events: Array<number | string>
 }
 
 export interface OrganizationBilling {
@@ -240,11 +321,28 @@ export interface BillingSubscription {
     stripe_checkout_session: string
 }
 
+export interface DashboardItemType {
+    id: number
+    name: string
+    filters: Record<string, any>
+    filters_hash: string
+    order: number
+    deleted: boolean
+    saved: boolean
+    created_at: string
+    layouts: Record<string, any>
+    color: string
+    last_refresh: string
+    refreshing: boolean
+    created_by: Record<string, any>
+    is_sample: boolean
+}
+
 export interface DashboardType {
     id: number
     name: string
     pinned: string
-    items: []
+    items: DashboardItemType[]
     created_at: string
     created_by: number
     is_shared: boolean
@@ -266,12 +364,15 @@ export interface OrganizationInviteType {
 
 export interface PluginType {
     id: number
+    plugin_type: PluginInstallationType
     name: string
-    description: string
-    url: string
-    tag: string
+    description?: string
+    url?: string
+    tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
+    source?: string
     error?: PluginErrorType
+    maintainer?: string
 }
 
 export interface PluginConfigType {
@@ -290,4 +391,43 @@ export interface PluginErrorType {
     stack?: string
     name?: string
     event?: Record<string, any>
+}
+
+export interface AnnotationType {
+    id: string
+    scope: 'organization' | 'dashboard_item'
+    content: string
+    date_marker: string
+    created_by?: UserNestedType | null
+    created_at: string
+    updated_at: string
+    dashboard_item?: number
+    deleted?: boolean
+    creation_type?: string
+}
+
+export interface FilterType {
+    insight: 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
+    display?:
+        | 'ActionsLineGraph'
+        | 'ActionsLineGraphCumulative'
+        | 'ActionsTable'
+        | 'ActionsPie'
+        | 'ActionsBar'
+        | 'PathsViz'
+        | 'FunnelViz'
+    interval?: string
+    date_from?: string
+    date_to?: string
+    properties?: PropertyFilter[]
+    events?: Record<string, any>[]
+    actions?: Record<string, any>[]
+    breakdown_type?: 'cohort' | 'person' | 'event'
+    shown_as?: 'Volume' | 'Stickiness' | 'Lifecycle' // DEPRECATED: Remove when releasing `remove-shownas`
+    session?: string
+    period?: string
+    retentionType?: 'retention_recurring' | 'retention_first_time'
+    returningEntity?: Record<string, any>
+    startEntity?: Record<string, any>
+    path_type?: '$pageview' | '$screen' | '$autocapture' | 'custom_event'
 }

@@ -7,4 +7,5 @@ import posthog.tasks.process_event
 import posthog.tasks.session_recording_retention
 import posthog.tasks.status_report
 import posthog.tasks.update_cache
+import posthog.tasks.user_identify
 import posthog.tasks.webhooks

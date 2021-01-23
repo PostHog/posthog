@@ -2,8 +2,7 @@ from typing import Callable
 
 from freezegun import freeze_time
 
-from posthog.models import DashboardItem, Event
-from posthog.models.team import Team
+from posthog.models import DashboardItem, Event, Organization, Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import BaseTest
 
@@ -14,7 +13,7 @@ def test_calculate_event_property_usage(create_event: Callable) -> Callable:
             self.team.event_names = ["$pageview", "custom event"]
             self.team.event_properties = ["$current_url", "team_id", "value"]
             self.team.save()
-            team2 = Team.objects.create()
+            team2 = Organization.objects.bootstrap(None)[2]
             with freeze_time("2020-08-01"):
                 # ignore stuff older than 30 days
                 DashboardItem.objects.create(

@@ -5,7 +5,7 @@ import { ViewType } from 'scenes/insights/insightLogic'
 import { InsightHistory, SavedFunnel } from '~/types'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { funnelsModelType } from 'types/models/funnelsModelType'
+import { funnelsModelType } from './funnelsModelType'
 
 const parseSavedFunnel = (result: Record<string, any>): SavedFunnel => {
     return {
@@ -40,7 +40,7 @@ export const funnelsModel = kea<funnelsModelType<SavedFunnel, InsightHistory>>({
         },
     }),
     connect: {
-        actions: [insightHistoryLogic, ['saveInsight'], funnelLogic, ['saveFunnelInsight']],
+        actions: [insightHistoryLogic, ['updateInsight'], funnelLogic, ['saveFunnelInsight']],
     },
     reducers: () => ({
         next: [
@@ -72,7 +72,7 @@ export const funnelsModel = kea<funnelsModelType<SavedFunnel, InsightHistory>>({
             actions.setNext(response.next)
             actions.appendFunnels(result)
         },
-        saveInsight: () => actions.loadFunnels(),
+        updateInsight: () => actions.loadFunnels(),
         saveFunnelInsight: () => actions.loadFunnels(),
     }),
     events: ({ actions }) => ({

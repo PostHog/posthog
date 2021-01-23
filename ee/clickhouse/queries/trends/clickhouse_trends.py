@@ -9,8 +9,12 @@ from posthog.utils import relative_date_parse
 
 
 class ClickhouseTrends(ClickhouseTrendsNormal, ClickhouseTrendsBreakdown, ClickhouseLifecycle, Trends):
-    def _set_default_dates(self, filter: Filter, team_id: int) -> None:
+    def _set_default_dates(self, filter: Filter, team_id: int) -> Filter:
+        data = {}
         if not filter._date_from:
-            filter._date_from = relative_date_parse("-7d")
+            data.update({"date_from": relative_date_parse("-7d")})
         if not filter._date_to:
-            filter._date_to = timezone.now()
+            data.update({"date_to": timezone.now()})
+        if data:
+            return Filter(data={**filter._data, **data})
+        return filter

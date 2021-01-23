@@ -1,4 +1,4 @@
-import { PluginConfigSchema } from 'posthog-plugins'
+import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
 
 export function getConfigSchemaArray(

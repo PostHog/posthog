@@ -3,6 +3,8 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Prefetch, QuerySet
+from django.db.models.query_utils import Q
+from django.utils import timezone
 from django.utils.timezone import now
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -16,10 +18,12 @@ from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import Element, ElementGroup, Event, Filter, Person, PersonDistinctId
 from posthog.models.action import Action
 from posthog.models.event import EventManager
-from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.models.filters.sessions_filter import SessionEventsFilter, SessionsFilter
+from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.queries.session_recording import SessionRecording
-from posthog.utils import convert_property_value, flatten
+from posthog.queries.base import properties_to_Q
+from posthog.queries.sessions.session_recording import SessionRecording
+from posthog.utils import convert_property_value, flatten, relative_date_parse
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -130,7 +134,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.filter_by_action(Action.objects.get(pk=value))  # type: ignore
             elif key == "properties":
                 filter = Filter(data={"properties": json.loads(value)})
-                queryset = queryset.filter(filter.properties_to_Q(team_id=self.team_id))
+                queryset = queryset.filter(properties_to_Q(filter.properties, team_id=self.team_id))
         return queryset
 
     def _prefetch_events(self, events: List[Event]) -> List[Event]:
@@ -162,6 +166,8 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         queryset = self.get_queryset()
         monday = now() + timedelta(days=-now().weekday())
+        # don't allow events too far into the future
+        queryset = queryset.filter(timestamp__lte=now() + timedelta(seconds=5),)
         events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[0:101]
 
         is_csv_request = self.request.accepted_renderer.format == "csv"
@@ -204,6 +210,16 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_values(self, request: request.Request) -> List[Dict[str, Any]]:
         key = request.GET.get("key")
         params: List[Optional[Union[str, int]]] = [key, key]
+
+        if key == "custom_event":
+            event_names = (
+                Event.objects.filter(team_id=self.team_id)
+                .filter(~Q(event__in=["$autocapture", "$pageview", "$identify", "$pageleave", "$screen"]))
+                .values("event")
+                .distinct()
+            )
+            return [{"name": value["event"]} for value in event_names]
+
         if request.GET.get("value"):
             where = " AND properties ->> %s LIKE %s"
             params.append(key)
@@ -212,6 +228,9 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             where = ""
 
         params.append(self.team_id)
+        params.append(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
+        params.append(timezone.now().strftime("%Y-%m-%d 23:59:59"))
+
         # This samples a bunch of events with that property, and then orders them by most popular in that sample
         # This is much quicker than trying to do this over the entire table
         values = Event.objects.raw(
@@ -225,7 +244,9 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     "posthog_event"
                 WHERE
                     ("posthog_event"."properties" -> %s) IS NOT NULL {} AND
-                    ("posthog_event"."team_id" = %s)
+                    ("posthog_event"."team_id" = %s) AND
+                    ("posthog_event"."timestamp" >= %s) AND
+                    ("posthog_event"."timestamp" <= %s)
                 LIMIT 10000
             ) as "value"
             GROUP BY value
@@ -244,7 +265,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # /event/sessions
     #
     # params:
-    # - offset: (number) offset query param for paginated list of user sessions
+    # - pagination: (dict) Object containing information about pagination (offset, last page info)
     # - distinct_id: (string) filter sessions by distinct id
     # - duration: (float) filter sessions by recording duration
     # - duration_operator: (string: lt, gt)
@@ -252,41 +273,44 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def sessions(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.queries.sessions_list import SESSIONS_LIST_DEFAULT_LIMIT, SessionsList
+        from posthog.queries.sessions.sessions_list import SessionsList
 
         filter = SessionsFilter(request=request)
-        limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
-        result: Dict[str, Any] = {"result": SessionsList().run(filter=filter, team=self.team, limit=limit)}
+        pagination = json.loads(request.GET.get("pagination", "{}"))
+
+        sessions, pagination = SessionsList().run(filter=filter, team=self.team, **pagination)
 
         if filter.distinct_id:
-            result = self._filter_sessions_by_distinct_id(filter.distinct_id, result)
+            sessions = self._filter_sessions_by_distinct_id(filter.distinct_id, sessions)
 
-        if filter.session_type is None:
-            offset = filter.offset + limit - 1
-            if len(result["result"]) > SESSIONS_LIST_DEFAULT_LIMIT:
-                result["result"].pop()
-                date_from = result["result"][0]["start_time"].isoformat()
-                result.update({OFFSET: offset})
-                result.update({DATE_FROM: date_from})
+        return Response({"result": sessions, "pagination": pagination})
 
-        return Response(result)
-
-    def _filter_sessions_by_distinct_id(self, distinct_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    def _filter_sessions_by_distinct_id(self, distinct_id: str, sessions: List[Any]) -> List[Any]:
         person_ids = Person.objects.get(persondistinctid__distinct_id=distinct_id).distinct_ids
-        result["result"] = [
-            session for i, session in enumerate(result["result"]) if result["result"][i]["distinct_id"] in person_ids
-        ]
-        return result
+        return [session for i, session in enumerate(sessions) if session["distinct_id"] in person_ids]
+
+    @action(methods=["GET"], detail=False)
+    def session_events(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        from posthog.queries.sessions.sessions_list_events import SessionsListEvents
+
+        filter = SessionEventsFilter(request=request)
+        return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
 
     # ******************************************
     # /event/session_recording
     # params:
     # - session_recording_id: (string) id of the session recording
+    # - save_view: (boolean) save view of the recording
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording = SessionRecording().run(
             team=self.team, filter=Filter(request=request), session_recording_id=request.GET["session_recording_id"]
         )
+
+        if request.GET.get("save_view"):
+            SessionRecordingViewed.objects.get_or_create(
+                team=self.team, user=request.user, session_id=request.GET["session_recording_id"]
+            )
 
         return response.Response({"result": session_recording})

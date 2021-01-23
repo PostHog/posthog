@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from dateutil.relativedelta import relativedelta
 from django.contrib.postgres.fields import JSONField
@@ -41,7 +41,8 @@ class Group(object):
 
 class CohortManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
-        kwargs["groups"] = [Group(**group).__dict__ for group in kwargs["groups"]]
+        if kwargs.get("groups"):
+            kwargs["groups"] = [Group(**group).__dict__ for group in kwargs["groups"]]
         cohort = super().create(*args, **kwargs)
         return cohort
 
@@ -59,9 +60,29 @@ class Cohort(models.Model):
     last_calculation: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     errors_calculating: models.IntegerField = models.IntegerField(default=0)
 
+    is_static: models.BooleanField = models.BooleanField(default=False)
+
     objects = CohortManager()
 
+    def get_analytics_metadata(self):
+        action_groups_count: int = 0
+        properties_groups_count: int = 0
+        for group in self.groups:
+            action_groups_count += 1 if group.get("action_id") else 0
+            properties_groups_count += 1 if group.get("properties") else 0
+
+        return {
+            "name_length": len(self.name) if self.name else 0,
+            "person_count_precalc": self.people.count(),
+            "groups_count": len(self.groups),
+            "action_groups_count": action_groups_count,
+            "properties_groups_count": properties_groups_count,
+            "deleted": self.deleted,
+        }
+
     def calculate_people(self, use_clickhouse=is_ee_enabled()):
+        if self.is_static:
+            return
         try:
             if not use_clickhouse:
                 self.is_calculating = True
@@ -87,7 +108,43 @@ class Cohort(models.Model):
                 self.last_calculation = timezone.now()
                 self.errors_calculating = 0
                 self.save()
-        except:
+        except Exception:
+            self.is_calculating = False
+            self.errors_calculating = F("errors_calculating") + 1
+            self.save()
+            capture_exception()
+
+    def insert_users_by_list(self, items: List[str]) -> None:
+        """
+        Items can be distinct_id or email
+        """
+        batchsize = 1000
+        use_clickhouse = is_ee_enabled()
+        if use_clickhouse:
+            from ee.clickhouse.models.cohort import insert_static_cohort
+        try:
+            cursor = connection.cursor()
+            for i in range(0, len(items), batchsize):
+                batch = items[i : i + batchsize]
+                persons_query = (
+                    Person.objects.filter(team_id=self.team_id)
+                    .filter(Q(persondistinctid__distinct_id__in=batch) | Q(properties__email__in=batch))
+                    .exclude(cohort__id=self.id)
+                )
+                if use_clickhouse:
+                    insert_static_cohort([p for p in persons_query.values_list("uuid", flat=True)], self.pk, self.team)
+                sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
+                query = UPDATE_QUERY.format(
+                    cohort_id=self.pk,
+                    values_query=sql.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
+                )
+                cursor.execute(query, params)
+
+            self.is_calculating = False
+            self.last_calculation = timezone.now()
+            self.errors_calculating = 0
+            self.save()
+        except Exception:
             self.is_calculating = False
             self.errors_calculating = F("errors_calculating") + 1
             self.save()
@@ -106,6 +163,8 @@ class Cohort(models.Model):
         return Person.objects.filter(self._people_filter(), team=self.team)
 
     def _people_filter(self, extra_filter=None):
+        from posthog.queries.base import properties_to_Q
+
         filters = Q()
         for group in self.groups:
             if group.get("action_id"):
@@ -129,7 +188,7 @@ class Cohort(models.Model):
                 filters |= Q(persondistinctid__distinct_id__in=events)
             elif group.get("properties"):
                 filter = Filter(data=group)
-                filters |= Q(filter.properties_to_Q(team_id=self.team_id, is_person_query=True))
+                filters |= Q(properties_to_Q(filter.properties, team_id=self.team_id, is_person_query=True))
         return filters
 
 

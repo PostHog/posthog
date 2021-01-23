@@ -28,9 +28,7 @@ COPY requirements.txt /code/
 # install dependencies but ignore any we don't need for dev environment
 RUN pip install $(grep -ivE "tblib|psycopg2|ipdb|mypy|ipython|ipdb|pip|djangorestframework-stubs|django-stubs|ipython-genutils|mypy-extensions|Pygments|typed-ast|jedi" requirements.txt | cut -d'#' -f1) --no-cache-dir --compile\
     && pip install psycopg2-binary --no-cache-dir --compile\
-    && pip uninstall ipython-genutils pip -y \
-    && rm -rf /usr/local/lib/python3.8/site-packages/numpy/core/tests \
-    && rm -rf /usr/local/lib/python3.8/site-packages/pandas/tests
+    && pip uninstall ipython-genutils pip -y
 
 COPY package.json /code/
 COPY yarn.lock /code/
@@ -53,7 +51,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && yarn --frozen-lockfile \
     && yarn build \
     && cd plugins \
-    && yarn --frozen-lockfile \
+    && yarn --frozen-lockfile --ignore-optional \
     && cd .. \
     && yarn cache clean \
     && apt-get purge -y curl \

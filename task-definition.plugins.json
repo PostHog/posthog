@@ -1,0 +1,71 @@
+{
+    "family": "posthog-production-plugins",
+    "networkMode": "awsvpc",
+    "executionRoleArn": "posthog-production-ecs-task",
+    "taskRoleArn": "posthog-production-ecs-task",
+    "containerDefinitions": [
+        {
+            "name": "posthog-production-plugins",
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "awslogs-posthog-production",
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "posthog-production-plugins"
+                }
+            },
+            "essential": true,
+            "environment": [
+                {
+                    "name": "KAFKA_ENABLED",
+                    "value": "True"
+                },
+                {
+                    "name": "SITE_URL",
+                    "value": "https://app.posthog.com"
+                }
+            ],
+            "secrets": [
+                {
+                    "name": "DATABASE_URL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:DATABASE_URL::"
+                },
+                {
+                    "name": "KAFKA_CLIENT_CERT_B64",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_CLIENT_CERT_B64::"
+                },
+                {
+                    "name": "KAFKA_CLIENT_CERT_KEY_B64",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_CLIENT_CERT_KEY_B64::"
+                },
+                {
+                    "name": "KAFKA_TRUSTED_CERT_B64",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_TRUSTED_CERT_B64::"
+                },
+                {
+                    "name": "KAFKA_HOSTS",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_HOSTS::"
+                },
+                {
+                    "name": "POSTHOG_PERSONAL_API_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:POSTHOG_PERSONAL_API_KEY::"
+                },
+                {
+                    "name": "REDIS_URL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:REDIS_URL::"
+                },
+                {
+                    "name": "SENTRY_DSN",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SENTRY_DSN_PLUGIN_SERVER::"
+                },
+                {
+                    "name": "STATSD_HOST",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STATSD_HOST::"
+                }
+            ]
+        }
+    ],
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "4096",
+    "memory": "8192"
+}

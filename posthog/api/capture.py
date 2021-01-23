@@ -12,10 +12,12 @@ from django.views.decorators.csrf import csrf_exempt
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
 from posthog.models import Team, User
+from posthog.models.utils import UUIDT
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
     from ee.clickhouse.process_event import log_event, process_event_ee
+    from ee.kafka_client.topics import KAFKA_EVENTS_INGESTION_HANDOFF, KAFKA_EVENTS_WAL
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -186,8 +188,24 @@ def get_event(request):
                 ),
             )
 
+        event_uuid = UUIDT()
+
         if is_ee_enabled():
-            process_event_ee(
+            log_topics = [KAFKA_EVENTS_WAL]
+            if settings.PLUGIN_SERVER_INGESTION_HANDOFF:
+                log_topics.append(KAFKA_EVENTS_INGESTION_HANDOFF)
+            else:
+                process_event_ee(
+                    distinct_id=distinct_id,
+                    ip=get_ip_address(request),
+                    site_url=request.build_absolute_uri("/")[:-1],
+                    data=event,
+                    team_id=team.id,
+                    now=now,
+                    sent_at=sent_at,
+                    event_uuid=event_uuid,
+                )
+            log_event(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),
                 site_url=request.build_absolute_uri("/")[:-1],
@@ -195,13 +213,16 @@ def get_event(request):
                 team_id=team.id,
                 now=now,
                 sent_at=sent_at,
+                event_uuid=event_uuid,
+                topics=log_topics,
             )
         else:
             task_name = "posthog.tasks.process_event.process_event"
-            celery_queue = settings.CELERY_DEFAULT_QUEUE
-            if team.plugins_opt_in:
+            if settings.PLUGIN_SERVER_INGESTION_HANDOFF or team.plugins_opt_in:
                 task_name += "_with_plugins"
                 celery_queue = settings.PLUGINS_CELERY_QUEUE
+            else:
+                celery_queue = settings.CELERY_DEFAULT_QUEUE
 
             celery_app.send_task(
                 name=task_name,
@@ -215,18 +236,6 @@ def get_event(request):
                     now.isoformat(),
                     sent_at,
                 ],
-            )
-
-        if is_ee_enabled() and settings.LOG_TO_WAL:
-            # log the event to kafka write ahead log for processing
-            log_event(
-                distinct_id=distinct_id,
-                ip=get_ip_address(request),
-                site_url=request.build_absolute_uri("/")[:-1],
-                data=event,
-                team_id=team.id,
-                now=now,
-                sent_at=sent_at,
             )
     timer.stop("event_endpoint")
     return cors_response(request, JsonResponse({"status": 1}))

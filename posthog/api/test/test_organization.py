@@ -42,9 +42,8 @@ class TestSignup(APIBaseTest):
 
     @tag("skip_on_multitenancy")
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
-    @patch("posthog.api.organization.posthoganalytics.identify")
     @patch("posthog.api.organization.posthoganalytics.capture")
-    def test_api_sign_up(self, mock_capture, mock_identify):
+    def test_api_sign_up(self, mock_capture):
         response = self.client.post(
             "/api/signup/",
             {
@@ -79,10 +78,6 @@ class TestSignup(APIBaseTest):
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
             user.distinct_id, "user signed up", properties={"is_first_user": True, "is_organization_first_user": True},
-        )
-
-        mock_identify.assert_called_once_with(
-            user.distinct_id, properties={"email": "hedgehog@posthog.com", "realm": "hosted", "ee_available": False},
         )
 
         # Assert that the user is logged in
@@ -126,7 +121,7 @@ class TestSignup(APIBaseTest):
         organization = cast(Organization, user.organization)
         self.assertEqual(
             response.data,
-            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog2@posthog.com",},
+            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog2@posthog.com"},
         )
 
         # Assert that the user was properly created

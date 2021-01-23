@@ -19,6 +19,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { userLogic } from 'scenes/userLogic'
+import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 
 export const Setup = hot(_Setup)
 function _Setup(): JSX.Element {
@@ -45,6 +46,17 @@ function _Setup(): JSX.Element {
                 For more guidance, including on identying users,{' '}
                 <a href="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</a>.
                 <JSSnippet />
+                <p>
+                    You can even test PostHog out on a live site without changing any code.
+                    <br />
+                    Just drag the bookmarklet below to your bookmarks bar, open the website you want to test PostHog on
+                    and click it.
+                    <br />
+                    This will enable our tracking, on the currently loaded page only. The data will show up in this
+                    project.
+                    <br />
+                </p>
+                <p>{user?.team && <JSBookmarklet team={user.team} />}</p>
                 <Divider />
                 <h2 id="custom-events" className="subtitle">
                     Send Custom Events

@@ -59,7 +59,7 @@ def create_event(
 
     p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
 
-    if team.slack_incoming_webhook:
+    if team.slack_incoming_webhook or team.organization.is_feature_available("zapier"):
         # Do a little bit of pre-filtering
         if event in ActionStep.objects.filter(action__team_id=team.pk, action__post_to_slack=True).values_list(
             "event", flat=True
@@ -163,13 +163,15 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return event[6]
 
 
-def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> Tuple[str, Dict]:
+def determine_event_conditions(
+    conditions: Dict[str, Union[str, List[str]]], long_date_from: bool = False
+) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
     for idx, (k, v) in enumerate(conditions.items()):
         if not isinstance(v, str):
             continue
-        if k == "after":
+        if k == "after" and not long_date_from:
             timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
             result += "AND timestamp > %(after)s"
             params.update({"after": timestamp})

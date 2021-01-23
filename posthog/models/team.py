@@ -5,7 +5,7 @@ from django.contrib.postgres.fields import ArrayField, JSONField
 from django.db import models
 from django.utils import timezone
 
-from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
+from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR, TRENDS_TABLE
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 
 from .dashboard import Dashboard
@@ -43,7 +43,7 @@ class TeamManager(models.Manager):
                 name="Most popular browsers this week",
                 filters={
                     TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}],
-                    "display": "ActionsTable",
+                    "display": TRENDS_TABLE,
                     "breakdown": "$browser",
                 },
                 last_refresh=timezone.now(),
@@ -59,6 +59,11 @@ class TeamManager(models.Manager):
             )
 
         return team
+
+    def create(self, *args, **kwargs) -> "Team":
+        if kwargs.get("organization") is None and kwargs.get("organization_id") is None:
+            raise ValueError("Creating organization-less projects is prohibited")
+        return super().create(*args, **kwargs)
 
     def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
         if not token:

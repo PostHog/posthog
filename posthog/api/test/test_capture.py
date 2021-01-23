@@ -7,7 +7,6 @@ from unittest.mock import patch
 from urllib.parse import quote
 
 import lzstring
-import numpy as np
 from django.utils import timezone
 from freezegun import freeze_time
 
@@ -520,7 +519,7 @@ class TestCapture(BaseTest):
         self.client.post(
             "/track/",
             data={
-                "data": json.dumps([{"event": "beep", "properties": {"distinct_id": np.nan}}]),
+                "data": json.dumps([{"event": "beep", "properties": {"distinct_id": float("nan")}}]),
                 "api_key": self.team.api_token,
             },
         )

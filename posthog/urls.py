@@ -11,7 +11,7 @@ from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
-from django.urls import include, path, re_path, reverse
+from django.urls import URLPattern, include, path, re_path, reverse
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
 from loginas.utils import is_impersonated_session, restore_original_login
@@ -39,8 +39,6 @@ from .views import health, preflight_check, stats, system_status
 
 
 def home(request, **kwargs):
-    if request.path.endswith(".map") or request.path.endswith(".map.js"):
-        return redirect("/static%s" % request.path)
     return render_template("index.html", request)
 
 
@@ -54,13 +52,24 @@ def login_view(request):
         email = request.POST["email"]
         password = request.POST["password"]
         user = cast(Optional[User], authenticate(request, email=email, password=password))
+        next_url = request.GET.get("next")
         if user is not None:
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
             if user.distinct_id:
                 posthoganalytics.capture(user.distinct_id, "user logged in")
+            if next_url:
+                return redirect(next_url)
             return redirect("/")
         else:
-            return render_template("login.html", request=request, context={"email": email, "error": True})
+            return render_template(
+                "login.html",
+                request=request,
+                context={
+                    "email": email,
+                    "error": True,
+                    "action": "/login" if not next_url else f"/login?next={next_url}",
+                },
+            )
     return render_template("login.html", request)
 
 
@@ -151,15 +160,6 @@ def signup_to_organization_view(request, invite_id):
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
             posthoganalytics.capture(
                 user.distinct_id, "user signed up", properties={"is_first_user": False, "first_team_user": False},
-            )
-            posthoganalytics.identify(
-                user.distinct_id,
-                {
-                    "email": request.user.email if not request.user.anonymize_data else None,
-                    "company_name": organization.name,
-                    "organization_id": str(organization.id),
-                    "is_organization_first_user": False,
-                },
             )
             return redirect("/")
     return render_template(
@@ -293,9 +293,10 @@ else:
     extend_api_router(router, projects_router=projects_router)
 
 
-def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> str:
+def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
     """Catches path with or without trailing slash, taking into account query param and hash."""
-    return re_path(route=fr"^{route}/?(?:[?#].*)?$", view=view, name=name)
+    # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
+    return re_path(fr"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
 
 
 urlpatterns = [

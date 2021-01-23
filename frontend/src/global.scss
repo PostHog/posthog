@@ -17,7 +17,7 @@ style files without adding already imported styles. */
     --muted: #{$text_muted};
     // Used for graph series
     --blue: #{$blue_500};
-    --purple: #{purple_500};
+    --purple: #{$purple_500};
     --salmon: #ff906e;
     --yellow: #ffc035;
     --green: #{$success};
@@ -108,6 +108,14 @@ style files without adding already imported styles. */
     margin-top: $default_spacing;
 }
 
+.mb-2 {
+    margin-bottom: $default_spacing * 2;
+}
+
+.mt-2 {
+    margin-top: $default_spacing * 2;
+}
+
 .mb-05 {
     margin-bottom: $default_spacing * 0.5;
 }
@@ -163,6 +171,11 @@ style files without adding already imported styles. */
 
 .float-left {
     float: left;
+}
+
+.space-between-items {
+    display: flex;
+    justify-content: space-between;
 }
 
 .main-app-content {
@@ -404,5 +417,29 @@ style files without adding already imported styles. */
             var(--danger) 0.5rem,
             var(--danger) 20px
         );
+    }
+}
+
+.clickable-card {
+    cursor: pointer;
+    &:hover {
+        border-color: $primary;
+    }
+}
+
+// Stateful badges
+
+.stateful-badge {
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-weight: bold;
+
+    &.or {
+        background-color: $blue_300;
+    }
+
+    &.and {
+        background-color: $yellow_100;
+        color: $primary_alt;
     }
 }

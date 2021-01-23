@@ -7,6 +7,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.models import Element, ElementGroup, Event, Filter, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.queries.base import properties_to_Q
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -46,7 +47,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         events = (
             Event.objects.filter(team_id=team_id, event="$autocapture")
-            .filter(filter.properties_to_Q(team_id=team_id))
+            .filter(properties_to_Q(filter.properties, team_id=team_id))
             .filter(filter.date_filter_Q)
         )
 

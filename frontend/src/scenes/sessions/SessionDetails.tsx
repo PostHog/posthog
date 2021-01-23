@@ -1,14 +1,26 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Table } from 'antd'
 import { humanFriendlyDiff, humanFriendlyDetailedTime } from '~/lib/utils'
 import { EventDetails } from 'scenes/events'
 import { Property } from 'lib/components/Property'
 import { eventToName } from 'lib/utils'
-import { EventType } from '~/types'
+import { EventType, SessionType } from '~/types'
+import { useActions, useValues } from 'kea'
+import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 
-export function SessionDetails({ events }: { events: EventType[] }): JSX.Element {
+export function SessionDetails({ session }: { session: SessionType }): JSX.Element {
+    const { loadedSessionEvents } = useValues(sessionsTableLogic)
+    const { loadSessionEvents } = useActions(sessionsTableLogic)
+
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(50)
+    const events = session.events || loadedSessionEvents[session.global_session_id]
+
+    useEffect(() => {
+        if (!events) {
+            loadSessionEvents(session)
+        }
+    }, [])
 
     const columns = [
         {
@@ -56,10 +68,14 @@ export function SessionDetails({ events }: { events: EventType[] }): JSX.Element
         <Table
             columns={columns}
             rowKey="id"
+            rowClassName={(event: EventType) =>
+                (session.matching_events || []).includes(event.id) ? 'sessions-event-highlighted' : ''
+            }
             dataSource={events}
+            loading={!events}
             pagination={{
                 pageSize: pageSize,
-                hideOnSinglePage: events.length < 10,
+                hideOnSinglePage: !events || events.length < 10,
                 showSizeChanger: true,
                 pageSizeOptions: ['10', '20', '50', '100', '200', '500'],
                 onChange: (page, pageSize) => {

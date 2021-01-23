@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Card, Col, Drawer, Row, Spin } from 'antd'
@@ -10,13 +10,62 @@ import { PushpinFilled, PushpinOutlined, DeleteOutlined, AppstoreAddOutlined } f
 import { hot } from 'react-hot-loader/root'
 import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 import { PageHeader } from 'lib/components/PageHeader'
+import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 
 export const Dashboards = hot(_Dashboards)
 function _Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard } = useActions(dashboardsModel)
-    const { dashboards } = useValues(dashboardsLogic)
-    const [openNewDashboard, setOpenNewDashboard] = useState(false)
+    const { setNewDashboardDrawer } = useActions(dashboardsLogic)
+    const { dashboards, newDashboardDrawer } = useValues(dashboardsLogic)
+
+    const columns = [
+        {
+            title: '',
+            width: 24,
+            align: 'center',
+            render: function RenderPin({ id, pinned }) {
+                return (
+                    <span
+                        onClick={() => (pinned ? unpinDashboard(id) : pinDashboard(id))}
+                        style={{ color: 'rgba(0, 0, 0, 0.85)', cursor: 'pointer' }}
+                    >
+                        {pinned ? <PushpinFilled /> : <PushpinOutlined />}
+                    </span>
+                )
+            },
+        },
+        {
+            title: 'Dashboard',
+            dataIndex: 'name',
+            key: 'name',
+            render: function RenderName(name: string, { id }: { id: number }, index: number) {
+                return (
+                    <Link data-attr={'dashboard-name-' + index} to={`/dashboard/${id}`}>
+                        {name || 'Untitled'}
+                    </Link>
+                )
+            },
+        },
+        createdAtColumn(),
+        createdByColumn(dashboards),
+        {
+            title: 'Actions',
+            align: 'center',
+            width: 120,
+            render: function RenderActions({ id }) {
+                return (
+                    <span
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => deleteDashboard({ id, redirect: false })}
+                        className="text-danger"
+                    >
+                        <DeleteOutlined />
+                    </span>
+                )
+            },
+        },
+    ]
 
     return (
         <div>
@@ -24,7 +73,7 @@ function _Dashboards(): JSX.Element {
             <div className="mb text-right">
                 <Button
                     data-attr={'new-dashboard'}
-                    onClick={() => setOpenNewDashboard(true)}
+                    onClick={() => setNewDashboardDrawer(true)}
                     type="primary"
                     icon={<PlusOutlined />}
                 >
@@ -32,17 +81,16 @@ function _Dashboards(): JSX.Element {
                 </Button>
             </div>
 
-            {openNewDashboard && (
-                <Drawer
-                    title={'New Dashboard'}
-                    width={400}
-                    onClose={() => setOpenNewDashboard(false)}
-                    destroyOnClose={true}
-                    visible={true}
-                >
-                    <NewDashboard />
-                </Drawer>
-            )}
+            <Drawer
+                title={'New Dashboard'}
+                width={400}
+                onClose={() => setNewDashboardDrawer(false)}
+                destroyOnClose={true}
+                visible={newDashboardDrawer}
+            >
+                <NewDashboard />
+            </Drawer>
+
             <Card>
                 {dashboardsLoading ? (
                     <Spin />
@@ -52,45 +100,8 @@ function _Dashboards(): JSX.Element {
                         rowKey="id"
                         size="small"
                         pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                    >
-                        <Table.Column
-                            title=""
-                            width={24}
-                            align="center"
-                            render={({ id, pinned }) => (
-                                <span
-                                    onClick={() => (pinned ? unpinDashboard(id) : pinDashboard(id))}
-                                    style={{ color: 'rgba(0, 0, 0, 0.85)', cursor: 'pointer' }}
-                                >
-                                    {pinned ? <PushpinFilled /> : <PushpinOutlined />}
-                                </span>
-                            )}
-                        />
-                        <Table.Column
-                            title="Dashboard"
-                            dataIndex="name"
-                            key="name"
-                            render={(name, { id }, index) => (
-                                <Link data-attr={'dashboard-name-' + index} to={`/dashboard/${id}`}>
-                                    {name || 'Untitled'}
-                                </Link>
-                            )}
-                        />
-                        <Table.Column
-                            title="Actions"
-                            align="center"
-                            width={120}
-                            render={({ id }) => (
-                                <span
-                                    style={{ cursor: 'pointer' }}
-                                    onClick={() => deleteDashboard({ id, redirect: false })}
-                                    className="text-danger"
-                                >
-                                    <DeleteOutlined /> Delete
-                                </span>
-                            )}
-                        />
-                    </Table>
+                        columns={columns}
+                    />
                 ) : (
                     <div>
                         <p>Create your first dashboard:</p>

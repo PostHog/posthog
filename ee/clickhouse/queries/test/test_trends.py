@@ -34,7 +34,34 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
+# override tests from test facotry if intervals are different
 class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTrends, _create_event, Person.objects.create, _create_action, _create_cohort)):  # type: ignore
+    def test_interval_rounding(self):
+        self._test_events_with_dates(
+            dates=["2020-11-01", "2020-11-10", "2020-11-11", "2020-11-18"],
+            interval="week",
+            date_from="2020-11-04",
+            date_to="2020-11-24",
+            result=[
+                {
+                    "action": {
+                        "id": "event_name",
+                        "type": "events",
+                        "order": None,
+                        "name": "event_name",
+                        "math": None,
+                        "math_property": None,
+                        "properties": [],
+                    },
+                    "label": "event_name",
+                    "count": 4.0,
+                    "data": [1.0, 2.0, 1.0, 0.0],
+                    "labels": ["Sun. 1 November", "Sun. 8 November", "Sun. 15 November", "Sun. 22 November"],
+                    "days": ["2020-11-01", "2020-11-08", "2020-11-15", "2020-11-22"],
+                }
+            ],
+        )
+
     def test_breakdown_by_person_property(self):
         person1, person2, person3, person4 = self._create_multiple_people()
         action = _create_action(name="watched movie", team=self.team)

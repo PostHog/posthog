@@ -1,8 +1,8 @@
 import { kea } from 'kea'
-import { pluginsLogicType } from 'types/scenes/plugins/pluginsLogicType'
+import { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
-import { PluginInstallationType, PluginRepositoryEntry, PluginTypeWithConfig } from './types'
+import { PluginInstallationType, PluginRepositoryEntry, PluginTab, PluginTypeWithConfig } from './types'
 import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 import posthog from 'posthog-js'
@@ -17,17 +17,28 @@ function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInst
 }
 
 export const pluginsLogic = kea<
-    pluginsLogicType<PluginType, PluginConfigType, PluginRepositoryEntry, PluginTypeWithConfig, PluginInstallationType>
+    pluginsLogicType<
+        PluginType,
+        PluginConfigType,
+        PluginRepositoryEntry,
+        PluginTypeWithConfig,
+        PluginInstallationType,
+        PluginTab
+    >
 >({
     actions: {
-        editPlugin: (id: number | null) => ({ id }),
+        editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
-        installPlugin: (pluginUrl: string, type: PluginInstallationType) => ({ pluginUrl, type }),
+        installPlugin: (pluginUrl: string, pluginType: PluginInstallationType) => ({ pluginUrl, pluginType }),
         uninstallPlugin: (name: string) => ({ name }),
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
         setLocalPluginUrl: (localPluginUrl: string) => ({ localPluginUrl }),
-        setPluginTab: (tab: string) => ({ tab }),
+        setSourcePluginName: (sourcePluginName: string) => ({ sourcePluginName }),
+        setPluginTab: (tab: PluginTab) => ({ tab }),
+        setEditingSource: (editingSource: boolean) => ({ editingSource }),
         resetPluginConfigError: (id: number) => ({ id }),
+        editPluginSource: (values: { id: number; name: string; source: string; configSchema: Record<string, any> }) =>
+            values,
     },
 
     loaders: ({ values }) => ({
@@ -35,17 +46,20 @@ export const pluginsLogic = kea<
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const { results } = await api.get('api/plugin')
+                    const { results } = await api.get('api/organizations/@current/plugins')
                     const plugins: Record<string, PluginType> = {}
                     for (const plugin of results as PluginType[]) {
                         plugins[plugin.id] = plugin
                     }
                     return plugins
                 },
-                installPlugin: async ({ pluginUrl, type }) => {
-                    const url = type === 'local' ? `file:${pluginUrl}` : pluginUrl
-                    const response = await api.create('api/plugin', { url })
-                    capturePluginEvent(`plugin installed`, response, type)
+                installPlugin: async ({ pluginUrl, pluginType }) => {
+                    const url = pluginType === 'local' ? `file:${pluginUrl}` : pluginUrl
+                    const response = await api.create(
+                        'api/organizations/@current/plugins',
+                        pluginType === 'source' ? { plugin_type: pluginType, name: url, source: '' } : { url }
+                    )
+                    capturePluginEvent(`plugin installed`, response, pluginType)
                     return { ...values.plugins, [response.id]: response }
                 },
                 uninstallPlugin: async () => {
@@ -53,10 +67,20 @@ export const pluginsLogic = kea<
                     if (!editingPlugin) {
                         return plugins
                     }
-                    await api.delete(`api/plugin/${editingPlugin.id}`)
+                    await api.delete(`api/organizations/@current/plugins/${editingPlugin.id}`)
                     capturePluginEvent(`plugin uninstalled`, editingPlugin)
                     const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
                     return rest
+                },
+                editPluginSource: async ({ id, name, source, configSchema }) => {
+                    const { plugins } = values
+                    const response = await api.update(`api/organizations/@current/plugins/${id}`, {
+                        name,
+                        source,
+                        config_schema: configSchema,
+                    })
+                    capturePluginEvent(`plugin source edited`, response)
+                    return { ...plugins, [id]: response }
                 },
             },
         ],
@@ -132,10 +156,12 @@ export const pluginsLogic = kea<
             {} as Record<string, PluginRepositoryEntry>,
             {
                 loadRepository: async () => {
-                    const results = await api.get('api/plugin/repository')
+                    const results = await api.get('api/organizations/@current/plugins/repository')
                     const repository: Record<string, PluginRepositoryEntry> = {}
                     for (const plugin of results as PluginRepositoryEntry[]) {
-                        repository[plugin.name] = plugin
+                        if (plugin.url) {
+                            repository[plugin.url.replace(/\/+$/, '')] = plugin
+                        }
                     }
                     return repository
                 },
@@ -144,6 +170,14 @@ export const pluginsLogic = kea<
     }),
 
     reducers: {
+        installingPluginUrl: [
+            null as string | null,
+            {
+                installPlugin: (_, { pluginUrl }) => pluginUrl,
+                installPluginSuccess: () => null,
+                installPluginFailure: () => null,
+            },
+        ],
         editingPluginId: [
             null as number | null,
             {
@@ -151,6 +185,21 @@ export const pluginsLogic = kea<
                 savePluginConfigSuccess: () => null,
                 uninstallPluginSuccess: () => null,
                 installPluginSuccess: (_, { plugins }) => Object.values(plugins).pop()?.id || null,
+            },
+        ],
+        editingPluginInitialChanges: [
+            {} as Record<string, any>,
+            {
+                editPlugin: (_, { pluginConfigChanges }) => pluginConfigChanges,
+                installPluginSuccess: () => ({ __enabled: true }),
+            },
+        ],
+        editingSource: [
+            false,
+            {
+                setEditingSource: (_, { editingSource }) => editingSource,
+                editPluginSourceSuccess: () => false,
+                editPlugin: () => false,
             },
         ],
         customPluginUrl: [
@@ -164,6 +213,13 @@ export const pluginsLogic = kea<
             '',
             {
                 setLocalPluginUrl: (_, { localPluginUrl }) => localPluginUrl,
+                installPluginSuccess: () => '',
+            },
+        ],
+        sourcePluginName: [
+            '',
+            {
+                setSourcePluginName: (_, { sourcePluginName }) => sourcePluginName,
                 installPluginSuccess: () => '',
             },
         ],
@@ -187,9 +243,10 @@ export const pluginsLogic = kea<
             },
         },
         pluginTab: [
-            'installed',
+            PluginTab.Installed as PluginTab,
             {
                 setPluginTab: (_, { tab }) => tab,
+                installPluginSuccess: () => PluginTab.Installed,
             },
         ],
     },
@@ -224,22 +281,24 @@ export const pluginsLogic = kea<
                     .map((plugin, index) => ({ ...plugin, order: index + 1 }))
             },
         ],
-        installedPluginNames: [
+        installedPluginUrls: [
             (s) => [s.installedPlugins],
             (installedPlugins) => {
                 const names: Record<string, boolean> = {}
                 installedPlugins.forEach((plugin) => {
-                    names[plugin.name] = true
+                    if (plugin.url) {
+                        names[plugin.url.replace(/\/+$/, '')] = true
+                    }
                 })
                 return names
             },
         ],
         uninstalledPlugins: [
-            (s) => [s.installedPluginNames, s.repository],
-            (installedPluginNames, repository) => {
+            (s) => [s.installedPluginUrls, s.repository],
+            (installedPluginUrls, repository) => {
                 return Object.keys(repository)
-                    .filter((name) => !installedPluginNames[name])
-                    .map((name) => repository[name])
+                    .filter((url) => !installedPluginUrls[url.replace(/\/+$/, '')])
+                    .map((url) => repository[url.replace(/\/+$/, '')])
             },
         ],
         editingPlugin: [

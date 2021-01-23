@@ -1,3 +1,4 @@
+from typing import cast
 from unittest.mock import patch
 
 from django.test.utils import tag
@@ -48,6 +49,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
     def test_no_delete_organization_not_administrating(self):
         organization, organization_membership, team = Organization.objects.bootstrap(self.user)
+        organization_membership = cast(OrganizationMembership, organization_membership)
         organization_membership.level = OrganizationMembership.Level.MEMBER
         organization_membership.save()
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())
