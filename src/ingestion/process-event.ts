@@ -19,6 +19,8 @@ export class EventsProcessor {
         now: DateTime,
         sent_at: DateTime | null
     ): Promise<void> {
+        const singleSaveTimer = new Date()
+
         const properties: Properties = data.properties ?? {}
         if (data['$set']) {
             properties['$set'] = data['$set']
@@ -26,5 +28,11 @@ export class EventsProcessor {
 
         const person_uuid = new UUIDT()
         const event_uuid = new UUIDT()
+
+        if (data['event'] === '$snapshot') {
+            this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer)
+        } else {
+            this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer)
+        }
     }
 }
