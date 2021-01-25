@@ -28,7 +28,7 @@ export const insightLogic = kea<insightLogicType>({
     }),
     reducers: () => ({
         cachedUrls: [
-            {},
+            {} as Record<string, string>,
             {
                 setCachedUrl: (state, { type, url }) => ({ ...state, [type]: url }),
             },

@@ -431,3 +431,9 @@ export interface FilterType {
     startEntity?: Record<string, any>
     path_type?: '$pageview' | '$screen' | '$autocapture' | 'custom_event'
 }
+
+export interface SystemStatus {
+    metric: string
+    value: string
+    key?: string
+}
