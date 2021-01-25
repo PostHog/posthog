@@ -183,39 +183,39 @@ class TestPluginsUtils(BaseTest):
         parsed_url = parse_url("https://www.npmjs.com/package/posthog-helloworld-plugin")
         self.assertEqual(parsed_url["type"], "npm")
         self.assertEqual(parsed_url["pkg"], "posthog-helloworld-plugin")
-        self.assertEqual(parsed_url.get("version", None), None)
+        self.assertEqual(parsed_url.get("tag", None), None)
         self.assertEqual(mock_get.call_count, 0)
 
         parsed_url = parse_url("https://www.npmjs.com/package/@posthog/helloworldplugin")
         self.assertEqual(parsed_url["type"], "npm")
         self.assertEqual(parsed_url["pkg"], "@posthog/helloworldplugin")
-        self.assertEqual(parsed_url.get("version", None), None)
+        self.assertEqual(parsed_url.get("tag", None), None)
         self.assertEqual(mock_get.call_count, 0)
 
         parsed_url = parse_url("https://www.npmjs.com/package/posthog-helloworld-plugin", get_latest_if_none=True)
         self.assertEqual(parsed_url["type"], "npm")
         self.assertEqual(parsed_url["pkg"], "posthog-helloworld-plugin")
-        self.assertEqual(parsed_url["version"], "MOCK")
+        self.assertEqual(parsed_url["tag"], "MOCK")
         self.assertEqual(mock_get.call_count, 1)
         mock_get.assert_called_with("https://registry.npmjs.org/posthog-helloworld-plugin/latest", headers={})
 
         parsed_url = parse_url("https://www.npmjs.com/package/@posthog/helloworldplugin", get_latest_if_none=True)
         self.assertEqual(parsed_url["type"], "npm")
         self.assertEqual(parsed_url["pkg"], "@posthog/helloworldplugin")
-        self.assertEqual(parsed_url["version"], "MOCK")
+        self.assertEqual(parsed_url["tag"], "MOCK")
         self.assertEqual(mock_get.call_count, 2)
         mock_get.assert_called_with("https://registry.npmjs.org/@posthog/helloworldplugin/latest", headers={})
 
         parsed_url = parse_url("https://www.npmjs.com/package/posthog-helloworld-plugin/v/0.0.0")
         self.assertEqual(parsed_url["type"], "npm")
         self.assertEqual(parsed_url["pkg"], "posthog-helloworld-plugin")
-        self.assertEqual(parsed_url["version"], "0.0.0")
+        self.assertEqual(parsed_url["tag"], "0.0.0")
         self.assertEqual(mock_get.call_count, 2)
 
         parsed_url = parse_url("https://www.npmjs.com/package/@posthog/helloworldplugin/v/0.0.0")
         self.assertEqual(parsed_url["type"], "npm")
         self.assertEqual(parsed_url["pkg"], "@posthog/helloworldplugin")
-        self.assertEqual(parsed_url["version"], "0.0.0")
+        self.assertEqual(parsed_url["tag"], "0.0.0")
         self.assertEqual(mock_get.call_count, 2)
 
         parsed_url = parse_url(
@@ -223,7 +223,7 @@ class TestPluginsUtils(BaseTest):
         )
         self.assertEqual(parsed_url["type"], "npm")
         self.assertEqual(parsed_url["pkg"], "posthog-helloworld-plugin")
-        self.assertEqual(parsed_url["version"], "0.0.0")
+        self.assertEqual(parsed_url["tag"], "0.0.0")
         self.assertEqual(mock_get.call_count, 2)
 
         # private tokens
@@ -232,7 +232,7 @@ class TestPluginsUtils(BaseTest):
         )
         self.assertEqual(parsed_url["type"], "npm")
         self.assertEqual(parsed_url["pkg"], "posthog-helloworld-plugin")
-        self.assertEqual(parsed_url["version"], "MOCK")
+        self.assertEqual(parsed_url["tag"], "MOCK")
         self.assertEqual(parsed_url["private_token"], "TOKEN")
         self.assertEqual(mock_get.call_count, 3)
         mock_get.assert_called_with(
@@ -242,14 +242,14 @@ class TestPluginsUtils(BaseTest):
         parsed_url = parse_url("https://www.npmjs.com/package/posthog-helloworld-plugin/v/0.0.0?private_token=TOKEN")
         self.assertEqual(parsed_url["type"], "npm")
         self.assertEqual(parsed_url["pkg"], "posthog-helloworld-plugin")
-        self.assertEqual(parsed_url["version"], "0.0.0")
+        self.assertEqual(parsed_url["tag"], "0.0.0")
         self.assertEqual(parsed_url["private_token"], "TOKEN")
         self.assertEqual(mock_get.call_count, 3)
 
         parsed_url = parse_url("https://www.npmjs.com/package/@posthog/helloworldplugin/v/0.0.0?private_token=TOKEN")
         self.assertEqual(parsed_url["type"], "npm")
         self.assertEqual(parsed_url["pkg"], "@posthog/helloworldplugin")
-        self.assertEqual(parsed_url["version"], "0.0.0")
+        self.assertEqual(parsed_url["tag"], "0.0.0")
         self.assertEqual(parsed_url["private_token"], "TOKEN")
         self.assertEqual(mock_get.call_count, 3)
 

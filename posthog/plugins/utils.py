@@ -116,26 +116,26 @@ def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Opti
     parsed: Dict[str, Optional[str]] = {
         "type": "npm",
         "pkg": match.group(1),
-        "version": match.group(4),
+        "tag": match.group(4),
         "private_token": private_token,
     }
 
     parsed["root_url"] = "https://www.npmjs.com/package/{}{}".format(
         parsed["pkg"], "?private_token={}".format(private_token) if private_token else ""
     )
-    if get_latest_if_none and not parsed["version"]:
+    if get_latest_if_none and not parsed["tag"]:
         try:
             headers = {"Authorization": "Bearer {}".format(private_token)} if private_token else {}
             details = requests.get("https://registry.npmjs.org/{}/latest".format(parsed["pkg"]), headers=headers).json()
-            version_url = "https://www.npmjs.com/package/{}/v/{}{}".format(
+            tag_url = "https://www.npmjs.com/package/{}/v/{}{}".format(
                 parsed["pkg"], details["version"], "?private_token={}".format(private_token) if private_token else ""
             )
-            return parse_url(version_url)
+            return parse_url(tag_url)
         except Exception:
             raise Exception("Could not get latest commit for: {}".format(parsed["url"]))
-    if parsed["version"]:
+    if parsed["tag"]:
         parsed["tagged_url"] = "https://www.npmjs.com/package/{}/v/{}{}".format(
-            parsed["pkg"], parsed["version"], "?private_token={}".format(private_token) if private_token else ""
+            parsed["pkg"], parsed["tag"], "?private_token={}".format(private_token) if private_token else ""
         )
     return parsed
 
@@ -192,10 +192,10 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
             )
     elif parsed_url["type"] == "npm":
         pkg = parsed_url["pkg"]
-        if not pkg or (not tag and not parsed_url.get("version", None)):
+        if not pkg or (not tag and not parsed_url.get("tag", None)):
             raise Exception("No npm project or version given")
-        url = "https://registry.npmjs.org/{pkg}/-/{repo}-{version}.tgz".format(
-            pkg=pkg, repo=pkg.split("/")[-1], version=tag or parsed_url["version"]
+        url = "https://registry.npmjs.org/{pkg}/-/{repo}-{tag}.tgz".format(
+            pkg=pkg, repo=pkg.split("/")[-1], tag=tag or parsed_url["tag"]
         )
         if parsed_url["private_token"]:
             headers = {"Authorization": "Bearer {}".format(parsed_url["private_token"])}
