@@ -2,13 +2,16 @@ import React from 'react'
 import { Col, Row } from 'antd'
 import { useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginCard, PluginLoading } from './PluginCard'
+import { PluginCard } from 'scenes/plugins/plugin/PluginCard'
+import { Subtitle } from 'lib/components/PageHeader'
+import { PluginLoading } from 'scenes/plugins/plugin/PluginLoading'
 
-export function Repository(): JSX.Element {
+export function RepositoryTab(): JSX.Element {
     const { repositoryLoading, uninstalledPlugins } = useValues(pluginsLogic)
 
     return (
         <div>
+            <Subtitle subtitle="Plugin Repository" />
             <Row gutter={16} style={{ marginTop: 16 }}>
                 {(!repositoryLoading || uninstalledPlugins.length > 0) && (
                     <>
@@ -16,9 +19,11 @@ export function Repository(): JSX.Element {
                             return (
                                 <PluginCard
                                     key={plugin.url}
-                                    name={plugin.name}
-                                    url={plugin.url}
-                                    description={plugin.description}
+                                    plugin={{
+                                        name: plugin.name,
+                                        url: plugin.url,
+                                        description: plugin.description,
+                                    }}
                                     maintainer={plugin.maintainer}
                                 />
                             )

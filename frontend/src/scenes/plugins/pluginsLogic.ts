@@ -2,7 +2,13 @@ import { kea } from 'kea'
 import { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
-import { PluginInstallationType, PluginRepositoryEntry, PluginTab, PluginTypeWithConfig } from './types'
+import {
+    PluginInstallationType,
+    PluginRepositoryEntry,
+    PluginTab,
+    PluginTypeWithConfig,
+    PluginUpdateStatusType,
+} from './types'
 import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaObject, getPluginConfigFormData, getConfigSchemaArray } from 'scenes/plugins/utils'
 import { PersonalAPIKeyType } from '~/types'
@@ -25,6 +31,7 @@ export const pluginsLogic = kea<
         PluginRepositoryEntry,
         PluginTypeWithConfig,
         PluginInstallationType,
+        PluginUpdateStatusType,
         PluginTab
     >
 >({
@@ -41,10 +48,19 @@ export const pluginsLogic = kea<
         resetPluginConfigError: (id: number) => ({ id }),
         editPluginSource: (values: { id: number; name: string; source: string; configSchema: Record<string, any> }) =>
             values,
+        checkForUpdates: (checkAll: boolean, initialUpdateStatus: Record<string, PluginUpdateStatusType> = {}) => ({
+            checkAll,
+            initialUpdateStatus,
+        }),
+        checkedForUpdates: true,
+        setUpdateStatus: (id: number, tag: string, latestTag: string) => ({ id, tag, latestTag }),
+        setUpdateError: (id: number) => ({ id }),
+        updatePlugin: (id: number) => ({ id }),
+        pluginUpdated: (id: number) => ({ id }),
         generateApiKeysIfNeeded: (form: FormInstance<any>) => ({ form }),
     },
 
-    loaders: ({ values }) => ({
+    loaders: ({ actions, values }) => ({
         plugins: [
             {} as Record<number, PluginType>,
             {
@@ -83,6 +99,25 @@ export const pluginsLogic = kea<
                         config_schema: configSchema,
                     })
                     capturePluginEvent(`plugin source edited`, response)
+                    return { ...plugins, [id]: response }
+                },
+                updatePlugin: async ({ id }) => {
+                    const { plugins } = values
+                    const response = await api.update(`api/organizations/@current/plugins/${id}`, {})
+                    capturePluginEvent(`plugin updated`, response)
+                    actions.pluginUpdated(id)
+
+                    // Check if we need to update the config (e.g. new required field) and if so, open the drawer.
+                    const schema = getConfigSchemaObject(response.config_schema)
+                    const pluginConfig = Object.values(values.pluginConfigs).filter((c) => c.plugin === id)[0]
+                    if (pluginConfig?.enabled) {
+                        if (
+                            Object.entries(schema).find(([key, { required }]) => required && !pluginConfig.config[key])
+                        ) {
+                            actions.editPlugin(id)
+                        }
+                    }
+
                     return { ...plugins, [id]: response }
                 },
             },
@@ -173,6 +208,12 @@ export const pluginsLogic = kea<
     }),
 
     reducers: {
+        plugins: {
+            setUpdateStatus: (state, { id, tag, latestTag }) => ({
+                ...state,
+                [id]: { ...state[id], tag, latest_tag: latestTag },
+            }),
+        },
         installingPluginUrl: [
             null as string | null,
             {
@@ -252,12 +293,35 @@ export const pluginsLogic = kea<
                 installPluginSuccess: () => PluginTab.Installed,
             },
         ],
+        updateStatus: [
+            {} as Record<string, PluginUpdateStatusType>,
+            {
+                checkForUpdates: (_, { initialUpdateStatus }) => initialUpdateStatus,
+                setUpdateStatus: (state, { id, tag, latestTag }) => ({
+                    ...state,
+                    [id]: { upToDate: tag === latestTag },
+                }),
+                setUpdateError: (state, { id }) => ({ ...state, [id]: { error: true } }),
+                pluginUpdated: (state, { id }) => ({ ...state, [id]: { updated: true } }),
+            },
+        ],
+        updatingPlugin: [
+            null as number | null,
+            { updatePlugin: (_, { id }) => id, updatePluginSuccess: () => null, updatePluginFailure: () => null },
+        ],
+        checkingForUpdates: [
+            false,
+            {
+                checkForUpdates: () => true,
+                checkedForUpdates: () => false,
+            },
+        ],
     },
 
     selectors: {
         installedPlugins: [
-            (s) => [s.plugins, s.pluginConfigs],
-            (plugins, pluginConfigs): PluginTypeWithConfig[] => {
+            (s) => [s.plugins, s.pluginConfigs, s.updateStatus],
+            (plugins, pluginConfigs, updateStatus): PluginTypeWithConfig[] => {
                 const pluginValues = Object.values(plugins)
                 return pluginValues
                     .map((plugin, index) => {
@@ -278,11 +342,22 @@ export const pluginsLogic = kea<
                                 order: pluginValues.length + index,
                             }
                         }
-                        return { ...plugin, pluginConfig }
+                        return { ...plugin, pluginConfig, updateStatus: updateStatus[plugin.id] }
                     })
                     .sort((a, b) => a.pluginConfig.order - b.pluginConfig.order)
                     .map((plugin, index) => ({ ...plugin, order: index + 1 }))
             },
+        ],
+        pluginsNeedingUpdates: [
+            (s) => [s.installedPlugins],
+            (installedPlugins) =>
+                // show either plugins that need to be updated or that were just updated
+                installedPlugins.filter(
+                    ({ plugin_type: pluginType, tag, latest_tag: latestTag, updateStatus }) =>
+                        pluginType !== PluginInstallationType.Source &&
+                        ((latestTag && tag !== latestTag) ||
+                            (updateStatus && !updateStatus.error && (updateStatus.updated || !updateStatus.upToDate)))
+                ),
         ],
         installedPluginUrls: [
             (s) => [s.installedPlugins],
@@ -295,6 +370,10 @@ export const pluginsLogic = kea<
                 })
                 return names
             },
+        ],
+        hasNonSourcePlugins: [
+            (s) => [s.installedPluginUrls],
+            (installedPluginUrls) => Object.keys(installedPluginUrls).length > 0,
         ],
         uninstalledPlugins: [
             (s) => [s.installedPluginUrls, s.repository],
@@ -316,18 +395,35 @@ export const pluginsLogic = kea<
         ],
     },
 
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadPlugins()
-            actions.loadPluginConfigs()
+    listeners: ({ actions, values }) => ({
+        checkForUpdates: async ({ checkAll }, breakpoint) => {
+            breakpoint()
+            const { installedPlugins } = values
 
-            if (userLogic.values.user?.plugin_access.install) {
-                actions.loadRepository()
+            for (const plugin of installedPlugins) {
+                if (plugin.plugin_type === PluginInstallationType.Source || (!checkAll && plugin.latest_tag)) {
+                    continue
+                }
+                try {
+                    const updates = await api.get(`api/organizations/@current/plugins/${plugin.id}/check_for_updates`)
+                    actions.setUpdateStatus(plugin.id, updates.plugin.tag, updates.plugin.latest_tag)
+                } catch (e) {
+                    actions.setUpdateError(plugin.id)
+                }
+                breakpoint()
             }
-        },
-    }),
 
-    listeners: ({ values }) => ({
+            actions.checkedForUpdates()
+        },
+        loadPluginsSuccess() {
+            const initialUpdateStatus: Record<string, PluginUpdateStatusType> = {}
+            for (const [id, plugin] of Object.entries(values.plugins)) {
+                if (plugin.latest_tag) {
+                    initialUpdateStatus[id] = { upToDate: plugin.tag === plugin.latest_tag }
+                }
+            }
+            actions.checkForUpdates(false, initialUpdateStatus)
+        },
         generateApiKeysIfNeeded: async ({ form }, breakpoint) => {
             const { editingPlugin } = values
             if (!editingPlugin) {
@@ -356,6 +452,16 @@ export const pluginsLogic = kea<
                 (!pluginConfig.posthogHost || pluginConfig.posthogHost === 'https://app.posthog.com')
             ) {
                 form.setFieldsValue({ posthogHost: window.location.origin })
+            }
+        },
+    }),
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.loadPlugins()
+            actions.loadPluginConfigs()
+
+            if (userLogic.values.user?.plugin_access.install) {
+                actions.loadRepository()
             }
         },
     }),
