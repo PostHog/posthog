@@ -167,7 +167,9 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         queryset = self.get_queryset()
         monday = now() + timedelta(days=-now().weekday())
         # don't allow events too far into the future
-        queryset = queryset.filter(timestamp__lte=now() + timedelta(seconds=5),)
+        queryset = queryset.filter(
+            timestamp__lte=now() + timedelta(seconds=5),
+        )
         events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[0:101]
 
         is_csv_request = self.request.accepted_renderer.format == "csv"
@@ -286,7 +288,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response({"result": sessions, "pagination": pagination})
 
     def _filter_sessions_by_distinct_id(self, distinct_id: str, sessions: List[Any]) -> List[Any]:
-        person_ids = Person.objects.get(persondistinctid__distinct_id=distinct_id).distinct_ids
+        person_ids = Person.objects.get(persondistinctid__distinct_id=distinct_id, team=self.team).distinct_ids
         return [session for i, session in enumerate(sessions) if session["distinct_id"] in person_ids]
 
     @action(methods=["GET"], detail=False)
