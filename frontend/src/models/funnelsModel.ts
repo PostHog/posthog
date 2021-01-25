@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { ViewType } from 'scenes/insights/insightLogic'
-import { InsightHistory, SavedFunnel } from '~/types'
+import { DashboardItemType, SavedFunnel } from '~/types'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { funnelsModelType } from './funnelsModelType'
@@ -19,7 +19,7 @@ const parseSavedFunnel = (result: Record<string, any>): SavedFunnel => {
     }
 }
 
-export const funnelsModel = kea<funnelsModelType<SavedFunnel, InsightHistory>>({
+export const funnelsModel = kea<funnelsModelType<SavedFunnel, DashboardItemType>>({
     loaders: ({ actions }) => ({
         funnels: {
             __default: [] as SavedFunnel[],

@@ -1,6 +1,8 @@
 import React from 'react'
-import { BookOutlined } from '@ant-design/icons'
+import { BookOutlined, ArrowLeftOutlined } from '@ant-design/icons'
 import { TeamType } from '~/types'
+import { useActions } from 'kea'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function JSBookmarklet({ team }: { team: TeamType }): JSX.Element {
     const initCall = `posthog.init('${team?.api_token}',{api_host:'${location.origin}', loaded: () => alert('Posthog is now tracking events!')})`
@@ -8,9 +10,14 @@ export function JSBookmarklet({ team }: { team: TeamType }): JSX.Element {
         initCall
     )}%7D%7D)()`
 
+    const { reportBookmarkletDragged } = useActions(eventUsageLogic)
+
     return (
-        <a href={href}>
-            <BookOutlined /> PostHog Bookmarklet
+        <a href={href} onDragStart={reportBookmarkletDragged}>
+            <BookOutlined /> PostHog Bookmarklet{' '}
+            <span style={{ color: 'var(--muted)', fontStyle: 'italic', marginLeft: 16 }}>
+                <ArrowLeftOutlined /> <b>drag</b> to your bookmarks. Don't click it.
+            </span>
         </a>
     )
 }

@@ -21,7 +21,7 @@ export const topContentLogic = kea<topContentLogicType<BackTo>>({
         ],
     },
     listeners: ({ actions }) => ({
-        [router.actions.locationChanged]: ({ hashParams }) => {
+        [router.actionTypes.locationChanged]: ({ hashParams }) => {
             if (!hashParams.backTo || !hashParams.backToURL) {
                 actions.setBackTo(null)
             } else {
