@@ -1,21 +1,20 @@
-from posthog.queries.trends import FREQ_MAP
-from posthog.utils import append_data
-import pandas as pd
 import re
 import uuid
 from collections import defaultdict
 from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
+import pytz
 from django.db import connection
 from django.db.models import IntegerField, Min, Value
 from django.utils import timezone
 from psycopg2 import sql
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models import Action, Entity, Event, Filter, Person, Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery, properties_to_Q
+from posthog.utils import append_data, format_label_date, get_daterange
 
 
 class Funnel(BaseQuery):
@@ -27,7 +26,7 @@ class Funnel(BaseQuery):
         self._filter = filter
         self._team = team
 
-    def _gen_lateral_bodies(self):
+    def _gen_lateral_bodies(self, within_time: Optional[str] = None):
         annotations = {}
         for index, step in enumerate(self._filter.entities):
             filter_key = "event" if step.type == TREND_FILTER_TYPE_EVENTS else "action__pk"
@@ -60,7 +59,15 @@ class Funnel(BaseQuery):
             event_string = (
                 event_string.decode("utf-8")
                 .replace("'1234321'", "{prev_step_person_id}")
-                .replace("'2000-01-01T00:00:00+00:00'::timestamptz", "{prev_step_ts}")
+                .replace(
+                    "'2000-01-01T00:00:00+00:00'::timestamptz",
+                    "{prev_step_ts} %s"
+                    % (
+                        ' AND "posthog_event"."timestamp" < "step_{}"."step_ts" + {}'.format(index - 1, within_time)
+                        if within_time
+                        else ""
+                    ),
+                )
                 .replace('"posthog_event"."distinct_id"', '"pdi"."person_id"')
                 .replace("99999999", '"pdi"."person_id"')
                 .replace(', "pdi"."person_id" AS "person_id"', "")
@@ -178,56 +185,44 @@ class Funnel(BaseQuery):
         ).format(
             interval=sql.Literal(filter.interval),
             particular_steps=sql.SQL(",\n").join(particular_steps),
-            steps_query=self._build_query(self._gen_lateral_bodies()),
-            interval_field=sql.SQL("step_0") if filter.interval != 'week' else sql.SQL("(\"step_0\" + interval '1 day') AT TIME ZONE 'UTC'")
+            steps_query=self._build_query(self._gen_lateral_bodies(within_time="'1 day'")),
+            interval_field=sql.SQL("step_0")
+            if filter.interval != "week"
+            else sql.SQL("(\"step_0\" + interval '1 day') AT TIME ZONE 'UTC'"),
         )
         return trends_query
 
-    def _serialize_trends(self, filter: Filter, *, from_step: int, to_step: int) -> Dict[str, Any]:
-        serialized: Dict[str, Any] = {
-            "count": 0,
-            "data": [],
-            "days": [],
-        }
+    def _get_trends(self) -> List[Dict[str, Any]]:
+        serialized: Dict[str, Any] = {"count": 0, "data": [], "days": [], "labels": []}
         with connection.cursor() as cursor:
-            qstring = self._build_trends_query(filter).as_string(cursor.connection)
-            print(qstring)
+            qstring = self._build_trends_query(self._filter).as_string(cursor.connection)
             cursor.execute(qstring)
             steps_at_dates = namedtuplefetchall(cursor)
-        conversion_over_date_df = pd.DataFrame(
-            data=[row[to_step + 1] for row in steps_at_dates],
-            index=[row[0] for row in steps_at_dates],
-            columns=["conversion_percentage"],
-            dtype=float,
-        )  # +1 because date takes up 0th index
-        conversion_over_date_df.index.name = "date"
-        conversion_over_date_df["conversion_percentage"] = round(
-            conversion_over_date_df["conversion_percentage"] / [row[from_step + 1] for row in steps_at_dates] * 100, 1
+
+        date_range = get_daterange(
+            self._filter.date_from or steps_at_dates[0].date, self._filter.date_to, frequency=self._filter.interval
         )
-        import ipdb; ipdb.set_trace()
-        time_index = pd.date_range(
-            filter.date_from - pd.offsets.MonthBegin(), filter.date_to, freq=FREQ_MAP[filter.interval]
-        )
-        conversion_over_date_df = conversion_over_date_df.reindex(time_index, fill_value=0.0)
-        serialized.update(append_data(conversion_over_date_df.itertuples(), filter.interval, math=None))
-        return serialized
+        data_array = [
+            {"date": step.date, "count": round(step.step_1_count / step.step_0_count * 100)} for step in steps_at_dates
+        ]
 
-    def get_trends(self, *, from_step: Optional[int] = None, to_step: Optional[int] = None) -> List[Dict[str, Any]]:
-        if (from_step is None) ^ (to_step is None):
-            raise ValueError("Either both or neither from_step and to_step must be specified.")
+        if self._filter.interval == "week":
+            for df in data_array:
+                df["date"] -= timedelta(days=df["date"].weekday() + 1)
+        elif self._filter.interval == "month":
+            for df in data_array:
+                df["date"] = df["date"].replace(day=1)
+        for df in data_array:
+            df["date"] = df["date"].replace(tzinfo=pytz.utc).isoformat()
 
-        if from_step is not None and to_step is not None:
-            try:
-                from_step = int(from_step)
-                to_step = int(to_step)
-            except ValueError:
-                raise ValueError("Parameters from_step and to_step must be valid integers.")
+        datewise_data = {d["date"]: d["count"] for d in data_array}
+        values = [(key, datewise_data.get(key.isoformat(), 0)) for key in date_range]
 
-        if from_step is None:
-            from_step = 0
-            to_step = len(self._filter.entities) - 1
-
-        return [self._serialize_trends(self._filter, from_step=from_step, to_step=to_step)]
+        for item in values:
+            serialized["days"].append(item[0])
+            serialized["data"].append(item[1])
+            serialized["labels"].append(format_label_date(item[0], self._filter.interval))
+        return [serialized]
 
     def data_to_return(self, results: List[Person]) -> List[Dict[str, Any]]:
         steps = []
@@ -274,6 +269,9 @@ class Funnel(BaseQuery):
         return steps
 
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
+        if self._filter.display == TRENDS_LINEAR:
+            return self._get_trends()
+
         with connection.cursor() as cursor:
             qstring = self._build_query(self._gen_lateral_bodies()).as_string(cursor.connection)
             cursor.execute(qstring)

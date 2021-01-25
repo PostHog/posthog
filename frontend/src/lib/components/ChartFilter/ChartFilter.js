@@ -9,6 +9,7 @@ import {
     ACTIONS_BAR_CHART,
     ACTIONS_TABLE,
     LIFECYCLE,
+    FUNNEL_VIZ,
 } from '~/lib/constants'
 import { chartFilterLogic } from './chartFilterLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
@@ -19,12 +20,33 @@ export function ChartFilter(props) {
     const { chartFilter } = useValues(chartFilterLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
 
-    const cumulativeDisabled = filters.session || filters.shown_as === STICKINESS || filters.retentionType
     const linearDisabled = filters.session && filters.session === 'dist'
-    const tableDisabled = false
-    const pieDisabled = filters.session || filters.insight === ViewType.RETENTION
-    const defaultDisplay = filters.retentionType ? ACTIONS_TABLE : ACTIONS_LINE_GRAPH_LINEAR
+    const cumulativeDisabled =
+        filters.session ||
+        filters.shown_as === STICKINESS ||
+        filters.retentionType ||
+        filters.insight === ViewType.FUNNELS
+    const tableDisabled = filters.insight === ViewType.FUNNELS || false
+    const pieDisabled =
+        filters.session || filters.insight === ViewType.RETENTION || filters.insight === ViewType.FUNNELS
+    const barDisabled = filters.session || filters.retentionType || filters.insight === ViewType.FUNNELS
+    const defaultDisplay = filters.retentionType
+        ? ACTIONS_TABLE
+        : filters.insight === ViewType.FUNNELS
+        ? FUNNEL_VIZ
+        : ACTIONS_LINE_GRAPH_LINEAR
 
+    if (!filters.insight) {
+        return null
+    }
+    console.log(
+        filters.display,
+        filters.insight,
+        defaultDisplay,
+        chartFilter,
+        filters.display || defaultDisplay,
+        chartFilter || defaultDisplay
+    )
     return (
         <Select
             key="2"
@@ -39,6 +61,7 @@ export function ChartFilter(props) {
             data-attr="chart-filter"
             disabled={filters.shown_as === LIFECYCLE}
         >
+            {filters.insight === ViewType.FUNNELS && <Select.Option value={FUNNEL_VIZ}>Funnel</Select.Option>}
             <Select.OptGroup label={'Line Chart'}>
                 <Select.Option value={ACTIONS_LINE_GRAPH_LINEAR} disabled={linearDisabled}>
                     Linear
@@ -53,7 +76,7 @@ export function ChartFilter(props) {
             <Select.Option value={ACTIONS_PIE_CHART} disabled={pieDisabled}>
                 Pie
             </Select.Option>
-            <Select.Option value={ACTIONS_BAR_CHART} disabled={filters.session || filters.retentionType}>
+            <Select.Option value={ACTIONS_BAR_CHART} disabled={barDisabled}>
                 Bar
             </Select.Option>
         </Select>

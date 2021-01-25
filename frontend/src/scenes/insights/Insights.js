@@ -24,7 +24,8 @@ import {
     ACTIONS_TABLE,
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
-    BAR_CHART_LABEL,
+    FUNNEL_VIZ,
+    FUNNEL_LABEL,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
@@ -57,7 +58,7 @@ const displayMap = {
     [`${ACTIONS_LINE_GRAPH_CUMULATIVE}`]: CUMULATIVE_CHART_LABEL,
     [`${ACTIONS_TABLE}`]: TABLE_LABEL,
     [`${ACTIONS_PIE_CHART}`]: PIE_CHART_LABEL,
-    [`${ACTIONS_BAR_CHART}`]: BAR_CHART_LABEL,
+    [`${FUNNEL_VIZ}`]: FUNNEL_LABEL,
 }
 
 const showIntervalFilter = {
@@ -65,7 +66,7 @@ const showIntervalFilter = {
     [`${ViewType.STICKINESS}`]: true,
     [`${ViewType.LIFECYCLE}`]: true,
     [`${ViewType.SESSIONS}`]: true,
-    [`${ViewType.FUNNELS}`]: false,
+    [`${ViewType.FUNNELS}`]: true,
     [`${ViewType.RETENTION}`]: false,
     [`${ViewType.PATHS}`]: false,
 }
@@ -75,7 +76,7 @@ const showChartFilter = {
     [`${ViewType.STICKINESS}`]: true,
     [`${ViewType.LIFECYCLE}`]: false,
     [`${ViewType.SESSIONS}`]: true,
-    [`${ViewType.FUNNELS}`]: false,
+    [`${ViewType.FUNNELS}`]: true,
     [`${ViewType.RETENTION}`]: true,
     [`${ViewType.PATHS}`]: false,
 }
@@ -284,7 +285,7 @@ function _Insights() {
                                               }[activeView]}
                                     </div>
                                 </Card>
-                                {activeView === ViewType.FUNNELS && (
+                                {activeView === ViewType.FUNNELS && allFilters.display === FUNNEL_VIZ && (
                                     <Card>
                                         <FunnelPeople />
                                     </Card>

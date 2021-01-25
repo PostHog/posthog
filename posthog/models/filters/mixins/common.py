@@ -174,7 +174,10 @@ class DateMixin(BaseParamMixin):
             if self._date_from == "all":
                 return None
             elif isinstance(self._date_from, str):
-                return relative_date_parse(self._date_from)
+                parsed_date = relative_date_parse(self._date_from)
+                if self.interval and self.interval != "minute" and self.interval != "hour":  # type: ignore
+                    parsed_date = parsed_date.replace(hour=0)
+                return parsed_date
             else:
                 return self._date_from
         return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)

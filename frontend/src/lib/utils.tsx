@@ -656,3 +656,46 @@ export function midEllipsis(input: string, maxLength: number): string {
     const excess = Math.ceil((input.length - maxLength) / 2)
     return `${input.substring(0, middle - excess)}...${input.substring(middle + excess)}`
 }
+
+export const disableMinuteFor = {
+    dStart: false,
+    '-1d': false,
+    '-7d': true,
+    '-14d': true,
+    '-30d': true,
+    '-90d': true,
+    mStart: true,
+    '-1mStart': true,
+    yStart: true,
+    all: true,
+}
+
+export const disableHourFor = {
+    dStart: false,
+    '-1d': false,
+    '-7d': false,
+    '-14d': false,
+    '-30d': false,
+    '-90d': true,
+    mStart: false,
+    '-1mStart': false,
+    yStart: true,
+    all: true,
+}
+
+export function autocorrectInterval({ date_from, interval }: { date_from: string; interval: string }): string {
+    if (!interval) {
+        return 'day'
+    } // undefined/uninitialized
+
+    const minute_disabled = disableMinuteFor[date_from] && interval === 'minute'
+    const hour_disabled = disableHourFor[date_from] && interval === 'hour'
+
+    if (minute_disabled) {
+        return 'hour'
+    } else if (hour_disabled) {
+        return 'day'
+    } else {
+        return interval
+    }
+}

@@ -4,13 +4,19 @@ import { Loading, humanFriendlyDuration } from 'lib/utils'
 import { useValues, useActions } from 'kea'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 import './FunnelViz.scss'
+import { funnelLogic } from './funnelLogic'
+import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
+import { LineGraph } from 'scenes/insights/LineGraph'
+import { router } from 'kea-router'
 
-export function FunnelViz({ steps: stepsParam, dashboardItemId, cachedResults }) {
+export function FunnelViz({ steps: stepsParam, dashboardItemId, cachedResults, inSharedMode, color = 'white' }) {
     const container = useRef(null)
     const [steps, setSteps] = useState(stepsParam)
     const logic = funnelVizLogic({ dashboardItemId, cachedResults })
     const { results: stepsResult, resultsLoading: funnelLoading } = useValues(logic)
     const { loadResults: loadFunnel } = useActions(logic)
+    const { filters } = useValues(funnelLogic)
+    const [{ fromItem }] = useState(router.values.hashParams)
 
     function buildChart() {
         if (!steps || steps.length === 0) {
@@ -69,6 +75,26 @@ export function FunnelViz({ steps: stepsParam, dashboardItemId, cachedResults })
             buildChart()
         }
     }, [stepsResult, funnelLoading])
+
+    if (filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
+        console.log(steps)
+        return (
+            steps && (
+                <LineGraph
+                    pageKey="trends-annotations"
+                    data-attr="trend-line-graph-funnel"
+                    type="line"
+                    color={color}
+                    datasets={steps}
+                    labels={steps[0].labels}
+                    isInProgress={!filters.date_to}
+                    dashboardItemId={dashboardItemId || fromItem}
+                    inSharedMode={inSharedMode}
+                    percentage={true}
+                />
+            )
+        )
+    }
 
     return !funnelLoading ? (
         steps && steps.length > 0 ? (
