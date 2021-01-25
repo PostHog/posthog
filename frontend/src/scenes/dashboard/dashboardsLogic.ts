@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router } from 'kea-router'
-import { dashboardsLogicType } from 'types/scenes/dashboard/dashboardsLogicType'
+import { dashboardsLogicType } from './dashboardsLogicType'
 import { DashboardType } from '~/types'
 
 export const dashboardsLogic = kea<dashboardsLogicType>({

@@ -10,7 +10,7 @@ import { Tooltip } from 'antd'
 import { ActionSelectInfo } from '../ActionSelectInfo'
 import { SelectBox, SelectedItem } from '../../../lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
-import { entityFilterLogicType } from 'types/scenes/insights/ActionFilter/entityFilterLogicType'
+import { entityFilterLogicType } from './entityFilterLogicType'
 
 interface FilterType {
     filter: {

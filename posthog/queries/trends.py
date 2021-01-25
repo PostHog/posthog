@@ -355,13 +355,14 @@ class Trends(LifecycleTrend, BaseQuery):
             new_dict = append_data(dates_filled=list(item.items()), interval=filter.interval)
             if value != "Total":
                 new_dict.update(breakdown_label(entity, value))
-            new_dict.update(
-                {
-                    "aggregated_value": get_aggregate_breakdown_total(
-                        filtered_events, filter, entity, team_id, new_dict["breakdown_value"]
-                    )
-                }
-            )
+            if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
+                new_dict.update(
+                    {
+                        "aggregated_value": get_aggregate_breakdown_total(
+                            filtered_events, filter, entity, team_id, new_dict["breakdown_value"]
+                        )
+                    }
+                )
             formatted_entities.append(new_dict)
 
         return formatted_entities

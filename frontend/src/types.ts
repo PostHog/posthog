@@ -24,6 +24,7 @@ export interface UserType {
     is_debug: boolean
     is_impersonated: boolean
     email_service_available: boolean
+    realm: 'cloud' | 'hosted'
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -429,4 +430,10 @@ export interface FilterType {
     returningEntity?: Record<string, any>
     startEntity?: Record<string, any>
     path_type?: '$pageview' | '$screen' | '$autocapture' | 'custom_event'
+}
+
+export interface SystemStatus {
+    metric: string
+    value: string
+    key?: string
 }

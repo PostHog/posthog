@@ -59,7 +59,6 @@ export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
                         buttonStyle="solid"
                         onChange={(e) => {
                             const key = e.target.value
-                            console.log(key)
                             setListFilters({ is_identified: key === 'all' ? undefined : key })
                             loadPersons()
                         }}

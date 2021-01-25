@@ -5,7 +5,7 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '~/toolbar/utils'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import { elementsLogicType } from 'types/toolbar/elements/elementsLogicType'
+import { elementsLogicType } from './elementsLogicType'
 import { ActionStepType, ActionType } from '~/types'
 import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
@@ -397,7 +397,6 @@ export const elementsLogic = kea<
             if (element?.attributes) {
                 for (let i = 0; i < element.attributes.length; i++) {
                     const name = element.attributes.item(i)?.nodeName
-                    console.log(element.attributes.item(i), name)
                     if (name && name.indexOf('data-') > -1) {
                         data_attributes.push(name)
                     }

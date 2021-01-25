@@ -72,7 +72,8 @@ services:
         build:
             context: ../
             dockerfile: production.Dockerfile
-        command: ./bin/plugin-server
+        command: ./bin/plugin-server --no-restart-loop
+        restart: on-failure
         volumes:
             - ..:/code
         environment:
@@ -83,12 +84,15 @@ services:
         depends_on:
             - db
             - redis
+            - clickhouse
+            - kafka
         links:
             - db:db
             - redis:redis
-
     clickhouse:
         image: yandex/clickhouse-server
+        depends_on:
+            - kafka
         ports:
             - '8123:8123'
             - '9000:9000'
@@ -102,6 +106,8 @@ services:
         image: wurstmeister/zookeeper
     kafka:
         image: wurstmeister/kafka
+        depends_on:
+            - zookeeper
         ports:
             - '9092:9092'
         environment:

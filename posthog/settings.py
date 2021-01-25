@@ -154,6 +154,8 @@ PRIMARY_DB = os.environ.get("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
 EE_AVAILABLE = False
 
+PLUGIN_SERVER_INGESTION_HANDOFF = get_bool_from_env("PLUGIN_SERVER_INGESTION_HANDOFF", False)
+
 if PRIMARY_DB == RDBMS.CLICKHOUSE:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
 else:
