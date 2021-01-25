@@ -11,12 +11,11 @@ export interface PluginRepositoryEntry {
 
 export interface PluginTypeWithConfig extends PluginType {
     pluginConfig: PluginConfigType
-    updates: PluginUpdateType
+    updateStatus: PluginUpdateStatusType
 }
 
-export interface PluginUpdateType {
-    currentTag?: string
-    nextTag?: string
+export interface PluginUpdateStatusType {
+    upToDate?: boolean
     error?: boolean
     updated?: boolean
 }

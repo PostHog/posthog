@@ -19,9 +19,11 @@ export function RepositoryTab(): JSX.Element {
                             return (
                                 <PluginCard
                                     key={plugin.url}
-                                    name={plugin.name}
-                                    url={plugin.url}
-                                    description={plugin.description}
+                                    plugin={{
+                                        name: plugin.name,
+                                        url: plugin.url,
+                                        description: plugin.description,
+                                    }}
                                     maintainer={plugin.maintainer}
                                 />
                             )

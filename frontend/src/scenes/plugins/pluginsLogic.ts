@@ -7,7 +7,7 @@ import {
     PluginRepositoryEntry,
     PluginTab,
     PluginTypeWithConfig,
-    PluginUpdateType,
+    PluginUpdateStatusType,
 } from './types'
 import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
@@ -29,7 +29,7 @@ export const pluginsLogic = kea<
         PluginRepositoryEntry,
         PluginTypeWithConfig,
         PluginInstallationType,
-        PluginUpdateType,
+        PluginUpdateStatusType,
         PluginTab
     >
 >({
@@ -46,9 +46,12 @@ export const pluginsLogic = kea<
         resetPluginConfigError: (id: number) => ({ id }),
         editPluginSource: (values: { id: number; name: string; source: string; configSchema: Record<string, any> }) =>
             values,
-        checkForUpdates: true,
+        checkForUpdates: (checkAll: boolean, initialUpdateStatus: Record<string, PluginUpdateStatusType> = {}) => ({
+            checkAll,
+            initialUpdateStatus,
+        }),
         checkedForUpdates: true,
-        setUpdateStatus: (id: number, currentTag: string, nextTag: string) => ({ id, currentTag, nextTag }),
+        setUpdateStatus: (id: number, tag: string, latestTag: string) => ({ id, tag, latestTag }),
         setUpdateError: (id: number) => ({ id }),
         updatePlugin: (id: number) => ({ id }),
         pluginUpdated: (id: number) => ({ id }),
@@ -202,6 +205,12 @@ export const pluginsLogic = kea<
     }),
 
     reducers: {
+        plugins: {
+            setUpdateStatus: (state, { id, tag, latestTag }) => ({
+                ...state,
+                [id]: { ...state[id], tag, latest_tag: latestTag },
+            }),
+        },
         installingPluginUrl: [
             null as string | null,
             {
@@ -281,11 +290,14 @@ export const pluginsLogic = kea<
                 installPluginSuccess: () => PluginTab.Installed,
             },
         ],
-        availableUpdates: [
-            {} as Record<string, PluginUpdateType>,
+        updateStatus: [
+            {} as Record<string, PluginUpdateStatusType>,
             {
-                checkForUpdates: () => ({}),
-                setUpdateStatus: (state, { id, currentTag, nextTag }) => ({ ...state, [id]: { currentTag, nextTag } }),
+                checkForUpdates: (_, { initialUpdateStatus }) => initialUpdateStatus,
+                setUpdateStatus: (state, { id, tag, latestTag }) => ({
+                    ...state,
+                    [id]: { upToDate: tag === latestTag },
+                }),
                 setUpdateError: (state, { id }) => ({ ...state, [id]: { error: true } }),
                 pluginUpdated: (state, { id }) => ({ ...state, [id]: { updated: true } }),
             },
@@ -305,13 +317,12 @@ export const pluginsLogic = kea<
 
     selectors: {
         installedPlugins: [
-            (s) => [s.plugins, s.pluginConfigs, s.availableUpdates],
-            (plugins, pluginConfigs, availableUpdates): PluginTypeWithConfig[] => {
+            (s) => [s.plugins, s.pluginConfigs, s.updateStatus],
+            (plugins, pluginConfigs, updateStatus): PluginTypeWithConfig[] => {
                 const pluginValues = Object.values(plugins)
                 return pluginValues
                     .map((plugin, index) => {
                         let pluginConfig = pluginConfigs[plugin.id]
-                        const updates = availableUpdates[plugin.id]
                         if (!pluginConfig) {
                             const config: Record<string, any> = {}
                             Object.entries(getConfigSchemaObject(plugin.config_schema)).forEach(
@@ -328,7 +339,7 @@ export const pluginsLogic = kea<
                                 order: pluginValues.length + index,
                             }
                         }
-                        return { ...plugin, pluginConfig, updates }
+                        return { ...plugin, pluginConfig, updateStatus: updateStatus[plugin.id] }
                     })
                     .sort((a, b) => a.pluginConfig.order - b.pluginConfig.order)
                     .map((plugin, index) => ({ ...plugin, order: index + 1 }))
@@ -337,8 +348,12 @@ export const pluginsLogic = kea<
         pluginsNeedingUpdates: [
             (s) => [s.installedPlugins],
             (installedPlugins) =>
+                // show either plugins that need to be updated or that were just updated
                 installedPlugins.filter(
-                    ({ updates }) => updates && (updates.updated || updates.nextTag !== updates.currentTag)
+                    ({ plugin_type: pluginType, tag, latest_tag: latestTag, updateStatus }) =>
+                        pluginType !== PluginInstallationType.Source &&
+                        ((latestTag && tag !== latestTag) ||
+                            (updateStatus && !updateStatus.error && (updateStatus.updated || !updateStatus.upToDate)))
                 ),
         ],
         installedPluginUrls: [
@@ -378,17 +393,17 @@ export const pluginsLogic = kea<
     },
 
     listeners: ({ actions, values }) => ({
-        checkForUpdates: async (_, breakpoint) => {
+        checkForUpdates: async ({ checkAll }, breakpoint) => {
             breakpoint()
             const { installedPlugins } = values
-            const upgradablePlugins = installedPlugins.filter(
-                (plugin) => plugin.plugin_type !== PluginInstallationType.Source
-            )
 
-            for (const plugin of upgradablePlugins) {
+            for (const plugin of installedPlugins) {
+                if (plugin.plugin_type === PluginInstallationType.Source || (!checkAll && plugin.latest_tag)) {
+                    continue
+                }
                 try {
                     const updates = await api.get(`api/organizations/@current/plugins/${plugin.id}/check_for_updates`)
-                    actions.setUpdateStatus(plugin.id, updates.current_tag, updates.next_tag)
+                    actions.setUpdateStatus(plugin.id, updates.plugin.tag, updates.plugin.latest_tag)
                 } catch (e) {
                     actions.setUpdateError(plugin.id)
                 }
@@ -396,6 +411,15 @@ export const pluginsLogic = kea<
             }
 
             actions.checkedForUpdates()
+        },
+        loadPluginsSuccess() {
+            const initialUpdateStatus: Record<string, PluginUpdateStatusType> = {}
+            for (const [id, plugin] of Object.entries(values.plugins)) {
+                if (plugin.latest_tag) {
+                    initialUpdateStatus[id] = { upToDate: plugin.tag === plugin.latest_tag }
+                }
+            }
+            actions.checkForUpdates(false, initialUpdateStatus)
         },
     }),
 

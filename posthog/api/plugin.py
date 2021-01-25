@@ -45,12 +45,22 @@ class PluginSerializer(serializers.ModelSerializer):
             "config_schema",
             "tag",
             "source",
+            "latest_tag",
         ]
-        read_only_fields = ["id"]
+        read_only_fields = ["id", "latest_tag"]
 
     def get_url(self, plugin: Plugin) -> Optional[str]:
         # remove ?private_token=... from url
         return str(plugin.url).split("?")[0] if plugin.url else None
+
+    def get_latest_tag(self, plugin: Plugin) -> Optional[str]:
+        if not plugin.latest_tag or not plugin.latest_tag_checked_at:
+            return None
+
+        if plugin.latest_tag != plugin.tag or plugin.latest_tag_checked_at > now() - relativedelta(seconds=60 * 30):
+            return str(plugin.latest_tag)
+
+        return None
 
     def _raise_if_plugin_installed(self, url: str):
         url_without_private_key = url.split("?")[0]
@@ -163,14 +173,12 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("Plugin installation via the web is disabled!")
 
         plugin = self.get_object()
-        next_url = parse_url(plugin.url, get_latest_if_none=True)
-        return Response(
-            {
-                "plugin": plugin.id,
-                "current_tag": plugin.tag,
-                "next_tag": next_url.get("tag", next_url.get("version", None)),
-            }
-        )
+        latest_url = parse_url(plugin.url, get_latest_if_none=True)
+        plugin.latest_tag = latest_url.get("tag", latest_url.get("version", None))
+        plugin.latest_tag_checked_at = now()
+        plugin.save()
+
+        return Response({"plugin": PluginSerializer(plugin).data})
 
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:
         response = super().destroy(request, *args, **kwargs)

@@ -9,18 +9,5 @@ export function InstalledPlugin({
     plugin: PluginTypeWithConfig
     showUpdateButton?: boolean
 }): JSX.Element {
-    return (
-        <PluginCard
-            key={plugin.id}
-            pluginId={plugin.id}
-            name={plugin.name}
-            url={plugin.url}
-            description={plugin.description}
-            pluginType={plugin.plugin_type}
-            pluginConfig={plugin.pluginConfig}
-            updates={plugin.updates}
-            error={plugin.error}
-            showUpdateButton={showUpdateButton}
-        />
-    )
+    return <PluginCard key={plugin.id} plugin={plugin} showUpdateButton={showUpdateButton} />
 }

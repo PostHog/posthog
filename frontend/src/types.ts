@@ -369,6 +369,7 @@ export interface PluginType {
     description?: string
     url?: string
     tag?: string
+    latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     error?: PluginErrorType

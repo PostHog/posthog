@@ -17,7 +17,7 @@ export function InstalledTab(): JSX.Element {
         hasNonSourcePlugins,
         pluginsNeedingUpdates,
         installedPluginUrls,
-        availableUpdates,
+        updateStatus,
     } = useValues(pluginsLogic)
     const { checkForUpdates } = useActions(pluginsLogic)
 
@@ -26,11 +26,11 @@ export function InstalledTab(): JSX.Element {
             <Button
                 type="primary"
                 icon={pluginsNeedingUpdates.length > 0 ? <SyncOutlined /> : <CloudDownloadOutlined />}
-                onClick={checkForUpdates}
+                onClick={() => checkForUpdates(true)}
                 loading={checkingForUpdates}
             >
                 {checkingForUpdates
-                    ? `Checking plugin ${Object.keys(availableUpdates).length} out of ${
+                    ? `Checking plugin ${Object.keys(updateStatus).length + 1} out of ${
                           Object.keys(installedPluginUrls).length
                       }`
                     : pluginsNeedingUpdates.length > 0

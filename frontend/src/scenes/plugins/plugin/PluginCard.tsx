@@ -14,35 +14,31 @@ import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
 import { PluginError } from './PluginError'
 import { LocalPluginTag } from './LocalPluginTag'
-import { PluginInstallationType, PluginUpdateType } from 'scenes/plugins/types'
+import { PluginInstallationType, PluginTypeWithConfig } from 'scenes/plugins/types'
 import { SourcePluginTag } from './SourcePluginTag'
 import { CommunityPluginTag } from './CommunityPluginTag'
 
 interface PluginCardProps {
-    name: string
-    description?: string
-    url?: string
+    plugin: Partial<PluginTypeWithConfig>
     pluginConfig?: PluginConfigType
-    updates?: PluginUpdateType
-    pluginType?: PluginInstallationType
-    pluginId?: number
     error?: PluginErrorType
     maintainer?: string
     showUpdateButton?: boolean
 }
 
-export function PluginCard({
-    name,
-    description,
-    url,
-    pluginType,
-    pluginConfig,
-    updates,
-    pluginId,
-    error,
-    maintainer,
-    showUpdateButton,
-}: PluginCardProps): JSX.Element {
+export function PluginCard({ plugin, error, maintainer, showUpdateButton }: PluginCardProps): JSX.Element {
+    const {
+        name,
+        description,
+        url,
+        plugin_type: pluginType,
+        pluginConfig,
+        tag,
+        latest_tag: latestTag,
+        id: pluginId,
+        updateStatus,
+    } = plugin
+
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin } = useActions(pluginsLogic)
     const { loading, installingPluginUrl, checkingForUpdates, updatingPlugin } = useValues(pluginsLogic)
 
@@ -96,21 +92,21 @@ export function PluginCard({
                             ) : null}
                             {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
 
-                            {updates?.error ? (
+                            {updateStatus?.error ? (
                                 <Tag color="red">
                                     <WarningOutlined /> Error checking for updates
                                 </Tag>
-                            ) : updates?.currentTag !== updates?.nextTag ? (
+                            ) : checkingForUpdates && !updateStatus && pluginType !== PluginInstallationType.Source ? (
+                                <Tag color="blue">
+                                    <LoadingOutlined /> Checking for updates…
+                                </Tag>
+                            ) : latestTag && tag !== latestTag ? (
                                 <Tag color="volcano">
                                     <CloudDownloadOutlined /> Update available!
                                 </Tag>
-                            ) : updates?.updated || (updates?.currentTag && updates.currentTag === updates.nextTag) ? (
+                            ) : latestTag && tag === latestTag ? (
                                 <Tag color="green">
                                     <CheckOutlined /> Up to date
-                                </Tag>
-                            ) : checkingForUpdates && pluginType !== PluginInstallationType.Source ? (
-                                <Tag color="blue">
-                                    <LoadingOutlined /> Checking for updates…
                                 </Tag>
                             ) : null}
 
@@ -137,13 +133,13 @@ export function PluginCard({
                     <Col>
                         {showUpdateButton && pluginId ? (
                             <Button
-                                type={updates?.updated ? 'default' : 'primary'}
+                                type={updateStatus?.updated ? 'default' : 'primary'}
                                 className="padding-under-500"
-                                onClick={() => (updates?.updated ? editPlugin(pluginId) : updatePlugin(pluginId))}
+                                onClick={() => (updateStatus?.updated ? editPlugin(pluginId) : updatePlugin(pluginId))}
                                 loading={!!updatingPlugin}
-                                icon={updates?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
+                                icon={updateStatus?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
                             >
-                                <span className="show-over-500">{updates?.updated ? 'Updated' : 'Update'}</span>
+                                <span className="show-over-500">{updateStatus?.updated ? 'Updated' : 'Update'}</span>
                             </Button>
                         ) : canConfigure && pluginId ? (
                             <Button type="primary" className="padding-under-500" onClick={() => editPlugin(pluginId)}>
