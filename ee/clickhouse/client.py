@@ -104,11 +104,11 @@ else:
             redis_client.set(key, _serialize(result), ex=ttl)
             return result
 
-    def sync_execute(query, args=None):
+    def sync_execute(query, args=None, **kwargs):
         start_time = time()
         try:
             with ch_sync_pool.get_client() as client:
-                result = client.execute(query, args)
+                result = client.execute(query, args, **kwargs)
         finally:
             execution_time = time() - start_time
             if settings.SHELL_PLUS_PRINT_SQL:
