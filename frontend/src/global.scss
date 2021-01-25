@@ -99,6 +99,14 @@ style files without adding already imported styles. */
     color: $text_muted;
 }
 
+code.code {
+    // Temporary: .code class to transition legacy elements
+    color: $danger;
+    background-color: $bg_mid;
+    border-radius: $radius;
+    padding: 2px 6px;
+}
+
 // Spacing & layout
 .mb {
     margin-bottom: $default_spacing;
