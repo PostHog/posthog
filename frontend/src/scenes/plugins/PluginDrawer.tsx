@@ -31,8 +31,10 @@ function EnabledDisabledSwitch({
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { editingPlugin, editingPluginInitialChanges, loading, editingSource } = useValues(pluginsLogic)
-    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource } = useActions(pluginsLogic)
+    const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
+    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, generateApiKeysIfNeeded } = useActions(
+        pluginsLogic
+    )
     const [form] = Form.useForm()
 
     const canDelete = user?.plugin_access.install
@@ -44,10 +46,11 @@ export function PluginDrawer(): JSX.Element {
                 __enabled: editingPlugin.pluginConfig.enabled,
                 ...editingPluginInitialChanges,
             })
+            generateApiKeysIfNeeded(form)
         } else {
             form.resetFields()
         }
-    }, [editingPlugin?.name])
+    }, [editingPlugin?.id])
 
     return (
         <>

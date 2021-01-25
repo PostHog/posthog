@@ -4,8 +4,10 @@ import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
 import { PluginInstallationType, PluginRepositoryEntry, PluginTab, PluginTypeWithConfig } from './types'
 import { userLogic } from 'scenes/userLogic'
-import { getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
+import { getConfigSchemaObject, getPluginConfigFormData, getConfigSchemaArray } from 'scenes/plugins/utils'
+import { PersonalAPIKeyType } from '~/types'
 import posthog from 'posthog-js'
+import { FormInstance } from 'antd/lib/form'
 
 function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
     posthog.capture(event, {
@@ -39,6 +41,7 @@ export const pluginsLogic = kea<
         resetPluginConfigError: (id: number) => ({ id }),
         editPluginSource: (values: { id: number; name: string; source: string; configSchema: Record<string, any> }) =>
             values,
+        generateApiKeysIfNeeded: (form: FormInstance<any>) => ({ form }),
     },
 
     loaders: ({ values }) => ({
@@ -320,6 +323,39 @@ export const pluginsLogic = kea<
 
             if (userLogic.values.user?.plugin_access.install) {
                 actions.loadRepository()
+            }
+        },
+    }),
+
+    listeners: ({ values }) => ({
+        generateApiKeysIfNeeded: async ({ form }, breakpoint) => {
+            const { editingPlugin } = values
+            if (!editingPlugin) {
+                return
+            }
+
+            const pluginConfig = editingPlugin.pluginConfig.config
+            const configSchema = getConfigSchemaArray(editingPlugin?.config_schema || [])
+
+            const posthogApiKeySchema = configSchema.find(({ key }) => key === 'posthogApiKey')
+            if (posthogApiKeySchema && !pluginConfig.posthogApiKey) {
+                try {
+                    const { value: posthogApiKey }: PersonalAPIKeyType = await api.create('api/personal_api_keys/', {
+                        label: `Plugin: ${editingPlugin.name}`,
+                    })
+                    breakpoint()
+                    form.setFieldsValue({ posthogApiKey })
+                } catch (e) {
+                    console.error(e)
+                }
+            }
+
+            const posthogHostSchema = configSchema.find(({ key }) => key === 'posthogHost')
+            if (
+                posthogHostSchema &&
+                (!pluginConfig.posthogHost || pluginConfig.posthogHost === 'https://app.posthog.com')
+            ) {
+                form.setFieldsValue({ posthogHost: window.location.origin })
             }
         },
     }),
