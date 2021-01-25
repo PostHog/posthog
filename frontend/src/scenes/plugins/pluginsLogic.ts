@@ -424,20 +424,6 @@ export const pluginsLogic = kea<
             }
             actions.checkForUpdates(false, initialUpdateStatus)
         },
-    }),
-
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadPlugins()
-            actions.loadPluginConfigs()
-
-            if (userLogic.values.user?.plugin_access.install) {
-                actions.loadRepository()
-            }
-        },
-    }),
-
-    listeners: ({ values }) => ({
         generateApiKeysIfNeeded: async ({ form }, breakpoint) => {
             const { editingPlugin } = values
             if (!editingPlugin) {
@@ -466,6 +452,16 @@ export const pluginsLogic = kea<
                 (!pluginConfig.posthogHost || pluginConfig.posthogHost === 'https://app.posthog.com')
             ) {
                 form.setFieldsValue({ posthogHost: window.location.origin })
+            }
+        },
+    }),
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.loadPlugins()
+            actions.loadPluginConfigs()
+
+            if (userLogic.values.user?.plugin_access.install) {
+                actions.loadRepository()
             }
         },
     }),
