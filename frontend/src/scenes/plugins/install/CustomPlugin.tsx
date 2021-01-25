@@ -11,7 +11,7 @@ export function CustomPlugin(): JSX.Element {
     return (
         <div style={{ marginTop: 16 }}>
             <Card>
-                <h3 className="l3">Install Custom Plugin</h3>
+                <h3 className="l3">Install from GitHub, GitLab or npm</h3>
                 <p>
                     To install a third-party or custom plugin, paste its URL below. For{' '}
                     <a
