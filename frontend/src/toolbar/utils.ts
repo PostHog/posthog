@@ -246,7 +246,7 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
         elements = [...((querySelectorAllDeep(selector || '*', document, allElements) as unknown) as HTMLElement[])]
     } catch (e) {
         console.error('Can not use selector:', selector)
-        throw e
+        return null
     }
 
     if (hasText && step?.text) {
