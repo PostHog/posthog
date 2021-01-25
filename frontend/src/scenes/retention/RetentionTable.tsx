@@ -6,8 +6,9 @@ import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
 import './RetentionTable.scss'
 import moment from 'moment'
+import { ColumnsType } from 'antd/lib/table'
 
-export function RetentionTable({ dashboardItemId = null }) {
+export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: string | number | null }): JSX.Element {
     const logic = retentionTableLogic({ dashboardItemId })
     const {
         results,
@@ -17,7 +18,7 @@ export function RetentionTable({ dashboardItemId = null }) {
         loadingMore,
         filters: { period, date_to },
     } = useValues(logic)
-    const { loadPeople, loadMore } = useActions(logic)
+    const { loadPeople, loadMorePeople } = useActions(logic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
     const [isLatestPeriod, setIsLatestPeriod] = useState(false)
@@ -26,7 +27,7 @@ export function RetentionTable({ dashboardItemId = null }) {
         setIsLatestPeriod(periodIsLatest(date_to, period))
     }, [date_to, period])
 
-    let columns = [
+    const columns: ColumnsType<Record<string, any>> = [
         {
             title: 'Date',
             key: 'date',
@@ -42,7 +43,7 @@ export function RetentionTable({ dashboardItemId = null }) {
     ]
 
     if (!resultsLoading && results) {
-        results[0].values.forEach((_, dayIndex) => {
+        results[0].values.forEach((_: any, dayIndex: number) => {
             columns.push({
                 title: results[dayIndex].label,
                 key: `day::${dayIndex}`,
@@ -60,7 +61,7 @@ export function RetentionTable({ dashboardItemId = null }) {
         })
     }
 
-    function dismissModal() {
+    function dismissModal(): void {
         setModalVisible(false)
     }
 
@@ -76,15 +77,15 @@ export function RetentionTable({ dashboardItemId = null }) {
                 columns={columns}
                 rowKey="date"
                 loading={resultsLoading}
-                onRow={(_, rowIndex) => {
-                    return {
-                        onClick: () => {
+                onRow={(_, rowIndex: number | undefined) => ({
+                    onClick: () => {
+                        if (rowIndex !== undefined) {
                             !people[rowIndex] && loadPeople(rowIndex)
                             setModalVisible(true)
                             selectRow(rowIndex)
-                        },
-                    }
-                }}
+                        }
+                    },
+                })}
             />
             {results && (
                 <Modal
@@ -117,7 +118,7 @@ export function RetentionTable({ dashboardItemId = null }) {
                                             <tr>
                                                 <td />
                                                 {results &&
-                                                    results[selectedRow]?.values.map((data, index) => (
+                                                    results[selectedRow]?.values.map((data: any, index: number) => (
                                                         <td key={index}>
                                                             {data.count}&nbsp;{' '}
                                                             {data.count > 0 && (
@@ -134,25 +135,27 @@ export function RetentionTable({ dashboardItemId = null }) {
                                                     ))}
                                             </tr>
                                             {people.result &&
-                                                people.result.map((personAppearances) => (
+                                                (people.result as any[]).map((personAppearances) => (
                                                     <tr key={personAppearances.person.id}>
                                                         <td className="text-overflow" style={{ minWidth: 200 }}>
                                                             <Link to={`/person_by_id/${personAppearances.person.id}`}>
                                                                 {personAppearances.person.name}
                                                             </Link>
                                                         </td>
-                                                        {personAppearances.appearances.map((appearance, index) => {
-                                                            return (
-                                                                <td
-                                                                    key={index}
-                                                                    className={
-                                                                        appearance
-                                                                            ? 'retention-success'
-                                                                            : 'retention-dropped'
-                                                                    }
-                                                                />
-                                                            )
-                                                        })}
+                                                        {personAppearances.appearances.map(
+                                                            (appearance: number, index: number) => {
+                                                                return (
+                                                                    <td
+                                                                        key={index}
+                                                                        className={
+                                                                            appearance
+                                                                                ? 'retention-success'
+                                                                                : 'retention-dropped'
+                                                                        }
+                                                                    />
+                                                                )
+                                                            }
+                                                        )}
                                                     </tr>
                                                 ))}
                                         </tbody>
@@ -163,11 +166,11 @@ export function RetentionTable({ dashboardItemId = null }) {
                                             textAlign: 'center',
                                         }}
                                     >
-                                        {people.next && (
-                                            <Button type="primary" onClick={() => loadMore(selectedRow)}>
+                                        {people.next ? (
+                                            <Button type="primary" onClick={() => loadMorePeople()}>
                                                 {loadingMore ? <Spin /> : 'Load More People'}
                                             </Button>
-                                        )}
+                                        ) : null}
                                     </div>
                                 </div>
                             )}
@@ -181,7 +184,7 @@ export function RetentionTable({ dashboardItemId = null }) {
     )
 }
 
-const renderPercentage = (value, total, latest = false) => {
+const renderPercentage = (value: number, total: number, latest = false): JSX.Element => {
     const _percentage = total > 0 ? (100.0 * value) / total : 0
     const backgroundColor = `hsl(212, 63%, ${30 + (100 - _percentage) * 0.65}%)`
     const color = _percentage >= 65 ? 'hsl(0, 0%, 80%)' : undefined
@@ -194,7 +197,7 @@ const renderPercentage = (value, total, latest = false) => {
     return latest ? <Tooltip title="Period in progress">{numberCell}</Tooltip> : numberCell
 }
 
-const periodIsLatest = (date_to, period) => {
+const periodIsLatest = (date_to: string, period: string): boolean => {
     if (!date_to) {
         return true
     }
