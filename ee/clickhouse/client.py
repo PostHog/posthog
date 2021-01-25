@@ -37,13 +37,13 @@ if PRIMARY_DB != RDBMS.CLICKHOUSE:
     ch_client = None  # type: Client
     ch_sync_pool = None  # type: ChPool
 
-    def async_execute(query, args=None):
+    def async_execute(query, args=None, **kwargs):
         return
 
-    def sync_execute(query, args=None):
+    def sync_execute(query, args=None, **kwargs):
         return
 
-    def cache_sync_execute(query, args=None, redis_client=None, ttl=None):
+    def cache_sync_execute(query, args=None, redis_client=None, ttl=None, **kwargs):
         return
 
 
@@ -60,9 +60,9 @@ else:
         )
 
         @async_to_sync
-        async def async_execute(query, args=None):
+        async def async_execute(query, args=None, **kwargs):
             loop = asyncio.get_event_loop()
-            task = loop.create_task(ch_client.execute(query, args))
+            task = loop.create_task(ch_client.execute(query, args, **kwargs))
             return task
 
     else:
@@ -77,8 +77,8 @@ else:
             verify=CLICKHOUSE_VERIFY,
         )
 
-        def async_execute(query, args=None):
-            return sync_execute(query, args)
+        def async_execute(query, args=None, **kwargs):
+            return sync_execute(query, args, **kwargs)
 
     ch_sync_pool = ChPool(
         host=CLICKHOUSE_HOST,
@@ -92,7 +92,7 @@ else:
         connections_max=100,
     )
 
-    def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL):
+    def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, **kwargs):
         if not redis_client:
             redis_client = redis.get_client()
         key = _key_hash(query, args)
@@ -100,7 +100,7 @@ else:
             result = _deserialize(redis_client.get(key))
             return result
         else:
-            result = sync_execute(query, args)
+            result = sync_execute(query, args, **kwargs)
             redis_client.set(key, _serialize(result), ex=ttl)
             return result
 
