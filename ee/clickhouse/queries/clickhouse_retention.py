@@ -19,10 +19,12 @@ from ee.clickhouse.sql.retention.retention import (
     RETENTION_PEOPLE_SQL,
     RETENTION_SQL,
 )
+from posthog.api.person import PersonSerializer
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter, RetentionFilter
+from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.retention import Retention
 
@@ -177,8 +179,9 @@ class ClickhouseRetention(Retention):
                 **prop_filter_params,
             },
         )
-        serialized = ClickhousePersonSerializer(result, many=True).data
-        return serialized
+        people = Person.objects.filter(team_id=team.pk, uuid__in=[val[0] for val in result])
+
+        return PersonSerializer(people, many=True).data
 
     def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
         period = filter.period
@@ -235,12 +238,9 @@ class ClickhouseRetention(Retention):
             },
         )
         people_dict = {}
-        all_people = sync_execute(
-            "SELECT * FROM person WHERE id IN %(uuids)s", {"uuids": [val[0] for val in query_result]}
-        )
 
-        for person in all_people:
-            people_dict.update({person[0]: ClickhousePersonSerializer(person).data})
+        for person in Person.objects.filter(team_id=team.pk, uuid__in=[val[0] for val in query_result]):
+            people_dict.update({person.uuid: PersonSerializer(person).data})
 
         result = self.process_people_in_period(filter, query_result, people_dict)
         return result
