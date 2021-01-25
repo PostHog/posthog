@@ -3,7 +3,7 @@ import json
 import os
 import re
 import tarfile
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from urllib.parse import parse_qs, quote
 from zipfile import BadZipFile, ZipFile
 
@@ -153,7 +153,7 @@ def parse_url(url: str, get_latest_if_none=False) -> Dict[str, Optional[str]]:
     raise Exception("Must be a GitHub/GitLab repository or npm package URL!")
 
 
-def split_url_and_private_token(url: str) -> [str, str]:
+def split_url_and_private_token(url: str) -> Tuple[str, Optional[str]]:
     private_token = None
     if "?" in url:
         url, query = url.split("?")
@@ -191,10 +191,11 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
                 project=url_project, repo=url_project.split("/")[-1], tag=url_tag
             )
     elif parsed_url["type"] == "npm":
-        if not (tag or parsed_url.get("version", None)):
-            raise Exception("No NPM version given")
+        pkg = parsed_url["pkg"]
+        if not pkg or (not tag and not parsed_url.get("version", None)):
+            raise Exception("No npm project or version given")
         url = "https://registry.npmjs.org/{pkg}/-/{repo}-{version}.tgz".format(
-            pkg=parsed_url["pkg"], repo=parsed_url["pkg"].split("/")[-1], version=tag or parsed_url["version"]
+            pkg=pkg, repo=pkg.split("/")[-1], version=tag or parsed_url["version"]
         )
         if parsed_url["private_token"]:
             headers = {"Authorization": "Bearer {}".format(parsed_url["private_token"])}
