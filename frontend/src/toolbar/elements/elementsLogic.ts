@@ -397,7 +397,6 @@ export const elementsLogic = kea<
             if (element?.attributes) {
                 for (let i = 0; i < element.attributes.length; i++) {
                     const name = element.attributes.item(i)?.nodeName
-                    console.log(element.attributes.item(i), name)
                     if (name && name.indexOf('data-') > -1) {
                         data_attributes.push(name)
                     }
