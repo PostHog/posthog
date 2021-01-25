@@ -76,6 +76,9 @@ def mocked_plugin_requests_get(*args, **kwargs):
     if args[0] == "https://registry.npmjs.org/posthog-helloworld-plugin/latest":
         return MockJSONResponse({"pkg": "posthog-helloworld-plugin", "version": "MOCK"}, 200)
 
+    if args[0] == "https://registry.npmjs.org/@posthog/helloworldplugin/latest":
+        return MockJSONResponse({"pkg": "@posthog/helloworldplugin", "version": "MOCK"}, 200)
+
     if args[0] == "https://github.com/PostHog/helloworldplugin/archive/{}.zip".format(HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]):
         return MockBase64Response(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1], 200)
 
@@ -105,6 +108,10 @@ def mocked_plugin_requests_get(*args, **kwargs):
         )
     ):
         return MockBase64Response(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1], 200)
+
+    if args[0] == "https://registry.npmjs.org/@posthog/helloworldplugin/-/helloworldplugin-0.0.0.tgz":
+        return MockBase64Response(HELLO_WORLD_PLUGIN_NPM_TGZ[1], 200)
+
     if args[0] == "https://registry.npmjs.org/posthog-helloworld-plugin/-/posthog-helloworld-plugin-0.0.0.tgz":
         return MockBase64Response(HELLO_WORLD_PLUGIN_NPM_TGZ[1], 200)
 

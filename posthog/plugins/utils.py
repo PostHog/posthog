@@ -11,6 +11,12 @@ import requests
 
 
 def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
+    private_token = None
+    if "?" in url:
+        url, query = url.split("?")
+        params = {k: v[0] for k, v in parse_qs(query).items()}
+        private_token = params.get("private_token", None)
+
     url = url.strip("/")
     match = re.search(
         r"^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)((\/commit|\/tree|\/releases\/tag)\/([A-Za-z0-9_.\-\/]+))?$",
@@ -28,19 +34,33 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
         "user": match.group(1),
         "repo": match.group(2),
         "tag": match.group(5),
+        "private_token": private_token,
     }
-    parsed["root_url"] = "https://github.com/{}/{}".format(parsed["user"], parsed["repo"])
+
+    parsed["root_url"] = "https://github.com/{}/{}{}".format(
+        parsed["user"], parsed["repo"], "?private_token={}".format(private_token) if private_token else ""
+    )
+
     if get_latest_if_none and not parsed["tag"]:
         try:
+            headers = {"Authorization": "token {}".format(private_token)} if private_token else {}
             commits_url = "https://api.github.com/repos/{}/{}/commits".format(parsed["user"], parsed["repo"])
-            commits = requests.get(commits_url).json()
+            commits = requests.get(commits_url, headers=headers).json()
             if len(commits) > 0 and commits[0].get("html_url", None):
-                return parse_url(commits[0]["html_url"])
+                html_url = "{}{}".format(
+                    commits[0]["html_url"], "?private_token={}".format(private_token) if private_token else ""
+                )
+                return parse_url(html_url)
             raise
         except Exception:
             raise Exception("Could not get latest commit for: {}".format(parsed["root_url"]))
     if parsed["tag"]:
-        parsed["tagged_url"] = "https://github.com/{}/{}/tree/{}".format(parsed["user"], parsed["repo"], parsed["tag"])
+        parsed["tagged_url"] = "https://github.com/{}/{}/tree/{}{}".format(
+            parsed["user"],
+            parsed["repo"],
+            parsed["tag"],
+            "?private_token={}".format(private_token) if private_token else "",
+        )
     return parsed
 
 
@@ -99,19 +119,41 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
 
 
 def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
-    match = re.search(r"^https?:\/\/(?:www\.)?npmjs\.com\/package\/([a-z0-9_-]+)\/?(v\/([A-Za-z0-9_.-]+)\/?|)$", url)
+    private_token = None
+    if "?" in url:
+        url, query = url.split("?")
+        params = {k: v[0] for k, v in parse_qs(query).items()}
+        private_token = params.get("private_token", None)
+
+    match = re.search(
+        r"^https?://(?:www\.)?npmjs\.com/package/([@a-z0-9_-]+(/[a-z0-9_-]+)?)?/?(v/([A-Za-z0-9_.-]+)/?|)$", url
+    )
     if not match:
         return None
-    parsed: Dict[str, Optional[str]] = {"type": "npm", "pkg": match.group(1), "version": match.group(3)}
-    parsed["root_url"] = "https://www.npmjs.com/package/{}".format(parsed["pkg"])
+    parsed: Dict[str, Optional[str]] = {
+        "type": "npm",
+        "pkg": match.group(1),
+        "version": match.group(4),
+        "private_token": private_token,
+    }
+
+    parsed["root_url"] = "https://www.npmjs.com/package/{}{}".format(
+        parsed["pkg"], "?private_token={}".format(private_token) if private_token else ""
+    )
     if get_latest_if_none and not parsed["version"]:
         try:
-            details = requests.get("https://registry.npmjs.org/{}/latest".format(parsed["pkg"])).json()
-            return parse_url("https://www.npmjs.com/package/{}/v/{}".format(parsed["pkg"], details["version"]))
+            headers = {"Authorization": "Bearer {}".format(private_token)} if private_token else {}
+            details = requests.get("https://registry.npmjs.org/{}/latest".format(parsed["pkg"]), headers=headers).json()
+            version_url = "https://www.npmjs.com/package/{}/v/{}{}".format(
+                parsed["pkg"], details["version"], "?private_token={}".format(private_token) if private_token else ""
+            )
+            return parse_url(version_url)
         except Exception:
             raise Exception("Could not get latest commit for: {}".format(parsed["url"]))
     if parsed["version"]:
-        parsed["tagged_url"] = "https://www.npmjs.com/package/{}/v/{}".format(parsed["pkg"], parsed["version"])
+        parsed["tagged_url"] = "https://www.npmjs.com/package/{}/v/{}{}".format(
+            parsed["pkg"], parsed["version"], "?private_token={}".format(private_token) if private_token else ""
+        )
     return parsed
 
 
@@ -131,6 +173,7 @@ def parse_url(url: str, get_latest_if_none=False) -> Dict[str, Optional[str]]:
 # passing `tag` overrides whatever is in the URL
 def download_plugin_archive(url: str, tag: Optional[str] = None):
     parsed_url = parse_url(url)
+    headers = {}
 
     if parsed_url["type"] == "github":
         if not (tag or parsed_url.get("tag", None)):
@@ -138,6 +181,9 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
         url = "https://github.com/{user}/{repo}/archive/{tag}.zip".format(
             user=parsed_url["user"], repo=parsed_url["repo"], tag=tag or parsed_url["tag"]
         )
+        if parsed_url["private_token"]:
+            headers = {"Authorization": "token {}".format(parsed_url["private_token"])}
+
     elif parsed_url["type"] == "gitlab":
         url_tag = tag or parsed_url.get("tag", None)
         url_project = parsed_url["project"]
@@ -155,13 +201,15 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
     elif parsed_url["type"] == "npm":
         if not (tag or parsed_url.get("version", None)):
             raise Exception("No NPM version given")
-        url = "https://registry.npmjs.org/{pkg}/-/{pkg}-{version}.tgz".format(
-            pkg=parsed_url["pkg"], version=tag or parsed_url["version"]
+        url = "https://registry.npmjs.org/{pkg}/-/{repo}-{version}.tgz".format(
+            pkg=parsed_url["pkg"], repo=parsed_url["pkg"].split("/")[-1], version=tag or parsed_url["version"]
         )
+        if parsed_url["private_token"]:
+            headers = {"Authorization": "Bearer {}".format(parsed_url["private_token"])}
     else:
         raise Exception("Unknown Repository Format")
 
-    response = requests.get(url)
+    response = requests.get(url, headers=headers)
     if not response.ok:
         raise Exception("Could not download archive from {}".format(parsed_url["type"]))
     return response.content

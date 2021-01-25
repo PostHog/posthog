@@ -13,7 +13,8 @@ export function CustomPlugin(): JSX.Element {
             <Card>
                 <h3 className="l3">Install Custom Plugin</h3>
                 <p>
-                    To install a third-party or custom plugin, please paste the plugin's repository below.
+                    To install a third-party or custom plugin, paste its GitHub, GitLab or npm URL below. For private
+                    repositories, append <code>?private_token=TOKEN</code> at the end of the URL.
                     <br />
                     <b className="text-warning">Warning: Only install plugins from trusted sources.</b>
                 </p>
