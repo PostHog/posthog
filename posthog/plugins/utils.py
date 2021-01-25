@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, quote
 from zipfile import BadZipFile, ZipFile
 
 import requests
+from django.conf import settings
 
 
 def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
@@ -37,7 +38,8 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
 
     if get_latest_if_none and not parsed["tag"]:
         try:
-            headers = {"Authorization": "token {}".format(private_token)} if private_token else {}
+            token = private_token or settings.GITHUB_TOKEN
+            headers = {"Authorization": "token {}".format(token)} if token else {}
             commits_url = "https://api.github.com/repos/{}/{}/commits".format(parsed["user"], parsed["repo"])
             commits = requests.get(commits_url, headers=headers).json()
             if len(commits) > 0 and commits[0].get("sha", None):
@@ -83,8 +85,9 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
 
     if get_latest_if_none and not parsed["tag"]:
         try:
+            token = private_token or settings.GITLAB_TOKEN
             commits_url = "https://gitlab.com/api/v4/projects/{}/repository/commits{}".format(
-                quote(parsed["project"], safe=""), "?private_token={}".format(private_token) if private_token else ""
+                quote(parsed["project"], safe=""), "?private_token={}".format(token) if token else ""
             )
             commits = requests.get(commits_url).json()
             if len(commits) > 0 and commits[0].get("id", None):
@@ -121,7 +124,8 @@ def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Opti
     )
     if get_latest_if_none and not parsed["tag"]:
         try:
-            headers = {"Authorization": "Bearer {}".format(private_token)} if private_token else {}
+            token = private_token or settings.NPM_TOKEN
+            headers = {"Authorization": "Bearer {}".format(token)} if token else {}
             details = requests.get("https://registry.npmjs.org/{}/latest".format(parsed["pkg"]), headers=headers).json()
             parsed["tag"] = details["version"]
         except Exception:
@@ -166,8 +170,9 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
         url = "https://github.com/{user}/{repo}/archive/{tag}.zip".format(
             user=parsed_url["user"], repo=parsed_url["repo"], tag=tag or parsed_url["tag"]
         )
-        if parsed_url["private_token"]:
-            headers = {"Authorization": "token {}".format(parsed_url["private_token"])}
+        token = parsed_url["private_token"] or settings.GITHUB_TOKEN
+        if token:
+            headers = {"Authorization": "token {}".format(token)}
 
     elif parsed_url["type"] == "gitlab":
         url_tag = tag or parsed_url.get("tag", None)
@@ -175,9 +180,10 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
         if not url_tag or not url_project:
             raise Exception("No GitLab tag or project given!")
 
-        if parsed_url.get("private_token", None):
+        token = parsed_url["private_token"] or settings.GITLAB_TOKEN
+        if token:
             url = "https://gitlab.com/api/v4/projects/{project}/repository/archive.zip?sha={tag}&private_token={token}".format(
-                project=quote(url_project, safe=""), tag=url_tag, token=parsed_url["private_token"]
+                project=quote(url_project, safe=""), tag=url_tag, token=token
             )
         else:
             url = "https://gitlab.com/{project}/-/archive/{tag}/{repo}-{tag}.zip".format(
@@ -190,8 +196,9 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
         url = "https://registry.npmjs.org/{pkg}/-/{repo}-{tag}.tgz".format(
             pkg=pkg, repo=pkg.split("/")[-1], tag=tag or parsed_url["tag"]
         )
-        if parsed_url["private_token"]:
-            headers = {"Authorization": "Bearer {}".format(parsed_url["private_token"])}
+        token = parsed_url["private_token"] or settings.NPM_TOKEN
+        if token:
+            headers = {"Authorization": "Bearer {}".format(token)}
     else:
         raise Exception("Unknown Repository Format")
 

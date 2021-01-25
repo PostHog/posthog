@@ -106,6 +106,31 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(parsed_url["private_token"], "TOKEN")
         self.assertEqual(mock_get.call_count, 2)
 
+        # default global token
+        with self.settings(GITHUB_TOKEN="MY_GITHUB_TOKEN"):
+            parsed_url = parse_url("https://github.com/PostHog/posthog", get_latest_if_none=True)
+            self.assertEqual(parsed_url["type"], "github")
+            self.assertEqual(parsed_url["user"], "PostHog")
+            self.assertEqual(parsed_url["repo"], "posthog")
+            self.assertEqual(parsed_url["tag"], "MOCKLATESTCOMMIT")
+            self.assertEqual(parsed_url.get("private_token", None), None)
+            mock_get.assert_called_with(
+                "https://api.github.com/repos/PostHog/posthog/commits",
+                headers={"Authorization": "token MY_GITHUB_TOKEN"},
+            )
+            self.assertEqual(mock_get.call_count, 3)
+
+            parsed_url = parse_url("https://github.com/PostHog/posthog?private_token=TOKEN", get_latest_if_none=True)
+            self.assertEqual(parsed_url["type"], "github")
+            self.assertEqual(parsed_url["user"], "PostHog")
+            self.assertEqual(parsed_url["repo"], "posthog")
+            self.assertEqual(parsed_url["tag"], "MOCKLATESTCOMMIT")
+            self.assertEqual(parsed_url["private_token"], "TOKEN")
+            mock_get.assert_called_with(
+                "https://api.github.com/repos/PostHog/posthog/commits", headers={"Authorization": "token TOKEN"}
+            )
+            self.assertEqual(mock_get.call_count, 4)
+
     def test_parse_gitlab_urls(self, mock_get):
         parsed_url = parse_url("https://gitlab.com/mariusandra/helloworldplugin")
         self.assertEqual(parsed_url["type"], "gitlab")
@@ -178,6 +203,30 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(parsed_url["tag"], "2b6494bdf8ad35073aafe36ca8a1bdfaf3dc72d1")
         self.assertEqual(parsed_url["private_token"], "PRIVATE")
         self.assertEqual(mock_get.call_count, 2)
+
+        # default global token
+        with self.settings(GITLAB_TOKEN="MY_GITLAB_TOKEN"):
+            parsed_url = parse_url(
+                "https://gitlab.com/mariusandra/helloworldplugin?private_token=PRIVATE", get_latest_if_none=True
+            )
+            self.assertEqual(parsed_url["type"], "gitlab")
+            self.assertEqual(parsed_url["project"], "mariusandra/helloworldplugin")
+            self.assertEqual(parsed_url["tag"], "ff78cbe1d70316055c610a962a8355a4616d874b")
+            self.assertEqual(parsed_url["private_token"], "PRIVATE")
+            self.assertEqual(mock_get.call_count, 3)
+            mock_get.assert_called_with(
+                "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits?private_token=PRIVATE"
+            )
+
+            parsed_url = parse_url("https://gitlab.com/mariusandra/helloworldplugin", get_latest_if_none=True)
+            self.assertEqual(parsed_url["type"], "gitlab")
+            self.assertEqual(parsed_url["project"], "mariusandra/helloworldplugin")
+            self.assertEqual(parsed_url["tag"], "ff78cbe1d70316055c610a962a8355a4616d874b")
+            self.assertEqual(parsed_url.get("private_token", None), None)
+            self.assertEqual(mock_get.call_count, 4)
+            mock_get.assert_called_with(
+                "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits?private_token=MY_GITLAB_TOKEN"
+            )
 
     def test_parse_npm_urls(self, mock_get):
         parsed_url = parse_url("https://www.npmjs.com/package/posthog-helloworld-plugin")
@@ -253,6 +302,31 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(parsed_url["private_token"], "TOKEN")
         self.assertEqual(mock_get.call_count, 3)
 
+        # default global token
+        with self.settings(NPM_TOKEN="MY_NPM_TOKEN"):
+            parsed_url = parse_url(
+                "https://www.npmjs.com/package/posthog-helloworld-plugin?private_token=TOKEN", get_latest_if_none=True
+            )
+            self.assertEqual(parsed_url["type"], "npm")
+            self.assertEqual(parsed_url["pkg"], "posthog-helloworld-plugin")
+            self.assertEqual(parsed_url["tag"], "MOCK")
+            self.assertEqual(parsed_url["private_token"], "TOKEN")
+            self.assertEqual(mock_get.call_count, 4)
+            mock_get.assert_called_with(
+                "https://registry.npmjs.org/posthog-helloworld-plugin/latest", headers={"Authorization": "Bearer TOKEN"}
+            )
+
+            parsed_url = parse_url("https://www.npmjs.com/package/posthog-helloworld-plugin", get_latest_if_none=True)
+            self.assertEqual(parsed_url["type"], "npm")
+            self.assertEqual(parsed_url["pkg"], "posthog-helloworld-plugin")
+            self.assertEqual(parsed_url["tag"], "MOCK")
+            self.assertEqual(parsed_url.get("private_token", None), None)
+            self.assertEqual(mock_get.call_count, 5)
+            mock_get.assert_called_with(
+                "https://registry.npmjs.org/posthog-helloworld-plugin/latest",
+                headers={"Authorization": "Bearer MY_NPM_TOKEN"},
+            )
+
     def test_download_plugin_archive_github(self, mock_get):
         plugin_github_zip_1 = download_plugin_archive(
             "https://www.github.com/PostHog/helloworldplugin/commit/82c9218ee40f561b7f37a22d6b6a0ca82887ee3e",
@@ -275,17 +349,40 @@ class TestPluginsUtils(BaseTest):
             headers={},
         )
 
-        plugin_github_zip_2 = download_plugin_archive(
+        plugin_github_zip_3 = download_plugin_archive(
             "https://www.github.com/PostHog/helloworldplugin/commit/{}?private_token=TOKEN".format(
                 HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]
             )
         )
-        self.assertEqual(plugin_github_zip_2, base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]))
+        self.assertEqual(plugin_github_zip_3, base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]))
         self.assertEqual(mock_get.call_count, 3)
         mock_get.assert_called_with(
             "https://github.com/PostHog/helloworldplugin/archive/d5aa1d2b8a534f37cd93be48b214f490ef9ee904.zip",
             headers={"Authorization": "token TOKEN"},
         )
+
+        with self.settings(GITHUB_TOKEN="MY_GITHUB_TOKEN"):
+            plugin_github_zip_4 = download_plugin_archive(
+                "https://www.github.com/PostHog/helloworldplugin/commit/{}?private_token=TOKEN".format(
+                    HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]
+                )
+            )
+            self.assertEqual(plugin_github_zip_4, base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]))
+            self.assertEqual(mock_get.call_count, 4)
+            mock_get.assert_called_with(
+                "https://github.com/PostHog/helloworldplugin/archive/d5aa1d2b8a534f37cd93be48b214f490ef9ee904.zip",
+                headers={"Authorization": "token TOKEN"},
+            )
+
+            plugin_github_zip_5 = download_plugin_archive(
+                "https://www.github.com/PostHog/helloworldplugin/commit/{}".format(HELLO_WORLD_PLUGIN_GITHUB_ZIP[0])
+            )
+            self.assertEqual(plugin_github_zip_5, base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]))
+            self.assertEqual(mock_get.call_count, 5)
+            mock_get.assert_called_with(
+                "https://github.com/PostHog/helloworldplugin/archive/d5aa1d2b8a534f37cd93be48b214f490ef9ee904.zip",
+                headers={"Authorization": "token MY_GITHUB_TOKEN"},
+            )
 
     def test_download_plugin_archive_gitlab(self, mock_get):
         plugin_gitlab = download_plugin_archive(
@@ -310,6 +407,29 @@ class TestPluginsUtils(BaseTest):
             headers={},
         )
 
+        with self.settings(GITLAB_TOKEN="MY_GITLAB_TOKEN"):
+            plugin_gitlab = download_plugin_archive(
+                "https://www.gitlab.com/mariusandra/helloworldplugin/-/commit/ff78cbe1d70316055c610a962a8355a4616d874b?private_token=PRIVATE_TOKEN",
+                HELLO_WORLD_PLUGIN_GITLAB_ZIP[0],
+            )
+            self.assertEqual(plugin_gitlab, base64.b64decode(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1]))
+            self.assertEqual(mock_get.call_count, 3)
+            mock_get.assert_called_with(
+                "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha=ff78cbe1d70316055c610a962a8355a4616d874b&private_token=PRIVATE_TOKEN",
+                headers={},
+            )
+
+            plugin_gitlab = download_plugin_archive(
+                "https://www.gitlab.com/mariusandra/helloworldplugin/-/commit/ff78cbe1d70316055c610a962a8355a4616d874b",
+                HELLO_WORLD_PLUGIN_GITLAB_ZIP[0],
+            )
+            self.assertEqual(plugin_gitlab, base64.b64decode(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1]))
+            self.assertEqual(mock_get.call_count, 4)
+            mock_get.assert_called_with(
+                "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha=ff78cbe1d70316055c610a962a8355a4616d874b&private_token=MY_GITLAB_TOKEN",
+                headers={},
+            )
+
     def test_download_plugin_archive_npm(self, mock_get):
         plugin_npm_tgz = download_plugin_archive("https://www.npmjs.com/package/posthog-helloworld-plugin/v/0.0.0")
         self.assertEqual(plugin_npm_tgz, base64.b64decode(HELLO_WORLD_PLUGIN_NPM_TGZ[1]))
@@ -327,6 +447,25 @@ class TestPluginsUtils(BaseTest):
             "https://registry.npmjs.org/@posthog/helloworldplugin/-/helloworldplugin-0.0.0.tgz",
             headers={"Authorization": "Bearer TOKEN"},
         )
+
+        with self.settings(NPM_TOKEN="MY_NPM_TOKEN"):
+            plugin_npm_tgz = download_plugin_archive(
+                "https://www.npmjs.com/package/@posthog/helloworldplugin/v/0.0.0?private_token=TOKEN"
+            )
+            self.assertEqual(plugin_npm_tgz, base64.b64decode(HELLO_WORLD_PLUGIN_NPM_TGZ[1]))
+            self.assertEqual(mock_get.call_count, 3)
+            mock_get.assert_called_with(
+                "https://registry.npmjs.org/@posthog/helloworldplugin/-/helloworldplugin-0.0.0.tgz",
+                headers={"Authorization": "Bearer TOKEN"},
+            )
+
+            plugin_npm_tgz = download_plugin_archive("https://www.npmjs.com/package/@posthog/helloworldplugin/v/0.0.0")
+            self.assertEqual(plugin_npm_tgz, base64.b64decode(HELLO_WORLD_PLUGIN_NPM_TGZ[1]))
+            self.assertEqual(mock_get.call_count, 4)
+            mock_get.assert_called_with(
+                "https://registry.npmjs.org/@posthog/helloworldplugin/-/helloworldplugin-0.0.0.tgz",
+                headers={"Authorization": "Bearer MY_NPM_TOKEN"},
+            )
 
     def test_get_json_from_archive(self, mock_get):
         plugin_json_zip = get_json_from_archive(base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]), "plugin.json")
