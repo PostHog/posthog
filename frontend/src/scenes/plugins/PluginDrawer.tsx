@@ -31,9 +31,7 @@ function EnabledDisabledSwitch({
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { editingPlugin, loading, editingSource, editingPluginInitialChanges, personalApiKey } = useValues(
-        pluginsLogic
-    )
+    const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
     const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, generateApiKeysIfNeeded } = useActions(
         pluginsLogic
     )
@@ -52,7 +50,7 @@ export function PluginDrawer(): JSX.Element {
         } else {
             form.resetFields()
         }
-    }, [editingPlugin, personalApiKey])
+    }, [editingPlugin?.id])
 
     return (
         <>
