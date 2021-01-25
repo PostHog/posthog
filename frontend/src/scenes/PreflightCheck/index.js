@@ -65,7 +65,12 @@ function PreflightCheck() {
     const [state, setState] = useState({})
     const { preflight, preflightLoading } = useValues(preflightLogic)
     const { resetPreflight } = useActions(preflightLogic)
-    const isReady = preflight.django && preflight.db && preflight.redis && preflight.celery && preflight.plugins
+    const isReady =
+        preflight.django &&
+        preflight.db &&
+        preflight.redis &&
+        preflight.celery &&
+        (state.mode === 'Experimentation' || preflight.plugins)
 
     const checks = [
         {
@@ -92,6 +97,8 @@ function PreflightCheck() {
             id: 'plugins',
             name: 'Posthog Plugin Server',
             status: preflight.plugins,
+            caption: state.mode === 'Experimentation' ? 'Required in production environments' : '',
+            failedState: state.mode === 'Experimentation' ? 'warning' : 'error',
         },
         {
             id: 'frontend',
