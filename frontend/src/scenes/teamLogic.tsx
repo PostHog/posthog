@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { teamLogicType } from 'types/scenes/teamLogicType'
+import { teamLogicType } from './teamLogicType'
 import { TeamType } from '~/types'
 
 export const teamLogic = kea<teamLogicType<TeamType>>({
@@ -19,7 +19,8 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
                     }
                 },
                 // no API request in patch as that's handled in userLogic for now
-                patchCurrentTeam: (patch: Partial<TeamType>) => ({ ...values.currentTeam, ...patch }),
+                patchCurrentTeam: (patch: Partial<TeamType>) =>
+                    values.currentTeam ? { ...values.currentTeam, ...patch } : null,
                 createTeam: async (name: string) => await api.create('api/projects/', { name }),
                 resetToken: async () => await api.update('api/projects/@current/reset_token', {}),
             },

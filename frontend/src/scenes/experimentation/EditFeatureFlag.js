@@ -115,12 +115,13 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
                 <Switch />
             </Form.Item>
 
-            <Form.Item className={rrwebBlockClass} label="Filter by user properties">
+            <Form.Item className={rrwebBlockClass} label="Filter by user properties" style={{ position: 'relative' }}>
                 <PropertyFilters
                     pageKey={'feature-flag-' + featureFlag.id}
                     propertyFilters={filters?.properties}
                     onChange={(properties) => setFilters({ properties })}
                     endpoint="person"
+                    showConditionBadge
                 />
             </Form.Item>
 

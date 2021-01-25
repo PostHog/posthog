@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { commandPaletteLogicType } from 'types/lib/components/CommandPalette/commandPaletteLogicType'
+import { commandPaletteLogicType } from './commandPaletteLogicType'
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'

@@ -1,7 +1,7 @@
 import api from 'lib/api'
 import { kea } from 'kea'
 import { toast } from 'react-toastify'
-import { licenseLogicType } from 'types/scenes/instance/Licenses/logicType'
+import { licenseLogicType } from './logicType'
 
 interface Error {
     detail: string

@@ -3,7 +3,7 @@ import { kea } from 'kea'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
-import { eventUsageLogicType } from 'types/lib/utils/eventUsageLogicType'
+import { eventUsageLogicType } from './eventUsageLogicType'
 import { AnnotationType, FilterType, DashboardType } from '~/types'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
@@ -130,7 +130,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         ) => {
             await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
             const { created_at, name, is_shared, pinned } = dashboard
-            const properties = {
+            const properties: Record<string, any> = {
                 created_at,
                 name: userLogic.values.user?.is_multi_tenancy ? name : undefined, // Don't send name on self-hosted
                 is_shared,

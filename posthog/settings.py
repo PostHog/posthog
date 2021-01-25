@@ -104,6 +104,7 @@ if not TEST:
             integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration()],
             request_bodies="always",
             send_default_pii=True,
+            environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
         )
 
 if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
@@ -123,7 +124,7 @@ if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
 CLICKHOUSE_TEST_DB = "posthog_test"
 
 CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
-CLICKHOUSE_USERNAME = os.environ.get("CLICKHOUSE_USERNAME", "default")
+CLICKHOUSE_USER = os.environ.get("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", None)
@@ -152,6 +153,8 @@ KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
 PRIMARY_DB = os.environ.get("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
 EE_AVAILABLE = False
+
+PLUGIN_SERVER_INGESTION_HANDOFF = get_bool_from_env("PLUGIN_SERVER_INGESTION_HANDOFF", False)
 
 if PRIMARY_DB == RDBMS.CLICKHOUSE:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
@@ -340,15 +343,33 @@ elif os.environ.get("POSTHOG_DB_NAME"):
             "PORT": os.environ.get("POSTHOG_POSTGRES_PORT", "5432"),
             "CONN_MAX_AGE": 0,
             "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
+            "SSL_OPTIONS": {
+                "sslmode": os.environ.get("POSTHOG_POSTGRES_SSL_MODE", None),
+                "sslrootcert": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_CA", None),
+                "sslcert": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_CRT", None),
+                "sslkey": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_KEY", None),
+            },
         }
     }
-    DATABASE_URL = "postgres://{}{}{}{}:{}/{}".format(
+
+    ssl_configurations = []
+    for ssl_option, value in DATABASES["default"]["SSL_OPTIONS"].items():
+        if value:
+            ssl_configurations.append("{}={}".format(ssl_option, value))
+
+    if ssl_configurations:
+        ssl_configuration = "?{}".format("&".join(ssl_configurations))
+    else:
+        ssl_configuration = ""
+
+    DATABASE_URL = "postgres://{}{}{}{}:{}/{}{}".format(
         DATABASES["default"]["USER"],
         ":" + DATABASES["default"]["PASSWORD"] if DATABASES["default"]["PASSWORD"] else "",
         "@" if DATABASES["default"]["USER"] or DATABASES["default"]["PASSWORD"] else "",
         DATABASES["default"]["HOST"],
         DATABASES["default"]["PORT"],
         DATABASES["default"]["NAME"],
+        ssl_configuration,
     )
 else:
     raise ImproperlyConfigured(
@@ -399,6 +420,7 @@ CELERY_IGNORE_RESULT = True  # only applies to delay(), must do @shared_task(ign
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
+TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached results for
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
@@ -448,8 +470,8 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
-    "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "PAGE_SIZE": 100,
+    "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
 }
 
 EXCEPTIONS_HOG = {
@@ -544,7 +566,7 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler",},},
-    "root": {"handlers": ["console"], "level": "WARNING",},
+    "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING")},
     "loggers": {
         "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
     },

@@ -1,6 +1,6 @@
+import datetime
 from typing import Any, Dict, List, Tuple
 
-import pandas as pd
 from dateutil.relativedelta import relativedelta
 from django.db import connection
 from django.db.models import F, Q, QuerySet
@@ -11,7 +11,7 @@ from django.utils.timezone import now
 from posthog.constants import SESSION_AVG
 from posthog.models import Event, Filter, Team
 from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter, properties_to_Q
-from posthog.utils import append_data, friendly_time
+from posthog.utils import append_data, friendly_time, get_daterange
 
 DIST_LABELS = [
     "0 seconds (1 event)",
@@ -30,44 +30,7 @@ Query = str
 QueryParams = Tuple[Any, ...]
 
 
-class BaseSessions(BaseQuery):
-    def events_query(self, filter: Filter, team: Team) -> QuerySet:
-        return (
-            Event.objects.filter(team=team)
-            .add_person_id(team.pk)
-            .filter(properties_to_Q(filter.properties, team_id=team.pk))
-            .order_by("-timestamp")
-        )
-
-    def build_all_sessions_query(self, events: QuerySet, _date_gte=Q()) -> Tuple[Query, QueryParams]:
-        sessions = events.filter(_date_gte).annotate(
-            previous_timestamp=Window(
-                expression=Lag("timestamp", default=None), partition_by=F("distinct_id"), order_by=F("timestamp").asc(),
-            )
-        )
-
-        sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
-        all_sessions = """
-            SELECT *,
-                SUM(new_session) OVER (ORDER BY distinct_id, timestamp) AS global_session_id
-                FROM (
-                    SELECT
-                        id, team_id, distinct_id, event, elements_hash, timestamp, properties,
-                        CASE
-                            WHEN EXTRACT('EPOCH' FROM (timestamp - previous_timestamp)) >= (60 * 30) OR previous_timestamp IS NULL
-                            THEN 1
-                            ELSE 0
-                        END AS new_session
-                    FROM ({}) AS inner_sessions
-                ) AS outer_sessions
-        """.format(
-            sessions_sql
-        )
-
-        return all_sessions, sessions_sql_params
-
-
-class Sessions(BaseSessions):
+class Sessions(BaseQuery):
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         events = self.events_query(filter, team)
         calculated = []
@@ -108,6 +71,41 @@ class Sessions(BaseSessions):
         else:  # SESSION_DIST
             return self._session_dist(all_sessions, sessions_sql_params)
 
+    def events_query(self, filter: Filter, team: Team) -> QuerySet:
+        return (
+            Event.objects.filter(team=team)
+            .add_person_id(team.pk)
+            .filter(properties_to_Q(filter.properties, team_id=team.pk))
+            .order_by("-timestamp")
+        )
+
+    def build_all_sessions_query(self, events: QuerySet, _date_gte=Q()) -> Tuple[Query, QueryParams]:
+        sessions = events.filter(_date_gte).annotate(
+            previous_timestamp=Window(
+                expression=Lag("timestamp", default=None), partition_by=F("distinct_id"), order_by=F("timestamp").asc(),
+            )
+        )
+
+        sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
+        all_sessions = """
+            SELECT *,
+                SUM(new_session) OVER (ORDER BY distinct_id, timestamp) AS global_session_id
+                FROM (
+                    SELECT
+                        id, team_id, distinct_id, event, elements_hash, timestamp, properties,
+                        CASE
+                            WHEN EXTRACT('EPOCH' FROM (timestamp - previous_timestamp)) >= (60 * 30) OR previous_timestamp IS NULL
+                            THEN 1
+                            ELSE 0
+                        END AS new_session
+                    FROM ({}) AS inner_sessions
+                ) AS outer_sessions
+        """.format(
+            sessions_sql
+        )
+
+        return all_sessions, sessions_sql_params
+
     def _session_avg(self, base_query: Query, params: QueryParams, filter: Filter) -> List[Dict[str, Any]]:
         def _determineInterval(interval):
             if interval == "minute":
@@ -142,18 +140,24 @@ class Sessions(BaseSessions):
         if len(time_series_avg) == 0:
             return []
 
-        date_range = pd.date_range(filter.date_from, filter.date_to, freq=interval_freq,)
-        df = pd.DataFrame([{"date": a[0], "count": a[1], "breakdown": "Total"} for a in time_series_avg])
-        if interval == "week":
-            df["date"] = df["date"].apply(lambda x: x - pd.offsets.Week(weekday=6))
-        elif interval == "month":
-            df["date"] = df["date"].apply(lambda x: x - pd.offsets.MonthEnd(n=0))
+        date_range = get_daterange(filter.date_from, filter.date_to, frequency=interval)
+        data_array = [{"date": a[0], "count": a[1], "breakdown": "Total"} for a in time_series_avg]
 
-        df_dates = pd.DataFrame(df.groupby("date").mean(), index=date_range)
-        df_dates = df_dates.fillna(0)
-        values = [(key, round(value[0])) if len(value) > 0 else (key, 0) for key, value in df_dates.iterrows()]
+        if interval == "week":
+            for df in data_array:
+                df["date"] -= datetime.timedelta(days=df["date"].weekday() + 1)
+        elif interval == "month":
+            for df in data_array:
+                df["date"] = (df["date"].replace(day=1) + datetime.timedelta(days=32)).replace(
+                    day=1
+                ) - datetime.timedelta(days=1)
+
+        datewise_data = {d["date"]: d["count"] for d in data_array}
+        values = [(key, datewise_data.get(key, 0)) for key in date_range]
 
         time_series_data = append_data(values, interval=filter.interval, math=None)
+        scaled_data, label = scale_time_series(time_series_data["data"])
+        time_series_data.update({"data": scaled_data})
         # calculate average
         totals = [sum(x) for x in list(zip(*time_series_avg))[2:4]]
         overall_average = (totals[0] / totals[1]) if totals else 0
@@ -162,12 +166,12 @@ class Sessions(BaseSessions):
 
         time_series_data.update(
             {
-                "label": "Average Duration of Session ({})".format(avg_split[1]),
+                "label": "Average Session Length ({})".format(avg_split[1]),
                 "count": int(avg_split[0]),
                 "aggregated_value": int(avg_split[0]),
             }
         )
-        time_series_data.update({"chartLabel": "Average Duration of Session (seconds)"})
+        time_series_data.update({"chartLabel": "Average Session Length ({})".format(label)})
         result = [time_series_data]
         return result
 
@@ -195,3 +199,20 @@ class Sessions(BaseSessions):
             for index in range(len(DIST_LABELS))
         ]
         return result
+
+
+def scale_time_series(data: List[float]) -> Tuple[List, str]:
+    _len = len([value for value in data if value > 0])
+    if _len == 0:
+        return data, "seconds"
+
+    avg = sum(data) / _len
+    minutes = avg // 60.0
+    hours = minutes // 60.0
+
+    if hours > 0:
+        return [round(value / 3600, 2) for value in data], "hours"
+    elif minutes > 0:
+        return [round(value / 60, 2) for value in data], "minutes"
+    else:
+        return data, "seconds"

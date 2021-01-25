@@ -24,6 +24,7 @@ export interface UserType {
     is_debug: boolean
     is_impersonated: boolean
     email_service_available: boolean
+    realm: 'cloud' | 'hosted'
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -197,12 +198,19 @@ interface CohortPropertyFilter extends BasePropertyFilter {
     type: 'cohort'
 }
 
-export interface RecordingPropertyFilter extends BasePropertyFilter {
+interface RecordingDurationFilter extends BasePropertyFilter {
     type: 'recording'
     key: 'duration'
     value: number
     operator: 'lt' | 'gt'
 }
+
+interface RecordingNotViewedFilter extends BasePropertyFilter {
+    type: 'recording'
+    key: 'unseen'
+}
+
+export type RecordingPropertyFilter = RecordingDurationFilter | RecordingNotViewedFilter
 
 interface ActionTypePropertyFilter extends BasePropertyFilter {
     type: 'action_type'
@@ -251,6 +259,7 @@ export interface CohortType {
     is_calculating?: boolean
     last_calculation?: string
     name?: string
+    csv?: File
     groups: Record<string, any>[]
 }
 
@@ -270,7 +279,7 @@ export interface EventType {
     elements: ElementType[]
     elements_hash: string | null
     event: string
-    id: number
+    id: number | string
     properties: Record<string, any>
     timestamp: string
 }
@@ -278,13 +287,16 @@ export interface EventType {
 export interface SessionType {
     distinct_id: string
     event_count: number
-    events: EventType[]
+    events?: EventType[]
     global_session_id: string
     length: number
-    properties: Record<string, any>
     start_time: string
     end_time: string
-    session_recording_ids: string[]
+    session_recordings: Array<{ id: string; viewed: boolean }>
+    start_url?: string
+    end_url?: string
+    email?: string
+    matching_events: Array<number | string>
 }
 
 export interface OrganizationBilling {
@@ -360,6 +372,7 @@ export interface PluginType {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     error?: PluginErrorType
+    maintainer?: string
 }
 
 export interface PluginConfigType {
@@ -417,4 +430,10 @@ export interface FilterType {
     returningEntity?: Record<string, any>
     startEntity?: Record<string, any>
     path_type?: '$pageview' | '$screen' | '$autocapture' | 'custom_event'
+}
+
+export interface SystemStatus {
+    metric: string
+    value: string
+    key?: string
 }

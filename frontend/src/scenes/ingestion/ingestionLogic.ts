@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { Framework, PlatformType } from 'scenes/ingestion/types'
-import { ingestionLogicType } from 'types/scenes/ingestion/ingestionLogicType'
 import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
+import { ingestionLogicType } from './ingestionLogicType'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 import { teamLogic } from 'scenes/teamLogic'

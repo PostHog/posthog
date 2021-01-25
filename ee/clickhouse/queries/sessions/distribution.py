@@ -7,7 +7,7 @@ from posthog.models import Filter, Team
 
 class ClickhouseSessionsDist:
     def calculate_dist(self, filter: Filter, team: Team):
-        from posthog.queries.sessions import DIST_LABELS
+        from posthog.queries.sessions.sessions import DIST_LABELS
 
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter, team.pk)
 

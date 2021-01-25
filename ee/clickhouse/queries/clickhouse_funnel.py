@@ -28,7 +28,9 @@ class ClickhouseFunnel(Funnel):
         self._team = team
 
     def _build_filters(self, entity: Entity, index: int) -> str:
-        prop_filters, prop_filter_params = parse_prop_clauses(entity.properties, self._team.pk, prepend=str(index))
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            entity.properties, self._team.pk, prepend=str(index), allow_denormalized_props=True
+        )
         self.params.update(prop_filter_params)
         if entity.properties:
             return prop_filters
@@ -52,7 +54,9 @@ class ClickhouseFunnel(Funnel):
         return content_sql
 
     def _exec_query(self) -> List[Tuple]:
-        prop_filters, prop_filter_params = parse_prop_clauses(self._filter.properties, self._team.pk, prepend="global")
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            self._filter.properties, self._team.pk, prepend="global", allow_denormalized_props=True
+        )
 
         # format default dates
         data = {}

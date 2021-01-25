@@ -3,12 +3,13 @@ from json import dumps as jdumps
 from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Cohort, Event, Organization, Person
+from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 
 from .base import TransactionBaseTest
 
 
 def action_people_test_factory(event_factory, person_factory, action_factory, cohort_factory):
-    class TestActionPeople(TransactionBaseTest):
+    class TestActionPeople(AbstractIntervalTest, TransactionBaseTest):
         TESTS_API = True
 
         def _create_events(self, use_time=False):
@@ -83,43 +84,6 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 return False
             return str(response1[0]) == str(response2[0])
 
-        def test_people_endpoint(self):
-            sign_up_action, person = self._create_events()
-            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1"])
-            person_factory(team_id=self.team.pk, distinct_ids=["person2"])
-            event_factory(
-                team=self.team, event="sign up", distinct_id="person1", timestamp="2020-01-04T12:00:00Z",
-            )
-            event_factory(
-                team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-05T12:00:00Z",
-            )
-            # test people
-            action_response = self.client.get(
-                "/api/action/people/",
-                data={
-                    "date_from": "2020-01-04",
-                    "date_to": "2020-01-04",
-                    "type": "actions",
-                    "interval": "day",
-                    "entityId": sign_up_action.id,
-                },
-            ).json()
-            event_response = self.client.get(
-                "/api/action/people/",
-                data={
-                    "date_from": "2020-01-04",
-                    "date_to": "2020-01-04",
-                    "type": "events",
-                    "entityId": "sign up",
-                    "interval": "day",
-                },
-            ).json()
-
-            self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.pk))
-            self.assertTrue(
-                self._compare_entity_response(action_response["results"], event_response["results"], remove=[])
-            )
-
         def test_people_endpoint_paginated(self):
 
             for index in range(0, 150):
@@ -140,9 +104,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             event_response_next = self.client.get(event_response["next"]).json()
             self.assertEqual(len(event_response_next["results"][0]["people"]), 50)
 
-        def test_people_endpoint_with_intervals(self):
-            sign_up_action, person = self._create_events()
-
+        def _create_people_interval_events(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1"])
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
             person3 = person_factory(team_id=self.team.pk, distinct_ids=["person3"])
@@ -179,6 +141,52 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             event_factory(
                 team=self.team, event="sign up", distinct_id="person7", timestamp="2019-11-07T16:50:00Z",
             )
+            event_factory(
+                team=self.team, event="sign up", distinct_id="person1", timestamp="2019-11-27T16:50:00Z",
+            )
+
+            return person1, person2, person3, person4, person5, person6, person7
+
+        def test_minute_interval(self):
+            sign_up_action, person = self._create_events()
+
+            person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
+
+            # check grouped minute
+            min_grouped_action_response = self.client.get(
+                "/api/action/people/",
+                data={
+                    "interval": "minute",
+                    "date_from": "2020-01-04 19:20:00",
+                    "date_to": "2020-01-04 19:20:00",
+                    "type": "actions",
+                    "entityId": sign_up_action.id,
+                },
+            ).json()
+            min_grouped_grevent_response = self.client.get(
+                "/api/action/people/",
+                data={
+                    "interval": "minute",
+                    "date_from": "2020-01-04 19:20:00",
+                    "date_to": "2020-01-04 19:20:00",
+                    "type": "events",
+                    "entityId": "sign up",
+                },
+            ).json()
+
+            all_people_ids = [str(person["id"]) for person in min_grouped_action_response["results"][0]["people"]]
+            self.assertListEqual(sorted(all_people_ids), sorted([str(person4.pk), str(person5.pk)]))
+            self.assertEqual(len(all_people_ids), 2)
+            self.assertTrue(
+                self._compare_entity_response(
+                    min_grouped_action_response["results"], min_grouped_grevent_response["results"], remove=[],
+                )
+            )
+
+        def test_hour_interval(self):
+            sign_up_action, person = self._create_events()
+
+            person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
 
             # check solo hour
             action_response = self.client.get(
@@ -237,36 +245,47 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 )
             )
 
-            # check grouped minute
-            min_grouped_action_response = self.client.get(
+        def test_day_interval(self):
+            sign_up_action, person = self._create_events()
+            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+            event_factory(
+                team=self.team, event="sign up", distinct_id="person1", timestamp="2020-01-04T12:00:00Z",
+            )
+            event_factory(
+                team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-05T12:00:00Z",
+            )
+            # test people
+            action_response = self.client.get(
                 "/api/action/people/",
                 data={
-                    "interval": "minute",
-                    "date_from": "2020-01-04 19:20:00",
-                    "date_to": "2020-01-04 19:20:00",
+                    "date_from": "2020-01-04",
+                    "date_to": "2020-01-04",
                     "type": "actions",
+                    "interval": "day",
                     "entityId": sign_up_action.id,
                 },
             ).json()
-            min_grouped_grevent_response = self.client.get(
+            event_response = self.client.get(
                 "/api/action/people/",
                 data={
-                    "interval": "minute",
-                    "date_from": "2020-01-04 19:20:00",
-                    "date_to": "2020-01-04 19:20:00",
+                    "date_from": "2020-01-04",
+                    "date_to": "2020-01-04",
                     "type": "events",
                     "entityId": "sign up",
+                    "interval": "day",
                 },
             ).json()
 
-            all_people_ids = [str(person["id"]) for person in min_grouped_action_response["results"][0]["people"]]
-            self.assertListEqual(sorted(all_people_ids), sorted([str(person4.pk), str(person5.pk)]))
-            self.assertEqual(len(all_people_ids), 2)
+            self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.pk))
             self.assertTrue(
-                self._compare_entity_response(
-                    min_grouped_action_response["results"], min_grouped_grevent_response["results"], remove=[],
-                )
+                self._compare_entity_response(action_response["results"], event_response["results"], remove=[])
             )
+
+        def test_week_interval(self):
+            sign_up_action, person = self._create_events()
+
+            person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
 
             # check grouped week
             week_grouped_action_response = self.client.get(
@@ -300,6 +319,11 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 )
             )
 
+        def test_month_interval(self):
+            sign_up_action, person = self._create_events()
+
+            person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
+
             # check grouped month
             month_group_action_response = self.client.get(
                 "/api/action/people/",
@@ -323,14 +347,17 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             ).json()
 
             all_people_ids = [str(person["id"]) for person in month_group_action_response["results"][0]["people"]]
-            self.assertListEqual(sorted(all_people_ids), sorted([str(person6.pk), str(person7.pk)]))
-            self.assertEqual(len(all_people_ids), 2)
+            self.assertListEqual(sorted(all_people_ids), sorted([str(person6.pk), str(person7.pk), str(person1.pk)]))
+            self.assertEqual(len(all_people_ids), 3)
 
             self.assertTrue(
                 self._compare_entity_response(
                     month_group_action_response["results"], month_group_grevent_response["results"], remove=[],
                 )
             )
+
+        def test_interval_rounding(self):
+            pass
 
         def _create_multiple_people(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})

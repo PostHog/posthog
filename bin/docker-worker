@@ -1,19 +1,5 @@
 #!/bin/bash
 set -e
 
-if [ -z "$REDIS_URL$POSTHOG_REDIS_HOST" ]
-then
-  echo "⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️"
-  echo "️⚠️ 🚨🚨🚨 PostHog warning! 🚨🚨🚨"
-  echo "⚠️"
-  echo "️⚠️ The environment variable REDIS_URL or POSTHOG_REDIS_HOST is not configured!"
-  echo "⚠️ Redis will be mandatory in the next versions of PostHog (1.1.0+)."
-  echo "⚠️ Please configure it now to avoid future surprises!"
-  echo "⚠️"
-  echo "⚠️ See here for more information!"
-  echo "⚠️ --> https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
-  echo "⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️"
-else
-  ./bin/plugin-server &
-  ./bin/docker-worker-celery --with-scheduler
-fi
+./bin/plugin-server &
+./bin/docker-worker-celery --with-scheduler

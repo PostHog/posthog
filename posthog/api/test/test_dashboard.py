@@ -1,17 +1,23 @@
 import json
 
-from django.core.cache import cache
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.models import Dashboard, DashboardItem, Filter, User
-from posthog.test.base import BaseTest, TransactionBaseTest
+from posthog.test.base import TransactionBaseTest
 from posthog.utils import generate_cache_key
 
 
 class TestDashboard(TransactionBaseTest):
     TESTS_API = True
+
+    def test_get_dashboard(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        response = self.client.get(f"/api/dashboard/{dashboard.id}", content_type="application/json",)
+        self.assertEqual(response.json()["name"], "private dashboard")
+        self.assertEqual(response.json()["created_by"]["distinct_id"], self.user.distinct_id)
+        self.assertEqual(response.json()["created_by"]["first_name"], self.user.first_name)
 
     def test_create_dashboard_item(self):
         dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")

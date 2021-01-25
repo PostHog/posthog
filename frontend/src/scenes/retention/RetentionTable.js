@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Modal, Button, Spin } from 'antd'
+import { Table, Modal, Button, Spin, Tooltip } from 'antd'
 import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
@@ -15,17 +15,22 @@ export function RetentionTable({ dashboardItemId = null }) {
         peopleLoading,
         people,
         loadingMore,
-        filters: { period },
+        filters: { period, date_to },
     } = useValues(logic)
     const { loadPeople, loadMore } = useActions(logic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
+    const [isLatestPeriod, setIsLatestPeriod] = useState(false)
+
+    useEffect(() => {
+        setIsLatestPeriod(periodIsLatest(date_to, period))
+    }, [date_to, period])
 
     let columns = [
         {
             title: 'Date',
             key: 'date',
-            render: (row) => moment(row.date).format(period === 'h' ? 'MMM D, h a' : 'MMM D'),
+            render: (row) => moment.utc(row.date).format(period === 'h' ? 'MMM D, h a' : 'MMM D'),
             align: 'center',
         },
         {
@@ -45,7 +50,11 @@ export function RetentionTable({ dashboardItemId = null }) {
                     if (dayIndex >= row.values.length) {
                         return ''
                     }
-                    return renderPercentage(row.values[dayIndex]['count'], row.values[0]['count'])
+                    return renderPercentage(
+                        row.values[dayIndex]['count'],
+                        row.values[0]['count'],
+                        isLatestPeriod && dayIndex === row.values.length - 1
+                    )
                 },
             })
         })
@@ -88,7 +97,7 @@ export function RetentionTable({ dashboardItemId = null }) {
                         minWidth: results[selectedRow]?.values[0]?.count === 0 ? '10%' : '90%',
                         fontSize: 16,
                     }}
-                    title={results[selectedRow]?.date}
+                    title={results[selectedRow] ? moment(results[selectedRow].date).format('MMMM d, YYYY') : ''}
                 >
                     {results && !peopleLoading ? (
                         <div>
@@ -172,13 +181,33 @@ export function RetentionTable({ dashboardItemId = null }) {
     )
 }
 
-const renderPercentage = (value, total) => {
-    const percentage = total > 0 ? (100.0 * value) / total : 0
-    const backgroundColor = `hsl(212, 63%, ${30 + (100 - percentage) * 0.65}%)`
-    const color = percentage >= 65 ? 'hsl(0, 0%, 80%)' : undefined
-    return (
-        <div style={{ backgroundColor, color }} className="percentage-cell">
-            {percentage.toFixed(1)}%
+const renderPercentage = (value, total, latest = false) => {
+    const _percentage = total > 0 ? (100.0 * value) / total : 0
+    const backgroundColor = `hsl(212, 63%, ${30 + (100 - _percentage) * 0.65}%)`
+    const color = _percentage >= 65 ? 'hsl(0, 0%, 80%)' : undefined
+
+    const numberCell = (
+        <div style={{ backgroundColor, color }} className={`percentage-cell${latest ? ' period-in-progress' : ''}`}>
+            {_percentage.toFixed(1)}%{latest && '*'}
         </div>
     )
+    return latest ? <Tooltip title="Period in progress">{numberCell}</Tooltip> : numberCell
+}
+
+const periodIsLatest = (date_to, period) => {
+    if (!date_to) {
+        return true
+    }
+
+    const curr = moment(date_to)
+    if (
+        (period == 'Hour' && curr.isSame(moment(), 'hour')) ||
+        (period == 'Day' && curr.isSame(moment(), 'day')) ||
+        (period == 'Week' && curr.isSame(moment(), 'week')) ||
+        (period == 'Month' && curr.isSame(moment(), 'month'))
+    ) {
+        return true
+    } else {
+        return false
+    }
 }

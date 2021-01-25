@@ -79,9 +79,12 @@ function PropertyPaneContents({
                         operator={operator}
                         value={value}
                         onChange={(newOperator, newValue) => {
-                            onComplete()
                             setThisFilter(propkey, newValue, newOperator, type)
+                            if (newOperator && newValue) {
+                                onComplete()
+                            }
                         }}
+                        columnOptions={{ flex: 1 }}
                     />
                 )}
             </Row>

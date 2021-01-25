@@ -57,10 +57,10 @@
   resolved "https://registry.yarnpkg.com/@google-cloud/promisify/-/promisify-2.0.3.tgz#f934b5cdc939e3c7039ff62b9caaf59a9d89e3a8"
   integrity sha512-d4VSA86eL/AFTe5xtyZX+ePUjE8dIFu2T8zmdeNBSa5/kNgXPCx/o/wbFNHAGLJdGnk1vddRuMESD9HbOC8irw==
 
-"@posthog/plugin-server@0.6.4":
-  version "0.6.4"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.6.4.tgz#a03c192f27433301e1ce9aee47290b60cfb85b5f"
-  integrity sha512-pz2zx2ZCppdIcVzfxz4ZncH5NLrltBnv2JF/IF21d2HyvWkT3gYyHcoDn0WFm3Ea9Sfd8UQnPAglllWxMJXtYw==
+"@posthog/plugin-server@0.6.8":
+  version "0.6.8"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.6.8.tgz#9327df4f68d8375bde76cab1d0e77bab60dcf511"
+  integrity sha512-kznlYc9PY5CKQcbVYAE2i+ePqhkULpQUYsWkU0ZYw3x0WtXPtzOb4IC7OrGnv7RSenRM5gfLB7kF7/v8FGa6EA==
   dependencies:
     "@google-cloud/bigquery" "^5.5.0"
     "@sentry/node" "^5.29.0"

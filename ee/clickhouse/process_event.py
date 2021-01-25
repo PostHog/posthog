@@ -1,6 +1,6 @@
 import datetime
 import json
-from typing import Dict, Optional
+from typing import Dict, Optional, Sequence
 from uuid import UUID
 
 import statsd
@@ -13,13 +13,17 @@ from sentry_sdk import capture_exception
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.kafka_client.client import KafkaProducer
-from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 from posthog.ee import is_ee_enabled
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.tasks.process_event import handle_identify_or_alias, store_names_and_properties
+from posthog.tasks.process_event import (
+    _add_missing_feature_flags,
+    handle_identify_or_alias,
+    sanitize_event_name,
+    store_names_and_properties,
+)
 
 if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
@@ -59,6 +63,8 @@ def _capture_ee(
     if not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
 
+    event = sanitize_event_name(event)
+    _add_missing_feature_flags(properties, team, distinct_id)
     store_names_and_properties(team=team, event=event, properties=properties)
 
     if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
@@ -117,6 +123,8 @@ if is_ee_enabled():
         properties = data.get("properties", {})
         if data.get("$set"):
             properties["$set"] = data["$set"]
+        if data.get("$set_once"):
+            properties["$set_once"] = data["$set_once"]
 
         person_uuid = UUIDT()
         ts = handle_timestamp(data, now, sent_at)
@@ -172,19 +180,21 @@ def log_event(
     now: datetime.datetime,
     sent_at: Optional[datetime.datetime],
     event_uuid: UUIDT,
+    *,
+    topics: Sequence[str],
 ) -> None:
     if settings.DEBUG:
-        print(f'Logging event {data["event"]} to WAL')
-    KafkaProducer().produce(
-        topic=KAFKA_EVENTS_WAL,
-        data={
-            "uuid": str(event_uuid),
-            "distinct_id": distinct_id,
-            "ip": ip,
-            "site_url": site_url,
-            "data": json.dumps(data),
-            "team_id": team_id,
-            "now": now.isoformat(),
-            "sent_at": sent_at.isoformat() if sent_at else "",
-        },
-    )
+        print(f'Logging event {data["event"]} to Kafka topics {" and ".join(topics)}')
+    producer = KafkaProducer()
+    data = {
+        "uuid": str(event_uuid),
+        "distinct_id": distinct_id,
+        "ip": ip,
+        "site_url": site_url,
+        "data": json.dumps(data),
+        "team_id": team_id,
+        "now": now.isoformat(),
+        "sent_at": sent_at.isoformat() if sent_at else "",
+    }
+    for topic in topics:
+        producer.produce(topic=topic, data=data)

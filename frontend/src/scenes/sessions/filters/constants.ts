@@ -7,3 +7,10 @@ export const SESSIONS_WITH_RECORDINGS_FILTER: SessionsPropertyFilter = {
     operator: 'gt',
     label: 'Recording duration',
 }
+
+export const SESSIONS_WITH_UNSEEN_RECORDINGS: SessionsPropertyFilter = {
+    type: 'recording',
+    key: 'unseen',
+    value: 1,
+    label: 'Unseen recordings',
+}
