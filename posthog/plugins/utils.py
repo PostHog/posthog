@@ -86,10 +86,11 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
     if get_latest_if_none and not parsed["tag"]:
         try:
             token = private_token or settings.GITLAB_TOKEN
-            commits_url = "https://gitlab.com/api/v4/projects/{}/repository/commits{}".format(
-                quote(parsed["project"], safe=""), "?private_token={}".format(token) if token else ""
+            headers = {"Authorization": "Bearer {}".format(token)} if token else {}
+            commits_url = "https://gitlab.com/api/v4/projects/{}/repository/commits".format(
+                quote(parsed["project"], safe="")
             )
-            commits = requests.get(commits_url).json()
+            commits = requests.get(commits_url, headers=headers).json()
             if len(commits) > 0 and commits[0].get("id", None):
                 parsed["tag"] = commits[0]["id"]
             else:
@@ -179,16 +180,13 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
         url_project = parsed_url["project"]
         if not url_tag or not url_project:
             raise Exception("No GitLab tag or project given!")
-
+        url = "https://gitlab.com/api/v4/projects/{project}/repository/archive.zip?sha={tag}".format(
+            project=quote(url_project, safe=""), tag=url_tag
+        )
         token = parsed_url["private_token"] or settings.GITLAB_TOKEN
         if token:
-            url = "https://gitlab.com/api/v4/projects/{project}/repository/archive.zip?sha={tag}&private_token={token}".format(
-                project=quote(url_project, safe=""), tag=url_tag, token=token
-            )
-        else:
-            url = "https://gitlab.com/{project}/-/archive/{tag}/{repo}-{tag}.zip".format(
-                project=url_project, repo=url_project.split("/")[-1], tag=url_tag
-            )
+            headers = {"Authorization": "Bearer {}".format(token)}
+
     elif parsed_url["type"] == "npm":
         pkg = parsed_url["pkg"]
         if not pkg or (not tag and not parsed_url.get("tag", None)):

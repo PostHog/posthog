@@ -145,7 +145,7 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(parsed_url.get("private_token", None), None)
         self.assertEqual(mock_get.call_count, 1)
         mock_get.assert_called_with(
-            "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits"
+            "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits", headers={}
         )
 
         parsed_url = parse_url(
@@ -193,7 +193,8 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(parsed_url["private_token"], "PRIVATE")
         self.assertEqual(mock_get.call_count, 2)
         mock_get.assert_called_with(
-            "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits?private_token=PRIVATE"
+            "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits",
+            headers={"Authorization": "Bearer PRIVATE"},
         )
 
         parsed_url = parse_url(
@@ -215,7 +216,8 @@ class TestPluginsUtils(BaseTest):
             self.assertEqual(parsed_url["private_token"], "PRIVATE")
             self.assertEqual(mock_get.call_count, 3)
             mock_get.assert_called_with(
-                "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits?private_token=PRIVATE"
+                "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits",
+                headers={"Authorization": "Bearer PRIVATE"},
             )
 
             parsed_url = parse_url("https://gitlab.com/mariusandra/helloworldplugin", get_latest_if_none=True)
@@ -225,7 +227,8 @@ class TestPluginsUtils(BaseTest):
             self.assertEqual(parsed_url.get("private_token", None), None)
             self.assertEqual(mock_get.call_count, 4)
             mock_get.assert_called_with(
-                "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits?private_token=MY_GITLAB_TOKEN"
+                "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits",
+                headers={"Authorization": "Bearer MY_GITLAB_TOKEN"},
             )
 
     def test_parse_npm_urls(self, mock_get):
@@ -392,7 +395,7 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(plugin_gitlab, base64.b64decode(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1]))
         self.assertEqual(mock_get.call_count, 1)
         mock_get.assert_called_with(
-            "https://gitlab.com/mariusandra/helloworldplugin/-/archive/ff78cbe1d70316055c610a962a8355a4616d874b/helloworldplugin-ff78cbe1d70316055c610a962a8355a4616d874b.zip",
+            "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha=ff78cbe1d70316055c610a962a8355a4616d874b",
             headers={},
         )
 
@@ -403,8 +406,8 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(plugin_gitlab, base64.b64decode(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1]))
         self.assertEqual(mock_get.call_count, 2)
         mock_get.assert_called_with(
-            "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha=ff78cbe1d70316055c610a962a8355a4616d874b&private_token=PRIVATE_TOKEN",
-            headers={},
+            "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha=ff78cbe1d70316055c610a962a8355a4616d874b",
+            headers={"Authorization": "Bearer PRIVATE_TOKEN"},
         )
 
         with self.settings(GITLAB_TOKEN="MY_GITLAB_TOKEN"):
@@ -415,8 +418,8 @@ class TestPluginsUtils(BaseTest):
             self.assertEqual(plugin_gitlab, base64.b64decode(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1]))
             self.assertEqual(mock_get.call_count, 3)
             mock_get.assert_called_with(
-                "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha=ff78cbe1d70316055c610a962a8355a4616d874b&private_token=PRIVATE_TOKEN",
-                headers={},
+                "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha=ff78cbe1d70316055c610a962a8355a4616d874b",
+                headers={"Authorization": "Bearer PRIVATE_TOKEN"},
             )
 
             plugin_gitlab = download_plugin_archive(
@@ -426,8 +429,8 @@ class TestPluginsUtils(BaseTest):
             self.assertEqual(plugin_gitlab, base64.b64decode(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1]))
             self.assertEqual(mock_get.call_count, 4)
             mock_get.assert_called_with(
-                "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha=ff78cbe1d70316055c610a962a8355a4616d874b&private_token=MY_GITLAB_TOKEN",
-                headers={},
+                "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha=ff78cbe1d70316055c610a962a8355a4616d874b",
+                headers={"Authorization": "Bearer MY_GITLAB_TOKEN"},
             )
 
     def test_download_plugin_archive_npm(self, mock_get):

@@ -93,24 +93,13 @@ def mocked_plugin_requests_get(*args, **kwargs):
     ):
         return MockBase64Response(HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[1], 200)
 
-    if (
-        args[0]
-        == "https://gitlab.com/mariusandra/helloworldplugin/-/archive/{}/helloworldplugin-{}.zip".format(
-            HELLO_WORLD_PLUGIN_GITLAB_ZIP[0], HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
+    if args[0].startswith(
+        "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha={}".format(
+            HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
         )
-        or args[0]
-        == "https://gitlab.com/mariusandra/helloworldplugin-other/-/archive/{}/helloworldplugin-other-{}.zip".format(
-            HELLO_WORLD_PLUGIN_GITLAB_ZIP[0], HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
-        )
-        or args[0].startswith(
-            "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha={}&private_token=".format(
-                HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
-            )
-        )
-        or args[0].startswith(
-            "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin-other/repository/archive.zip?sha={}&private_token=".format(
-                HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
-            )
+    ) or args[0].startswith(
+        "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin-other/repository/archive.zip?sha={}".format(
+            HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
         )
     ):
         return MockBase64Response(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1], 200)
