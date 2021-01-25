@@ -17,7 +17,7 @@ export function RetentionTable({ dashboardItemId = null }) {
         loadingMore,
         filters: { period, date_to },
     } = useValues(logic)
-    const { loadPeople, loadMore } = useActions(logic)
+    const { loadPeople, loadMorePeople } = useActions(logic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
     const [isLatestPeriod, setIsLatestPeriod] = useState(false)
@@ -164,7 +164,7 @@ export function RetentionTable({ dashboardItemId = null }) {
                                         }}
                                     >
                                         {people.next && (
-                                            <Button type="primary" onClick={() => loadMore(selectedRow)}>
+                                            <Button type="primary" onClick={() => loadMorePeople(selectedRow)}>
                                                 {loadingMore ? <Spin /> : 'Load More People'}
                                             </Button>
                                         )}
