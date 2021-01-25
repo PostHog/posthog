@@ -13,8 +13,31 @@ export function CustomPlugin(): JSX.Element {
             <Card>
                 <h3 className="l3">Install Custom Plugin</h3>
                 <p>
-                    To install a third-party or custom plugin, paste its GitHub, GitLab or npm URL below. For private
-                    repositories, append <code>?private_token=TOKEN</code> at the end of the URL.
+                    To install a third-party or custom plugin, paste its URL below. For{' '}
+                    <a
+                        href="https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        GitHub
+                    </a>
+                    {', '}
+                    <a
+                        href="https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        GitLab
+                    </a>
+                    {' and '}
+                    <a
+                        href="https://docs.npmjs.com/creating-and-viewing-access-tokens"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        npm
+                    </a>{' '}
+                    private repositories, append <code>?private_token=TOKEN</code> to the end of the URL.
                     <br />
                     <b className="text-warning">Warning: Only install plugins from trusted sources.</b>
                 </p>
