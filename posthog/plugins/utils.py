@@ -11,13 +11,7 @@ import requests
 
 
 def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
-    private_token = None
-    if "?" in url:
-        url, query = url.split("?")
-        params = {k: v[0] for k, v in parse_qs(query).items()}
-        private_token = params.get("private_token", None)
-
-    url = url.strip("/")
+    url, private_token = split_url_and_private_token(url)
     match = re.search(
         r"^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)((\/commit|\/tree|\/releases\/tag)\/([A-Za-z0-9_.\-\/]+))?$",
         url,
@@ -65,13 +59,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
 
 
 def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
-    private_token = None
-    if "?" in url:
-        url, query = url.split("?")
-        params = {k: v[0] for k, v in parse_qs(query).items()}
-        private_token = params.get("private_token", None)
-
-    url = url.strip("/")
+    url, private_token = split_url_and_private_token(url)
     match = re.search(r"^https?:\/\/(?:www\.)?gitlab\.com\/([A-Za-z0-9_.\-\/]+)$", url)
     if not match:
         return None
@@ -119,12 +107,7 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
 
 
 def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
-    private_token = None
-    if "?" in url:
-        url, query = url.split("?")
-        params = {k: v[0] for k, v in parse_qs(query).items()}
-        private_token = params.get("private_token", None)
-
+    url, private_token = split_url_and_private_token(url)
     match = re.search(
         r"^https?://(?:www\.)?npmjs\.com/package/([@a-z0-9_-]+(/[a-z0-9_-]+)?)?/?(v/([A-Za-z0-9_.-]+)/?|)$", url
     )
@@ -168,6 +151,15 @@ def parse_url(url: str, get_latest_if_none=False) -> Dict[str, Optional[str]]:
     if parsed_url:
         return parsed_url
     raise Exception("Must be a GitHub/GitLab repository or npm package URL!")
+
+
+def split_url_and_private_token(url: str) -> [str, str]:
+    private_token = None
+    if "?" in url:
+        url, query = url.split("?")
+        params = {k: v[0] for k, v in parse_qs(query).items()}
+        private_token = params.get("private_token", None)
+    return url.strip("/"), private_token
 
 
 # passing `tag` overrides whatever is in the URL
