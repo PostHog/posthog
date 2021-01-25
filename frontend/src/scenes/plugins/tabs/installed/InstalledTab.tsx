@@ -35,7 +35,7 @@ export function InstalledTab(): JSX.Element {
                       }`
                     : pluginsNeedingUpdates.length > 0
                     ? 'Check again'
-                    : 'Check for Updates'}
+                    : 'Check for updates'}
             </Button>
         ) : null
 
