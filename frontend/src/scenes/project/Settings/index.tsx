@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Card, Divider, Tag } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
-import { OptInSessionRecording } from './OptInSessionRecording'
+import { SessionRecording } from './SessionRecording'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
 import { WebhookIntegration } from './WebhookIntegration'
 import { useAnchor } from 'lib/hooks/useAnchor'
@@ -131,7 +131,7 @@ function _Setup(): JSX.Element {
                     </a>{' '}
                     installed.
                 </p>
-                <OptInSessionRecording />
+                <SessionRecording />
                 <p>
                     This is a new feature of PostHog. Please{' '}
                     <a onClick={() => shareFeedbackCommand('How can we improve session recording?')}>share feedback</a>{' '}
