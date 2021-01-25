@@ -127,6 +127,7 @@ class TestPluginAPI(APIBaseTest):
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "source": None,
+                    "latest_tag": None,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
@@ -161,6 +162,7 @@ class TestPluginAPI(APIBaseTest):
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "source": None,
+                    "latest_tag": None,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
@@ -192,6 +194,7 @@ class TestPluginAPI(APIBaseTest):
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0],
                     "source": None,
+                    "latest_tag": None,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
@@ -216,6 +219,7 @@ class TestPluginAPI(APIBaseTest):
                     "config_schema": {},
                     "tag": None,
                     "source": "const processEvent = e => e",
+                    "latest_tag": None,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
