@@ -39,15 +39,19 @@ def mocked_plugin_requests_get(*args, **kwargs):
             return self.status_code < 300
 
     if args[0] == "https://api.github.com/repos/PostHog/posthog/commits":
-        return MockJSONResponse([{"html_url": "https://www.github.com/PostHog/posthog/commit/MOCKLATESTCOMMIT"}], 200)
+        return MockJSONResponse(
+            [{"sha": "MOCKLATESTCOMMIT", "html_url": "https://www.github.com/PostHog/posthog/commit/MOCKLATESTCOMMIT"}],
+            200,
+        )
 
     if args[0] == "https://api.github.com/repos/PostHog/helloworldplugin/commits":
         return MockJSONResponse(
             [
                 {
+                    "sha": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "html_url": "https://www.github.com/PostHog/helloworldplugin/commit/{}".format(
                         HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]
-                    )
+                    ),
                 }
             ],
             200,
@@ -57,7 +61,8 @@ def mocked_plugin_requests_get(*args, **kwargs):
         return MockJSONResponse(
             [
                 {
-                    "web_url": "https://gitlab.com/mariusandra/helloworldplugin/-/commit/ff78cbe1d70316055c610a962a8355a4616d874b"
+                    "id": "ff78cbe1d70316055c610a962a8355a4616d874b",
+                    "web_url": "https://gitlab.com/mariusandra/helloworldplugin/-/commit/ff78cbe1d70316055c610a962a8355a4616d874b",
                 }
             ],
             200,
@@ -67,7 +72,8 @@ def mocked_plugin_requests_get(*args, **kwargs):
         return MockJSONResponse(
             [
                 {
-                    "web_url": "https://gitlab.com/mariusandra/helloworldplugin-other/-/commit/ff78cbe1d70316055c610a962a8355a4616d874b"
+                    "id": "ff78cbe1d70316055c610a962a8355a4616d874b",
+                    "web_url": "https://gitlab.com/mariusandra/helloworldplugin-other/-/commit/ff78cbe1d70316055c610a962a8355a4616d874b",
                 }
             ],
             200,

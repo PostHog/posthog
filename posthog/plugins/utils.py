@@ -40,12 +40,10 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
             headers = {"Authorization": "token {}".format(private_token)} if private_token else {}
             commits_url = "https://api.github.com/repos/{}/{}/commits".format(parsed["user"], parsed["repo"])
             commits = requests.get(commits_url, headers=headers).json()
-            if len(commits) > 0 and commits[0].get("html_url", None):
-                html_url = "{}{}".format(
-                    commits[0]["html_url"], "?private_token={}".format(private_token) if private_token else ""
-                )
-                return parse_url(html_url)
-            raise
+            if len(commits) > 0 and commits[0].get("sha", None):
+                parsed["tag"] = commits[0]["sha"]
+            else:
+                raise
         except Exception:
             raise Exception("Could not get latest commit for: {}".format(parsed["root_url"]))
     if parsed["tag"]:
@@ -89,12 +87,10 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
                 quote(parsed["project"], safe=""), "?private_token={}".format(private_token) if private_token else ""
             )
             commits = requests.get(commits_url).json()
-            if len(commits) > 0 and commits[0].get("web_url", None):
-                web_url = commits[0]["web_url"]
-                if private_token:
-                    web_url += "?private_token={}".format(private_token)
-                return parse_gitlab_url(web_url)
-            raise
+            if len(commits) > 0 and commits[0].get("id", None):
+                parsed["tag"] = commits[0]["id"]
+            else:
+                raise
         except Exception:
             raise Exception("Could not get latest commit for: {}".format(parsed["root_url"]))
 
@@ -127,12 +123,9 @@ def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Opti
         try:
             headers = {"Authorization": "Bearer {}".format(private_token)} if private_token else {}
             details = requests.get("https://registry.npmjs.org/{}/latest".format(parsed["pkg"]), headers=headers).json()
-            tag_url = "https://www.npmjs.com/package/{}/v/{}{}".format(
-                parsed["pkg"], details["version"], "?private_token={}".format(private_token) if private_token else ""
-            )
-            return parse_url(tag_url)
+            parsed["tag"] = details["version"]
         except Exception:
-            raise Exception("Could not get latest commit for: {}".format(parsed["url"]))
+            raise Exception("Could not get latest version for: {}".format(parsed["url"]))
     if parsed["tag"]:
         parsed["tagged_url"] = "https://www.npmjs.com/package/{}/v/{}{}".format(
             parsed["pkg"], parsed["tag"], "?private_token={}".format(private_token) if private_token else ""
