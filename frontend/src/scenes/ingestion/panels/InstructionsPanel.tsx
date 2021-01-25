@@ -15,7 +15,7 @@ import {
 } from 'scenes/ingestion/frameworks'
 import { Row } from 'antd'
 import React from 'react'
-import { API, MOBILE, PURE_JS, BACKEND } from 'scenes/ingestion/constants'
+import { API, MOBILE, BACKEND } from 'scenes/ingestion/constants'
 import { useActions, useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 
@@ -57,26 +57,6 @@ export function InstructionsPanel(): JSX.Element {
                 <p className="prompt-text">
                     {
                         "Below is an easy format for capturing events using the API we've provided. Use this endpoint to send your first event!"
-                    }
-                </p>
-                <FrameworkSnippet />
-            </CardContainer>
-        )
-    }
-
-    if (framework === PURE_JS) {
-        return (
-            <CardContainer
-                index={index}
-                totalSteps={totalSteps}
-                nextButton={true}
-                onSubmit={() => setVerify(true)}
-                onBack={() => setFramework(null)}
-            >
-                <h2>posthog-js</h2>
-                <p className="prompt-text">
-                    {
-                        'posthog-js will automatically capture page views, page leaves, and interactions with specific elements (<a>, <button>, <input>, <textarea>, <form>)'
                     }
                 </p>
                 <FrameworkSnippet />

@@ -105,13 +105,15 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
             if (user) {
                 // make the change immediately before the request comes back
                 // this way we are not re-redirected to the ingestion page
-                userLogic.actions.setUser({
-                    ...user,
-                    team: {
-                        ...user.team,
-                        completed_snippet_onboarding: true,
-                    },
-                })
+                if (user.team) {
+                    userLogic.actions.setUser({
+                        ...user,
+                        team: {
+                            ...user.team,
+                            completed_snippet_onboarding: true,
+                        },
+                    })
+                }
                 teamLogic.actions.patchCurrentTeam({
                     completed_snippet_onboarding: true,
                 })
