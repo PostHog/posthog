@@ -6,8 +6,8 @@ export const VERIFICATION = 'VERIFICATION'
 
 export const WEB = 'Web'
 export const MOBILE = 'Mobile'
-export const SERVER = 'Server'
-export const platforms = [WEB, MOBILE, SERVER]
+export const BACKEND = 'Backend'
+export const platforms = [WEB, MOBILE, BACKEND]
 
 export const PURE_JS = 'PURE_JS'
 export const NODEJS = 'NODEJS'

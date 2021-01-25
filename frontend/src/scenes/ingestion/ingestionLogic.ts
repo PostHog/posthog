@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { Framework, PlatformType } from 'scenes/ingestion/types'
 import { ingestionLogicType } from 'types/scenes/ingestion/ingestionLogicType'
-import { API, MOBILE, SERVER, WEB } from 'scenes/ingestion/constants'
+import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 import { teamLogic } from 'scenes/teamLogic'
@@ -63,7 +63,7 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
                     return 4
                 }
 
-                return platform === WEB ? 3 : 4 // (mobile & server)
+                return platform === WEB ? 3 : 4 // (mobile & backend)
             },
         ],
     },
@@ -78,21 +78,21 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
         '/ingestion': () => actions.setState(null, null, false),
         '/ingestion/verify': (_: any, { platform, framework }: Record<string, string>) => {
             actions.setState(
-                platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'server' ? SERVER : null,
+                platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'backend' ? BACKEND : null,
                 framework,
                 true
             )
         },
         '/ingestion/api': (_: any, { platform }: Record<string, string>) => {
             actions.setState(
-                platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'server' ? SERVER : null,
+                platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'backend' ? BACKEND : null,
                 API,
                 false
             )
         },
         '/ingestion(/:platform)(/:framework)': ({ platform, framework }: Record<string, string>) => {
             actions.setState(
-                platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'server' ? SERVER : null,
+                platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'backend' ? BACKEND : null,
                 framework,
                 false
             )
@@ -137,8 +137,8 @@ function getUrl(values: typeof ingestionLogic['values']): string | [string, Reco
                         ? 'web'
                         : platform === MOBILE
                         ? 'mobile'
-                        : platform === SERVER
-                        ? 'server'
+                        : platform === BACKEND
+                        ? 'backend'
                         : undefined,
                 framework: framework?.toLowerCase() || undefined,
             },
@@ -155,8 +155,8 @@ function getUrl(values: typeof ingestionLogic['values']): string | [string, Reco
                         ? 'web'
                         : platform === MOBILE
                         ? 'mobile'
-                        : platform === SERVER
-                        ? 'server'
+                        : platform === BACKEND
+                        ? 'backend'
                         : undefined,
             },
         ]
@@ -170,8 +170,8 @@ function getUrl(values: typeof ingestionLogic['values']): string | [string, Reco
         url += '/web'
     }
 
-    if (platform === SERVER) {
-        url += '/server'
+    if (platform === BACKEND) {
+        url += '/backend'
     }
 
     if (framework) {

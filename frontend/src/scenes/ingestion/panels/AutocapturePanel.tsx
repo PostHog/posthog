@@ -30,14 +30,16 @@ export function AutocapturePanel(): JSX.Element {
                         header={
                             <>
                                 <BulbOutlined style={{ color: 'var(--warning)' }} /> <b>Just exploring?</b> Immediately
-                                run PostHog in your website for some initial exploring.
+                                run PostHog on your website for some initial exploring.
                             </>
                         }
                         key="bookmarklet"
                     >
                         If you want to quickly test PostHog in your website <b>without changing any code</b>, try out
                         our bookmarklet.
-                        <b>Steps:</b>
+                        <div>
+                            <b>Steps:</b>
+                        </div>
                         <ol>
                             <li>
                                 <b>Drag</b> the link (<BookOutlined />) below to your bookmarks toolbar.{' '}
@@ -83,7 +85,8 @@ export function AutocapturePanel(): JSX.Element {
                 <b>Steps:</b>
                 <ol>
                     <li>
-                        Insert this snippet in your website within the <code>&lt;head&gt;</code> tag. <JSSnippet />
+                        Insert this snippet in your website within the <code className="code">&lt;head&gt;</code> tag.{' '}
+                        <JSSnippet />
                     </li>
                     <li>
                         <b>Visit your site</b> to generate some initial events.

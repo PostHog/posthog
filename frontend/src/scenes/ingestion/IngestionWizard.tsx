@@ -4,7 +4,7 @@ import './IngestionWizard.scss'
 import { VerificationPanel } from 'scenes/ingestion/panels/VerificationPanel'
 import { AutocapturePanel } from 'scenes/ingestion/panels/AutocapturePanel'
 import { InstructionsPanel } from 'scenes/ingestion/panels/InstructionsPanel'
-import { MOBILE, SERVER, WEB } from 'scenes/ingestion/constants'
+import { MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { FrameworkPanel } from 'scenes/ingestion/panels/FrameworkPanel'
@@ -62,7 +62,7 @@ export default function IngestionWizard(): JSX.Element {
         )
     }
 
-    if (platform === MOBILE || platform === SERVER) {
+    if (platform === MOBILE || platform === BACKEND) {
         return (
             <IngestionContainer>
                 <FrameworkPanel />
