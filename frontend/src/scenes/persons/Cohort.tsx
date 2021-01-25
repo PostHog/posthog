@@ -2,11 +2,10 @@ import React from 'react'
 import { CohortGroup } from './CohortGroup'
 import { cohortLogic } from './cohortLogic'
 import { Button, Card, Col, Divider, Input, Row } from 'antd'
-import { UploadOutlined, AimOutlined, ArrowLeftOutlined, InboxOutlined } from '@ant-design/icons'
-import { useValues, useActions } from 'kea'
+import { AimOutlined, ArrowLeftOutlined, InboxOutlined, UnorderedListOutlined } from '@ant-design/icons'
+import { useValues, useActions, BuiltLogic } from 'kea'
 import { CohortType } from '~/types'
 import { Persons } from './Persons'
-import { cohortLogicType } from './cohortLogicType'
 import Dragger from 'antd/lib/upload/Dragger'
 
 const isSubmitDisabled = (cohort: CohortType): boolean => {
@@ -19,7 +18,7 @@ const isSubmitDisabled = (cohort: CohortType): boolean => {
     return true
 }
 
-function StaticCohort({ logic }: { logic: cohortLogicType }): JSX.Element {
+function StaticCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
     const { setCohort } = useActions(logic)
     const { cohort } = useValues(logic)
     const props = {
@@ -63,7 +62,7 @@ function StaticCohort({ logic }: { logic: cohortLogicType }): JSX.Element {
     )
 }
 
-function DynamicCohort({ logic }: { logic: cohortLogicType }): JSX.Element {
+function DynamicCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
     const { setCohort } = useActions(logic)
     const { cohort } = useValues(logic)
     return (
@@ -71,13 +70,13 @@ function DynamicCohort({ logic }: { logic: cohortLogicType }): JSX.Element {
             {cohort.id === 'new' && (
                 <>
                     <Button size="small" type="link" onClick={() => setCohort({ ...cohort, is_static: undefined })}>
-                        <ArrowLeftOutlined /> Create cohort by CSV instead
+                        <ArrowLeftOutlined /> Create static cohort instead
                     </Button>
                     <br />
                     <br />
                 </>
             )}
-            {cohort.groups.map((group, index) => (
+            {cohort.groups.map((group: Record<string, any>, index: number) => (
                 <React.Fragment key={index}>
                     <CohortGroup
                         group={group}
@@ -87,8 +86,8 @@ function DynamicCohort({ logic }: { logic: cohortLogicType }): JSX.Element {
                             cohort.groups.splice(index, 1)
                             setCohort({ ...cohort })
                         }}
-                        onChange={(group: Record<string, any>) => {
-                            cohort.groups[index] = group
+                        onChange={(_group: Record<string, any>) => {
+                            cohort.groups[index] = _group
                             setCohort({ ...cohort })
                         }}
                     />
@@ -109,27 +108,35 @@ function CohortChoice({ setCohort, cohort }: { setCohort: CallableFunction; coho
         <Row gutter={24}>
             <Col sm={12}>
                 <Card
-                    title="Upload CSV"
+                    title="Dynamic cohort"
                     size="small"
                     className="clickable-card"
-                    data-attr="cohort-choice-upload-csv"
-                    onClick={() => setCohort({ ...cohort, is_static: true })}
+                    data-attr="cohort-choice-definition"
+                    onClick={() => setCohort({ ...cohort, is_static: false })}
+                    style={{ height: '100%' }}
                 >
                     <div style={{ textAlign: 'center', fontSize: 40 }}>
-                        <UploadOutlined />
+                        <AimOutlined />
+                    </div>
+                    <div className="cohort-type-description">
+                        Define rules or properties to match automatically to your users. Updates automatically.
                     </div>
                 </Card>
             </Col>
             <Col sm={12}>
                 <Card
-                    title="Create cohort by definition"
+                    title="Static cohort"
                     size="small"
                     className="clickable-card"
-                    data-attr="cohort-choice-definition"
-                    onClick={() => setCohort({ ...cohort, is_static: false })}
+                    data-attr="cohort-choice-upload-csv"
+                    onClick={() => setCohort({ ...cohort, is_static: true })}
+                    style={{ height: '100%' }}
                 >
                     <div style={{ textAlign: 'center', fontSize: 40 }}>
-                        <AimOutlined />
+                        <UnorderedListOutlined />
+                    </div>
+                    <div className="cohort-type-description">
+                        Upload a list of users to create cohort with a specific set of users.
                     </div>
                 </Card>
             </Col>
@@ -178,7 +185,7 @@ export function Cohort(props: { onChange: CallableFunction; cohort: CohortType }
                     >
                         Save cohort
                     </Button>
-                    {!cohort.is_static && (
+                    {cohort.is_static === false && (
                         <Button
                             style={{ marginTop: '1rem', marginLeft: 12 }}
                             onClick={() => setCohort({ ...cohort, groups: [...cohort.groups, {}] })}
