@@ -106,11 +106,11 @@ export function PluginCard({
                                 </Tag>
                             ) : updates?.updated || (updates?.currentTag && updates.currentTag === updates.nextTag) ? (
                                 <Tag color="green">
-                                    <CheckOutlined /> Up To Date
+                                    <CheckOutlined /> Up to date
                                 </Tag>
                             ) : checkingForUpdates && pluginType !== PluginInstallationType.Source ? (
                                 <Tag color="blue">
-                                    <LoadingOutlined /> Checking...
+                                    <LoadingOutlined /> Checking for updates…
                                 </Tag>
                             ) : null}
 
