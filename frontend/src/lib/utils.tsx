@@ -657,7 +657,7 @@ export function midEllipsis(input: string, maxLength: number): string {
     return `${input.substring(0, middle - excess)}...${input.substring(middle + excess)}`
 }
 
-export const disableMinuteFor = {
+export const disableMinuteFor: Record<string, boolean> = {
     dStart: false,
     '-1d': false,
     '-7d': true,
@@ -670,7 +670,7 @@ export const disableMinuteFor = {
     all: true,
 }
 
-export const disableHourFor = {
+export const disableHourFor: Record<string, boolean> = {
     dStart: false,
     '-1d': false,
     '-7d': false,
