@@ -45,7 +45,7 @@ export function SessionRecording(): JSX.Element {
                                 marginLeft: '10px',
                             }}
                         >
-                            Automatically delete old session recordings
+                            Automatically delete old session recordings after
                         </label>
                     </div>
                     {period != null && (

@@ -49,7 +49,7 @@ def setup_periodic_tasks(sender, **kwargs):
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s(),  # check twice a week
     )
 
-    if getattr(settings, "MULTI_TENANCY", False) or os.environ.get("SESSION_RECORDING_RETENTION_CRONJOB", False):
+    if getattr(settings, "MULTI_TENANCY", False) and not is_ee_enabled():
         sender.add_periodic_task(crontab(minute=0, hour="*/12"), run_session_recording_retention.s())
 
     # send weekly status report on non-PostHog Cloud instances
