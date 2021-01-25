@@ -65,7 +65,7 @@ function PreflightCheck() {
     const [state, setState] = useState({})
     const { preflight, preflightLoading } = useValues(preflightLogic)
     const { resetPreflight } = useActions(preflightLogic)
-    const isReady = preflight.django && preflight.db && preflight.redis && preflight.celery
+    const isReady = preflight.django && preflight.db && preflight.redis && preflight.celery && preflight.plugins
 
     const checks = [
         {
@@ -84,16 +84,14 @@ function PreflightCheck() {
             status: preflight.redis,
         },
         {
-            id: 'redis',
+            id: 'celery',
             name: 'Background Jobs (Celery)',
             status: preflight.celery,
         },
         {
-            id: 'redis',
+            id: 'plugins',
             name: 'Posthog Plugin Server',
             status: preflight.plugins,
-            caption: 'Not required if not using plugins',
-            failedState: 'not-required',
         },
         {
             id: 'frontend',
