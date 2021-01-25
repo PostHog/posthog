@@ -3,10 +3,9 @@ import { CohortGroup } from './CohortGroup'
 import { cohortLogic } from './cohortLogic'
 import { Button, Card, Col, Divider, Input, Row } from 'antd'
 import { AimOutlined, ArrowLeftOutlined, InboxOutlined, UnorderedListOutlined } from '@ant-design/icons'
-import { useValues, useActions } from 'kea'
+import { useValues, useActions, BuiltLogic } from 'kea'
 import { CohortType } from '~/types'
 import { Persons } from './Persons'
-import { cohortLogicType } from './cohortLogicType'
 import Dragger from 'antd/lib/upload/Dragger'
 
 const isSubmitDisabled = (cohort: CohortType): boolean => {
@@ -19,7 +18,7 @@ const isSubmitDisabled = (cohort: CohortType): boolean => {
     return true
 }
 
-function StaticCohort({ logic }: { logic: cohortLogicType }): JSX.Element {
+function StaticCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
     const { setCohort } = useActions(logic)
     const { cohort } = useValues(logic)
     const props = {
@@ -63,7 +62,7 @@ function StaticCohort({ logic }: { logic: cohortLogicType }): JSX.Element {
     )
 }
 
-function DynamicCohort({ logic }: { logic: cohortLogicType }): JSX.Element {
+function DynamicCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
     const { setCohort } = useActions(logic)
     const { cohort } = useValues(logic)
     return (
@@ -77,7 +76,7 @@ function DynamicCohort({ logic }: { logic: cohortLogicType }): JSX.Element {
                     <br />
                 </>
             )}
-            {cohort.groups.map((group, index) => (
+            {cohort.groups.map((group: Record<string, any>, index: number) => (
                 <React.Fragment key={index}>
                     <CohortGroup
                         group={group}
@@ -87,8 +86,8 @@ function DynamicCohort({ logic }: { logic: cohortLogicType }): JSX.Element {
                             cohort.groups.splice(index, 1)
                             setCohort({ ...cohort })
                         }}
-                        onChange={(group: Record<string, any>) => {
-                            cohort.groups[index] = group
+                        onChange={(_group: Record<string, any>) => {
+                            cohort.groups[index] = _group
                             setCohort({ ...cohort })
                         }}
                     />
