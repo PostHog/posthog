@@ -85,25 +85,25 @@ function PreflightCheck() {
         },
         {
             id: 'redis',
-            name: 'Cache & Queue (Redis)',
+            name: 'Cache & queue (Redis)',
             status: preflight.redis,
         },
         {
             id: 'celery',
-            name: 'Background Jobs (Celery)',
+            name: 'Background jobs (Celery)',
             status: preflight.celery,
         },
         {
             id: 'plugins',
-            name: 'Posthog Plugin Server',
+            name: 'Plugin server (Node)',
             status: preflight.plugins,
             caption: state.mode === 'Experimentation' ? 'Required in production environments' : '',
             failedState: state.mode === 'Experimentation' ? 'warning' : 'error',
         },
         {
             id: 'frontend',
-            name: 'Frontend built (Webpack)',
-            status: true, // If this code is run, the front-end is already built
+            name: 'Frontend build (Webpack)',
+            status: true, // If this code is ran, the front-end is already built
         },
         {
             id: 'tls',
