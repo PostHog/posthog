@@ -96,6 +96,8 @@ class Team(models.Model):
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     uuid: models.UUIDField = models.UUIDField(default=UUIDT, editable=False, unique=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
+    session_recording_retention_period_days: models.IntegerField = models.IntegerField(null=True, default=None)
+
     plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
 
     # DEPRECATED: replaced with env variable OPT_OUT_CAPTURE and User field anonymized_data
