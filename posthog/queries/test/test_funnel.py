@@ -40,6 +40,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             if filters is None:
                 filters = {
                     "events": [{"id": "user signed up", "type": "events", "order": 0},],
+                    "insight": INSIGHT_FUNNELS,
                 }
 
             if properties is not None:
@@ -68,6 +69,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             if properties is not None:
                 filters.update({"properties": properties})
 
+            filters["insight"] = INSIGHT_FUNNELS
             filter = Filter(data=filters)
             return Funnel(filter=filter, team=self.team)
 
@@ -322,6 +324,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     data={
                         "events": [{"id": "event1", "order": 0}],
                         "actions": [{"id": action1.pk, "order": 1,}, {"id": action2.pk, "order": 2,},],
+                        "insight": INSIGHT_FUNNELS,
                     }
                 ),
                 team=self.team,

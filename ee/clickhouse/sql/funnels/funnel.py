@@ -3,7 +3,7 @@ SELECT max_step {top_level_groupby}, count(1), groupArray(100)(id) FROM (
     SELECT
         pid.person_id as id,
         {extra_select}
-        windowFunnel(86400000000)(toUInt64(toUnixTimestamp64Micro(timestamp)),
+        windowFunnel({within_time})(toUInt64(toUnixTimestamp64Micro(timestamp)),
             {steps}
         ) as max_step
     FROM 
