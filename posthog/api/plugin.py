@@ -110,7 +110,7 @@ class PluginSerializer(serializers.ModelSerializer):
             parsed_url = parse_url(url, get_latest_if_none=True)
             if parsed_url:
                 validated_data["url"] = parsed_url["root_url"]
-                validated_data["tag"] = parsed_url.get("version", parsed_url.get("tag", None))
+                validated_data["tag"] = parsed_url.get("tag", None)
                 validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
                 plugin_json = get_json_from_archive(validated_data["archive"], "plugin.json")
                 if not plugin_json:
