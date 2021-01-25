@@ -3,7 +3,7 @@ import { Link } from './Link'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 
 import { kea, useValues } from 'kea'
-import { backToLogicType } from 'types/lib/components/BackToType'
+import { backToLogicType } from './BackToType'
 
 interface BackTo {
     display: string
@@ -24,7 +24,7 @@ const backToLogic = kea<backToLogicType>({
         ],
     },
     urlToAction: ({ actions }) => ({
-        '*': (_, __, { backTo, backToURL }: { backTo: string | null; backToURL: string | null }) => {
+        '*': ({}, {}, { backTo, backToURL }: { backTo: string | null; backToURL: string | null }) => {
             if (!backTo || !backToURL) {
                 actions.setBackTo(null)
             } else {

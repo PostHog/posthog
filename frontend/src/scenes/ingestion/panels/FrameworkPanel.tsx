@@ -3,19 +3,19 @@ import { useActions, useValues } from 'kea'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { List, Row } from 'antd'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
-import { API, mobileFrameworks, WEB, webFrameworks } from 'scenes/ingestion/constants'
+import { API, mobileFrameworks, BACKEND, webFrameworks } from 'scenes/ingestion/constants'
 
 export function FrameworkPanel(): JSX.Element {
-    const { setCustomEvent, setPlatform, setFramework } = useActions(ingestionLogic)
+    const { setPlatform, setFramework } = useActions(ingestionLogic)
     const { platform, index, totalSteps } = useValues(ingestionLogic)
-    const frameworks = platform === WEB ? webFrameworks : mobileFrameworks
+    const frameworks = platform === BACKEND ? webFrameworks : mobileFrameworks
 
     return (
         <CardContainer
             index={index}
             totalSteps={totalSteps}
             onBack={() => {
-                platform === WEB ? setCustomEvent(false) : setPlatform(null)
+                setPlatform(null)
             }}
         >
             <p className="prompt-text">

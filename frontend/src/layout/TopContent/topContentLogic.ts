@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { topContentLogicType } from 'types/layout/TopContent/topContentLogicType'
+import { topContentLogicType } from './topContentLogicType'
 
 interface BackTo {
     display: string
@@ -21,7 +21,7 @@ export const topContentLogic = kea<topContentLogicType<BackTo>>({
         ],
     },
     listeners: ({ actions }) => ({
-        [router.actions.locationChanged]: ({ hashParams }) => {
+        [router.actionTypes.locationChanged]: ({ hashParams }) => {
             if (!hashParams.backTo || !hashParams.backToURL) {
                 actions.setBackTo(null)
             } else {

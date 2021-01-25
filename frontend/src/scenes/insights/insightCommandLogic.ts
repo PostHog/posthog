@@ -7,7 +7,7 @@ import {
     RegExpCommandPairs,
     CommandResultDisplayable,
 } from 'lib/components/CommandPalette/commandPaletteLogic'
-import { commandPaletteLogicType } from 'types/lib/components/CommandPalette/commandPaletteLogicType'
+import { commandPaletteLogicType } from './commandPaletteLogicType'
 import { kea } from 'kea'
 import { compareFilterLogic } from 'lib/components/CompareFilter/compareFilterLogic'
 import { RiseOutlined } from '@ant-design/icons'

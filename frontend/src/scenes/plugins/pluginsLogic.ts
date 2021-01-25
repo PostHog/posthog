@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { pluginsLogicType } from 'types/scenes/plugins/pluginsLogicType'
+import { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
 import { PluginInstallationType, PluginRepositoryEntry, PluginTab, PluginTypeWithConfig } from './types'

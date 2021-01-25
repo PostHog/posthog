@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
-import { billingLogicType } from 'types/scenes/billing/billingLogicType'
+import { billingLogicType } from './billingLogicType'
 import { BillingSubscription, PlanInterface, UserType } from '~/types'
 
 export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscription, UserType>>({

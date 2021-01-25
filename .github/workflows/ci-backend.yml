@@ -4,7 +4,7 @@ on:
     - pull_request
 
 jobs:
-    code-quality:
+    backend-code-quality:
         name: Code quality checks
         runs-on: ubuntu-latest
 

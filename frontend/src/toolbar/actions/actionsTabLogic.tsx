@@ -6,7 +6,7 @@ import { elementToActionStep, actionStepToAntdForm, stepToDatabaseFormat } from 
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { toast } from 'react-toastify'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import { actionsTabLogicType } from 'types/toolbar/actions/actionsTabLogicType'
+import { actionsTabLogicType } from './actionsTabLogicType'
 import { ActionType } from '~/types'
 import { ActionForm, AntdFieldData } from '~/toolbar/types'
 import { FormInstance } from 'antd/es/form'
