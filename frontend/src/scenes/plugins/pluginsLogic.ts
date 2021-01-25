@@ -7,7 +7,6 @@ import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaObject, getPluginConfigFormData, getConfigSchemaArray } from 'scenes/plugins/utils'
 import { PersonalAPIKeyType } from '~/types'
 import posthog from 'posthog-js'
-import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { FormInstance } from 'antd/lib/form'
 
 function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
@@ -42,7 +41,7 @@ export const pluginsLogic = kea<
         resetPluginConfigError: (id: number) => ({ id }),
         editPluginSource: (values: { id: number; name: string; source: string; configSchema: Record<string, any> }) =>
             values,
-        generatePosthogApiDetails: (form: FormInstance<any>) => form,
+        generateApiKeysIfNeeded: (form: FormInstance<any>) => ({ form }),
     },
 
     loaders: ({ values }) => ({
@@ -339,33 +338,35 @@ export const pluginsLogic = kea<
         },
     }),
 
-    listeners: ({ values, actions }) => ({
-        generatePosthogApiDetails: async (form) => {
-            const { createKey } = actions
-            const { editingPlugin, personalApiKey, editingPluginInitialChanges } = values
-            if (editingPlugin) {
-                const pluginConfig = editingPlugin.pluginConfig.config
-                if (getConfigSchemaArray(editingPlugin.config_schema).length > 0) {
-                    const pluginConfigSchemaKeys = (getConfigSchemaArray(
-                        editingPlugin.config_schema
-                    ) as PluginConfigSchema[]).map((schemaObject: PluginConfigSchema) => schemaObject.key)
-                    if (pluginConfigSchemaKeys.includes('posthogApiKey') && !pluginConfig.posthogApiKey) {
-                        if (!personalApiKey.value) {
-                            createKey('Plugins')
-                        } else {
-                            pluginConfig.posthogApiKey = personalApiKey.value
-                        }
-                    }
-                    if (pluginConfigSchemaKeys.includes('posthogHost') && !pluginConfig.posthogHost) {
-                        pluginConfig.posthogHost = window.location.origin
-                    }
-                }
+    listeners: ({ values }) => ({
+        generateApiKeysIfNeeded: async ({ form }, breakpoint) => {
+            const { editingPlugin } = values
+            if (!editingPlugin) {
+                return
+            }
 
-                form.setFieldsValue({
-                    ...(editingPlugin.pluginConfig.config || {}),
-                    __enabled: editingPlugin.pluginConfig.enabled,
-                    ...editingPluginInitialChanges,
-                })
+            const pluginConfig = editingPlugin.pluginConfig.config
+            const configSchema = getConfigSchemaArray(editingPlugin?.config_schema || [])
+
+            const posthogApiKeySchema = configSchema.find(({ key }) => key === 'posthogApiKey')
+            if (posthogApiKeySchema && !pluginConfig.posthogApiKey) {
+                try {
+                    const { value: posthogApiKey }: PersonalAPIKeyType = await api.create('api/personal_api_keys/', {
+                        label: `Plugin: ${editingPlugin.name}`,
+                    })
+                    breakpoint()
+                    form.setFieldsValue({ posthogApiKey })
+                } catch (e) {
+                    console.error(e)
+                }
+            }
+
+            const posthogHostSchema = configSchema.find(({ key }) => key === 'posthogHost')
+            if (
+                posthogHostSchema &&
+                (!pluginConfig.posthogHost || pluginConfig.posthogHost === 'https://app.posthog.com')
+            ) {
+                form.setFieldsValue({ posthogHost: window.location.origin })
             }
         },
     }),

@@ -31,8 +31,10 @@ function EnabledDisabledSwitch({
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { editingPlugin, loading, editingSource, personalApiKey } = useValues(pluginsLogic)
-    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, generatePosthogApiDetails } = useActions(
+    const { editingPlugin, loading, editingSource, editingPluginInitialChanges, personalApiKey } = useValues(
+        pluginsLogic
+    )
+    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, generateApiKeysIfNeeded } = useActions(
         pluginsLogic
     )
     const [form] = Form.useForm()
@@ -41,7 +43,12 @@ export function PluginDrawer(): JSX.Element {
 
     useEffect(() => {
         if (editingPlugin) {
-            generatePosthogApiDetails(form)
+            form.setFieldsValue({
+                ...(editingPlugin.pluginConfig.config || {}),
+                __enabled: editingPlugin.pluginConfig.enabled,
+                ...editingPluginInitialChanges,
+            })
+            generateApiKeysIfNeeded(form)
         } else {
             form.resetFields()
         }
