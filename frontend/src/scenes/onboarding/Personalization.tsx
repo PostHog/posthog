@@ -72,7 +72,7 @@ function StepTwo(): JSX.Element {
                 </div>
                 <RadioSelect
                     options={ROLES}
-                    selectedOption={personalizationData?.role}
+                    selectedOption={personalizationData.role}
                     onOptionChanged={(value) => handleOptionChanged('role', value)}
                 />
             </div>
@@ -83,7 +83,7 @@ function StepTwo(): JSX.Element {
                 </div>
                 <RadioSelect
                     options={TEAM_SIZES}
-                    selectedOption={personalizationData?.team_size}
+                    selectedOption={personalizationData.team_size}
                     onOptionChanged={(value) => handleOptionChanged('team_size', value)}
                 />
             </div>

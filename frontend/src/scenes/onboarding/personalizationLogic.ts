@@ -12,7 +12,7 @@ export const personalizationLogic = kea<personalizationLogicType>({
     reducers: {
         step: [null as number | null, { setStep: (_, { step }) => step }],
         personalizationData: [
-            null as null | Record<string, string>,
+            {} as Record<string, string>,
             {
                 setPersonalizationData: (_, { payload }) => payload,
                 appendPersonalizationData: (state, { payload }) => {
