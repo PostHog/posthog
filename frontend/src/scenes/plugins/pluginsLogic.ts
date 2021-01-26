@@ -351,6 +351,14 @@ export const pluginsLogic = kea<
                     .map((plugin, index) => ({ ...plugin, order: index + 1 }))
             },
         ],
+        enabledPlugins: [
+            (s) => [s.installedPlugins],
+            (installedPlugins) => installedPlugins.filter(({ pluginConfig }) => pluginConfig?.enabled),
+        ],
+        disabledPlugins: [
+            (s) => [s.installedPlugins],
+            (installedPlugins) => installedPlugins.filter(({ pluginConfig }) => !pluginConfig?.enabled),
+        ],
         pluginsNeedingUpdates: [
             (s) => [s.installedPlugins],
             (installedPlugins) =>
