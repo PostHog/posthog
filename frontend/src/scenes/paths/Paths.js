@@ -79,7 +79,7 @@ function NoData() {
 
 const DEFAULT_PATHS_ID = 'default_paths'
 
-export function Paths({ dashboardItemId = null, filters = null }) {
+export function Paths({ dashboardItemId = null, filters = null, color = 'white' }) {
     const canvas = useRef(null)
     const size = useWindowSize()
     const { paths, loadedFilter, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
@@ -89,7 +89,7 @@ export function Paths({ dashboardItemId = null, filters = null }) {
 
     useEffect(() => {
         renderPaths()
-    }, [paths, !pathsLoading, size])
+    }, [paths, !pathsLoading, size, color])
 
     function renderPaths() {
         const elements = document
@@ -106,9 +106,10 @@ export function Paths({ dashboardItemId = null, filters = null }) {
         let svg = d3
             .select(canvas.current)
             .append('svg')
-            .style('background', '#fff')
+            .style('background', 'var(--item-background)')
             .style('width', width)
             .style('height', height)
+
         let sankey = new Sankey.sankey()
             .nodeId((d) => d.name)
             .nodeAlign(Sankey.sankeyLeft)
@@ -147,7 +148,13 @@ export function Paths({ dashboardItemId = null, filters = null }) {
                         }
                     }
                 }
-                return (d3.color(c) || d3.color('#dddddd')).darker(0.5)
+
+                const startNodeColor = d3.color(c)
+                    ? d3.color(c)
+                    : color === 'white'
+                    ? d3.color('#dddddd')
+                    : d3.color('#191919')
+                return startNodeColor.darker(0.5)
             })
             .attr('opacity', 0.5)
             .append('title')
@@ -169,9 +176,8 @@ export function Paths({ dashboardItemId = null, filters = null }) {
             .selectAll('g')
             .data(links)
             .join('g')
-            .attr('stroke', () => 'var(--primary)')
-            .attr('opacity', 0.3)
-            .style('mix-blend-mode', 'multiply')
+            .attr('stroke', () => (color === 'white' ? 'var(--primary)' : 'var(--item-lighter'))
+            .attr('opacity', 0.4)
 
         link.append('path')
             .attr('d', Sankey.sankeyLinkHorizontal())
@@ -232,6 +238,7 @@ export function Paths({ dashboardItemId = null, filters = null }) {
                 }
             })
             .style('cursor', loadedFilter.path_type === AUTOCAPTURE ? 'pointer' : 'auto')
+            .style('fill', color === 'white' ? '#000' : '#d4d4d4')
 
         textSelection
             .append('tspan')
