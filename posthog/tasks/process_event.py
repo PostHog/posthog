@@ -102,13 +102,6 @@ def store_names_and_properties(team: Team, event: str, properties: Dict) -> None
         team.save()
 
 
-def _add_missing_feature_flags(properties: Dict, team: Team, distinct_id: str) -> None:
-    # Only add missing feature flags on web
-    if not properties.get("$lib") == "web" or properties.get("$active_feature_flags"):
-        return
-    properties["$active_feature_flags"] = get_active_feature_flags(team, distinct_id)
-
-
 def _capture(
     ip: str,
     site_url: str,
@@ -150,7 +143,6 @@ def _capture(
         properties["$ip"] = ip
 
     event = sanitize_event_name(event)
-    _add_missing_feature_flags(properties, team, distinct_id)
 
     Event.objects.create(
         event=event,

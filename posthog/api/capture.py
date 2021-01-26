@@ -12,6 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
 from posthog.models import Team, User
+from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
@@ -81,6 +82,14 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
             return str(data["properties"]["distinct_id"])[0:200]
         except KeyError:
             return str(data["distinct_id"])[0:200]
+
+
+def _ensure_web_feature_flags_in_properties(event: Dict[str, Any], team: Team, distinct_id: str):
+    if not event.get("properties"):
+        event["properties"] = {}
+    # Only add missing feature flags on web
+    if event["properties"].get("$lib") == "web" and not event["properties"].get("$active_feature_flags"):
+        event["properties"]["$active_feature_flags"] = get_active_feature_flags(team, distinct_id)
 
 
 @csrf_exempt
@@ -187,6 +196,8 @@ def get_event(request):
                     status=400,
                 ),
             )
+
+        _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
         event_uuid = UUIDT()
 
