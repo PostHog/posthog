@@ -160,7 +160,7 @@ export const insightLogic = kea<insightLogicType>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights': (_, searchParams: Record<string, any>) => {
+        '/insights': (_: any, searchParams: Record<string, any>) => {
             if (searchParams.insight && searchParams.insight !== values.activeView) {
                 actions.updateActiveView(searchParams.insight)
             }
