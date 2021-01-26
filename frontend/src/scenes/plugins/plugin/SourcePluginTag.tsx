@@ -8,9 +8,5 @@ export function SourcePluginTag({
     title?: string
     style?: React.CSSProperties
 }): JSX.Element {
-    return (
-        <Tag color="volcano" style={style}>
-            {title}
-        </Tag>
-    )
+    return <Tag style={style}>{title}</Tag>
 }

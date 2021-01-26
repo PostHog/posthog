@@ -369,6 +369,7 @@ export interface PluginType {
     description?: string
     url?: string
     tag?: string
+    latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     error?: PluginErrorType
@@ -430,4 +431,10 @@ export interface FilterType {
     returningEntity?: Record<string, any>
     startEntity?: Record<string, any>
     path_type?: '$pageview' | '$screen' | '$autocapture' | 'custom_event'
+}
+
+export interface SystemStatus {
+    metric: string
+    value: string
+    key?: string
 }

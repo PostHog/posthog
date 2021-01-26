@@ -4,9 +4,13 @@ from typing import Dict, List
 import posthoganalytics
 from django.contrib.postgres.fields import JSONField
 from django.db import models
+from django.db.models.expressions import ExpressionWrapper
+from django.db.models.fields import BooleanField
+from django.db.models.query import QuerySet
 from django.dispatch import receiver
 from django.utils import timezone
 
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team import Team
 from posthog.queries.base import properties_to_Q
 
@@ -33,44 +37,88 @@ class FeatureFlag(models.Model):
     active: models.BooleanField = models.BooleanField(default=True)
 
     def distinct_id_matches(self, distinct_id: str) -> bool:
-        if len(self.filters.get("properties", [])) > 0:
-            if not self._match_distinct_id(distinct_id):
+        return FeatureFlagMatcher(distinct_id, self).is_match()
+
+    def get_analytics_metadata(self) -> Dict:
+        filter_count = sum(len(group.get("properties", [])) for group in self.groups)
+
+        return {
+            "groups_count": len(self.groups),
+            "has_filters": filter_count > 0,
+            "has_rollout_percentage": any(group.get("rollout_percentage") for group in self.groups),
+            "filter_count": filter_count,
+            "created_at": self.created_at,
+        }
+
+    @property
+    def groups(self):
+        return self.get_filters().get("groups", [])
+
+    def get_filters(self):
+        if "groups" in self.filters:
+            return self.filters
+        else:
+            # :TRICKY: Keep this backwards compatible.
+            #   We don't want to migrate to avoid /decide endpoint downtime until this code has been deployed
+            return {
+                "groups": [
+                    {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}
+                ]
+            }
+
+
+class FeatureFlagMatcher:
+    def __init__(self, distinct_id: str, feature_flag: FeatureFlag):
+        self.distinct_id = distinct_id
+        self.feature_flag = feature_flag
+
+    def is_match(self):
+        return any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.groups))
+
+    def is_group_match(self, group: Dict, group_index: int):
+        rollout_percentage = group.get("rollout_percentage")
+        if len(group.get("properties", [])) > 0:
+            if not self._match_distinct_id(group_index):
                 return False
-            elif not self.rollout_percentage:
+            elif not rollout_percentage:
                 return True
 
-        if self.rollout_percentage:
-            hash = self._hash(self.key, distinct_id)
-            if hash <= (self.rollout_percentage / 100):
+        if rollout_percentage is not None:
+            if self._hash <= (rollout_percentage / 100):
                 return True
+
         return False
 
-    def _match_distinct_id(self, distinct_id: str) -> bool:
-        filter = Filter(data=self.filters)
-        return (
-            Person.objects.filter(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
-            .filter(properties_to_Q(filter.properties, team_id=self.team_id, is_person_query=True))
-            .exists()
+    def _match_distinct_id(self, group_index: int) -> bool:
+        return len(self.query_groups) > 0 and self.query_groups[0][group_index]
+
+    @cached_property
+    def query_groups(self) -> List[List[bool]]:
+        query: QuerySet = Person.objects.filter(
+            team_id=self.feature_flag.team_id, persondistinctid__distinct_id=self.distinct_id
         )
+
+        fields = []
+        for index, group in enumerate(self.feature_flag.groups):
+            key = f"group_{index}"
+
+            subquery = properties_to_Q(
+                Filter(data=group).properties, team_id=self.feature_flag.team_id, is_person_query=True
+            )
+            query = query.annotate(**{key: ExpressionWrapper(subquery, output_field=BooleanField())})
+            fields.append(key)
+
+        return query.values_list(*fields)
 
     # This function takes a distinct_id and a feature flag key and returns a float between 0 and 1.
     # Given the same distinct_id and key, it'll always return the same float. These floats are
     # uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     # we can do _hash(key, distinct_id) < 0.2
-    def _hash(self, key: str, distinct_id: str) -> float:
-        hash_key = "%s.%s" % (key, distinct_id)
+    @cached_property
+    def _hash(self) -> float:
+        hash_key = "%s.%s" % (self.feature_flag.key, self.distinct_id)
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
-
-    def get_analytics_metadata(self) -> Dict:
-        filter_count: int = len(self.filters.get("properties", []),) if self.filters else 0
-
-        return {
-            "rollout_percentage": self.rollout_percentage,
-            "has_filters": True if self.filters and self.filters.get("properties") else False,
-            "filter_count": filter_count,
-            "created_at": self.created_at,
-        }
 
 
 @receiver(models.signals.post_save, sender=FeatureFlag)

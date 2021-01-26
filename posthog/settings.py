@@ -79,6 +79,12 @@ PLUGINS_CONFIGURE_VIA_API = PLUGINS_INSTALL_VIA_API or get_bool_from_env("PLUGIN
 PLUGINS_CELERY_QUEUE = os.environ.get("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.environ.get("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
+# Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
+# Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.
+GITLAB_TOKEN = os.environ.get("GITLAB_TOKEN", None)
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", None)
+NPM_TOKEN = os.environ.get("NPM_TOKEN", None)
+
 # This is set as a cross-domain cookie with a random value.
 # Its existence is used by the toolbar to see that we are logged in.
 TOOLBAR_COOKIE_NAME = "phtoolbar"

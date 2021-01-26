@@ -130,6 +130,7 @@ export const sessionsTableLogic = kea<
                 date_to: values.selectedDateURLparam,
                 pagination: values.pagination,
                 distinct_id: props.personIds ? props.personIds[0] : '',
+                filters: values.filters,
                 properties: values.properties,
             })
             const response = await api.get(`api/event/sessions/?${params}`)
