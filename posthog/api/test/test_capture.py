@@ -217,7 +217,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": data,
+                "data": {**data, "properties": {}},
                 "team_id": self.team.pk,
             },
         )
@@ -247,7 +247,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": data["batch"][0],
+                "data": {**data["batch"][0], "properties": {}},
                 "team_id": self.team.pk,
             },
         )
@@ -276,7 +276,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": data["batch"][0],
+                "data": {**data["batch"][0], "properties": {}},
                 "team_id": self.team.pk,
             },
         )
@@ -306,7 +306,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": data["batch"][0],
+                "data": {**data["batch"][0], "properties": {}},
                 "team_id": self.team.pk,
             },
         )
