@@ -43,7 +43,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: s
     ]
 
     if (!resultsLoading && results) {
-        results[0].values.forEach((_: any, dayIndex: number) => {
+        results[0]?.values.forEach((_: any, dayIndex: number) => {
             columns.push({
                 title: results[dayIndex].label,
                 key: `day::${dayIndex}`,
