@@ -188,7 +188,7 @@ export const retentionTableLogic = kea<
             if (values.people.next) {
                 const peopleResult = await api.get(values.people.next)
                 const newPeople = {
-                    result: [...values.people.result, ...peopleResult['result']],
+                    result: [...(values.people.result || []), ...(peopleResult['result'] || [])],
                     next: peopleResult['next'],
                 }
                 actions.updatePeople(newPeople)
