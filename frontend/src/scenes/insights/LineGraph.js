@@ -223,7 +223,7 @@ export function LineGraph({
                                           (percentage ? '%' : '')
                                       )
                                   },
-                                  footer: () => 'Click to see users related to the datapoint',
+                                  footer: () => (dashboardItemId ? '' : 'Click to see users related to the datapoint'),
                               },
                               itemSort: (a, b) => b.yLabel - a.yLabel,
                           },
