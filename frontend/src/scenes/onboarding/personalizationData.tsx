@@ -1,6 +1,17 @@
 import React from 'react'
 import { RadioOption } from 'lib/components/RadioOption'
-import { CodeOutlined, RocketOutlined, UserOutlined, TeamOutlined } from '@ant-design/icons'
+import {
+    CodeOutlined,
+    RocketOutlined,
+    UserOutlined,
+    TeamOutlined,
+    ClusterOutlined,
+    SmileOutlined,
+    DollarOutlined,
+    ToolOutlined,
+    BlockOutlined,
+    MessageOutlined,
+} from '@ant-design/icons'
 
 export const ROLES: RadioOption[] = [
     {
@@ -13,6 +24,37 @@ export const ROLES: RadioOption[] = [
         label: 'Product Manager',
         icon: <RocketOutlined />,
     },
+    {
+        key: 'management',
+        label: 'Management',
+        icon: <ClusterOutlined />,
+    },
+
+    {
+        key: 'marketing',
+        label: 'Marketing',
+        icon: <MessageOutlined />,
+    },
+    {
+        key: 'sales',
+        label: 'Sales',
+        icon: <DollarOutlined />,
+    },
+    {
+        key: 'cx',
+        label: 'Customer success',
+        icon: <SmileOutlined />,
+    },
+    {
+        key: 'ops',
+        label: 'Operations',
+        icon: <ToolOutlined />,
+    },
+    {
+        key: 'other',
+        label: 'Other',
+        icon: <BlockOutlined />,
+    },
 ]
 
 export const TEAM_SIZES: RadioOption[] = [
@@ -24,6 +66,26 @@ export const TEAM_SIZES: RadioOption[] = [
     {
         key: '1_10',
         label: '1 - 10',
+        icon: <TeamOutlined />,
+    },
+    {
+        key: '11_50',
+        label: '11 - 50',
+        icon: <TeamOutlined />,
+    },
+    {
+        key: '51_100',
+        label: '51 - 100',
+        icon: <TeamOutlined />,
+    },
+    {
+        key: '100_250',
+        label: '100 - 250',
+        icon: <TeamOutlined />,
+    },
+    {
+        key: '250+',
+        label: '250+',
         icon: <TeamOutlined />,
     },
 ]

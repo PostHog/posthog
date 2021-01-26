@@ -2,7 +2,6 @@
 
 $transition_params: 0.3s ease-out;
 $color-transition: color $transition_params;
-$background-transition: background-color $transition_params;
 
 .ph-radio-options {
     display: flex;
@@ -14,7 +13,7 @@ $background-transition: background-color $transition_params;
         display: flex;
         align-items: center;
         flex-direction: column;
-        max-width: 64px;
+        max-width: 70px;
         cursor: pointer;
 
         &:first-of-type {
@@ -24,6 +23,7 @@ $background-transition: background-color $transition_params;
         &:hover,
         &.active {
             color: $primary;
+            font-weight: bold;
             .graphic {
                 background-color: rgba($primary, 0.1);
                 svg {
@@ -40,9 +40,9 @@ $background-transition: background-color $transition_params;
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: $background-transition;
+            transition: background-color $transition_params;
             svg {
-                color: $primary_alt;
+                color: $purple_300;
                 font-size: 32px;
                 transition: $color-transition;
             }
@@ -53,6 +53,7 @@ $background-transition: background-color $transition_params;
             text-align: center;
             line-height: 16px;
             transition: $color-transition;
+            transition: font-weight $transition_params;
         }
     }
 }
