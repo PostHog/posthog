@@ -8,6 +8,7 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+from sentry_sdk import capture_exception
 
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
@@ -198,7 +199,10 @@ def get_event(request):
         if not event.get("properties"):
             event["properties"] = {}
 
-        _ensure_web_feature_flags_in_properties(event, team, distinct_id)
+        try:
+            _ensure_web_feature_flags_in_properties(event, team, distinct_id)
+        except Exception:
+            capture_exception()
 
         event_uuid = UUIDT()
 
