@@ -1,6 +1,6 @@
 import React from 'react'
-import { Button, Col, Empty, Row, Skeleton } from 'antd'
-import { CloudDownloadOutlined, SyncOutlined } from '@ant-design/icons'
+import { Button, Col, Empty, Row, Skeleton, Space } from 'antd'
+import { CloudDownloadOutlined, SyncOutlined, SwapOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Subtitle } from 'lib/components/PageHeader'
@@ -27,7 +27,7 @@ export function InstalledTab(): JSX.Element {
     const upgradeButton =
         user?.plugin_access.install && hasNonSourcePlugins ? (
             <Button
-                type="primary"
+                type="default"
                 icon={pluginsNeedingUpdates.length > 0 ? <SyncOutlined /> : <CloudDownloadOutlined />}
                 onClick={() => checkForUpdates(true)}
                 loading={checkingForUpdates}
@@ -39,6 +39,18 @@ export function InstalledTab(): JSX.Element {
                     : pluginsNeedingUpdates.length > 0
                     ? 'Check again'
                     : 'Check for updates'}
+            </Button>
+        ) : null
+
+    const rearrangeButton =
+        user?.plugin_access.install && enabledPlugins.length > 1 ? (
+            <Button
+                type="default"
+                icon={<SwapOutlined style={{ transform: 'rotate(90deg)' }} />}
+                onClick={() => {}}
+                loading={checkingForUpdates}
+            >
+                Rearrange
             </Button>
         ) : null
 
@@ -60,7 +72,15 @@ export function InstalledTab(): JSX.Element {
 
             {enabledPlugins.length > 0 ? (
                 <>
-                    <Subtitle subtitle={`Enabled plugins (${enabledPlugins.length})`} buttons={<>{upgradeButton}</>} />
+                    <Subtitle
+                        subtitle={`Enabled plugins (${enabledPlugins.length})`}
+                        buttons={
+                            <Space>
+                                {rearrangeButton}
+                                {upgradeButton}
+                            </Space>
+                        }
+                    />
                     <Row gutter={16} style={{ marginTop: 16 }}>
                         {enabledPlugins.map((plugin, index) => (
                             <InstalledPlugin
