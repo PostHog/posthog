@@ -51,7 +51,8 @@ export const retentionTableLogic = kea<
         RetentionTablePayload,
         RetentionTrendPayload,
         RetentionTablePeoplePayload,
-        RetentionTrendPeoplePayload
+        RetentionTrendPeoplePayload,
+        ActionType
     >
 >({
     key: (props) => {
