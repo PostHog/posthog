@@ -9,6 +9,7 @@ import { Link } from 'lib/components/Link'
 import './Personalization.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { router } from 'kea-router'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 export const Personalization = hot(_Personalization)
 
@@ -39,6 +40,7 @@ function StepTwo(): JSX.Element {
     const { appendPersonalizationData } = useActions(personalizationLogic)
     const { reportPersonalizationSkipped, reportPersonalization } = useActions(eventUsageLogic)
     const { push } = useActions(router)
+    const { updateOrganization } = useActions(organizationLogic)
 
     const handleOptionChanged = (attr: 'role' | 'team_size', value: string | null): void => {
         appendPersonalizationData({ [attr]: value })
@@ -46,6 +48,7 @@ function StepTwo(): JSX.Element {
 
     const handleContinue = (): void => {
         reportPersonalization(personalizationData, step, answeredQuestionCount === TOTAL_QUESTION_COUNT)
+        updateOrganization({ completed_personalization: true })
         push('/ingestion') // TODO: Temporary while the new setup page is introduced
     }
 
