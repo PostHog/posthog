@@ -36,7 +36,7 @@ Join [our PostHog Users Slack community](https://join.slack.com/t/posthogusers/s
 - **Product data visualizations**: [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [user cohorts](https://posthog.com/docs/features/cohorts), [user paths](https://posthog.com/docs/features/paths), [retention tables](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards).
 - **Complete control** over your data - host it yourself.
 - **Session recording** to [watch videos](https://posthog.com/docs/features/session-recording) of your user behavior, with fine-grained privacy controls.
-- **Automatically capture** [clicks and pageviews](https://posthog.com/docs/features/actions) to do analyze what your users are doing **retroactively**.
+- **Automatically capture** [clicks and pageviews](https://posthog.com/docs/features/actions) to do analyze what your users are doing without pushing events manually
 - **Feature flags** to understand the impact of new features before rolling them out more widely
 - **Heatmaps** with the [Toolbar](https://posthog.com/docs/features/toolbar).
 - **Plugins** to integrate your product usage data with other systems, like your CRM, or data lakes.
