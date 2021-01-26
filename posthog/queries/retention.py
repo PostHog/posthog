@@ -285,10 +285,7 @@ class Retention(BaseQuery):
         result = []
         for val in vals:
             result.append(
-                {
-                    "person": people_dict[str(val[0])],
-                    "appearances": appearance_to_markers(sorted(val[2]), marker_length),
-                }
+                {"person": people_dict[val[0]], "appearances": appearance_to_markers(sorted(val[2]), marker_length),}
             )
         return result
 
