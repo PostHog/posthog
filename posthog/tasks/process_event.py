@@ -1,7 +1,7 @@
 import datetime
 import json
 from numbers import Number
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 import posthoganalytics
 from celery import shared_task
@@ -11,7 +11,6 @@ from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
 from posthog.models import Element, Event, Person, SessionRecordingEvent, Team
-from posthog.models.feature_flag import FeatureFlag, get_active_feature_flags
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
