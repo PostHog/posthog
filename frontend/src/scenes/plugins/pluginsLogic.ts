@@ -61,6 +61,8 @@ export const pluginsLogic = kea<
         updatePlugin: (id: number) => ({ id }),
         pluginUpdated: (id: number) => ({ id }),
         generateApiKeysIfNeeded: (form: PluginForm) => ({ form }),
+        rearrange: true,
+        cancelRearranging: true,
     },
 
     loaders: ({ actions, values }) => ({
@@ -317,6 +319,13 @@ export const pluginsLogic = kea<
             {
                 checkForUpdates: () => true,
                 checkedForUpdates: () => false,
+            },
+        ],
+        rearranging: [
+            false,
+            {
+                rearrange: () => true,
+                cancelRearranging: () => false,
             },
         ],
     },

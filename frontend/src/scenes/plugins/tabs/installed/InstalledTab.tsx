@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, Col, Empty, Row, Skeleton, Space } from 'antd'
+import { Alert, Button, Col, Empty, Row, Skeleton, Space, Typography } from 'antd'
 import { CloudDownloadOutlined, SyncOutlined, SwapOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -21,8 +21,9 @@ export function InstalledTab(): JSX.Element {
         pluginsNeedingUpdates,
         installedPluginUrls,
         updateStatus,
+        rearranging,
     } = useValues(pluginsLogic)
-    const { checkForUpdates, setPluginTab } = useActions(pluginsLogic)
+    const { checkForUpdates, setPluginTab, rearrange, cancelRearranging } = useActions(pluginsLogic)
 
     const upgradeButton =
         user?.plugin_access.install && hasNonSourcePlugins ? (
@@ -44,12 +45,7 @@ export function InstalledTab(): JSX.Element {
 
     const rearrangeButton =
         user?.plugin_access.install && enabledPlugins.length > 1 ? (
-            <Button
-                type="default"
-                icon={<SwapOutlined style={{ transform: 'rotate(90deg)' }} />}
-                onClick={() => {}}
-                loading={checkingForUpdates}
-            >
+            <Button type="default" icon={<SwapOutlined style={{ transform: 'rotate(90deg)' }} />} onClick={rearrange}>
                 Rearrange
             </Button>
         ) : null
@@ -75,12 +71,39 @@ export function InstalledTab(): JSX.Element {
                     <Subtitle
                         subtitle={`Enabled plugins (${enabledPlugins.length})`}
                         buttons={
-                            <Space>
-                                {rearrangeButton}
-                                {upgradeButton}
-                            </Space>
+                            !rearranging ? (
+                                <Space key="not-rearranging">
+                                    {rearrangeButton}
+                                    {upgradeButton}
+                                </Space>
+                            ) : (
+                                <></>
+                            )
                         }
                     />
+                    {rearranging ? (
+                        <Alert
+                            message="Rearranging Plugin Ingestion Order"
+                            description={
+                                <>
+                                    <Typography.Paragraph>
+                                        Drag the boxes below to set the new ingestion order
+                                    </Typography.Paragraph>
+                                    <Space>
+                                        <Button type="primary">Save Order</Button>
+                                        <Button type="default" onClick={cancelRearranging}>
+                                            Cancel
+                                        </Button>
+                                    </Space>
+                                </>
+                            }
+                            onClose={cancelRearranging}
+                            type="info"
+                            showIcon
+                            closable
+                        />
+                    ) : null}
+
                     <Row gutter={16} style={{ marginTop: 16 }}>
                         {enabledPlugins.map((plugin, index) => (
                             <InstalledPlugin
