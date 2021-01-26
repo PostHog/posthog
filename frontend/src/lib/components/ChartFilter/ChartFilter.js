@@ -36,17 +36,6 @@ export function ChartFilter(props) {
         ? FUNNEL_VIZ
         : ACTIONS_LINE_GRAPH_LINEAR
 
-    if (!filters.insight) {
-        return null
-    }
-    console.log(
-        filters.display,
-        filters.insight,
-        defaultDisplay,
-        chartFilter,
-        filters.display || defaultDisplay,
-        chartFilter || defaultDisplay
-    )
     return (
         <Select
             key="2"

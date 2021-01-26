@@ -73,6 +73,8 @@ const showIntervalFilter = function (filter) {
         case ViewType.RETENTION:
         case ViewType.PATHS:
             return false
+        default:
+            return true // sometimes insights aren't set for trends
     }
 }
 
@@ -89,6 +91,8 @@ const showChartFilter = function (filter) {
         case ViewType.LIFECYCLE:
         case ViewType.PATHS:
             return false
+        default:
+            return true // sometimes insights aren't set for trends
     }
 }
 
