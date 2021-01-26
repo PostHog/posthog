@@ -45,6 +45,7 @@ class Organization(UUIDModel):
     name: models.CharField = models.CharField(max_length=64)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    completed_personalization: models.BooleanField = models.BooleanField(default=False)
 
     objects = OrganizationManager()
 

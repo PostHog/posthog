@@ -52,7 +52,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Organization
-        fields = ["id", "name", "created_at", "updated_at", "membership_level"]
+        fields = ["id", "name", "completed_personalization", "created_at", "updated_at", "membership_level"]
         read_only_fields = [
             "id",
             "created_at",
@@ -66,7 +66,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
         membership = OrganizationMembership.objects.filter(
-            organization=organization, user=self.context["request"].user
+            organization=organization, user=self.context["request"].user,
         ).first()
         return membership.level if membership is not None else None
 

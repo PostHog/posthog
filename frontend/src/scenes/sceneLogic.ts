@@ -81,6 +81,7 @@ interface SceneConfig {
     unauthenticated?: boolean // If route is to be accessed when logged out (N.B. add to posthog/urls.py too)
     dark?: boolean // Background is $bg_mid
     plain?: boolean // Only keeps the main content and the top navigation bar
+    hide_top_nav?: boolean // Hides the top navigation bar (regardless of whether `plain` is `true` or not)
 }
 
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
@@ -104,7 +105,8 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         unauthenticated: true,
     },
     [Scene.Personalization]: {
-        unauthenticated: true,
+        plain: true,
+        hide_top_nav: true,
     },
     [Scene.Ingestion]: {
         plain: true,

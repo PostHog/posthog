@@ -8,6 +8,7 @@ import { ROLES, TEAM_SIZES } from './personalizationData'
 import { Link } from 'lib/components/Link'
 import './Personalization.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { router } from 'kea-router'
 
 export const Personalization = hot(_Personalization)
 
@@ -15,8 +16,21 @@ function _Personalization(): JSX.Element {
     const { step } = useValues(personalizationLogic)
     return (
         <Row className="personalization-screen">
+            <Col xs={24}>{step === null && <StepOne />}</Col>
             <Col xs={24}>{step === 2 && <StepTwo />}</Col>
         </Row>
+    )
+}
+
+function StepOne(): JSX.Element {
+    const { push } = useActions(router)
+    return (
+        <div>
+            <h2 className="subtitle">Nothing to see here yet! Tap Continue</h2>
+            <Button type="primary" onClick={() => push('/personalization?step=2')}>
+                Continue
+            </Button>
+        </div>
     )
 }
 

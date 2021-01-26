@@ -59,6 +59,7 @@ export interface PersonalAPIKeyType {
 export interface OrganizationType {
     id: string
     name: string
+    completed_personalization: boolean
     created_at: string
     updated_at: boolean
     available_features: string[]
