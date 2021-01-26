@@ -61,24 +61,35 @@ const displayMap = {
     [`${FUNNEL_VIZ}`]: FUNNEL_LABEL,
 }
 
-const showIntervalFilter = {
-    [`${ViewType.TRENDS}`]: true,
-    [`${ViewType.STICKINESS}`]: true,
-    [`${ViewType.LIFECYCLE}`]: true,
-    [`${ViewType.SESSIONS}`]: true,
-    [`${ViewType.FUNNELS}`]: true,
-    [`${ViewType.RETENTION}`]: false,
-    [`${ViewType.PATHS}`]: false,
+const showIntervalFilter = function (filter) {
+    switch (filter.insight) {
+        case ViewType.TRENDS:
+        case ViewType.STICKINESS:
+        case ViewType.LIFECYCLE:
+        case ViewType.SESSIONS:
+            return true
+        case ViewType.FUNNELS:
+            return filter.display === ACTIONS_LINE_GRAPH_LINEAR
+        case ViewType.RETENTION:
+        case ViewType.PATHS:
+            return false
+    }
 }
 
-const showChartFilter = {
-    [`${ViewType.TRENDS}`]: true,
-    [`${ViewType.STICKINESS}`]: true,
-    [`${ViewType.LIFECYCLE}`]: false,
-    [`${ViewType.SESSIONS}`]: true,
-    [`${ViewType.FUNNELS}`]: true,
-    [`${ViewType.RETENTION}`]: true,
-    [`${ViewType.PATHS}`]: false,
+const showChartFilter = function (filter) {
+    const { featureFlags } = useValues(featureFlagLogic)
+    switch (filter.insight) {
+        case ViewType.TRENDS:
+        case ViewType.STICKINESS:
+        case ViewType.SESSIONS:
+        case ViewType.RETENTION:
+            return true
+        case ViewType.FUNNELS:
+            return featureFlags['funnel-trends-1269']
+        case ViewType.LIFECYCLE:
+        case ViewType.PATHS:
+            return false
+    }
 }
 
 const showDateFilter = {
@@ -224,10 +235,10 @@ function _Insights() {
                                 <Card
                                     title={
                                         <div className="float-right">
-                                            {showIntervalFilter[activeView] && (
+                                            {showIntervalFilter(allFilters) && (
                                                 <IntervalFilter filters={allFilters} view={activeView} />
                                             )}
-                                            {showChartFilter[activeView] && (
+                                            {showChartFilter(allFilters) && (
                                                 <ChartFilter
                                                     onChange={(display) => {
                                                         if (

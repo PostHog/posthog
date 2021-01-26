@@ -383,6 +383,22 @@ def funnel_trends_test_factory(Funnel, event_factory, person_factory):
                 ),
             ).run()
 
+        def test_one_step(self):
+            self._create_events()
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                result = Funnel(
+                    team=self.team,
+                    filter=Filter(
+                        data={
+                            "insight": INSIGHT_FUNNELS,
+                            "display": TRENDS_LINEAR,
+                            "interval": "day",
+                            "events": [{"id": "sign up", "order": 0}],
+                        }
+                    ),
+                ).run()
+            self.assertEqual(result[0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
+
         def test_all_time_timerange(self):
             with freeze_time("2021-01-02T04:00:00.000Z"):
                 response = self._run("all", interval="month")

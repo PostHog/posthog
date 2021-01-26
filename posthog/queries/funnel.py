@@ -192,6 +192,11 @@ class Funnel(BaseQuery):
         )
         return trends_query
 
+    def _get_last_step_attr(self, step: object) -> int:
+        if len(self._filter.entities) == 1:
+            return 0
+        return getattr(step, "step_{}_count".format(len(self._filter.entities) - 1))
+
     def _get_trends(self) -> List[Dict[str, Any]]:
         serialized: Dict[str, Any] = {"count": 0, "data": [], "days": [], "labels": []}
         with connection.cursor() as cursor:
@@ -204,7 +209,8 @@ class Funnel(BaseQuery):
         )
 
         data_array = [
-            {"date": step.date, "count": round(step.step_1_count / step.step_0_count * 100)} for step in steps_at_dates
+            {"date": step.date, "count": round(self._get_last_step_attr(step) / step.step_0_count * 100)}
+            for step in steps_at_dates
         ]
 
         if self._filter.interval == "week":

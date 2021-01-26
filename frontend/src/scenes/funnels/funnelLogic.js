@@ -65,9 +65,9 @@ export const funnelLogic = kea({
         },
     }),
 
-    reducers: () => ({
+    reducers: ({ props }) => ({
         filters: [
-            {},
+            props.filters || {},
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
                 clearFunnel: (state) => ({ new_entity: state.new_entity }),
