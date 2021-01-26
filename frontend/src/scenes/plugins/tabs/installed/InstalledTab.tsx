@@ -1,5 +1,5 @@
 import React from 'react'
-import { Alert, Button, Col, Empty, Row, Skeleton, Space, Typography } from 'antd'
+import { Alert, Button, Col, Empty, Row, Skeleton, Space } from 'antd'
 import { CloudDownloadOutlined, SyncOutlined, SwapOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -7,7 +7,21 @@ import { Subtitle } from 'lib/components/PageHeader'
 import { userLogic } from 'scenes/userLogic'
 import { PluginLoading } from 'scenes/plugins/plugin/PluginLoading'
 import { InstalledPlugin } from 'scenes/plugins/tabs/installed/InstalledPlugin'
-import { PluginTab } from 'scenes/plugins/types'
+import { PluginTab, PluginTypeWithConfig } from 'scenes/plugins/types'
+import { SortableContainer, SortableElement } from 'react-sortable-hoc'
+
+const SortablePlugin = SortableElement(
+    ({ plugin, order, maxOrder }: { plugin: PluginTypeWithConfig; order: number; maxOrder: number }) => (
+        <InstalledPlugin plugin={plugin} order={order} maxOrder={maxOrder} className="rearranging" />
+    )
+)
+const SortablePlugins = SortableContainer(({ children }: { children: React.ReactNode }) => {
+    return (
+        <Row gutter={16} style={{ marginTop: 16 }}>
+            {children}
+        </Row>
+    )
+})
 
 export function InstalledTab(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -83,12 +97,9 @@ export function InstalledTab(): JSX.Element {
                     />
                     {rearranging ? (
                         <Alert
-                            message="Rearranging Plugin Ingestion Order"
+                            message="Drag the boxes to set the ingestion order"
                             description={
                                 <>
-                                    <Typography.Paragraph>
-                                        Drag the boxes below to set the new ingestion order
-                                    </Typography.Paragraph>
                                     <Space>
                                         <Button type="primary">Save Order</Button>
                                         <Button type="default" onClick={cancelRearranging}>
@@ -103,17 +114,30 @@ export function InstalledTab(): JSX.Element {
                             closable
                         />
                     ) : null}
-
-                    <Row gutter={16} style={{ marginTop: 16 }}>
-                        {enabledPlugins.map((plugin, index) => (
-                            <InstalledPlugin
-                                key={plugin.id}
-                                plugin={plugin}
-                                order={index + 1}
-                                maxOrder={enabledPlugins.length}
-                            />
-                        ))}
-                    </Row>
+                    {rearranging ? (
+                        <SortablePlugins>
+                            {enabledPlugins.map((plugin, index) => (
+                                <SortablePlugin
+                                    key={plugin.id}
+                                    plugin={plugin}
+                                    index={index}
+                                    order={index + 1}
+                                    maxOrder={enabledPlugins.length}
+                                />
+                            ))}
+                        </SortablePlugins>
+                    ) : (
+                        <Row gutter={16} style={{ marginTop: 16 }}>
+                            {enabledPlugins.map((plugin, index) => (
+                                <InstalledPlugin
+                                    key={plugin.id}
+                                    plugin={plugin}
+                                    order={index + 1}
+                                    maxOrder={enabledPlugins.length}
+                                />
+                            ))}
+                        </Row>
+                    )}
                 </>
             ) : null}
 

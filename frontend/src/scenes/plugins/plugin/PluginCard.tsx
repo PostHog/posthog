@@ -27,6 +27,7 @@ interface PluginCardProps {
     showUpdateButton?: boolean
     order?: number
     maxOrder?: number
+    className?: string
 }
 
 export function PluginCard({
@@ -36,6 +37,7 @@ export function PluginCard({
     showUpdateButton,
     order,
     maxOrder,
+    className,
 }: PluginCardProps): JSX.Element {
     const {
         name,
@@ -49,7 +51,9 @@ export function PluginCard({
         updateStatus,
     } = plugin
 
-    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin } = useActions(pluginsLogic)
+    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin, rearrange } = useActions(
+        pluginsLogic
+    )
     const { loading, installingPluginUrl, checkingForUpdates, updatingPlugin } = useValues(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
@@ -58,9 +62,10 @@ export function PluginCard({
     return (
         <Col
             style={{ width: '100%', marginBottom: 20 }}
+            className={`plugins-scene-plugin-card-col${className ? ` ${className}` : ''}`}
             data-attr={`plugin-card-${pluginConfig ? 'installed' : 'available'}`}
         >
-            <Card className="plugin-card">
+            <Card className="plugins-scene-plugin-card">
                 <Row align="middle" className="plugin-card-row">
                     {typeof order === 'number' && typeof maxOrder === 'number' ? (
                         <Col className="order-handle">
@@ -69,7 +74,9 @@ export function PluginCard({
                             </div>
                             <div>
                                 <Tooltip placement="left" title="Click to rearrange ingestion order">
-                                    <Tag color="#555">{order}</Tag>
+                                    <Tag color="#555" onClick={rearrange}>
+                                        {order}
+                                    </Tag>
                                 </Tooltip>
                             </div>
                             <div className={`arrow${order === maxOrder ? ' hide' : ''}`}>

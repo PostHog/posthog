@@ -7,11 +7,13 @@ export function InstalledPlugin({
     showUpdateButton,
     order,
     maxOrder,
+    className,
 }: {
     plugin: PluginTypeWithConfig
     showUpdateButton?: boolean
     order?: number
     maxOrder?: number
+    className?: string
 }): JSX.Element {
     return (
         <PluginCard
@@ -20,6 +22,7 @@ export function InstalledPlugin({
             showUpdateButton={showUpdateButton}
             order={order}
             maxOrder={maxOrder}
+            className={className}
         />
     )
 }
