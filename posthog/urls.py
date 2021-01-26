@@ -38,7 +38,7 @@ from .utils import render_template
 from .views import health, preflight_check, stats, system_status
 
 
-def home(request, **kwargs):
+def home(request, *args, **kwargs):
     return render_template("index.html", request)
 
 
@@ -367,9 +367,9 @@ if settings.DEBUG:
     urlpatterns.append(path("debug/", debug))
 
 # Routes added individually to remove login requirement
-frontend_unauthenticated_routes = ["preflight", "signup"]
+frontend_unauthenticated_routes = [r"^preflight$", r"^signup$", r"^personalization(\/[0-9])?$"]
 for route in frontend_unauthenticated_routes:
-    urlpatterns.append(path(route, home))
+    urlpatterns.append(re_path(route, home))
 
 urlpatterns += [
     re_path(r"^.*", decorators.login_required(home)),

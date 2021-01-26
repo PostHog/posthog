@@ -28,11 +28,13 @@ export enum Scene {
     InstanceLicenses = 'instanceLicenses',
     MySettings = 'mySettings',
     Annotations = 'annotations',
-    PreflightCheck = 'preflightCheck',
-    Signup = 'signup',
-    Ingestion = 'ingestion',
     Billing = 'billing',
     Plugins = 'plugins',
+    // Onboarding / setup routes
+    PreflightCheck = 'preflightCheck',
+    Signup = 'signup',
+    Personalization = 'personalization',
+    Ingestion = 'ingestion',
 }
 
 interface LoadedScene {
@@ -72,6 +74,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Ingestion]: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
     [Scene.Billing]: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
     [Scene.Plugins]: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
+    [Scene.Personalization]: () => import(/* webpackChunkName: 'personalization' */ './onboarding/Personalization'),
 }
 
 interface SceneConfig {
@@ -81,25 +84,29 @@ interface SceneConfig {
 }
 
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
-    [Scene.PreflightCheck]: {
-        unauthenticated: true,
-    },
-    [Scene.Signup]: {
-        unauthenticated: true,
-    },
     [Scene.Dashboard]: {
         dark: true,
     },
     [Scene.Insights]: {
         dark: true,
     },
-    [Scene.Ingestion]: {
-        plain: true,
-    },
     [Scene.OrganizationCreateFirst]: {
         plain: true,
     },
     [Scene.ProjectCreateFirst]: {
+        plain: true,
+    },
+    // Onboarding / setup routes
+    [Scene.PreflightCheck]: {
+        unauthenticated: true,
+    },
+    [Scene.Signup]: {
+        unauthenticated: true,
+    },
+    [Scene.Personalization]: {
+        unauthenticated: true,
+    },
+    [Scene.Ingestion]: {
         plain: true,
     },
 }
@@ -136,8 +143,10 @@ export const routes: Record<string, Scene> = {
     '/instance/licenses': Scene.InstanceLicenses,
     '/instance/status': Scene.SystemStatus,
     '/me/settings': Scene.MySettings,
+    // Onboarding / setup routes
     '/preflight': Scene.PreflightCheck,
     '/signup': Scene.Signup,
+    '/personalization': Scene.Personalization,
     '/ingestion': Scene.Ingestion,
     '/ingestion/*': Scene.Ingestion,
 }
