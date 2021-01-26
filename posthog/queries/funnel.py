@@ -202,6 +202,7 @@ class Funnel(BaseQuery):
         date_range = get_daterange(
             self._filter.date_from or steps_at_dates[0].date, self._filter.date_to, frequency=self._filter.interval
         )
+
         data_array = [
             {"date": step.date, "count": round(step.step_1_count / step.step_0_count * 100)} for step in steps_at_dates
         ]

@@ -351,10 +351,6 @@ def funnel_trends_test_factory(Funnel, event_factory, person_factory):
                 dropped_2 = person_factory(distinct_ids=["dropped_2"], team=self.team)
                 completed_1 = person_factory(distinct_ids=["completed_1"], team=self.team)
                 across_days = person_factory(distinct_ids=["across_days"], team=self.team)
-                print("dropped_1", dropped_1)
-                print("dropped_2", dropped_2)
-                print("completed_1", completed_1)
-                print("across_days", across_days)
                 event_factory(event="sign up", distinct_id="dropped_1", team=self.team)
                 event_factory(event="sign up", distinct_id="dropped_2", team=self.team)
                 event_factory(event="sign up", distinct_id="completed_1", team=self.team)
@@ -405,7 +401,7 @@ def funnel_trends_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 0, 25, 50])
 
         def test_hour_interval(self):
-            with freeze_time("2021-01-02T04:00:00.000Z"):
+            with freeze_time("2021-01-02T04:20:01.000Z"):
                 response = self._run(interval="hour")
             self.assertEqual(response[0]["data"][147], 25)
             self.assertEqual(response[0]["labels"][147], "Fri. 1 January, 03:00")
@@ -456,7 +452,7 @@ def funnel_trends_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(response[0]["labels"][90], "Sat. 2 January")
 
         def test_minute_interval(self):
-            with freeze_time("2021-01-02T04:00:00.000Z"):
+            with freeze_time("2021-01-02T04:00:01.000Z"):
                 response = self._run("-1h", interval="minute")
             self.assertEqual(response[0]["data"][21], 50)
             self.assertEqual(response[0]["labels"][21], "Sat. 2 January, 03:21")

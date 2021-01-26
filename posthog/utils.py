@@ -512,6 +512,9 @@ def get_daterange(
         return []
 
     time_range = []
+    if frequency != "minute" and frequency != "hour":
+        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
     if frequency == "week":
         start_date += datetime.timedelta(days=6 - start_date.weekday())
     if frequency != "month":
