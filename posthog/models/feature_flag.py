@@ -91,7 +91,8 @@ class FeatureFlagMatcher:
         return False
 
     def _match_distinct_id(self, group_index: int) -> bool:
-        return len(self.query_groups) > 0 and self.query_groups[0][group_index]
+        query_groups = self.query_groups
+        return query_groups.count() > 0 and query_groups[0][group_index]
 
     @cached_property
     def query_groups(self) -> List[List[bool]]:
