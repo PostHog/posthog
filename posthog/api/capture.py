@@ -85,10 +85,9 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
 
 
 def _ensure_web_feature_flags_in_properties(event: Dict[str, Any], team: Team, distinct_id: str):
-    if not event.get("properties"):
-        event["properties"] = {}
-    # Only add missing feature flags on web
     if event["properties"].get("$lib") == "web" and not event["properties"].get("$active_feature_flags"):
+        if not event.get("properties"):
+            event["properties"] = {}
         event["properties"]["$active_feature_flags"] = get_active_feature_flags(team, distinct_id)
 
 
