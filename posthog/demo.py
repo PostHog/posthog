@@ -212,7 +212,7 @@ def demo(request: Request):
     try:
         team = organization.teams.get(is_demo=True)
     except Team.DoesNotExist:
-        team = create_demo_team(user, organization, request)
+        team = create_demo_team(organization, user, request)
     user.current_team = team
     user.save()
     if "$pageview" not in team.event_names:
@@ -220,7 +220,7 @@ def demo(request: Request):
         team.event_names_with_usage.append({"event": "$pageview", "usage_count": None, "volume": None})
         team.save()
 
-    if is_ee_enabled():
+    if is_ee_enabled():  # :TRICKY: Lazily backfill missing event data.
         from ee.clickhouse.demo import create_anonymous_users_ch
         from ee.clickhouse.models.event import get_events_by_team
 
@@ -231,7 +231,7 @@ def demo(request: Request):
     return render_template("demo.html", request=request, context={"api_token": team.api_token})
 
 
-def create_demo_team(user: User, organization: Organization, request: Request) -> Team:
+def create_demo_team(organization: Organization, user: User, request: Request) -> Team:
     team = Team.objects.create_with_data(
         organization=organization, name=TEAM_NAME, ingested_event=True, completed_snippet_onboarding=True, is_demo=True,
     )
@@ -241,4 +241,10 @@ def create_demo_team(user: User, organization: Organization, request: Request) -
         team=team, rollout_percentage=100, name="Sign Up CTA", key="sign-up-cta", created_by=user,
     )
     _recalculate(team=team)
+
+    if is_ee_enabled():
+        from ee.clickhouse.demo import create_anonymous_users_ch
+
+        create_anonymous_users_ch(team=team, base_url=request.build_absolute_uri("/demo"))
+
     return team
