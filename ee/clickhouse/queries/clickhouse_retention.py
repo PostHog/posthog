@@ -19,7 +19,6 @@ from ee.clickhouse.sql.retention.retention import (
     RETENTION_PEOPLE_SQL,
     RETENTION_SQL,
 )
-from posthog.api.person import PersonSerializer
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models.action import Action
 from posthog.models.entity import Entity
@@ -181,6 +180,8 @@ class ClickhouseRetention(Retention):
         )
         people = Person.objects.filter(team_id=team.pk, uuid__in=[val[0] for val in result])
 
+        from posthog.api.person import PersonSerializer
+
         return PersonSerializer(people, many=True).data
 
     def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
@@ -239,8 +240,10 @@ class ClickhouseRetention(Retention):
         )
         people_dict = {}
 
+        from posthog.api.person import PersonSerializer
+
         for person in Person.objects.filter(team_id=team.pk, uuid__in=[val[0] for val in query_result]):
-            people_dict.update({person.uuid: PersonSerializer(person).data})
+            people_dict.update({str(person.uuid): PersonSerializer(person).data})
 
         result = self.process_people_in_period(filter, query_result, people_dict)
         return result
