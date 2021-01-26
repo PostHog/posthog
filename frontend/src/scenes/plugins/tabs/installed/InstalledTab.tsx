@@ -97,7 +97,7 @@ export function InstalledTab(): JSX.Element {
                     />
                     {rearranging ? (
                         <Alert
-                            message="Drag the boxes to set the ingestion order"
+                            message="Drag the plugins to set the ingestion order"
                             description={
                                 <>
                                     <Space>
