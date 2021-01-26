@@ -7,6 +7,7 @@ import { router } from 'kea-router'
 import { LineGraphEmptyState } from '../insights/EmptyStates'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
+import { RetentionTrendPayload, RetentionTrendPeoplePayload } from '~/types'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null
@@ -22,7 +23,10 @@ export function RetentionLineGraph({
     filters: filtersParams = {},
 }: RetentionLineGraphProps): JSX.Element {
     const logic = retentionTableLogic({ dashboardItemId: dashboardItemId, filters: filtersParams })
-    const { filters, results, resultsLoading, people, peopleLoading } = useValues(logic)
+    const { filters, results: _results, resultsLoading, people: _people, peopleLoading, loadingMore } = useValues(logic)
+    const results = _results as RetentionTrendPayload[]
+    const people = _people as RetentionTrendPeoplePayload
+
     const { loadPeople, loadMorePeople } = useActions(logic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const [modalVisible, setModalVisible] = useState(false)
@@ -38,7 +42,6 @@ export function RetentionLineGraph({
     ) : results && !resultsLoading ? (
         <>
             <LineGraph
-                pageKey={'trends-annotations'}
                 data-attr="trend-line-graph"
                 type="line"
                 color={color}
@@ -85,7 +88,7 @@ export function RetentionLineGraph({
                 >
                     {peopleNext && (
                         <Button type="primary" onClick={loadMorePeople}>
-                            {people?.loadingMore ? <Spin /> : 'Load more people'}
+                            {loadingMore ? <Spin /> : 'Load more people'}
                         </Button>
                     )}
                 </div>
