@@ -135,11 +135,12 @@ class ClickhouseFunnel(Funnel):
         data_dict: Dict[datetime, Dict] = {}
         for item in parsed_results:
             if not data_dict.get(item[1]):
-                data_dict[item[1]] = {"date": item[1], "total_people": 0}
-            # the query gives people who made it to that step
-            # so we need to count all the people from each step
-            data_dict[item[1]]["total_people"] += item[2]
-            data_dict[item[1]]["count"] = round(item[2] / data_dict[item[1]]["total_people"] * 100)
+                data_dict[item[1]] = {"date": item[1], "total_people": item[2], "count": 0}
+            else:
+                # the query gives people who made it to that step
+                # so we need to count all the people from each step
+                data_dict[item[1]]["total_people"] += item[2]
+                data_dict[item[1]]["count"] = round(item[2] / data_dict[item[1]]["total_people"] * 100)
         data_array = [value for _, value in data_dict.items()]
 
         if self._filter.interval == "week":
