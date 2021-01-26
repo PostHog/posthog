@@ -4,12 +4,12 @@ import './index.scss'
 export interface RadioSelectType {
     key: string
     label: string
-    icon?: any // any, because Ant Design icons are some weird ForwardRefExoticComponent type
+    icon?: React.ReactNode
 }
 
 interface RadioSelectProps {
     options: RadioSelectType[]
-    selectedOption?: null | string
+    selectedOption: null | string
     onOptionChanged: (key: string | null) => void
 }
 

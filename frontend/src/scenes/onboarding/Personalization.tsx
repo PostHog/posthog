@@ -97,12 +97,11 @@ function StepTwo(): JSX.Element {
             </div>
 
             <div className="section-continue">
-                {answeredQuestionCount === 0 && (
+                {answeredQuestionCount === 0 ? (
                     <Link to="/" onClick={() => reportPersonalizationSkipped(step)}>
                         Skip personalization
                     </Link>
-                )}
-                {answeredQuestionCount !== 0 && (
+                ) : (
                     <Button
                         type={answeredQuestionCount === TOTAL_QUESTION_COUNT ? 'primary' : 'default'}
                         onClick={handleContinue}
