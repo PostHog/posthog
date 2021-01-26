@@ -3,8 +3,8 @@ import React, { useEffect } from 'react'
 import { hot } from 'react-hot-loader/root'
 import { personalizationLogic } from './personalizationLogic'
 import { Row, Col, Button } from 'antd'
-import { RadioOption } from 'lib/components/RadioOption'
-import { ROLES, TEAM_SIZES } from './personalizationData'
+import { RadioSelect } from 'lib/components/RadioSelect'
+import { ROLES, TEAM_SIZES } from './personalizationOptions'
 import { Link } from 'lib/components/Link'
 import './Personalization.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -78,7 +78,7 @@ function StepTwo(): JSX.Element {
                 <div>
                     1. <b>Your role</b> at company is (or closest to)
                 </div>
-                <RadioOption
+                <RadioSelect
                     options={ROLES}
                     selectedOption={personalizationData?.role}
                     onOptionChanged={(value) => handleOptionChanged('role', value)}
@@ -89,7 +89,7 @@ function StepTwo(): JSX.Element {
                 <div>
                     2. Company's <b>team size</b> is
                 </div>
-                <RadioOption
+                <RadioSelect
                     options={TEAM_SIZES}
                     selectedOption={personalizationData?.team_size}
                     onOptionChanged={(value) => handleOptionChanged('team_size', value)}

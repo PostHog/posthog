@@ -1,5 +1,5 @@
 import React from 'react'
-import { RadioOption } from 'lib/components/RadioOption'
+import { RadioSelectType } from 'lib/components/RadioSelect'
 import {
     CodeOutlined,
     RocketOutlined,
@@ -13,7 +13,7 @@ import {
     MessageOutlined,
 } from '@ant-design/icons'
 
-export const ROLES: RadioOption[] = [
+export const ROLES: RadioSelectType[] = [
     {
         key: 'engineer',
         label: 'Engineer',
@@ -57,7 +57,7 @@ export const ROLES: RadioOption[] = [
     },
 ]
 
-export const TEAM_SIZES: RadioOption[] = [
+export const TEAM_SIZES: RadioSelectType[] = [
     {
         key: 'me',
         label: 'Just me',

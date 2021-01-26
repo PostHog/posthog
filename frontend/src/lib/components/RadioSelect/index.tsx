@@ -1,19 +1,19 @@
 import React from 'react'
 import './index.scss'
 
-export interface RadioOption {
+export interface RadioSelectType {
     key: string
     label: string
     icon?: any // any, because Ant Design icons are some weird ForwardRefExoticComponent type
 }
 
-interface RadioOptionProps {
-    options: RadioOption[]
+interface RadioSelectProps {
+    options: RadioSelectType[]
     selectedOption?: null | string
     onOptionChanged: (key: string | null) => void
 }
 
-export function RadioOption({ options, selectedOption, onOptionChanged }: RadioOptionProps): JSX.Element {
+export function RadioSelect({ options, selectedOption, onOptionChanged }: RadioSelectProps): JSX.Element {
     return (
         <div className="ph-radio-options">
             {options.map((option) => (
