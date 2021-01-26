@@ -68,7 +68,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.MySettings]: () => import(/* webpackChunkName: 'mySettings' */ './me/Settings'),
     [Scene.Annotations]: () => import(/* webpackChunkName: 'annotations' */ './annotations'),
     [Scene.PreflightCheck]: () => import(/* webpackChunkName: 'preflightCheck' */ './PreflightCheck'),
-    [Scene.Signup]: () => import(/* webpackChunkName: 'signup' */ './Signup'),
+    [Scene.Signup]: () => import(/* webpackChunkName: 'signup' */ './onboarding'),
     [Scene.Ingestion]: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
     [Scene.Billing]: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
     [Scene.Plugins]: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
