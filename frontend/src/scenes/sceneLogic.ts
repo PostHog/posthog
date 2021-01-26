@@ -5,7 +5,7 @@ import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
 import posthog from 'posthog-js'
 import { userLogic } from './userLogic'
-import { sceneLogicType } from 'types/scenes/sceneLogicType'
+import { sceneLogicType } from './sceneLogicType'
 
 export enum Scene {
     // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
@@ -151,17 +151,17 @@ export const sceneLogic = kea<sceneLogicType>({
         hideUpgradeModal: true,
         takeToPricing: true,
     },
-    reducers: ({ actions }) => ({
+    reducers: {
         scene: [
             null as Scene | null,
             {
-                [actions.setScene]: (_, payload) => payload.scene,
+                setScene: (_, payload) => payload.scene,
             },
         ],
         params: [
             {} as Params,
             {
-                [actions.setScene]: (_, payload) => payload.params || {},
+                setScene: (_, payload) => payload.params || {},
             },
         ],
         loadedScenes: [
@@ -174,25 +174,25 @@ export const sceneLogic = kea<sceneLogicType>({
                 },
             } as Record<string | number, LoadedScene>,
             {
-                [actions.setLoadedScene]: (state, { scene, loadedScene }) => ({ ...state, [scene]: loadedScene }),
+                setLoadedScene: (state, { scene, loadedScene }) => ({ ...state, [scene]: loadedScene }),
             },
         ],
         loadingScene: [
             null as Scene | null,
             {
-                [actions.loadScene]: (_, { scene }) => scene,
-                [actions.setScene]: () => null,
+                loadScene: (_, { scene }) => scene,
+                setScene: () => null,
             },
         ],
         upgradeModalFeatureName: [
             null as string | null,
             {
-                [actions.showUpgradeModal]: (_, { featureName }) => featureName,
-                [actions.hideUpgradeModal]: () => null,
-                [actions.takeToPricing]: () => null,
+                showUpgradeModal: (_, { featureName }) => featureName,
+                hideUpgradeModal: () => null,
+                takeToPricing: () => null,
             },
         ],
-    }),
+    },
     selectors: {
         sceneConfig: [
             (selectors) => [selectors.scene],

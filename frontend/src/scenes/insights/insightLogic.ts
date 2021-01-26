@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { toParams, fromParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { insightLogicType } from 'types/scenes/insights/insightLogicType'
+import { insightLogicType } from './insightLogicType'
 
 export const ViewType = {
     TRENDS: 'TRENDS',
@@ -65,7 +65,7 @@ export const insightLogic = kea<insightLogicType>({
             },
         ],
         cachedUrls: [
-            {},
+            {} as Record<string, string>,
             {
                 setCachedUrl: (state, { type, url }) => ({ ...state, [type]: url }),
             },

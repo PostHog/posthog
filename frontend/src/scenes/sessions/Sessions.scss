@@ -67,6 +67,10 @@
     &:visited * {
         color: $text_muted;
     }
+
+    &.viewed {
+        color: $text_muted;
+    }
 }
 
 .session-player {

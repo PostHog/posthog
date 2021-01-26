@@ -1,36 +1,65 @@
 #!/bin/bash
 
-# Keys to export from django settings.py
-KEYS="DATABASE_URL REDIS_URL PLUGINS_CELERY_QUEUE CELERY_DEFAULT_QUEUE KAFKA_HOSTS KAFKA_ENABLED BASE_DIR PLUGINS_RELOAD_PUBSUB_CHANNEL"
+while test $# -gt 0; do
+  case "$1" in
+    -h|--help)
+      echo "USAGE:"
+      echo "    bin/plugin-server [FLAGS]"
+      echo " "
+      echo "FLAGS:"
+      echo "    -h, --help           Print this help information."
+      echo "    --no-restart-loop    Run without restart loop. Recommended when deferring resiliency to e.g. docker-compose."
+      exit 0
+      ;;
+    --no-restart-loop)
+      NO_RESTART_LOOP='true'
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
 
-# Export $CONFIG to posthog-plugin-server
-export CONFIG=`python manage.py print_settings --format json --indent 0 $KEYS 2> /dev/null | tr -d '\n' | sed 's/\n$//'`
+if [[ -n $POSTHOG_DB_NAME ]]; then
+  [[ -n $POSTHOG_DB_PASSWORD ]] && PASSWORD_COMPONENT=":$POSTHOG_DB_PASSWORD"
+  export DATABASE_URL="postgres://${POSTHOG_DB_USER:-"postgres"}${PASSWORD_COMPONENT}@${POSTHOG_POSTGRES_HOST:-"localhost"}:${POSTHOG_POSTGRES_PORT:-"5432"}/${POSTHOG_DB_NAME}"
+fi
+
+export BASE_DIR=$(dirname $(dirname "$PWD/${0#./}"))
+# Crudely extract netlocs by removing "kafka://" in a compatibility approach
+export KAFKA_HOSTS=${KAFKA_HOSTS:-$(echo $KAFKA_URL | sed -e "s/kafka\(\+ssl\)\{0,1\}:\/\///g")}
+# Check PRIMARY_DB in a compatibility approach
+export KAFKA_ENABLED=${KAFKA_ENABLED:-$([[ $PRIMARY_DB = "clickhouse" ]] && echo "true" || echo "false")}
 
 # On _Heroku_, the $WEB_CONCURRENCY env contains suggested number of workers per dyno.
 # Unfortunately we are running a NodeJS app, yet get the value for the "python" buildpack.
 # Thus instead of using this env directly, calculate the real concurrency from $DYNO_RAM.
 # Python: https://github.com/heroku/heroku-buildpack-python/blob/main/vendor/WEB_CONCURRENCY.sh
 # NodeJS: https://devcenter.heroku.com/articles/node-concurrency#common-runtime
-if [[ -n "${DYNO_RAM}" ]]; then
+if [[ -n $DYNO_RAM ]]; then
   # One worker for 512MB of RAM, rounding up
   export WORKER_CONCURRENCY=$(( ($DYNO_RAM - 1) / 512 + 1 ))
 fi
 
 cd plugins
 
-yarn --frozen-lockfile --verbose
-
+echo "🧐 Verifying installed packages..."
+yarn --frozen-lockfile
 if [ $? -ne 0 ]; then
-    echo "Yarn failed!"
-    exit 1
+  echo "💥 Verification failed!"
+  exit 1
 fi
 
-while true; do
-  # Run: posthog-plugin-server
+if [[ -n $NO_RESTART_LOOP ]]; then
+  echo "▶️ Starting plugin server..."
   yarn start
-  echo ""
-  echo "🔴 Plugin server crashed!"
-  echo "⌛️ Waiting 2 seconds before restarting!"
-  echo ""
-  sleep 2
-done
+else
+  echo "🔁 Starting plugin server in a resiliency loop..."
+  while true; do
+    yarn start
+    echo "💥 Plugin server crashed!"
+    echo "⌛️ Waiting 2 seconds before restarting..."
+    sleep 2
+  done
+fi

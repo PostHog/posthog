@@ -79,6 +79,12 @@ PLUGINS_CONFIGURE_VIA_API = PLUGINS_INSTALL_VIA_API or get_bool_from_env("PLUGIN
 PLUGINS_CELERY_QUEUE = os.environ.get("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.environ.get("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
+# Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
+# Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.
+GITLAB_TOKEN = os.environ.get("GITLAB_TOKEN", None)
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", None)
+NPM_TOKEN = os.environ.get("NPM_TOKEN", None)
+
 # This is set as a cross-domain cookie with a random value.
 # Its existence is used by the toolbar to see that we are logged in.
 TOOLBAR_COOKIE_NAME = "phtoolbar"
@@ -104,6 +110,7 @@ if not TEST:
             integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration()],
             request_bodies="always",
             send_default_pii=True,
+            environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
         )
 
 if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
@@ -123,7 +130,7 @@ if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
 CLICKHOUSE_TEST_DB = "posthog_test"
 
 CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
-CLICKHOUSE_USERNAME = os.environ.get("CLICKHOUSE_USERNAME", "default")
+CLICKHOUSE_USER = os.environ.get("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", None)
@@ -152,6 +159,8 @@ KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
 PRIMARY_DB = os.environ.get("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
 EE_AVAILABLE = False
+
+PLUGIN_SERVER_INGESTION_HANDOFF = get_bool_from_env("PLUGIN_SERVER_INGESTION_HANDOFF", False)
 
 if PRIMARY_DB == RDBMS.CLICKHOUSE:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
@@ -563,7 +572,7 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler",},},
-    "root": {"handlers": ["console"], "level": "WARNING",},
+    "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING")},
     "loggers": {
         "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
     },

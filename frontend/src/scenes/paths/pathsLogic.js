@@ -52,7 +52,7 @@ export const pathsLogic = kea({
                     if (!refresh && (props.cachedResults || props.preventLoading)) {
                         return { paths: props.cachedResults, filter }
                     }
-                    const params = toParams(filter)
+                    const params = toParams({ ...filter, ...(refresh ? { refresh: true } : {}) })
                     let paths
                     insightLogic.actions.startQuery()
                     try {

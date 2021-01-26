@@ -11,6 +11,7 @@ from ee.clickhouse.sql.sessions.average_all import AVERAGE_SQL
 from ee.clickhouse.sql.sessions.average_per_period import AVERAGE_PER_PERIOD_SQL
 from ee.clickhouse.sql.sessions.no_events import SESSIONS_NO_EVENTS_SQL
 from posthog.models import Filter, Team
+from posthog.queries.sessions.sessions import scale_time_series
 from posthog.utils import append_data, friendly_time
 
 
@@ -44,6 +45,8 @@ class ClickhouseSessionsAvg:
         response = sync_execute(final_query, params)
         values = self.clean_values(filter, response)
         time_series_data = append_data(values, interval=filter.interval, math=None)
+        scaled_data, _ = scale_time_series(time_series_data["data"])
+        time_series_data.update({"data": scaled_data})
         # calculate average
         total = sum(val[1] for val in values)
 
@@ -69,7 +72,7 @@ class ClickhouseSessionsAvg:
         avg_split = avg_formatted.split(" ")
         time_series_data = {}
         time_series_data.update(
-            {"label": "Average Duration of Session ({})".format(avg_split[1]), "count": int(avg_split[0]),}
+            {"label": "Average Session Length ({})".format(avg_split[1]), "count": int(avg_split[0]),}
         )
-        time_series_data.update({"chartLabel": "Average Duration of Session (seconds)"})
+        time_series_data.update({"chartLabel": "Average Session Length ({})".format(avg_split[1])})
         return time_series_data

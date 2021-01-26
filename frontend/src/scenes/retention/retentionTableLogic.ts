@@ -5,7 +5,7 @@ import { toParams, objectsEqual } from 'lib/utils'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { Moment } from 'moment'
-import { retentionTableLogicType } from 'types/scenes/retention/retentionTableLogicType'
+import { retentionTableLogicType } from './retentionTableLogicType'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from 'lib/constants'
 import { actionsModel } from '~/models'
 import { ActionType } from '~/types'
@@ -54,7 +54,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 }
                 insightLogic.actions.startQuery()
                 let res
-                const urlParams = toParams(values.filters)
+                const urlParams = toParams({ ...values.filters, ...(refresh ? { refresh: true } : {}) })
                 try {
                     res = await api.get(`api/insight/retention/?${urlParams}`)
                 } catch (e) {

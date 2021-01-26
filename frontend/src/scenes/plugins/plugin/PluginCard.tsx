@@ -1,40 +1,46 @@
-import { Button, Card, Col, Popconfirm, Row, Skeleton, Switch } from 'antd'
+import { Button, Card, Col, Popconfirm, Row, Switch, Tag } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
-import { pluginsLogic } from './pluginsLogic'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginConfigType, PluginErrorType } from '~/types'
-import { PlusOutlined, SettingOutlined } from '@ant-design/icons'
+import {
+    CheckOutlined,
+    CloudDownloadOutlined,
+    LoadingOutlined,
+    SettingOutlined,
+    WarningOutlined,
+} from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
-import { PluginError } from 'scenes/plugins/PluginError'
-import { LocalPluginTag } from 'scenes/plugins/LocalPluginTag'
-import { PluginInstallationType } from 'scenes/plugins/types'
-import { SourcePluginTag } from 'scenes/plugins/SourcePluginTag'
+import { PluginError } from './PluginError'
+import { LocalPluginTag } from './LocalPluginTag'
+import { PluginInstallationType, PluginTypeWithConfig } from 'scenes/plugins/types'
+import { SourcePluginTag } from './SourcePluginTag'
 import { CommunityPluginTag } from './CommunityPluginTag'
 
 interface PluginCardProps {
-    name: string
-    description?: string
-    url?: string
+    plugin: Partial<PluginTypeWithConfig>
     pluginConfig?: PluginConfigType
-    pluginType?: PluginInstallationType
-    pluginId?: number
     error?: PluginErrorType
     maintainer?: string
+    showUpdateButton?: boolean
 }
 
-export function PluginCard({
-    name,
-    description,
-    url,
-    pluginType,
-    pluginConfig,
-    pluginId,
-    error,
-    maintainer,
-}: PluginCardProps): JSX.Element {
-    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError } = useActions(pluginsLogic)
-    const { loading, installingPluginUrl } = useValues(pluginsLogic)
+export function PluginCard({ plugin, error, maintainer, showUpdateButton }: PluginCardProps): JSX.Element {
+    const {
+        name,
+        description,
+        url,
+        plugin_type: pluginType,
+        pluginConfig,
+        tag,
+        latest_tag: latestTag,
+        id: pluginId,
+        updateStatus,
+    } = plugin
+
+    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin } = useActions(pluginsLogic)
+    const { loading, installingPluginUrl, checkingForUpdates, updatingPlugin } = useValues(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
     const switchDisabled = pluginConfig?.global
@@ -85,7 +91,26 @@ export function PluginCard({
                                 <PluginError error={error} />
                             ) : null}
                             {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
-                            {pluginType === 'source' ? <SourcePluginTag /> : null}
+
+                            {updateStatus?.error ? (
+                                <Tag color="red">
+                                    <WarningOutlined /> Error checking for updates
+                                </Tag>
+                            ) : checkingForUpdates && !updateStatus && pluginType !== PluginInstallationType.Source ? (
+                                <Tag color="blue">
+                                    <LoadingOutlined /> Checking for updates…
+                                </Tag>
+                            ) : latestTag && tag !== latestTag ? (
+                                <Tag color="volcano">
+                                    <CloudDownloadOutlined /> Update available!
+                                </Tag>
+                            ) : latestTag && tag === latestTag ? (
+                                <Tag color="green">
+                                    <CheckOutlined /> Up to date
+                                </Tag>
+                            ) : null}
+
+                            {pluginType === PluginInstallationType.Source ? <SourcePluginTag /> : null}
                         </div>
                         <div>
                             {description}
@@ -106,62 +131,38 @@ export function PluginCard({
                         </div>
                     </Col>
                     <Col>
-                        {canConfigure && (
+                        {showUpdateButton && pluginId ? (
                             <Button
-                                type="primary"
+                                type={updateStatus?.updated ? 'default' : 'primary'}
                                 className="padding-under-500"
-                                onClick={() => editPlugin(pluginId || null)}
+                                onClick={() => (updateStatus?.updated ? editPlugin(pluginId) : updatePlugin(pluginId))}
+                                loading={!!updatingPlugin}
+                                icon={updateStatus?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
                             >
+                                <span className="show-over-500">{updateStatus?.updated ? 'Updated' : 'Update'}</span>
+                            </Button>
+                        ) : canConfigure && pluginId ? (
+                            <Button type="primary" className="padding-under-500" onClick={() => editPlugin(pluginId)}>
                                 <span className="show-over-500">Configure</span>
                                 <span className="hide-over-500">
                                     <SettingOutlined />
                                 </span>
                             </Button>
-                        )}
-                        {!pluginId && (
+                        ) : !pluginId ? (
                             <Button
                                 type="primary"
                                 className="padding-under-500"
                                 loading={loading && installingPluginUrl === url}
                                 disabled={loading && installingPluginUrl !== url}
                                 onClick={url ? () => installPlugin(url, PluginInstallationType.Repository) : undefined}
-                                icon={<PlusOutlined />}
+                                icon={<CloudDownloadOutlined />}
                             >
                                 <span className="show-over-500">Install</span>
                             </Button>
-                        )}
+                        ) : null}
                     </Col>
                 </Row>
             </Card>
         </Col>
-    )
-}
-
-export function PluginLoading(): JSX.Element {
-    return (
-        <>
-            {[1, 2, 3].map((i) => (
-                <Col key={i} style={{ marginBottom: 20, width: '100%' }}>
-                    <Card className="plugin-card">
-                        <Row align="middle" className="plugin-card-row">
-                            <Col className="hide-plugin-image-below-500">
-                                <Skeleton.Avatar active size="large" shape="square" />
-                            </Col>
-                            <Col style={{ flex: 1 }}>
-                                <Skeleton title={false} paragraph={{ rows: 2 }} active />
-                            </Col>
-                            <Col>
-                                <span className="show-over-500">
-                                    <Skeleton.Button style={{ width: 100 }} />
-                                </span>
-                                <span className="hide-over-500">
-                                    <Skeleton.Button style={{ width: 32 }} />
-                                </span>
-                            </Col>
-                        </Row>
-                    </Card>
-                </Col>
-            ))}
-        </>
     )
 }

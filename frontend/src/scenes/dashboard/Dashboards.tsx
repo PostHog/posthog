@@ -10,6 +10,7 @@ import { PushpinFilled, PushpinOutlined, DeleteOutlined, AppstoreAddOutlined } f
 import { hot } from 'react-hot-loader/root'
 import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 import { PageHeader } from 'lib/components/PageHeader'
+import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 
 export const Dashboards = hot(_Dashboards)
 function _Dashboards(): JSX.Element {
@@ -17,6 +18,54 @@ function _Dashboards(): JSX.Element {
     const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard } = useActions(dashboardsModel)
     const { setNewDashboardDrawer } = useActions(dashboardsLogic)
     const { dashboards, newDashboardDrawer } = useValues(dashboardsLogic)
+
+    const columns = [
+        {
+            title: '',
+            width: 24,
+            align: 'center',
+            render: function RenderPin({ id, pinned }) {
+                return (
+                    <span
+                        onClick={() => (pinned ? unpinDashboard(id) : pinDashboard(id))}
+                        style={{ color: 'rgba(0, 0, 0, 0.85)', cursor: 'pointer' }}
+                    >
+                        {pinned ? <PushpinFilled /> : <PushpinOutlined />}
+                    </span>
+                )
+            },
+        },
+        {
+            title: 'Dashboard',
+            dataIndex: 'name',
+            key: 'name',
+            render: function RenderName(name: string, { id }: { id: number }, index: number) {
+                return (
+                    <Link data-attr={'dashboard-name-' + index} to={`/dashboard/${id}`}>
+                        {name || 'Untitled'}
+                    </Link>
+                )
+            },
+        },
+        createdAtColumn(),
+        createdByColumn(dashboards),
+        {
+            title: 'Actions',
+            align: 'center',
+            width: 120,
+            render: function RenderActions({ id }) {
+                return (
+                    <span
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => deleteDashboard({ id, redirect: false })}
+                        className="text-danger"
+                    >
+                        <DeleteOutlined />
+                    </span>
+                )
+            },
+        },
+    ]
 
     return (
         <div>
@@ -51,45 +100,8 @@ function _Dashboards(): JSX.Element {
                         rowKey="id"
                         size="small"
                         pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                    >
-                        <Table.Column
-                            title=""
-                            width={24}
-                            align="center"
-                            render={({ id, pinned }) => (
-                                <span
-                                    onClick={() => (pinned ? unpinDashboard(id) : pinDashboard(id))}
-                                    style={{ color: 'rgba(0, 0, 0, 0.85)', cursor: 'pointer' }}
-                                >
-                                    {pinned ? <PushpinFilled /> : <PushpinOutlined />}
-                                </span>
-                            )}
-                        />
-                        <Table.Column
-                            title="Dashboard"
-                            dataIndex="name"
-                            key="name"
-                            render={(name, { id }, index) => (
-                                <Link data-attr={'dashboard-name-' + index} to={`/dashboard/${id}`}>
-                                    {name || 'Untitled'}
-                                </Link>
-                            )}
-                        />
-                        <Table.Column
-                            title="Actions"
-                            align="center"
-                            width={120}
-                            render={({ id }) => (
-                                <span
-                                    style={{ cursor: 'pointer' }}
-                                    onClick={() => deleteDashboard({ id, redirect: false })}
-                                    className="text-danger"
-                                >
-                                    <DeleteOutlined /> Delete
-                                </span>
-                            )}
-                        />
-                    </Table>
+                        columns={columns}
+                    />
                 ) : (
                     <div>
                         <p>Create your first dashboard:</p>

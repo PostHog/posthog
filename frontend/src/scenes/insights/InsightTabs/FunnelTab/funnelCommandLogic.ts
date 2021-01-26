@@ -10,7 +10,7 @@ import {
     CommandResultDisplayable,
 } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { commandPaletteLogicType } from 'types/lib/components/CommandPalette/commandPaletteLogicType'
+import { commandPaletteLogicType } from './commandPaletteLogicType'
 import { FunnelPlotOutlined } from '@ant-design/icons'
 
 const FUNNEL_COMMAND_SCOPE = 'funnels'

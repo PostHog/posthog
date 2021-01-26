@@ -1,6 +1,6 @@
 import datetime
 import json
-from typing import Dict, Optional
+from typing import Dict, Optional, Sequence
 from uuid import UUID
 
 import statsd
@@ -13,7 +13,6 @@ from sentry_sdk import capture_exception
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.kafka_client.client import KafkaProducer
-from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 from posthog.ee import is_ee_enabled
 from posthog.models.element import Element
 from posthog.models.person import Person
@@ -181,19 +180,21 @@ def log_event(
     now: datetime.datetime,
     sent_at: Optional[datetime.datetime],
     event_uuid: UUIDT,
+    *,
+    topics: Sequence[str],
 ) -> None:
     if settings.DEBUG:
-        print(f'Logging event {data["event"]} to WAL')
-    KafkaProducer().produce(
-        topic=KAFKA_EVENTS_WAL,
-        data={
-            "uuid": str(event_uuid),
-            "distinct_id": distinct_id,
-            "ip": ip,
-            "site_url": site_url,
-            "data": json.dumps(data),
-            "team_id": team_id,
-            "now": now.isoformat(),
-            "sent_at": sent_at.isoformat() if sent_at else "",
-        },
-    )
+        print(f'Logging event {data["event"]} to Kafka topics {" and ".join(topics)}')
+    producer = KafkaProducer()
+    data = {
+        "uuid": str(event_uuid),
+        "distinct_id": distinct_id,
+        "ip": ip,
+        "site_url": site_url,
+        "data": json.dumps(data),
+        "team_id": team_id,
+        "now": now.isoformat(),
+        "sent_at": sent_at.isoformat() if sent_at else "",
+    }
+    for topic in topics:
+        producer.produce(topic=topic, data=data)

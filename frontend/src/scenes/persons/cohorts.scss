@@ -1,4 +1,10 @@
+@import '~/vars';
+
 .cohorts-drawer .ant-drawer-content-wrapper {
     max-width: 750px !important;
     width: 100% !important;
+}
+
+.cohort-type-description {
+    text-align: center;
 }

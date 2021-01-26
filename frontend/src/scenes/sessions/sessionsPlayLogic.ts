@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { eventWithTime } from 'rrweb/typings/types'
 import api from 'lib/api'
 import { eventToName, toParams } from 'lib/utils'
-import { sessionsPlayLogicType } from 'types/scenes/sessions/sessionsPlayLogicType'
+import { sessionsPlayLogicType } from './sessionsPlayLogicType'
 import { PersonType, SessionType } from '~/types'
 import moment from 'moment'
 import { EventIndex } from 'posthog-react-rrweb-player'
@@ -119,7 +119,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
         ],
         sessionPlayerData: {
             loadRecording: async (sessionRecordingId: string): Promise<SessionPlayerData> => {
-                const params = toParams({ session_recording_id: sessionRecordingId })
+                const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
                 const response = await api.get(`api/event/session_recording?${params}`)
                 return response.result
             },
@@ -152,7 +152,9 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
         session: [
             (selectors) => [selectors.sessionRecordingId, selectors.sessions],
             (id: SessionRecordingId, sessions: Array<SessionType>): SessionType | null => {
-                const [session] = sessions.filter((s) => s.session_recording_ids.includes(id))
+                const [session] = sessions.filter(
+                    (s) => s.session_recordings.filter((recording) => id === recording.id).length > 0
+                )
                 return session
             },
         ],

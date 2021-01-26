@@ -1,13 +1,8 @@
 import api from 'lib/api'
 import { kea } from 'kea'
-import { systemStatusLogicType } from 'types/scenes/system_status/systemStatusLogicType'
+import { systemStatusLogicType } from './systemStatusLogicType'
 import { userLogic } from 'scenes/userLogic'
-
-interface SystemStatus {
-    metric: string
-    value: string
-    key?: string
-}
+import { SystemStatus } from '~/types'
 
 export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus>>({
     actions: {
