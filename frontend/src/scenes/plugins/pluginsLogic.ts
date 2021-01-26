@@ -15,6 +15,8 @@ import { PersonalAPIKeyType } from '~/types'
 import posthog from 'posthog-js'
 import { FormInstance } from 'antd/lib/form'
 
+type PluginForm = FormInstance
+
 function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
     posthog.capture(event, {
         plugin_name: plugin.name,
@@ -32,7 +34,8 @@ export const pluginsLogic = kea<
         PluginTypeWithConfig,
         PluginInstallationType,
         PluginUpdateStatusType,
-        PluginTab
+        PluginTab,
+        PluginForm
     >
 >({
     actions: {
@@ -57,7 +60,7 @@ export const pluginsLogic = kea<
         setUpdateError: (id: number) => ({ id }),
         updatePlugin: (id: number) => ({ id }),
         pluginUpdated: (id: number) => ({ id }),
-        generateApiKeysIfNeeded: (form: FormInstance<any>) => ({ form }),
+        generateApiKeysIfNeeded: (form: PluginForm) => ({ form }),
     },
 
     loaders: ({ actions, values }) => ({
