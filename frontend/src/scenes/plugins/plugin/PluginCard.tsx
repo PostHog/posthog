@@ -1,4 +1,4 @@
-import { Button, Card, Col, Popconfirm, Row, Switch, Tag } from 'antd'
+import { Button, Card, Col, Popconfirm, Row, Switch, Tag, Tooltip } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -9,6 +9,7 @@ import {
     LoadingOutlined,
     SettingOutlined,
     WarningOutlined,
+    DownOutlined,
 } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
@@ -24,9 +25,18 @@ interface PluginCardProps {
     error?: PluginErrorType
     maintainer?: string
     showUpdateButton?: boolean
+    order?: number
+    maxOrder?: number
 }
 
-export function PluginCard({ plugin, error, maintainer, showUpdateButton }: PluginCardProps): JSX.Element {
+export function PluginCard({
+    plugin,
+    error,
+    maintainer,
+    showUpdateButton,
+    order,
+    maxOrder,
+}: PluginCardProps): JSX.Element {
     const {
         name,
         description,
@@ -52,6 +62,21 @@ export function PluginCard({ plugin, error, maintainer, showUpdateButton }: Plug
         >
             <Card className="plugin-card">
                 <Row align="middle" className="plugin-card-row">
+                    {typeof order === 'number' && typeof maxOrder === 'number' ? (
+                        <Col className="order-handle">
+                            <div className={`arrow${order !== maxOrder ? ' hide' : ''}`}>
+                                <DownOutlined />
+                            </div>
+                            <div>
+                                <Tooltip placement="left" title="Click to rearrange ingestion order">
+                                    <Tag color="#555">{order}</Tag>
+                                </Tooltip>
+                            </div>
+                            <div className={`arrow${order === maxOrder ? ' hide' : ''}`}>
+                                <DownOutlined />
+                            </div>
+                        </Col>
+                    ) : null}
                     {pluginConfig && (
                         <Col>
                             <Popconfirm

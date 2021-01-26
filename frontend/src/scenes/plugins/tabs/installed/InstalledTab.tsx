@@ -62,8 +62,13 @@ export function InstalledTab(): JSX.Element {
                 <>
                     <Subtitle subtitle={`Enabled plugins (${enabledPlugins.length})`} buttons={<>{upgradeButton}</>} />
                     <Row gutter={16} style={{ marginTop: 16 }}>
-                        {enabledPlugins.map((plugin) => (
-                            <InstalledPlugin key={plugin.id} plugin={plugin} />
+                        {enabledPlugins.map((plugin, index) => (
+                            <InstalledPlugin
+                                key={plugin.id}
+                                plugin={plugin}
+                                order={index + 1}
+                                maxOrder={enabledPlugins.length}
+                            />
                         ))}
                     </Row>
                 </>

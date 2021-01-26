@@ -28,6 +28,23 @@
             border: none;
             padding: 4px;
         }
+        .order-handle {
+            .ant-tag {
+                margin-right: 0;
+                cursor: pointer;
+            }
+            .arrow {
+                &.hide {
+                    visibility: hidden;
+                }
+                color: #888;
+                height: 19px;
+            }
+            text-align: center;
+            height: 100%;
+            margin-top: -10px;
+            margin-bottom: -10px;
+        }
         .hide-over-500 {
             display: none;
         }
