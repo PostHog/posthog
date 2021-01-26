@@ -103,7 +103,6 @@ def user(request):
             else {
                 "id": organization.id,
                 "name": organization.name,
-                "completed_personalization": organization.completed_personalization,
                 "billing_plan": organization.billing_plan,
                 "available_features": organization.available_features,
                 "created_at": organization.created_at,

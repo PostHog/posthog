@@ -43,12 +43,6 @@ class TestOrganizationAPI(APIBaseTest):
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "ASDFG"})
         self.assertEqual(response.status_code, 403)
 
-    def test_update_personalization_completed(self):
-        response = self.client.patch(f"/api/organizations/{self.organization.id}", {"completed_personalization": True})
-        self.assertEqual(response.status_code, 200)
-        self.organization.refresh_from_db()
-        self.assertEqual(self.organization.completed_personalization, True)
-
 
 class TestSignup(APIBaseTest):
     CONFIG_USER_EMAIL = None
@@ -87,7 +81,6 @@ class TestSignup(APIBaseTest):
 
         # Assert that the org was properly created
         self.assertEqual(organization.name, "Hedgehogs United, LLC")
-        self.assertEqual(organization.completed_personalization, False)
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
@@ -143,7 +136,6 @@ class TestSignup(APIBaseTest):
         self.assertEqual(user.email, "hedgehog2@posthog.com")
         self.assertEqual(user.email_opt_in, True)  # Defaults to True
         self.assertEqual(organization.name, "Jane")
-        self.assertEqual(organization.completed_personalization, False)
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(

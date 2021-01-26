@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import React from 'react'
 import { hot } from 'react-hot-loader/root'
 import { personalizationLogic } from './personalizationLogic'
 import { Row, Col, Button } from 'antd'
@@ -9,21 +9,14 @@ import { Link } from 'lib/components/Link'
 import './Personalization.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { router } from 'kea-router'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { userLogic } from 'scenes/userLogic'
 
 export const Personalization = hot(_Personalization)
 
 function _Personalization(): JSX.Element {
     const { step } = useValues(personalizationLogic)
-    const { user } = useValues(userLogic)
-    const { push } = useActions(router)
-    useEffect(() => {
-        if (user?.organization?.completed_personalization) {
-            // Personalization has been completed already
-            push('/')
-        }
-    }, [user])
+
+    // TODO: Redirect if personalization has been completed
+
     return (
         <Row className="personalization-screen">
             <Col xs={24}>{step === null && <StepOne />}</Col>
@@ -49,7 +42,6 @@ function StepTwo(): JSX.Element {
     const { appendPersonalizationData } = useActions(personalizationLogic)
     const { reportPersonalizationSkipped, reportPersonalization } = useActions(eventUsageLogic)
     const { push } = useActions(router)
-    const { updateOrganization } = useActions(organizationLogic)
 
     const handleOptionChanged = (attr: 'role' | 'team_size', value: string | null): void => {
         appendPersonalizationData({ [attr]: value })
@@ -57,7 +49,7 @@ function StepTwo(): JSX.Element {
 
     const handleContinue = (): void => {
         reportPersonalization(personalizationData, step, answeredQuestionCount === TOTAL_QUESTION_COUNT)
-        updateOrganization({ completed_personalization: true })
+        // TODO: Update organization record
         push('/ingestion') // TODO: Temporary while the new setup page is introduced
     }
 
