@@ -37,10 +37,16 @@ function StepOne(): JSX.Element {
 function StepTwo(): JSX.Element {
     const { personalizationData, step } = useValues(personalizationLogic)
     const { appendPersonalizationData } = useActions(personalizationLogic)
-    const { reportPersonalizationSkipped } = useActions(eventUsageLogic)
+    const { reportPersonalizationSkipped, reportPersonalization } = useActions(eventUsageLogic)
+    const { push } = useActions(router)
 
     const handleOptionChanged = (attr: 'role' | 'team_size', value: string | null): void => {
         appendPersonalizationData({ [attr]: value })
+    }
+
+    const handleContinue = (): void => {
+        reportPersonalization(personalizationData, step, answeredQuestionCount === TOTAL_QUESTION_COUNT)
+        push('/ingestion') // TODO: Temporary while the new setup page is introduced
     }
 
     const answeredQuestionCount: number = personalizationData
@@ -85,7 +91,10 @@ function StepTwo(): JSX.Element {
                     </Link>
                 )}
                 {answeredQuestionCount !== 0 && (
-                    <Button type={answeredQuestionCount === TOTAL_QUESTION_COUNT ? 'primary' : 'default'}>
+                    <Button
+                        type={answeredQuestionCount === TOTAL_QUESTION_COUNT ? 'primary' : 'default'}
+                        onClick={handleContinue}
+                    >
                         Continue
                     </Button>
                 )}
