@@ -204,7 +204,9 @@ def get_event(request):
 
         if is_ee_enabled():
             log_topics = [KAFKA_EVENTS_WAL]
-            if settings.PLUGIN_SERVER_INGESTION_HANDOFF:
+            if settings.PLUGIN_SERVER_INGESTION_HANDOFF and team.organization_id in getattr(
+                settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", []
+            ):
                 log_topics.append(KAFKA_EVENTS_INGESTION_HANDOFF)
             else:
                 process_event_ee(
