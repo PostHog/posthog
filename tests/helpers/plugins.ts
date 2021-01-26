@@ -4,8 +4,11 @@ import path from 'path'
 import os from 'os'
 import AdmZip from 'adm-zip'
 
+export const commonOrganizationId = 'ca30f2ec-e9a4-4001-bf27-3ef194086068'
+
 export const plugin60: Plugin = {
     id: 60,
+    organization_id: commonOrganizationId,
     plugin_type: 'custom',
     name: 'test-maxmind-plugin',
     description: 'Ingest GeoIP data via MaxMind',

@@ -75,6 +75,7 @@ export type TeamId = number
 
 export interface Plugin {
     id: PluginId
+    organization_id: string
     name: string
     plugin_type: 'local' | 'respository' | 'custom' | 'source'
     description?: string

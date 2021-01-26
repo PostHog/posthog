@@ -25,8 +25,8 @@ jobs:
             - name: Lint with ESLint
               run: yarn lint
 
-    tests:
-        name: Tests
+    tests-postgres:
+        name: Tests / Postgres + Redis
         runs-on: ubuntu-20.04
 
         services:
@@ -35,46 +35,66 @@ jobs:
                 env:
                     POSTGRES_USER: postgres
                     POSTGRES_PASSWORD: postgres
-                    POSTGRES_DB: postgres
+                    POSTGRES_DB: test_posthog
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
             redis:
                 image: redis
                 ports:
-                    # Maps port 6379 on service container to the host
-                    # Needed because `redis` host is not discoverable for some reason
-                    - 6379:6379
+                    - '6379:6379'
                 options: >-
                     --health-cmd "redis-cli ping"
                     --health-interval 10s
                     --health-timeout 5s
                     --health-retries 5
 
+        env:
+            REDIS_URL: 'redis://localhost'
+
         steps:
-            - uses: actions/checkout@v1
+            - name: Check out Django server for database setup
+              uses: actions/checkout@v2
+              with:
+                  repository: 'PostHog/posthog'
+                  path: 'posthog/'
+
+            - name: Check out plugin server
+              uses: actions/checkout@v2
+              with:
+                  path: 'plugin-server'
+
+            - name: Set up Python
+              uses: actions/setup-python@v2
+              with:
+                  python-version: 3.8
 
             - name: Set up Node 14
-              uses: actions/setup-node@v1
+              uses: actions/setup-node@v2
               with:
                   node-version: 14
 
-            - name: Install package.json dependencies with Yarn
-              run: yarn
+            - name: Install requirements.txt dependencies with pip
+              run: python -m pip install --upgrade pip && python -m pip install -r posthog/requirements.txt
 
-            - name: Initiate database
+            - name: Set up databases
               env:
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
-              run: yarn task:init-test-db
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
+                  TEST: 'true'
+              run: python posthog/manage.py setup_test_environment
+
+            - name: Install package.json dependencies with Yarn
+              run: cd plugin-server && yarn
 
             - name: Test with Jest
               env:
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
-              run: yarn test
+              run: cd plugin-server && yarn test:postgres
 
-    benchmarks:
-        name: Benchmarks
+    benchmarks-postgres:
+        name: Benchmarks / Postgres + Redis
         runs-on: ubuntu-20.04
 
         services:
@@ -83,40 +103,60 @@ jobs:
                 env:
                     POSTGRES_USER: postgres
                     POSTGRES_PASSWORD: postgres
-                    POSTGRES_DB: postgres
+                    POSTGRES_DB: test_posthog
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
             redis:
                 image: redis
                 ports:
-                    # Maps port 6379 on service container to the host
-                    # Needed because `redis` host is not discoverable for some reason
-                    - 6379:6379
+                    - '6379:6379'
                 options: >-
                     --health-cmd "redis-cli ping"
                     --health-interval 10s
                     --health-timeout 5s
                     --health-retries 5
 
+        env:
+            REDIS_URL: 'redis://localhost'
+
         steps:
-            - uses: actions/checkout@v1
+            - name: Check out Django server for database setup
+              uses: actions/checkout@v2
+              with:
+                  repository: 'PostHog/posthog'
+                  path: 'posthog/'
+
+            - name: Check out plugin server
+              uses: actions/checkout@v2
+              with:
+                  path: 'plugin-server'
+
+            - name: Set up Python
+              uses: actions/setup-python@v2
+              with:
+                  python-version: 3.8
 
             - name: Set up Node 14
-              uses: actions/setup-node@v1
+              uses: actions/setup-node@v2
               with:
                   node-version: 14
 
-            - name: Install package.json dependencies with Yarn
-              run: yarn
+            - name: Install requirements.txt dependencies with pip
+              run: python -m pip install --upgrade pip && python -m pip install -r posthog/requirements.txt
 
-            - name: Initiate database
+            - name: Set up databases
               env:
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
-              run: yarn task:init-test-db
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
+                  TEST: 'true'
+              run: python posthog/manage.py setup_test_environment
+
+            - name: Install package.json dependencies with Yarn
+              run: cd plugin-server && yarn
 
             - name: Run benchmarks
               env:
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
-              run: yarn benchmark
+              run: cd plugin-server && yarn benchmark

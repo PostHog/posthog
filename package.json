@@ -6,6 +6,8 @@
     "main": "dist/src/index.js",
     "scripts": {
         "test": "jest --runInBand tests/*.test.ts",
+        "test:postgres": "yarn test --testPathIgnorePatterns '.*/clickhouse'",
+        "test:clickhouse": "yarn test --testPathIgnorePatterns '.*/postgres'",
         "benchmark": "node --expose-gc node_modules/.bin/jest --runInBand benchmarks/",
         "start": "yarn start:dev",
         "start:dist": "node dist/src/index.js --base-dir ../posthog",
@@ -17,8 +19,7 @@
         "lint:fix": "eslint --fix .",
         "prettier": "prettier --write .",
         "prettier:check": "prettier --check .",
-        "prepublishOnly": "yarn build",
-        "task:init-test-db": "NODE_ENV=test ts-node ./tasks/init-test-db.ts"
+        "prepublishOnly": "yarn build"
     },
     "bin": {
         "posthog-plugin-server": "bin/posthog-plugin-server"
