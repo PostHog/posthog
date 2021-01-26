@@ -52,7 +52,7 @@ export const pathsLogic = kea({
                     if (!refresh && (props.cachedResults || props.preventLoading)) {
                         return { paths: props.cachedResults, filter }
                     }
-                    const params = toParams(filter)
+                    const params = toParams({ ...filter, ...(refresh ? { refresh: true } : {}) })
                     const paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
                     breakpoint()
                     return { paths, filter }
