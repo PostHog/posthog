@@ -7,6 +7,7 @@ from django.db import models
 from django.db.models.expressions import ExpressionWrapper
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
+from django.db.models.query_utils import Q
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -95,7 +96,9 @@ class FeatureFlagMatcher:
     @cached_property
     def query_groups(self) -> List[List[bool]]:
         query: QuerySet = Person.objects.filter(
-            team_id=self.feature_flag.team_id, persondistinctid__distinct_id=self.distinct_id
+            team_id=self.feature_flag.team_id,
+            persondistinctid__distinct_id=self.distinct_id,
+            persondistinctid__team_id=self.feature_flag.team_id,
         )
 
         fields = []
