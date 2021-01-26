@@ -454,12 +454,12 @@ export interface RetentionTrendPayload {
 
 export interface RetentionTablePeoplePayload {
     next?: string
-    result: RetentionTableAppearanceType[]
+    result?: RetentionTableAppearanceType[]
 }
 
 export interface RetentionTrendPeoplePayload {
     next?: string
-    result: PersonType[]
+    result?: PersonType[]
 }
 
 export interface RetentionTableAppearanceType {
