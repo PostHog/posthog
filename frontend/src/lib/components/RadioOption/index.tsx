@@ -9,13 +9,19 @@ export interface RadioOption {
 
 interface RadioOptionProps {
     options: RadioOption[]
+    selectedOption?: null | string
+    onOptionChanged: (key: string | number) => void
 }
 
-export function RadioOption({ options }: RadioOptionProps): JSX.Element {
+export function RadioOption({ options, selectedOption, onOptionChanged }: RadioOptionProps): JSX.Element {
     return (
         <div className="ph-radio-options">
             {options.map((option) => (
-                <div className="radio-option" key={option.key}>
+                <div
+                    className={`radio-option${selectedOption === option.key ? ' active' : ''}`}
+                    key={option.key}
+                    onClick={() => onOptionChanged(option.key)}
+                >
                     <div className="graphic">{option.icon}</div>
                     <div className="label">{option.label}</div>
                 </div>
