@@ -11,7 +11,6 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.models import PersonalAPIKey
-from posthog.models.feature_flag import FeatureFlag
 
 from .base import BaseTest
 
@@ -217,7 +216,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data, "properties": {}},
+                "data": data,
                 "team_id": self.team.pk,
             },
         )
@@ -247,7 +246,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data["batch"][0], "properties": {}},
+                "data": data["batch"][0],
                 "team_id": self.team.pk,
             },
         )
@@ -276,7 +275,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data["batch"][0], "properties": {}},
+                "data": data["batch"][0],
                 "team_id": self.team.pk,
             },
         )
@@ -306,7 +305,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data["batch"][0], "properties": {}},
+                "data": data["batch"][0],
                 "team_id": self.team.pk,
             },
         )
@@ -526,17 +525,3 @@ class TestCapture(BaseTest):
         )
         arguments = self._to_arguments(patch_process_event_with_plugins)
         self.assertEqual(arguments["data"]["properties"]["distinct_id"], None)
-
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_add_feature_flags_if_missing(self, patch_process_event_with_plugins) -> None:
-        self.assertListEqual(self.team.event_properties_numerical, [])
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test-ff", rollout_percentage=100)
-        self.client.post(
-            "/track/",
-            data={
-                "data": json.dumps([{"event": "purchase", "properties": {"distinct_id": "xxx", "$lib": "web"}}]),
-                "api_key": self.team.api_token,
-            },
-        )
-        arguments = self._to_arguments(patch_process_event_with_plugins)
-        self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
