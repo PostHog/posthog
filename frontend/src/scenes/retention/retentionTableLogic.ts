@@ -96,11 +96,10 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         clearRetention: true,
     }),
     reducers: ({ props }) => ({
-        initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
         filters: [
             props.filters
-                ? defaultFilters(props.filters)
-                : (state) => defaultFilters(router.selectors.searchParams(state)),
+                ? defaultFilters(props.filters as Record<string, any>)
+                : (state) => defaultFilters(router.selectors.searchParams(state)) as Record<string, any>,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
@@ -123,7 +122,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     }),
     selectors: {
         actionsLookup: [
-            (selectors) => [selectors.actions],
+            (selectors) => [(selectors as any).actions],
             (actions: ActionType[]) => Object.assign({}, ...actions.map((action) => ({ [action.id]: action.name }))),
         ],
     },
@@ -145,7 +144,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         },
     }),
     urlToAction: ({ actions, values, key }) => ({
-        '/insights': (_, searchParams: Record<string, any>) => {
+        '/insights': (_: any, searchParams: Record<string, any>) => {
             if (searchParams.insight === ViewType.RETENTION) {
                 if (key != DEFAULT_RETENTION_LOGIC_KEY) {
                     return
@@ -182,7 +181,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             if (values.people.next) {
                 const peopleResult = await api.get(values.people.next)
                 const newPeople = {
-                    result: [...values.people.result, ...peopleResult['result']],
+                    result: [...(values.people.result as Record<string, any>[]), ...peopleResult['result']],
                     next: peopleResult['next'],
                 }
                 actions.updatePeople(newPeople)

@@ -8,7 +8,11 @@ import './RetentionTable.scss'
 import moment from 'moment'
 import { ColumnsType } from 'antd/lib/table'
 
-export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: string | number | null }): JSX.Element {
+export function RetentionTable({
+    dashboardItemId = null,
+}: {
+    dashboardItemId?: string | number | null
+}): JSX.Element | null {
     const logic = retentionTableLogic({ dashboardItemId })
     const {
         results,

@@ -28,7 +28,7 @@ export const insightLogic = kea<insightLogicType>({
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: true,
-        endQuery: (view, exception) => ({ view, exception }),
+        endQuery: (view: string, exception?: Record<string, any>) => ({ view, exception }),
         setMaybeShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
         setShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
         setShowErrorMessage: (showErrorMessage: boolean) => ({ showErrorMessage }),
@@ -87,7 +87,7 @@ export const insightLogic = kea<insightLogicType>({
         allfilters is passed to components that are shared between the different insight features
         */
         allFilters: [
-            {},
+            {} as Record<string, any>,
             {
                 setAllFilters: (_, { filters }) => filters,
             },
@@ -107,12 +107,10 @@ export const insightLogic = kea<insightLogicType>({
             eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad)
             actions.setNotFirstLoad()
         },
-    }),
-    listeners: ({ actions, values }) => ({
         startQuery: () => {
             actions.setShowTimeoutMessage(false)
             actions.setShowErrorMessage(false)
-            values.timeout && clearTimeout(values.timeout)
+            values.timeout && clearTimeout(values.timeout || undefined)
             const view = values.activeView
             actions.setTimeout(
                 setTimeout(() => {
@@ -122,7 +120,7 @@ export const insightLogic = kea<insightLogicType>({
             actions.setIsLoading(true)
         },
         endQuery: ({ view, exception }) => {
-            clearTimeout(values.timeout)
+            clearTimeout(values.timeout || undefined)
             if (view === values.activeView) {
                 actions.setShowTimeoutMessage(values.maybeShowTimeoutMessage)
                 actions.setShowErrorMessage(values.maybeShowErrorMessage)
@@ -138,12 +136,12 @@ export const insightLogic = kea<insightLogicType>({
         setActiveView: () => {
             actions.setShowTimeoutMessage(false)
             actions.setShowErrorMessage(false)
-            clearTimeout(values.timeout)
+            clearTimeout(values.timeout || undefined)
         },
     }),
     actionToUrl: ({ actions, values }) => ({
-        setActiveView: ({ type }) => {
-            const params = fromParams(window.location.search)
+        setActiveView: ({ type }: { type: string }) => {
+            const params = fromParams()
             const { properties, ...restParams } = params
 
             actions.setCachedUrl(values.activeView, window.location.pathname + '?' + toParams(restParams))
@@ -162,7 +160,7 @@ export const insightLogic = kea<insightLogicType>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights': (_, searchParams) => {
+        '/insights': (_, searchParams: Record<string, any>) => {
             if (searchParams.insight && searchParams.insight !== values.activeView) {
                 actions.updateActiveView(searchParams.insight)
             }
