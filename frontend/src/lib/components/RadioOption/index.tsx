@@ -2,7 +2,7 @@ import React from 'react'
 import './index.scss'
 
 export interface RadioOption {
-    key: string | number
+    key: string
     label: string
     icon?: any // any, because Ant Design icons are some weird ForwardRefExoticComponent type
 }
@@ -10,7 +10,7 @@ export interface RadioOption {
 interface RadioOptionProps {
     options: RadioOption[]
     selectedOption?: null | string
-    onOptionChanged: (key: string | number) => void
+    onOptionChanged: (key: string | null) => void
 }
 
 export function RadioOption({ options, selectedOption, onOptionChanged }: RadioOptionProps): JSX.Element {
@@ -20,7 +20,7 @@ export function RadioOption({ options, selectedOption, onOptionChanged }: RadioO
                 <div
                     className={`radio-option${selectedOption === option.key ? ' active' : ''}`}
                     key={option.key}
-                    onClick={() => onOptionChanged(option.key)}
+                    onClick={() => onOptionChanged(selectedOption !== option.key ? option.key : null)}
                 >
                     <div className="graphic">{option.icon}</div>
                     <div className="label">{option.label}</div>

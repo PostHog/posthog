@@ -2,28 +2,37 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 import { hot } from 'react-hot-loader/root'
 import { personalizationLogic } from './personalizationLogic'
-import { Row, Col } from 'antd'
+import { Row, Col, Button } from 'antd'
 import { RadioOption } from 'lib/components/RadioOption'
 import { ROLES, TEAM_SIZES } from './personalizationData'
+import { Link } from 'lib/components/Link'
+import './Personalization.scss'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const Personalization = hot(_Personalization)
 
 function _Personalization(): JSX.Element {
     const { step } = useValues(personalizationLogic)
     return (
-        <Row style={{ padding: 32 }}>
+        <Row className="personalization-screen">
             <Col xs={24}>{step === 2 && <StepTwo />}</Col>
         </Row>
     )
 }
 
 function StepTwo(): JSX.Element {
-    const { personalizationData } = useValues(personalizationLogic)
+    const { personalizationData, step } = useValues(personalizationLogic)
     const { appendPersonalizationData } = useActions(personalizationLogic)
+    const { reportPersonalizationSkipped } = useActions(eventUsageLogic)
 
-    const handleOptionChanged = (attr: 'role' | 'team_size', value: string | number): void => {
+    const handleOptionChanged = (attr: 'role' | 'team_size', value: string | null): void => {
         appendPersonalizationData({ [attr]: value })
     }
+
+    const answeredQuestionCount: number = personalizationData
+        ? (!!personalizationData.role ? 1 : 0) + (!!personalizationData.team_size ? 1 : 0)
+        : 0
+    const TOTAL_QUESTION_COUNT = 2
 
     return (
         <div>
@@ -55,7 +64,18 @@ function StepTwo(): JSX.Element {
                 />
             </div>
 
-            {JSON.stringify(personalizationData)}
+            <div className="section-continue">
+                {answeredQuestionCount === 0 && (
+                    <Link to="/" onClick={() => reportPersonalizationSkipped(step)}>
+                        Skip personalization
+                    </Link>
+                )}
+                {answeredQuestionCount !== 0 && (
+                    <Button type={answeredQuestionCount === TOTAL_QUESTION_COUNT ? 'primary' : 'default'}>
+                        Continue
+                    </Button>
+                )}
+            </div>
         </div>
     )
 }
