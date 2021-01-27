@@ -18,6 +18,7 @@ import { LocalPluginTag } from './LocalPluginTag'
 import { PluginInstallationType, PluginTypeWithConfig } from 'scenes/plugins/types'
 import { SourcePluginTag } from './SourcePluginTag'
 import { CommunityPluginTag } from './CommunityPluginTag'
+import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 
 interface PluginCardProps {
     plugin: Partial<PluginTypeWithConfig>
@@ -133,11 +134,9 @@ export function PluginCard({
                                 <Tag color="blue">
                                     <LoadingOutlined /> Checking for updates…
                                 </Tag>
-                            ) : latestTag && tag !== latestTag ? (
-                                <Tag color="volcano">
-                                    <CloudDownloadOutlined /> Update available!
-                                </Tag>
-                            ) : latestTag && tag === latestTag ? (
+                            ) : url && latestTag && tag && tag !== latestTag ? (
+                                <UpdateAvailable url={url} tag={tag} latestTag={latestTag} />
+                            ) : url && latestTag && tag && tag === latestTag ? (
                                 <Tag color="green">
                                     <CheckOutlined /> Up to date
                                 </Tag>
