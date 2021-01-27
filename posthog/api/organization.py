@@ -154,7 +154,7 @@ class OrganizationSignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance) -> Dict:
         data = UserSerializer(instance=instance).data
-        data["redirect_url"] = "/" if self.enable_new_onboarding() else "/ingestion"
+        data["redirect_url"] = "/personalization" if self.enable_new_onboarding() else "/ingestion"
         return data
 
     def enable_new_onboarding(self, user: Optional[User] = None) -> bool:
