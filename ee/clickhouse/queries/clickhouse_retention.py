@@ -36,9 +36,7 @@ class ClickhouseRetention(Retention):
         returning_entity = filter.returning_entity
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
         date_from = filter.date_from
-        date_to = filter.date_to
-
-        initial_event_date = date_from + filter.period_increment
+        date_to = initial_event_date = filter.date_to
 
         target_query = ""
         target_params: Dict = {}
