@@ -98,7 +98,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: s
                         minWidth: results[selectedRow]?.values[0]?.count === 0 ? '10%' : '90%',
                         fontSize: 16,
                     }}
-                    title={results[selectedRow] ? moment(results[selectedRow].date).format('MMMM d, YYYY') : ''}
+                    title={results[selectedRow] ? moment.utc(results[selectedRow].date).format('MMMM D, YYYY') : ''}
                 >
                     {results && !peopleLoading ? (
                         <div>
