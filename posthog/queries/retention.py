@@ -261,7 +261,7 @@ class Retention(BaseQuery):
             **format_fields
         )
 
-        result = []
+        result = {}
 
         from posthog.api.person import PersonSerializer
 
