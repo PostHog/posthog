@@ -25,6 +25,7 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS: List[str] = os.environ.get(
     "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS", ""
 ).split(",")
 
+# TODO: eliminate this setting for full rollout of Plugins on EE/Cloud
 PLUGINS_CLOUD_WHITELISTED_ORG_IDS: List[str] = os.getenv("PLUGINS_CLOUD_WHITELISTED_ORG_IDS", "").split(",")
 
 CLICKHOUSE_DENORMALIZED_PROPERTIES = os.environ.get("CLICKHOUSE_DENORMALIZED_PROPERTIES", "").split(",")

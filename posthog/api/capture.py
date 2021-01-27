@@ -204,6 +204,7 @@ def get_event(request):
 
         if is_ee_enabled():
             log_topics = [KAFKA_EVENTS_WAL]
+            # TODO: remove team.organization_id in ... for full rollout of Plugins on EE/Cloud
             if settings.PLUGIN_SERVER_INGESTION_HANDOFF and team.organization_id in getattr(
                 settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", []
             ):
