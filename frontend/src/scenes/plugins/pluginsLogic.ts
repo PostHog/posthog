@@ -161,12 +161,15 @@ export const pluginsLogic = kea<
 
                     const formData = getPluginConfigFormData(editingPlugin, pluginConfigChanges)
 
+                    if (!editingPlugin.pluginConfig?.enabled) {
+                        formData.append('order', values.nextPluginOrder.toString())
+                    }
+
                     let response
                     if (editingPlugin.pluginConfig.id) {
                         response = await api.update(`api/plugin_config/${editingPlugin.pluginConfig.id}`, formData)
                     } else {
                         formData.append('plugin', editingPlugin.id.toString())
-                        formData.append('order', '0')
                         response = await api.create(`api/plugin_config/`, formData)
                     }
                     capturePluginEvent(`plugin config updated`, editingPlugin)
@@ -188,6 +191,7 @@ export const pluginsLogic = kea<
                     }
                     const response = await api.update(`api/plugin_config/${id}`, {
                         enabled,
+                        order: values.nextPluginOrder,
                     })
                     return { ...pluginConfigs, [response.plugin]: response }
                 },
@@ -409,6 +413,11 @@ export const pluginsLogic = kea<
                         hasMoved: movedPlugins[plugin.id],
                     })) as PluginTypeWithConfig[],
         ],
+        nextPluginOrder: [
+            (s) => [s.enabledPlugins],
+            (enabledPlugins) =>
+                enabledPlugins.reduce((maxOrder, plugin) => Math.max(plugin.pluginConfig?.order ?? 0, maxOrder), 0) + 1,
+        ],
         disabledPlugins: [
             (s) => [s.installedPlugins],
             (installedPlugins) => installedPlugins.filter(({ pluginConfig }) => !pluginConfig?.enabled),
@@ -499,7 +508,7 @@ export const pluginsLogic = kea<
             const configSchema = getConfigSchemaArray(editingPlugin?.config_schema || [])
 
             const posthogApiKeySchema = configSchema.find(({ key }) => key === 'posthogApiKey')
-            if (posthogApiKeySchema && !pluginConfig.posthogApiKey) {
+            if (posthogApiKeySchema && !pluginConfig?.posthogApiKey) {
                 try {
                     const { value: posthogApiKey }: PersonalAPIKeyType = await api.create('api/personal_api_keys/', {
                         label: `Plugin: ${editingPlugin.name}`,
@@ -514,7 +523,7 @@ export const pluginsLogic = kea<
             const posthogHostSchema = configSchema.find(({ key }) => key === 'posthogHost')
             if (
                 posthogHostSchema &&
-                (!pluginConfig.posthogHost || pluginConfig.posthogHost === 'https://app.posthog.com')
+                (!pluginConfig?.posthogHost || pluginConfig.posthogHost === 'https://app.posthog.com')
             ) {
                 form.setFieldsValue({ posthogHost: window.location.origin })
             }

@@ -111,7 +111,7 @@ export function InstalledTab(): JSX.Element {
         const move = (arr: PluginTypeWithConfig[], from: number, to: number): { id: number; order: number }[] => {
             const clone = [...arr]
             Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
-            return clone.map(({ id }, order) => ({ id, order }))
+            return clone.map(({ id }, order) => ({ id, order: order + 1 }))
         }
 
         const movedPluginId: number = enabledPlugins[oldIndex]?.id
