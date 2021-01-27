@@ -110,6 +110,7 @@ class Team(models.Model):
         "User", blank=True, related_name="teams_deprecated_relationship"
     )
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    is_demo: models.BooleanField = models.BooleanField(default=False)
 
     objects = TeamManager()
 

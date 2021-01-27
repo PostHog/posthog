@@ -113,5 +113,6 @@ class Command(BaseCommand):
                 name=team_name if team_name else "HogFlix Demo App",
                 ingested_event=True,
                 completed_snippet_onboarding=True,
+                is_demo=True,
             )
         return team

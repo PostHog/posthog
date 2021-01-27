@@ -108,6 +108,7 @@ export interface TeamType {
     session_recording_retention_period_days: number | null
     plugins_opt_in: boolean
     ingested_event: boolean
+    is_demo: boolean
 }
 
 export interface ActionType {
