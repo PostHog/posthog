@@ -209,7 +209,9 @@ class ClickhouseRetention(Retention):
         ).format(target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,)
 
         date_from = filter.date_from + filter.selected_interval * filter.period_increment
-        date_to = date_from + filter.period_increment
+        date_to = filter.date_to
+
+        initial_event_date = date_from + filter.period_increment
 
         new_data = filter._data
         new_data.update({"total_intervals": filter.total_intervals - filter.selected_interval})
@@ -229,6 +231,9 @@ class ClickhouseRetention(Retention):
                     "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
                 ),
                 "end_date": date_to.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "initial_event_date": initial_event_date.strftime(
                     "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
                 ),
                 "offset": filter.offset,
