@@ -20,14 +20,14 @@ export function DemoWarning(): JSX.Element | null {
                 message={`Get started using Posthog, ${user?.name}`}
                 description={
                     <span>
-                        You're currently viewing <b>demo data</b>. Go to <Link to="/">setup</Link> to start sending your
-                        own data!
+                        You're currently viewing <b>demo data</b>. Go to <Link to="/setup">setup</Link> to start sending
+                        your own data!
                     </span>
                 }
                 icon={<StarOutlined />}
                 showIcon
                 action={
-                    <LinkButton to="/">
+                    <LinkButton to="/setup">
                         <SettingOutlined /> Go to setup
                     </LinkButton>
                 }
