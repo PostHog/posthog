@@ -164,7 +164,7 @@ export function InstalledTab(): JSX.Element {
                             ) : pluginsNeedingUpdates.length === 0 ? (
                                 upgradeButton
                             ) : (
-                                <div />
+                                <></>
                             )
                         }
                     />
