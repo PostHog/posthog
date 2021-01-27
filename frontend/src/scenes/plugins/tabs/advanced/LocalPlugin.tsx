@@ -3,6 +3,8 @@ import { Button, Card, Col, Input, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginInstallationType } from 'scenes/plugins/types'
+import Title from 'antd/es/typography/Title'
+import Paragraph from 'antd/es/typography/Paragraph'
 
 export function LocalPlugin(): JSX.Element {
     const { localPluginUrl, pluginError, loading } = useValues(pluginsLogic)
@@ -11,8 +13,8 @@ export function LocalPlugin(): JSX.Element {
     return (
         <div style={{ marginTop: 16 }}>
             <Card>
-                <h3 className="l3">Install Local Plugin</h3>
-                <p>To install a local plugin from this computer/server, give its full path below.</p>
+                <Title level={5}>Install Local Plugin</Title>
+                <Paragraph>To install a local plugin from this computer/server, give its full path below.</Paragraph>
 
                 <Row style={{ width: '100%' }} gutter={16}>
                     <Col style={{ flex: 1 }}>
