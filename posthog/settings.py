@@ -325,7 +325,7 @@ SOCIAL_AUTH_GITLAB_API_URL = os.environ.get("SOCIAL_AUTH_GITLAB_API_URL", "https
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET")
 
-social_auth_domains = os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS")
+social_auth_domains = os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS", "")
 SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS = [domain for domain in social_auth_domains.split(",")]
 
 # See https://docs.djangoproject.com/en/3.1/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
