@@ -2,7 +2,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import React from 'react'
 import { hot } from 'react-hot-loader/root'
 import { Button, Collapse } from 'antd'
-import { ProjectOutlined, CodeOutlined, CheckOutlined } from '@ant-design/icons'
+import { ProjectOutlined, CodeOutlined, CheckOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import './OnboardingSetup.scss'
 
 const { Panel } = Collapse
@@ -28,32 +28,41 @@ function PanelHeader({
 }
 
 function OnboardingStep({
-    callToAction,
+    label,
     stepNumber,
     icon,
     identifier,
     disabled,
+    completed,
     handleClick,
 }: {
-    callToAction: string
+    label: string
     stepNumber: number
     icon: React.ReactNode
     identifier: string
     disabled?: boolean
+    completed?: boolean
     handleClick?: () => void
 }): JSX.Element {
     return (
         <div
-            className={`onboarding-step${disabled ? ' disabled' : ''}`}
-            onClick={() => !disabled && handleClick && handleClick()}
+            className={`onboarding-step${disabled ? ' disabled' : ''}${completed ? ' completed' : ''}`}
+            onClick={() => !disabled && !completed && handleClick && handleClick()}
             data-attr="onboarding-setup-step"
             data-step={identifier}
         >
             <div className="step-number">Step {stepNumber}</div>
             <div className="icon-container">{icon}</div>
-            <Button type="primary" disabled={disabled}>
-                {callToAction}
-            </Button>
+            {completed ? (
+                <div className="completed-label">
+                    <CheckCircleOutlined />
+                    {label}
+                </div>
+            ) : (
+                <Button type="primary" disabled={disabled}>
+                    {label}
+                </Button>
+            )}
         </div>
     )
 }
@@ -80,20 +89,22 @@ function _OnboardingSetup(): JSX.Element {
                 >
                     <div className="step-list">
                         <OnboardingStep
-                            callToAction="Set up project"
+                            label="Set up project"
                             icon={<ProjectOutlined />}
                             stepNumber={1}
                             identifier="set-up-project"
+                            completed
+                            handleClick={() => alert(1)}
                         />
                         <OnboardingStep
-                            callToAction="Install PostHog"
+                            label="Install PostHog"
                             icon={<CodeOutlined />}
                             stepNumber={2}
                             identifier="install-posthog"
                             disabled
                         />
                         <OnboardingStep
-                            callToAction="Verify your events"
+                            label="Verify your events"
                             icon={<CheckOutlined />}
                             stepNumber={3}
                             identifier="verify-events"
@@ -110,7 +121,7 @@ function _OnboardingSetup(): JSX.Element {
                         />
                     }
                     key="2"
-                    disabled
+                    collapsible="disabled"
                 >
                     <p>text</p>
                 </Panel>
@@ -128,7 +139,7 @@ function _OnboardingSetup(): JSX.Element {
                         />
                     }
                     key="3"
-                    disabled
+                    collapsible="disabled"
                 >
                     <p>text</p>
                 </Panel>

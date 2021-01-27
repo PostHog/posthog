@@ -40,6 +40,7 @@
     .step-list {
         display: flex;
         justify-content: center;
+        padding: $default_spacing * 2 0;
     }
 
     .onboarding-step {
@@ -85,6 +86,27 @@
 
             button {
                 cursor: inherit;
+            }
+        }
+
+        &.completed {
+            cursor: inherit;
+
+            .icon-container {
+                background-color: rgba($success, 20%);
+                color: $success;
+            }
+
+            .step-number {
+                color: $text_muted;
+            }
+
+            .completed-label {
+                color: $success;
+                padding-top: 4px; // To be aligned to buttons
+                svg {
+                    margin-right: 4px;
+                }
             }
         }
     }
