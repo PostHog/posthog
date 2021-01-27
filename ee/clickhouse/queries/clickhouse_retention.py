@@ -246,5 +246,5 @@ class ClickhouseRetention(Retention):
             people_dict.update({str(person.uuid): PersonSerializer(person).data})
 
         result = self.process_people_in_period(filter, query_result, people_dict)
-        print(len(result))
+
         return result
