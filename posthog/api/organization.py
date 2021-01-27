@@ -16,6 +16,7 @@ from rest_framework import (
     viewsets,
 )
 
+from posthog.api.team import TeamNestedSerializer
 from posthog.api.user import UserSerializer
 from posthog.demo import create_demo_team
 from posthog.models import Organization, Team, User
@@ -50,10 +51,11 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
 class OrganizationSerializer(serializers.ModelSerializer):
     membership_level = serializers.SerializerMethodField(read_only=True)
+    teams = TeamNestedSerializer(many=True, read_only=True)
 
     class Meta:
         model = Organization
-        fields = ["id", "name", "created_at", "updated_at", "membership_level"]
+        fields = ["id", "name", "created_at", "updated_at", "membership_level", "teams"]
         read_only_fields = [
             "id",
             "created_at",

@@ -14,8 +14,6 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
 )
 
-from .organization import OrganizationSignupSerializer, OrganizationSignupViewset
-
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
@@ -26,12 +24,36 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
         if request.method in CREATE_METHODS and (
             (request.user.organization is None)
             or (
-                request.user.organization.teams.count() >= 1
+                request.user.organization.teams.exclude(is_demo=True).count() >= 1
                 and not request.user.organization.is_feature_available("organizations_projects")
             )
         ):
             return False
         return True
+
+
+class TeamNestedSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Team
+        fields = (
+            "id",
+            "name",
+            "slack_incoming_webhook",
+            "created_at",
+            "updated_at",
+            "anonymize_ips",
+            "completed_snippet_onboarding",
+            "ingested_event",
+            "uuid",
+            "opt_out_capture",
+            "is_demo",
+        )
+
+    def create(self, validated_data: Dict[str, Any], **kwargs) -> None:
+        raise NotImplementedError()
+
+    def update(self, instance: Team, validated_data: Dict[str, Any], **kwargs) -> None:
+        raise NotImplementedError()
 
 
 class TeamSerializer(serializers.ModelSerializer):
@@ -54,6 +76,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "ingested_event",
             "uuid",
             "opt_out_capture",
+            "is_demo",
         )
         read_only_fields = (
             "id",
