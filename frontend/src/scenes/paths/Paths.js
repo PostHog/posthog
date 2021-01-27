@@ -166,9 +166,15 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
             .attr('id', 'dropoff-gradient')
             .attr('gradientTransform', 'rotate(90)')
 
-        dropOffGradient.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(220,53,69,0.7)')
+        dropOffGradient
+            .append('stop')
+            .attr('offset', '0%')
+            .attr('stop-color', color === 'white' ? 'rgba(220,53,69,0.7)' : 'rgb(220,53,69)')
 
-        dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', '#ffffff')
+        dropOffGradient
+            .append('stop')
+            .attr('offset', '100%')
+            .attr('stop-color', color === 'white' ? '#fff' : 'var(--item-background)')
 
         const link = svg
             .append('g')
@@ -238,11 +244,11 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                 }
             })
             .style('cursor', loadedFilter.path_type === AUTOCAPTURE ? 'pointer' : 'auto')
-            .style('fill', color === 'white' ? '#000' : '#d4d4d4')
+            .style('fill', color === 'white' ? '#000' : '#fff')
 
         textSelection
             .append('tspan')
-            .attr('fill-opacity', 0.7)
+            .attr('fill-opacity', 0.8)
             .text((d) => ` ${d.value.toLocaleString()}`)
 
         textSelection.append('title').text((d) => stripHTTP(d.name))
