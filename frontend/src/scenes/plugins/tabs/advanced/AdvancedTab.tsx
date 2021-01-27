@@ -7,7 +7,7 @@ import { CustomPlugin } from 'scenes/plugins/tabs/advanced/CustomPlugin'
 import { LocalPlugin } from 'scenes/plugins/tabs/advanced/LocalPlugin'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { OptOutPlugins } from 'scenes/plugins/tabs/advanced/OptOutPlugins'
+import { DangerZone } from 'scenes/plugins/tabs/advanced/DangerZone'
 import { userLogic } from 'scenes/userLogic'
 
 export function AdvancedTab(): JSX.Element {
@@ -41,7 +41,7 @@ export function AdvancedTab(): JSX.Element {
             <SourcePlugin />
             <CustomPlugin />
             <LocalPlugin />
-            {user?.team?.plugins_opt_in && <OptOutPlugins />}
+            {user?.team?.plugins_opt_in && <DangerZone />}
         </>
     )
 }

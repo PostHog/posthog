@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import Paragraph from 'antd/es/typography/Paragraph'
 import Title from 'antd/es/typography/Title'
 
-export function OptOutPlugins(): JSX.Element {
+export function DangerZone(): JSX.Element {
     const { userUpdateRequest } = useActions(userLogic)
 
     return (
