@@ -45,7 +45,7 @@ class TestFeatureFlag(BaseTest):
             filters={
                 "groups": [
                     {"rollout_percentage": 0},
-                    {"properties": [{"key": "email", "value": "example@example.com"}]},
+                    {"properties": [{"key": "email", "value": "example@example.com"}], "rollout_percentage": 100},
                 ]
             }
         )
