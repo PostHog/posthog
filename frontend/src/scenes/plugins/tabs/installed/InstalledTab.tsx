@@ -1,6 +1,6 @@
 import React from 'react'
 import { Button, Col, Empty, Row, Skeleton, Space, Tag } from 'antd'
-import { CloudDownloadOutlined, SyncOutlined, SwapOutlined } from '@ant-design/icons'
+import { CloudDownloadOutlined, SyncOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Subtitle } from 'lib/components/PageHeader'
@@ -76,15 +76,11 @@ export function InstalledTab(): JSX.Element {
                     ? 'Check again'
                     : 'Check for updates'}
             </Button>
-        ) : null
+        ) : (
+            <></>
+        )
 
     const canRearrange = user?.plugin_access.configure && enabledPlugins.length > 1
-
-    const rearrangeButton = canRearrange ? (
-        <Button type="default" icon={<SwapOutlined style={{ transform: 'rotate(90deg)' }} />} onClick={rearrange}>
-            Rearrange
-        </Button>
-    ) : null
 
     const rearrangingButtons = rearranging ? (
         <Space>
@@ -152,16 +148,7 @@ export function InstalledTab(): JSX.Element {
                                 `Enabled plugins (${enabledPlugins.length})`
                             )
                         }
-                        buttons={
-                            rearranging ? (
-                                rearrangingButtons
-                            ) : (
-                                <Space key="not-rearranging">
-                                    {rearrangeButton}
-                                    {upgradeButton}
-                                </Space>
-                            )
-                        }
+                        buttons={rearranging ? rearrangingButtons : upgradeButton}
                     />
                     {canRearrange || rearranging ? (
                         <SortablePlugins useDragHandle onSortEnd={onSortEnd}>
