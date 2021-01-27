@@ -158,7 +158,15 @@ export function InstalledTab(): JSX.Element {
                                 `Enabled plugins (${enabledPlugins.length})`
                             )
                         }
-                        buttons={rearranging ? rearrangingButtons : upgradeButton}
+                        buttons={
+                            rearranging ? (
+                                rearrangingButtons
+                            ) : pluginsNeedingUpdates.length === 0 ? (
+                                upgradeButton
+                            ) : (
+                                <div />
+                            )
+                        }
                     />
                     {canRearrange || rearranging ? (
                         <SortablePlugins useDragHandle onSortEnd={onSortEnd}>
