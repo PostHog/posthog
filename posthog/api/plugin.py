@@ -306,3 +306,22 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             response.append(plugin)
 
         return Response(response)
+
+    @action(methods=["PATCH"], detail=False)
+    def rearrange(self, request: request.Request, **kwargs):
+        if not can_configure_plugins_via_api(self.team.organization_id):
+            return Response([])
+
+        orders = request.data.get("orders", {})
+
+        plugin_configs = PluginConfig.objects.filter(team_id=self.team.pk, enabled=True)  # type: ignore
+        plugin_configs_dict = dict((p.plugin_id, p) for p in plugin_configs)
+        for plugin_id, order in orders.items():
+            plugin_config = plugin_configs_dict.get(int(plugin_id), None)
+            if plugin_config and plugin_config.order != order:
+                plugin_config.order = order
+                plugin_config.save()
+
+        reload_plugins_on_workers()
+
+        return Response(PluginConfigSerializer(plugin_configs, many=True).data)

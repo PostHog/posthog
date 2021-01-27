@@ -57,8 +57,16 @@ export function InstalledTab(): JSX.Element {
         installedPluginUrls,
         updateStatus,
         rearranging,
+        temporaryOrder,
     } = useValues(pluginsLogic)
-    const { checkForUpdates, setPluginTab, rearrange, setTemporaryOrder, cancelRearranging } = useActions(pluginsLogic)
+    const {
+        checkForUpdates,
+        setPluginTab,
+        rearrange,
+        setTemporaryOrder,
+        cancelRearranging,
+        savePluginOrders,
+    } = useActions(pluginsLogic)
 
     const upgradeButton =
         user?.plugin_access.install && hasNonSourcePlugins ? (
@@ -84,7 +92,9 @@ export function InstalledTab(): JSX.Element {
 
     const rearrangingButtons = rearranging ? (
         <Space>
-            <Button type="primary">Save Order</Button>
+            <Button type="primary" loading={loading} onClick={() => savePluginOrders(temporaryOrder)}>
+                Save Order
+            </Button>
             <Button type="default" onClick={cancelRearranging}>
                 Cancel
             </Button>

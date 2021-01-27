@@ -66,6 +66,7 @@ export const pluginsLogic = kea<
             temporaryOrder,
             movedPluginId,
         }),
+        savePluginOrders: (newOrders: Record<number, number>) => ({ newOrders }),
         cancelRearranging: true,
     },
 
@@ -196,6 +197,17 @@ export const pluginsLogic = kea<
                         error: null,
                     })
                     return { ...pluginConfigs, [response.plugin]: response }
+                },
+                savePluginOrders: async ({ newOrders }) => {
+                    const { pluginConfigs } = values
+                    const response: PluginConfigType[] = await api.update(`api/plugin_config/rearrange`, {
+                        orders: newOrders,
+                    })
+                    const newPluginConfigs: Record<string, PluginConfigType> = { ...pluginConfigs }
+                    for (const pluginConfig of response) {
+                        newPluginConfigs[pluginConfig.plugin] = pluginConfig
+                    }
+                    return newPluginConfigs
                 },
             },
         ],
@@ -330,6 +342,7 @@ export const pluginsLogic = kea<
             {
                 rearrange: () => true,
                 cancelRearranging: () => false,
+                savePluginOrdersSuccess: () => false,
             },
         ],
         temporaryOrder: [
@@ -338,6 +351,7 @@ export const pluginsLogic = kea<
                 rearrange: () => ({}),
                 setTemporaryOrder: (_, { temporaryOrder }) => temporaryOrder,
                 cancelRearranging: () => ({}),
+                savePluginOrdersSuccess: () => ({}),
             },
         ],
         movedPlugins: [
@@ -346,6 +360,7 @@ export const pluginsLogic = kea<
                 rearrange: () => ({}),
                 setTemporaryOrder: (state, { movedPluginId }) => ({ ...state, [movedPluginId]: true }),
                 cancelRearranging: () => ({}),
+                savePluginOrdersSuccess: () => ({}),
             },
         ],
     },
