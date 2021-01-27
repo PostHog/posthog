@@ -17,8 +17,6 @@ class RevenueDataGenerator(DataGenerator):
         self.add_if_not_contained(self.team.event_properties, "first_visit")
         self.add_if_not_contained(self.team.event_properties_numerical, "purchase_value")
 
-        self.team.save()
-
     def populate_person_events(self, person: Person, distinct_id: str, index: int):
         if random.randint(0, 10) <= 4:
             self.add_event(

@@ -2,6 +2,7 @@ from rest_framework.request import Request
 
 from posthog.demo.app_data_generator import AppDataGenerator
 from posthog.demo.revenue_data_generator import RevenueDataGenerator
+from posthog.demo.web_data_generator import WebDataGenerator
 from posthog.ee import is_ee_enabled
 from posthog.models import Organization, Team, User
 from posthog.utils import render_template
@@ -30,6 +31,7 @@ def demo(request: Request):
 
         result = get_events_by_team(team_id=team.pk)
         if not result:
+            WebDataGenerator(team, n_people=40).create()
             AppDataGenerator(team, n_people=100).create()
             RevenueDataGenerator(team, n_people=20).create()
 
@@ -40,6 +42,7 @@ def create_demo_team(organization: Organization, user: User, request: Request) -
     team = Team.objects.create_with_data(
         organization=organization, name=TEAM_NAME, ingested_event=True, completed_snippet_onboarding=True, is_demo=True,
     )
+    WebDataGenerator(team, n_people=40).create()
     AppDataGenerator(team, n_people=100).create()
     RevenueDataGenerator(team, n_people=20).create()
 

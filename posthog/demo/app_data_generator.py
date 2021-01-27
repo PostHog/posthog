@@ -20,8 +20,6 @@ class AppDataGenerator(DataGenerator):
         self.add_if_not_contained(self.team.event_properties, "is_first_movie")
         self.add_if_not_contained(self.team.event_properties_numerical, "app_rating")
 
-        self.team.save()
-
     def create_actions_dashboards(self):
         installed_app_action = Action.objects.create(team=self.team, name="Installed App")
         ActionStep.objects.create(action=installed_app_action, event="installed_app")

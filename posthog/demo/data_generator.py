@@ -1,31 +1,6 @@
-import json
-import random
-import secrets
-from pathlib import Path
-from typing import Dict, List
-
-from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
-from rest_framework.request import Request
-
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.ee import is_ee_enabled
-from posthog.models import (
-    Action,
-    ActionStep,
-    Dashboard,
-    DashboardItem,
-    Element,
-    Event,
-    FeatureFlag,
-    Organization,
-    Person,
-    PersonDistinctId,
-    Team,
-    User,
-)
+from posthog.models import Action, Event, Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
-from posthog.utils import render_template
 
 
 class DataGenerator:
@@ -45,10 +20,11 @@ class DataGenerator:
 
         self.bulk_import_events()
         self.create_actions_dashboards()
+        self.team.save()
         _recalculate(team=self.team)
 
     def create_people(self):
-        self.people = [Person(team=self.team, properties={"is_demo": True}) for _ in range(self.n_people)]
+        self.people = [self.make_person(i) for i in range(self.n_people)]
         self.distinct_ids = [str(UUIDT()) for _ in self.people]
 
         Person.objects.bulk_create(self.people)
@@ -58,6 +34,9 @@ class DataGenerator:
                 for person, distinct_id in zip(self.people, self.distinct_ids)
             ]
         )
+
+    def make_person(self, index):
+        return Person(team=self.team, properties={"is_demo": True})
 
     def create_missing_events_and_properties(self):
         raise NotImplementedError("You need to implement run")
