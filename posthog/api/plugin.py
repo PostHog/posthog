@@ -310,7 +310,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["PATCH"], detail=False)
     def rearrange(self, request: request.Request, **kwargs):
         if not can_configure_plugins_via_api(self.team.organization_id):
-            return Response(status=403)
+            raise ValidationError("Plugin configuration via the web is disabled!")
 
         orders = request.data.get("orders", {})
 
