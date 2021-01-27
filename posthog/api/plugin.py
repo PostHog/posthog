@@ -86,8 +86,8 @@ class PluginSerializer(serializers.ModelSerializer):
             raise ValidationError("Plugin upgrades via the web are disabled!")
         if plugin.plugin_type != Plugin.PluginType.SOURCE:
             validated_data = self._update_validated_data_from_url({}, plugin.url)
-            response = super().update(plugin, validated_data)
-            reload_plugins_on_workers()
+        response = super().update(plugin, validated_data)
+        reload_plugins_on_workers()
         return response
 
     # If remote plugin, download the archive and get up-to-date validated_data from there.
