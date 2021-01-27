@@ -11,7 +11,7 @@ import { Tabs, Tag } from 'antd'
 import { OptInPlugins } from 'scenes/plugins/optin/OptInPlugins'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
-import { CustomTab } from 'scenes/plugins/tabs/custom/CustomTab'
+import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
 
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element {
@@ -58,8 +58,8 @@ function _Plugins(): JSX.Element {
                                 <TabPane tab="Repository" key={PluginTab.Repository}>
                                     <RepositoryTab />
                                 </TabPane>
-                                <TabPane tab="Advanced" key={PluginTab.Custom}>
-                                    <CustomTab />
+                                <TabPane tab="Advanced" key={PluginTab.Advanced}>
+                                    <AdvancedTab />
                                 </TabPane>
                             </>
                         )}

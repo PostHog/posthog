@@ -2,15 +2,15 @@ import { Alert } from 'antd'
 import { PluginTab } from 'scenes/plugins/types'
 import { Subtitle } from 'lib/components/PageHeader'
 import React from 'react'
-import { SourcePlugin } from 'scenes/plugins/tabs/custom/SourcePlugin'
-import { CustomPlugin } from 'scenes/plugins/tabs/custom/CustomPlugin'
-import { LocalPlugin } from 'scenes/plugins/tabs/custom/LocalPlugin'
+import { SourcePlugin } from 'scenes/plugins/tabs/advanced/SourcePlugin'
+import { CustomPlugin } from 'scenes/plugins/tabs/advanced/CustomPlugin'
+import { LocalPlugin } from 'scenes/plugins/tabs/advanced/LocalPlugin'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { OptOutPlugins } from 'scenes/plugins/tabs/custom/OptOutPlugins'
+import { OptOutPlugins } from 'scenes/plugins/tabs/advanced/OptOutPlugins'
 import { userLogic } from 'scenes/userLogic'
 
-export function CustomTab(): JSX.Element {
+export function AdvancedTab(): JSX.Element {
     const { user } = useValues(userLogic)
     const { setPluginTab } = useActions(pluginsLogic)
     return (
