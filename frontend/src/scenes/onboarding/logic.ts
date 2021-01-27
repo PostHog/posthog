@@ -1,6 +1,5 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { signupLogicType } from './logicType'
 
 interface AccountResponse {
