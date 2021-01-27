@@ -5,10 +5,13 @@ import React from 'react'
 import { SourcePlugin } from 'scenes/plugins/tabs/custom/SourcePlugin'
 import { CustomPlugin } from 'scenes/plugins/tabs/custom/CustomPlugin'
 import { LocalPlugin } from 'scenes/plugins/tabs/custom/LocalPlugin'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { OptOutPlugins } from 'scenes/plugins/tabs/custom/OptOutPlugins'
+import { userLogic } from 'scenes/userLogic'
 
 export function CustomTab(): JSX.Element {
+    const { user } = useValues(userLogic)
     const { setPluginTab } = useActions(pluginsLogic)
     return (
         <>
@@ -34,10 +37,11 @@ export function CustomTab(): JSX.Element {
                 showIcon
                 closable
             />
-            <Subtitle subtitle="Custom Plugins" />
+            <Subtitle subtitle="Advanced Options" />
             <SourcePlugin />
             <CustomPlugin />
             <LocalPlugin />
+            {user?.team?.plugins_opt_in && <OptOutPlugins />}
         </>
     )
 }
