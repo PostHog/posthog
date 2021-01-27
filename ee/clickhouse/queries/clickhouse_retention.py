@@ -185,6 +185,7 @@ class ClickhouseRetention(Retention):
         return PersonSerializer(people, many=True).data
 
     def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
+
         period = filter.period
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
         trunc_func = get_trunc_func_ch(period)
@@ -208,12 +209,20 @@ class ClickhouseRetention(Retention):
         ).format(target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,)
 
         date_from = filter.date_from + filter.selected_interval * filter.period_increment
-        date_to = filter.date_to
+        date_to = date_from + filter.period_increment
 
         new_data = filter._data
         new_data.update({"total_intervals": filter.total_intervals - filter.selected_interval})
         filter = RetentionFilter(data=new_data)
-
+        print(
+            RETENTION_PEOPLE_PER_PERIOD_SQL.format(
+                returning_query=return_query_formatted,
+                filters=prop_filters,
+                first_event_sql=first_event_sql,
+                first_event_default_sql=default_event_query,
+                trunc_func=trunc_func,
+            ),
+        )
         query_result = sync_execute(
             RETENTION_PEOPLE_PER_PERIOD_SQL.format(
                 returning_query=return_query_formatted,
