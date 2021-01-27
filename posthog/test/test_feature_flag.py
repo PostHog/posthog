@@ -49,8 +49,7 @@ class TestFeatureFlag(BaseTest):
                 ]
             }
         )
-        # with self.assertNumQueries(0):
-        #     feature_flag.distinct_id_matches("example_id")
+        self.assertFalse(feature_flag.distinct_id_matches("example_id"))
         with self.assertNumQueries(1):
             self.assertTrue(feature_flag.distinct_id_matches("another_id"))
         self.assertFalse(feature_flag.distinct_id_matches("false_id"))
