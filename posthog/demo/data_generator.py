@@ -39,13 +39,13 @@ class DataGenerator:
         return Person(team=self.team, properties={"is_demo": True})
 
     def create_missing_events_and_properties(self):
-        raise NotImplementedError("You need to implement run")
+        raise NotImplementedError("You need to implement create_missing_events_and_properties")
 
     def create_actions_dashboards(self):
-        raise NotImplementedError("You need to implement run")
+        raise NotImplementedError("You need to implement create_actions_dashboards")
 
     def populate_person_events(self, person: Person, distinct_id: str, _index: int):
-        raise NotImplementedError("You need to implement run")
+        raise NotImplementedError("You need to implement populate_person_events")
 
     def bulk_import_events(self):
         if is_ee_enabled():
