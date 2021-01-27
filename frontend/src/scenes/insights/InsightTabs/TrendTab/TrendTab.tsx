@@ -11,6 +11,7 @@ import { trendsLogic } from '../../trendsLogic'
 import { ViewType } from '../../insightLogic'
 import { LIFECYCLE } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FilterType } from '~/types'
 
 interface TrendTabProps {
     view: string
@@ -28,7 +29,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
             </h4>
             <ActionFilter
                 filters={filters}
-                setFilters={(payload): void => setFilters(payload)}
+                setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                 typeKey={'trends_' + view}
                 hideMathSelector={filters.shown_as === LIFECYCLE}
                 copy="Add graph series"
@@ -56,7 +57,9 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     <Row>
                         <BreakdownFilter
                             filters={filters}
-                            onChange={(breakdown, breakdown_type): void => setFilters({ breakdown, breakdown_type })}
+                            onChange={(breakdown: string, breakdown_type: string): void =>
+                                setFilters({ breakdown, breakdown_type })
+                            }
                         />
                         {filters.breakdown && (
                             <CloseButton
@@ -73,7 +76,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
             <h4 className="secondary">{'Actions & Events'}</h4>
             <ActionFilter
                 filters={filters}
-                setFilters={(payload): void => setFilters(payload)}
+                setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                 typeKey="trends"
                 hideMathSelector={filters.shown_as === LIFECYCLE}
                 copy="Add graph series"
@@ -95,7 +98,9 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
             <Row>
                 <BreakdownFilter
                     filters={filters}
-                    onChange={(breakdown, breakdown_type): void => setFilters({ breakdown, breakdown_type })}
+                    onChange={(breakdown: string, breakdown_type: string): void =>
+                        setFilters({ breakdown, breakdown_type })
+                    }
                 />
                 {filters.breakdown && (
                     <CloseButton
@@ -117,7 +122,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     <InfoCircleOutlined className="info-indicator" />
                 </Tooltip>
             </h4>
-            <ShownAsFilter filters={filters} onChange={(filters): void => setFilters(filters)} />
+            <ShownAsFilter filters={filters} onChange={(filters: Partial<FilterType>): void => setFilters(filters)} />
         </>
     )
 }
