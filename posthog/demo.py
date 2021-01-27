@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import List
 
 from dateutil.relativedelta import relativedelta
-from django.http import HttpResponseNotFound, JsonResponse
 from django.utils.timezone import now
+from rest_framework.request import Request
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.ee import is_ee_enabled
@@ -18,9 +18,11 @@ from posthog.models import (
     Element,
     Event,
     FeatureFlag,
+    Organization,
     Person,
     PersonDistinctId,
     Team,
+    User,
 )
 from posthog.models.utils import UUIDT
 from posthog.utils import render_template
@@ -204,21 +206,13 @@ def _recalculate(team: Team) -> None:
         action.calculate_events()
 
 
-def demo(request):
+def demo(request: Request):
     user = request.user
     organization = user.organization
     try:
-        team = organization.teams.get(name=TEAM_NAME)
+        team = organization.teams.get(is_demo=True)
     except Team.DoesNotExist:
-        team = Team.objects.create_with_data(
-            organization=organization, name=TEAM_NAME, ingested_event=True, completed_snippet_onboarding=True
-        )
-        _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo"))
-        _create_funnel(team=team, base_url=request.build_absolute_uri("/demo"))
-        FeatureFlag.objects.create(
-            team=team, rollout_percentage=100, name="Sign Up CTA", key="sign-up-cta", created_by=user,
-        )
-        _recalculate(team=team)
+        team = create_demo_team(organization, user, request)
     user.current_team = team
     user.save()
     if "$pageview" not in team.event_names:
@@ -226,7 +220,7 @@ def demo(request):
         team.event_names_with_usage.append({"event": "$pageview", "usage_count": None, "volume": None})
         team.save()
 
-    if is_ee_enabled():
+    if is_ee_enabled():  # :TRICKY: Lazily backfill missing event data.
         from ee.clickhouse.demo import create_anonymous_users_ch
         from ee.clickhouse.models.event import get_events_by_team
 
@@ -235,3 +229,22 @@ def demo(request):
             create_anonymous_users_ch(team=team, base_url=request.build_absolute_uri("/demo"))
 
     return render_template("demo.html", request=request, context={"api_token": team.api_token})
+
+
+def create_demo_team(organization: Organization, user: User, request: Request) -> Team:
+    team = Team.objects.create_with_data(
+        organization=organization, name=TEAM_NAME, ingested_event=True, completed_snippet_onboarding=True, is_demo=True,
+    )
+    _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo"))
+    _create_funnel(team=team, base_url=request.build_absolute_uri("/demo"))
+    FeatureFlag.objects.create(
+        team=team, rollout_percentage=100, name="Sign Up CTA", key="sign-up-cta", created_by=user,
+    )
+    _recalculate(team=team)
+
+    if is_ee_enabled():
+        from ee.clickhouse.demo import create_anonymous_users_ch
+
+        create_anonymous_users_ch(team=team, base_url=request.build_absolute_uri("/demo"))
+
+    return team

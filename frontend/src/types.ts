@@ -23,6 +23,7 @@ export interface UserType {
     is_staff: boolean
     is_debug: boolean
     is_impersonated: boolean
+    ee_enabled: boolean
     email_service_available: boolean
     realm: 'cloud' | 'hosted'
 }
@@ -105,8 +106,10 @@ export interface TeamType {
     opt_out_capture: boolean
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
+    session_recording_retention_period_days: number | null
     plugins_opt_in: boolean
     ingested_event: boolean
+    is_demo: boolean
 }
 
 export interface ActionType {

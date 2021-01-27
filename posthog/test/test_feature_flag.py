@@ -13,6 +13,34 @@ class TestFeatureFlag(BaseTest):
         self.assertTrue(feature_flag.distinct_id_matches("example_id"))
         self.assertFalse(feature_flag.distinct_id_matches("another_id"))
 
+    def test_empty_group(self):
+        feature_flag = self.create_feature_flag(filters={"groups": [{}]})
+        self.assertFalse(feature_flag.distinct_id_matches("example_id"))
+        self.assertFalse(feature_flag.distinct_id_matches("another_id"))
+
+    def test_complicated_flag(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"},
+        )
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    },
+                    {"rollout_percentage": 50},
+                ]
+            }
+        )
+
+        self.assertTrue(feature_flag.distinct_id_matches("test_id"))
+        self.assertTrue(feature_flag.distinct_id_matches("example_id"))
+        self.assertFalse(feature_flag.distinct_id_matches("another_id"))
+
     def test_multi_property_filters(self):
         Person.objects.create(
             team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"},

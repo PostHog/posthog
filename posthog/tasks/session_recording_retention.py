@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Dict, List
 
 from celery import shared_task
@@ -15,8 +15,8 @@ SESSION_CUTOFF = timedelta(minutes=30)
 
 
 def session_recording_retention_scheduler() -> None:
-    time_threshold = now() - RETENTION_PERIOD
-    for team in Team.objects.all().filter(session_recording_opt_in=True):
+    for team in Team.objects.all().filter(session_recording_retention_period_days__isnull=False):
+        time_threshold = now() - timedelta(days=team.session_recording_retention_period_days)
         session_recording_retention.delay(team_id=team.id, time_threshold=time_threshold)
 
 

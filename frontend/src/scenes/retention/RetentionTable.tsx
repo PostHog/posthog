@@ -9,7 +9,11 @@ import './RetentionTable.scss'
 import moment from 'moment'
 import { ColumnsType } from 'antd/lib/table'
 
-export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: string | number | null }): JSX.Element {
+export function RetentionTable({
+    dashboardItemId = null,
+}: {
+    dashboardItemId?: string | number | null
+}): JSX.Element | null {
     const logic = retentionTableLogic({ dashboardItemId })
     const {
         results: _results,
@@ -47,7 +51,10 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: s
     ]
 
     if (!resultsLoading && results) {
-        results[0]?.values?.forEach((_: any, dayIndex: number) => {
+        if (results.length === 0) {
+            return null
+        }
+        results[0].values.forEach((_: any, dayIndex: number) => {
             columns.push({
                 title: results[dayIndex].label,
                 key: `day::${dayIndex}`,
@@ -102,7 +109,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: s
                         minWidth: results[selectedRow]?.values[0]?.count === 0 ? '10%' : '90%',
                         fontSize: 16,
                     }}
-                    title={results[selectedRow] ? moment(results[selectedRow].date).format('MMMM d, YYYY') : ''}
+                    title={results[selectedRow] ? moment.utc(results[selectedRow].date).format('MMMM D, YYYY') : ''}
                 >
                     {results && !peopleLoading ? (
                         <div>

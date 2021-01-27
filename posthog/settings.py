@@ -575,5 +575,6 @@ LOGGING = {
     "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING")},
     "loggers": {
         "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
+        "axes": {"handlers": ["console"], "level": "WARNING", "propagate": False},
     },
 }

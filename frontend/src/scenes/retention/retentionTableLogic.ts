@@ -65,9 +65,17 @@ export const retentionTableLogic = kea<
                 if (!refresh && (props.cachedResults || props.preventLoading)) {
                     return props.cachedResults
                 }
-                const urlParams = toParams(values.filters)
-                const res = await api.get(`api/insight/retention/?${urlParams}`)
+                insightLogic.actions.startQuery()
+                let res
+                const urlParams = toParams({ ...values.filters, ...(refresh ? { refresh: true } : {}) })
+                try {
+                    res = await api.get(`api/insight/retention/?${urlParams}`)
+                } catch (e) {
+                    insightLogic.actions.endQuery(ViewType.RETENTION, e)
+                    return []
+                }
                 breakpoint()
+                insightLogic.actions.endQuery(ViewType.RETENTION)
                 return res.data
             },
         },
@@ -99,14 +107,10 @@ export const retentionTableLogic = kea<
         clearRetention: true,
     }),
     reducers: ({ props }) => ({
-        initialPathname: [
-            (state: Record<string, any>) => router.selectors.location(state).pathname,
-            { noop: (a) => a },
-        ],
         filters: [
             props.filters
                 ? defaultFilters(props.filters as Record<string, any>)
-                : (state) => defaultFilters(router.selectors.searchParams(state)),
+                : (state) => defaultFilters(router.selectors.searchParams(state)) as Record<string, any>,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
@@ -129,7 +133,7 @@ export const retentionTableLogic = kea<
     }),
     selectors: {
         actionsLookup: [
-            (selectors) => [selectors.actions],
+            (selectors) => [(selectors as any).actions],
             (actions: ActionType[]) => Object.assign({}, ...actions.map((action) => ({ [action.id]: action.name }))),
         ],
     },
@@ -188,7 +192,7 @@ export const retentionTableLogic = kea<
             if (values.people.next) {
                 const peopleResult = await api.get(values.people.next)
                 const newPeople = {
-                    result: [...(values.people.result || []), ...(peopleResult['result'] || [])],
+                    result: [...(values.people.result as Record<string, any>[]), ...peopleResult['result']],
                     next: peopleResult['next'],
                 }
                 actions.updatePeople(newPeople)

@@ -28,11 +28,13 @@ export enum Scene {
     InstanceLicenses = 'instanceLicenses',
     MySettings = 'mySettings',
     Annotations = 'annotations',
-    PreflightCheck = 'preflightCheck',
-    Signup = 'signup',
-    Ingestion = 'ingestion',
     Billing = 'billing',
     Plugins = 'plugins',
+    // Onboarding / setup routes
+    PreflightCheck = 'preflightCheck',
+    Signup = 'signup',
+    Personalization = 'personalization',
+    Ingestion = 'ingestion',
 }
 
 interface LoadedScene {
@@ -68,38 +70,45 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.MySettings]: () => import(/* webpackChunkName: 'mySettings' */ './me/Settings'),
     [Scene.Annotations]: () => import(/* webpackChunkName: 'annotations' */ './annotations'),
     [Scene.PreflightCheck]: () => import(/* webpackChunkName: 'preflightCheck' */ './PreflightCheck'),
-    [Scene.Signup]: () => import(/* webpackChunkName: 'signup' */ './Signup'),
+    [Scene.Signup]: () => import(/* webpackChunkName: 'signup' */ './onboarding'),
     [Scene.Ingestion]: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
     [Scene.Billing]: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
     [Scene.Plugins]: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
+    [Scene.Personalization]: () => import(/* webpackChunkName: 'personalization' */ './onboarding/Personalization'),
 }
 
 interface SceneConfig {
     unauthenticated?: boolean // If route is to be accessed when logged out (N.B. add to posthog/urls.py too)
     dark?: boolean // Background is $bg_mid
     plain?: boolean // Only keeps the main content and the top navigation bar
+    hide_top_nav?: boolean // Hides the top navigation bar (regardless of whether `plain` is `true` or not)
 }
 
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
-    [Scene.PreflightCheck]: {
-        unauthenticated: true,
-    },
-    [Scene.Signup]: {
-        unauthenticated: true,
-    },
     [Scene.Dashboard]: {
         dark: true,
     },
     [Scene.Insights]: {
         dark: true,
     },
-    [Scene.Ingestion]: {
-        plain: true,
-    },
     [Scene.OrganizationCreateFirst]: {
         plain: true,
     },
     [Scene.ProjectCreateFirst]: {
+        plain: true,
+    },
+    // Onboarding / setup routes
+    [Scene.PreflightCheck]: {
+        unauthenticated: true,
+    },
+    [Scene.Signup]: {
+        unauthenticated: true,
+    },
+    [Scene.Personalization]: {
+        plain: true,
+        hide_top_nav: true,
+    },
+    [Scene.Ingestion]: {
         plain: true,
     },
 }
@@ -136,8 +145,10 @@ export const routes: Record<string, Scene> = {
     '/instance/licenses': Scene.InstanceLicenses,
     '/instance/status': Scene.SystemStatus,
     '/me/settings': Scene.MySettings,
+    // Onboarding / setup routes
     '/preflight': Scene.PreflightCheck,
     '/signup': Scene.Signup,
+    '/personalization': Scene.Personalization,
     '/ingestion': Scene.Ingestion,
     '/ingestion/*': Scene.Ingestion,
 }

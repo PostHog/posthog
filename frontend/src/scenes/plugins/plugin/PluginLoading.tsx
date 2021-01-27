@@ -5,8 +5,8 @@ export function PluginLoading(): JSX.Element {
     return (
         <>
             {[1, 2, 3].map((i) => (
-                <Col key={i} style={{ marginBottom: 20, width: '100%' }}>
-                    <Card className="plugin-card">
+                <Col key={i} style={{ marginBottom: 20, width: '100%' }} className="plugins-scene-plugin-card-col">
+                    <Card className="plugins-scene-plugin-card">
                         <Row align="middle" className="plugin-card-row">
                             <Col className="hide-plugin-image-below-500">
                                 <Skeleton.Avatar active size="large" shape="square" />

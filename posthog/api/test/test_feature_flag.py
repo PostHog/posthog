@@ -13,10 +13,11 @@ class TestFeatureFlag(TransactionBaseTest):
         feature_flag = self.client.post(
             "/api/feature_flag/",
             data={"name": "Beta feature", "key": "beta-feature", "filters": {"groups": [{"rollout_percentage": 50}]}},
-            format="json",
+            content_type="application/json",
         ).json()
         self.assertEqual(FeatureFlag.objects.get(pk=feature_flag["id"]).name, "Beta feature")
         self.assertTrue(feature_flag["is_simple_flag"])
+        self.assertEqual(feature_flag["rollout_percentage"], 50)
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
@@ -72,6 +73,7 @@ class TestFeatureFlag(TransactionBaseTest):
             format="json",
         ).json()
         self.assertFalse(feature_flag["is_simple_flag"])
+        self.assertIsNone(feature_flag["rollout_percentage"])
 
 
 class TestAPIFeatureFlag(APIBaseTest):
