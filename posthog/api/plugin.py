@@ -314,7 +314,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         orders = request.data.get("orders", {})
 
-        plugin_configs = PluginConfig.objects.filter(team_id=self.team.pk, enabled=True)  # type: ignore
+        plugin_configs = PluginConfig.objects.filter(team_id=self.team.pk, enabled=True)
         plugin_configs_dict = dict((p.plugin_id, p) for p in plugin_configs)
         for plugin_id, order in orders.items():
             plugin_config = plugin_configs_dict.get(int(plugin_id), None)
