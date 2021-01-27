@@ -16,14 +16,20 @@ class TestSessionRecording(BaseTest):
     def test_scheduler(self, patched_session_recording_retention: MagicMock) -> None:
         with freeze_time("2020-01-10"):
             organization, _, team = Organization.objects.bootstrap(
-                self.user, team_fields={"session_recording_opt_in": True}
+                self.user, team_fields={"session_recording_opt_in": True, "session_recording_retention_period_days": 5}
             )
             team2 = Team.objects.create(organization=organization, session_recording_opt_in=False)
+            team3 = Team.objects.create(
+                organization=organization, session_recording_opt_in=False, session_recording_retention_period_days=6
+            )
 
             session_recording_retention_scheduler()
 
             patched_session_recording_retention.assert_has_calls(
-                [call(team_id=team.id, time_threshold=now() - timedelta(days=7))]
+                [
+                    call(team_id=team.id, time_threshold=now() - timedelta(days=5)),
+                    call(team_id=team3.id, time_threshold=now() - timedelta(days=6)),
+                ]
             )
 
     def test_deletes_from_django(self) -> None:

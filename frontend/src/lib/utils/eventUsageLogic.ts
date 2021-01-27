@@ -3,7 +3,7 @@ import { kea } from 'kea'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
-import { eventUsageLogicType } from 'types/lib/utils/eventUsageLogicType'
+import { eventUsageLogicType } from './eventUsageLogicType'
 import { AnnotationType, FilterType, DashboardType } from '~/types'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
@@ -14,6 +14,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportPersonDetailViewed: (person) => ({ person }),
         reportInsightViewed: (filters, isFirstLoad) => ({ filters, isFirstLoad }),
         reportDashboardViewed: (dashboard, hasShareToken) => ({ dashboard, hasShareToken }),
+        reportBookmarkletDragged: () => true,
+        reportIngestionBookmarkletCollapsible: (activePanels) => ({ activePanels }),
+        reportPersonalizationSkipped: (step) => ({ step }),
+        reportPersonalization: (payload, step, step_completed_fully) => ({ payload, step, step_completed_fully }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }: { annotations: AnnotationType[] | null }, breakpoint) => {
@@ -128,7 +132,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         ) => {
             await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
             const { created_at, name, is_shared, pinned } = dashboard
-            const properties = {
+            const properties: Record<string, any> = {
                 created_at,
                 name: userLogic.values.user?.is_multi_tenancy ? name : undefined, // Don't send name on self-hosted
                 is_shared,
@@ -150,6 +154,35 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
 
             posthog.capture('viewed dashboard', properties)
+        },
+        reportBookmarkletDragged: async (_, breakpoint) => {
+            breakpoint(500)
+            posthog.capture('bookmarklet drag start')
+        },
+        reportIngestionBookmarkletCollapsible: async ({ activePanels }: { activePanels: string[] }, breakpoint) => {
+            breakpoint(500)
+            const action = activePanels.includes('bookmarklet') ? 'shown' : 'hidden'
+            posthog.capture(`ingestion bookmarklet panel ${action}`)
+        },
+        reportPersonalizationSkipped: async ({ step }: { step: number | null }) => {
+            posthog.capture('personalization skipped', { at_step: step })
+        },
+        reportPersonalization: async ({
+            payload,
+            step,
+            step_completed_fully,
+        }: {
+            payload: Record<string, string>
+            step: number | null
+            step_completed_fully: boolean
+        }) => {
+            posthog.people.set_once(payload)
+            posthog.capture('personalization step completed', {
+                step,
+                step_completed_fully,
+                payload,
+                number_of_answers: Object.keys(payload).length,
+            })
         },
     },
 })

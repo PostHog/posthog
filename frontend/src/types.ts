@@ -23,7 +23,9 @@ export interface UserType {
     is_staff: boolean
     is_debug: boolean
     is_impersonated: boolean
+    ee_enabled: boolean
     email_service_available: boolean
+    realm: 'cloud' | 'hosted'
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -104,8 +106,10 @@ export interface TeamType {
     opt_out_capture: boolean
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
+    session_recording_retention_period_days: number | null
     plugins_opt_in: boolean
     ingested_event: boolean
+    is_demo: boolean
 }
 
 export interface ActionType {
@@ -368,6 +372,7 @@ export interface PluginType {
     description?: string
     url?: string
     tag?: string
+    latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     error?: PluginErrorType
@@ -429,4 +434,10 @@ export interface FilterType {
     returningEntity?: Record<string, any>
     startEntity?: Record<string, any>
     path_type?: '$pageview' | '$screen' | '$autocapture' | 'custom_event'
+}
+
+export interface SystemStatus {
+    metric: string
+    value: string
+    key?: string
 }

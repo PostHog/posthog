@@ -111,7 +111,6 @@ function _PersonV2(): JSX.Element {
                                         cancelText="No"
                                     >
                                         <Button
-                                            onClick={() => console.log(1)}
                                             className="text-danger"
                                             disabled={deletedPersonLoading}
                                             data-attr="delete-person"

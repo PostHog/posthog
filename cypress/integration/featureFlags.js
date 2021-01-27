@@ -10,7 +10,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-key').should('have.value', 'beta-feature')
 
         // select "add filter" and "property"
-        cy.get('[data-attr=new-prop-filter-feature-flag-undefined').click()
+        cy.get('[data-attr=new-prop-filter-feature-flag-undefined-0-1').click()
 
         // select the first property
         cy.get('[data-attr=property-filter-dropdown]').click()
@@ -23,7 +23,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-switch').click()
         cy.get('[data-attr=feature-flag-submit').click()
         cy.get('[data-attr=feature-flag-table').should('contain', 'beta feature')
-        cy.get('[data-attr=rollout-percentage').should('contain', '30%')
+        cy.get('[data-attr=feature-flag-table').should('contain', '30%')
         cy.get('[data-attr=feature-flag-table').should('contain', 'is_demo')
 
         cy.get('[data-attr=feature-flag-table] tr:first-child td:first-child').click()

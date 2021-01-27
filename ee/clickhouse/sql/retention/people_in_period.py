@@ -1,5 +1,5 @@
 RETENTION_PEOPLE_PER_PERIOD_SQL = """
-SELECT person_id, count(person_id) appearance_count, groupArray(intervals_from_base) appearances FROM (
+SELECT toString(person_id), count(person_id) appearance_count, groupArray(intervals_from_base) appearances FROM (
     SELECT DISTINCT
         datediff(%(period)s, {trunc_func}(toDateTime(%(start_date)s)), reference_event.event_date) as base_interval,
         datediff(%(period)s, reference_event.event_date, {trunc_func}(toDateTime(event_date))) as intervals_from_base,

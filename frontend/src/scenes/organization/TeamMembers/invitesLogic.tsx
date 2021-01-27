@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import { OrganizationInviteType } from '~/types'
-import { invitesLogicType } from 'types/scenes/organization/invitesLogicType'
+import { invitesLogicType } from './invitesLogicType'
 import { copyToClipboard } from 'lib/utils'
 
 export const invitesLogic = kea<invitesLogicType>({

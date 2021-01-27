@@ -5,7 +5,7 @@
 */
 import { kea } from 'kea'
 import { PostHog } from 'posthog-js'
-import { featureFlagLogicType } from 'types/lib/logic/featureFlagLogicType'
+import { featureFlagLogicType } from './featureFlagLogicType'
 import posthog from 'posthog-js'
 
 type FeatureFlagsSet = { [flag: string]: boolean }

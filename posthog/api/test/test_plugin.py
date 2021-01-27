@@ -37,6 +37,31 @@ class TestPluginAPI(APIBaseTest):
             response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
             self.assertEqual(response.status_code, 400)  # already installed, tested separately below
 
+    def test_plugin_private_token_url_unique(self, mock_get, mock_reload):
+        repo_url = "https://gitlab.com/mariusandra/helloworldplugin"
+        with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
+            response = self.client.post(
+                "/api/organizations/@current/plugins/", {"url": "{}?private_token=123".format(repo_url)}
+            )
+            self.assertEqual(response.status_code, 201)
+            response = self.client.post(
+                "/api/organizations/@current/plugins/", {"url": "{}?private_token=123".format(repo_url)}
+            )
+            self.assertEqual(response.status_code, 400)
+            response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
+            self.assertEqual(response.status_code, 400)
+            response = self.client.post(
+                "/api/organizations/@current/plugins/", {"url": "{}?private_token=567".format(repo_url)}
+            )
+            self.assertEqual(response.status_code, 400)
+
+            response = self.client.post("/api/organizations/@current/plugins/", {"url": "{}-other".format(repo_url)})
+            self.assertEqual(response.status_code, 201)
+            response = self.client.post(
+                "/api/organizations/@current/plugins/", {"url": "{}-other?private_token=567".format(repo_url)}
+            )
+            self.assertEqual(response.status_code, 400)
+
     def test_update_plugin_auth(self, mock_get, mock_reload):
         repo_url = "https://github.com/PostHog/helloworldplugin"
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
@@ -102,6 +127,7 @@ class TestPluginAPI(APIBaseTest):
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "source": None,
+                    "latest_tag": None,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
@@ -136,24 +162,28 @@ class TestPluginAPI(APIBaseTest):
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "source": None,
+                    "latest_tag": None,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
             self.assertEqual(mock_reload.call_count, 1)
 
-            response2 = self.client.patch(
-                "/api/organizations/@current/plugins/{}".format(response.data["id"]),  # type: ignore
+    def test_create_plugin_other_commit_url(self, mock_get, mock_reload):
+        with self.settings(PLUGINS_INSTALL_VIA_API=True):
+            self.assertEqual(mock_reload.call_count, 0)
+            response2 = self.client.post(
+                "/api/organizations/@current/plugins/",
                 {
                     "url": "https://github.com/PostHog/helloworldplugin/commit/{}".format(
                         HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0]
                     )
                 },
             )
-            self.assertEqual(response2.status_code, 200)
+            self.assertEqual(response2.status_code, 201)
             self.assertEqual(
                 response2.data,
                 {
-                    "id": response.data["id"],  # type: ignore
+                    "id": response2.data["id"],  # type: ignore
                     "plugin_type": "custom",
                     "name": "helloworldplugin",
                     "description": "Greet the World and Foo a Bar, JS edition, vol 2!",
@@ -164,10 +194,11 @@ class TestPluginAPI(APIBaseTest):
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0],
                     "source": None,
+                    "latest_tag": None,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
-            self.assertEqual(mock_reload.call_count, 2)
+            self.assertEqual(mock_reload.call_count, 1)
 
     def test_create_plugin_source(self, mock_get, mock_reload):
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
@@ -188,6 +219,7 @@ class TestPluginAPI(APIBaseTest):
                     "config_schema": {},
                     "tag": None,
                     "source": "const processEvent = e => e",
+                    "latest_tag": None,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)

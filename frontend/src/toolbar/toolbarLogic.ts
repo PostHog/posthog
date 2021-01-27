@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { toolbarLogicType } from 'types/toolbar/toolbarLogicType'
+import { toolbarLogicType } from './toolbarLogicType'
 import { EditorProps } from '~/types'
 import { clearSessionToolbarToken } from '~/toolbar/utils'
 import { posthog } from '~/toolbar/posthog'

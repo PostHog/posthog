@@ -4,7 +4,7 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog.models import Action, ActionStep, Element, Event, Organization, Person
+from posthog.models import Action, ActionStep, Element, Event, Organization, Person, Team
 from posthog.test.base import TransactionBaseTest
 from posthog.utils import relative_date_parse
 
@@ -328,12 +328,16 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             self.assertIsNotNone(response["pagination"])
 
         def test_event_sessions_by_id(self):
+            another_team = Team.objects.create(organization=self.organization)
+
             Person.objects.create(team=self.team, distinct_ids=["1"])
+            Person.objects.create(team=another_team, distinct_ids=["1"])
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 event_factory(team=self.team, event="1st action", distinct_id="1")
                 event_factory(team=self.team, event="1st action", distinct_id="2")
             with freeze_time("2012-01-14T03:25:34.000Z"):
                 event_factory(team=self.team, event="2nd action", distinct_id="1")
+                event_factory(team=another_team, event="2nd action", distinct_id="1")
                 event_factory(team=self.team, event="2nd action", distinct_id="2")
             with freeze_time("2012-01-15T03:59:35.000Z"):
                 event_factory(team=self.team, event="3rd action", distinct_id="1")
