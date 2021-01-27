@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from django.db import IntegrityError
 from django.db.models import QuerySet
@@ -17,6 +17,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
+    rollout_percentage = serializers.SerializerMethodField()
 
     class Meta:
         model = FeatureFlag
@@ -30,12 +31,21 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "created_by",
             "created_at",
             "is_simple_flag",
+            "rollout_percentage",
         ]
 
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
-    def get_is_simple_flag(self, feature_flag: FeatureFlag):
-        return all(len(group.get("properties", [])) == 0 for group in feature_flag.groups)
+    def get_is_simple_flag(self, feature_flag: FeatureFlag) -> bool:
+        return len(feature_flag.groups) == 1 and all(
+            len(group.get("properties", [])) == 0 for group in feature_flag.groups
+        )
+
+    def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
+        if self.get_is_simple_flag(feature_flag):
+            return feature_flag.groups[0].get("rollout_percentage")
+        else:
+            return None
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
