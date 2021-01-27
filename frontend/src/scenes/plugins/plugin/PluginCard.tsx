@@ -134,12 +134,14 @@ export function PluginCard({
                                 <Tag color="blue">
                                     <LoadingOutlined /> Checking for updates…
                                 </Tag>
-                            ) : url && latestTag && tag && tag !== latestTag ? (
-                                <UpdateAvailable url={url} tag={tag} latestTag={latestTag} />
-                            ) : url && latestTag && tag && tag === latestTag ? (
-                                <Tag color="green">
-                                    <CheckOutlined /> Up to date
-                                </Tag>
+                            ) : url && latestTag && tag ? (
+                                tag === latestTag ? (
+                                    <Tag color="green">
+                                        <CheckOutlined /> Up to date
+                                    </Tag>
+                                ) : (
+                                    <UpdateAvailable url={url} tag={tag} latestTag={latestTag} />
+                                )
                             ) : null}
 
                             {pluginType === PluginInstallationType.Source ? <SourcePluginTag /> : null}
