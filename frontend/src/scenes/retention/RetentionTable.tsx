@@ -124,25 +124,20 @@ export function RetentionTable({
                                             </tr>
                                             <tr>
                                                 <td />
-                                                {results &&
-                                                    results[selectedRow]?.values.map((data: any, index: number) => (
+                                                {people.result?.totals &&
+                                                    people.result.totals.map((count: any, index: number) => (
                                                         <td key={index}>
-                                                            {data.count}&nbsp;{' '}
-                                                            {data.count > 0 && (
+                                                            {count}&nbsp;{' '}
+                                                            {count > 0 && (
                                                                 <span>
-                                                                    (
-                                                                    {percentage(
-                                                                        data.count /
-                                                                            results[selectedRow]?.values[0]['count']
-                                                                    )}
-                                                                    )
+                                                                    ({percentage(count / people.result.totals[0])})
                                                                 </span>
                                                             )}
                                                         </td>
                                                     ))}
                                             </tr>
-                                            {people.result &&
-                                                (people.result as any[]).map((personAppearances) => (
+                                            {people.result?.detail &&
+                                                (people.result.detail as any[]).map((personAppearances) => (
                                                     <tr key={personAppearances.person.id}>
                                                         <td className="text-overflow" style={{ minWidth: 200 }}>
                                                             <Link to={`/person_by_id/${personAppearances.person.id}`}>
