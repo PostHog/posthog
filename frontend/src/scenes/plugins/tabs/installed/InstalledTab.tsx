@@ -58,7 +58,7 @@ export function InstalledTab(): JSX.Element {
         updateStatus,
         rearranging,
     } = useValues(pluginsLogic)
-    const { checkForUpdates, setPluginTab, rearrange, cancelRearranging } = useActions(pluginsLogic)
+    const { checkForUpdates, setPluginTab, rearrange, setTemporaryOrder, cancelRearranging } = useActions(pluginsLogic)
 
     const upgradeButton =
         user?.plugin_access.install && hasNonSourcePlugins ? (
@@ -98,17 +98,27 @@ export function InstalledTab(): JSX.Element {
     )
 
     const onSortEnd = ({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void => {
-        console.log({ oldIndex, newIndex })
-        rearrange()
-        // const move = (arr, from, to) => {
-        //     const clone = [...arr]
-        //     Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
-        //     return clone.map((child, order) => ({ ...child, order }))
-        // }
-        // setFilters(toFilters(move(localFilters, oldIndex, newIndex)))
-        // if (oldIndex !== newIndex) {
-        //     posthog.capture('funnel step reordered')
-        // }
+        if (oldIndex === newIndex) {
+            return
+        }
+
+        const move = (arr: PluginTypeWithConfig[], from: number, to: number): { id: number; order: number }[] => {
+            const clone = [...arr]
+            Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
+            return clone.map(({ id }, order) => ({ id, order }))
+        }
+
+        const movedPluginId: number = enabledPlugins[oldIndex]?.id
+
+        const newTemporaryOrder: Record<number, number> = {}
+        for (const { id, order } of move(enabledPlugins, oldIndex, newIndex)) {
+            newTemporaryOrder[id] = order
+        }
+
+        if (!rearranging) {
+            rearrange()
+        }
+        setTemporaryOrder(newTemporaryOrder, movedPluginId)
     }
 
     return (

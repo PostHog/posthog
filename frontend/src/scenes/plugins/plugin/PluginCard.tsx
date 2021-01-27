@@ -51,6 +51,7 @@ export function PluginCard({
         latest_tag: latestTag,
         id: pluginId,
         updateStatus,
+        hasMoved,
     } = plugin
 
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin, rearrange } = useActions(
@@ -75,7 +76,7 @@ export function PluginCard({
                                 <DownOutlined />
                             </div>
                             <div>
-                                <Tag color="#555" onClick={rearrange}>
+                                <Tag color={hasMoved ? '#bd0225' : '#555'} onClick={rearrange}>
                                     {order}
                                 </Tag>
                             </div>

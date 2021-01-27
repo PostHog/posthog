@@ -62,6 +62,10 @@ export const pluginsLogic = kea<
         pluginUpdated: (id: number) => ({ id }),
         generateApiKeysIfNeeded: (form: PluginForm) => ({ form }),
         rearrange: true,
+        setTemporaryOrder: (temporaryOrder: Record<number, number>, movedPluginId: number) => ({
+            temporaryOrder,
+            movedPluginId,
+        }),
         cancelRearranging: true,
     },
 
@@ -328,16 +332,32 @@ export const pluginsLogic = kea<
                 cancelRearranging: () => false,
             },
         ],
+        temporaryOrder: [
+            {} as Record<number, number>,
+            {
+                rearrange: () => ({}),
+                setTemporaryOrder: (_, { temporaryOrder }) => temporaryOrder,
+                cancelRearranging: () => ({}),
+            },
+        ],
+        movedPlugins: [
+            {} as Record<number, boolean>,
+            {
+                rearrange: () => ({}),
+                setTemporaryOrder: (state, { movedPluginId }) => ({ ...state, [movedPluginId]: true }),
+                cancelRearranging: () => ({}),
+            },
+        ],
     },
 
     selectors: {
         installedPlugins: [
-            (s) => [s.plugins, s.pluginConfigs, s.updateStatus],
-            (plugins, pluginConfigs, updateStatus): PluginTypeWithConfig[] => {
+            (s) => [s.plugins, s.pluginConfigs, s.updateStatus, s.temporaryOrder],
+            (plugins, pluginConfigs, updateStatus, temporaryOrder): PluginTypeWithConfig[] => {
                 const pluginValues = Object.values(plugins)
                 return pluginValues
                     .map((plugin, index) => {
-                        let pluginConfig = pluginConfigs[plugin.id]
+                        let pluginConfig = { ...pluginConfigs[plugin.id] }
                         if (!pluginConfig) {
                             const config: Record<string, any> = {}
                             Object.entries(getConfigSchemaObject(plugin.config_schema)).forEach(
@@ -354,6 +374,9 @@ export const pluginsLogic = kea<
                                 order: pluginValues.length + index,
                             }
                         }
+                        if (typeof temporaryOrder[plugin.id] !== 'undefined') {
+                            pluginConfig.order = temporaryOrder[plugin.id]
+                        }
                         return { ...plugin, pluginConfig, updateStatus: updateStatus[plugin.id] }
                     })
                     .sort((a, b) => a.pluginConfig.order - b.pluginConfig.order)
@@ -361,8 +384,15 @@ export const pluginsLogic = kea<
             },
         ],
         enabledPlugins: [
-            (s) => [s.installedPlugins],
-            (installedPlugins) => installedPlugins.filter(({ pluginConfig }) => pluginConfig?.enabled),
+            (s) => [s.installedPlugins, s.movedPlugins],
+            (installedPlugins, movedPlugins) =>
+                [...installedPlugins.filter(({ pluginConfig }) => pluginConfig?.enabled)]
+                    .sort((a, b) => a.pluginConfig.order - b.pluginConfig.order)
+                    .map((plugin, index) => ({
+                        ...plugin,
+                        pluginConfig: { ...plugin.pluginConfig, order: index + 1 },
+                        hasMoved: movedPlugins[plugin.id],
+                    })) as PluginTypeWithConfig[],
         ],
         disabledPlugins: [
             (s) => [s.installedPlugins],

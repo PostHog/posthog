@@ -12,6 +12,7 @@ export interface PluginRepositoryEntry {
 export interface PluginTypeWithConfig extends PluginType {
     pluginConfig: PluginConfigType
     updateStatus: PluginUpdateStatusType
+    hasMoved?: boolean
 }
 
 export interface PluginUpdateStatusType {
