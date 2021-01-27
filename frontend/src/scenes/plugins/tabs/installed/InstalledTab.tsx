@@ -218,7 +218,7 @@ export function InstalledTab(): JSX.Element {
                     </>
                 ) : (
                     <>
-                        <Subtitle subtitle="Installed Plugins" />
+                        <Subtitle subtitle="Installed plugins" />
                         <Row gutter={16} style={{ marginTop: 16 }}>
                             <Col span={24}>
                                 <Empty description={<span>You haven't installed any plugins yet</span>}>
