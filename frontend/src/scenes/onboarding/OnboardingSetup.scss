@@ -36,4 +36,56 @@
             color: $text_muted;
         }
     }
+
+    .step-list {
+        display: flex;
+        justify-content: center;
+    }
+
+    .onboarding-step {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin-left: $default_spacing * 2.5;
+        cursor: pointer;
+
+        &:first-of-type {
+            margin-left: 0;
+        }
+
+        .step-number {
+            font-weight: bold;
+        }
+
+        .icon-container {
+            width: 64px;
+            height: 64px;
+            border-radius: $radius;
+            background-color: rgba($primary, 10%);
+            color: $primary;
+            font-size: 32px;
+            margin-top: $default_spacing;
+            margin-bottom: $default_spacing;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        &.disabled {
+            cursor: inherit;
+
+            .icon-container {
+                background-color: $border_light;
+                color: $text_muted;
+            }
+
+            .step-number {
+                color: $text_muted;
+            }
+
+            button {
+                cursor: inherit;
+            }
+        }
+    }
 }

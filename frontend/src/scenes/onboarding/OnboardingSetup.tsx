@@ -1,7 +1,8 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import React from 'react'
 import { hot } from 'react-hot-loader/root'
-import { Collapse } from 'antd'
+import { Button, Collapse } from 'antd'
+import { ProjectOutlined, CodeOutlined, CheckOutlined } from '@ant-design/icons'
 import './OnboardingSetup.scss'
 
 const { Panel } = Collapse
@@ -26,6 +27,37 @@ function PanelHeader({
     )
 }
 
+function OnboardingStep({
+    callToAction,
+    stepNumber,
+    icon,
+    identifier,
+    disabled,
+    handleClick,
+}: {
+    callToAction: string
+    stepNumber: number
+    icon: React.ReactNode
+    identifier: string
+    disabled?: boolean
+    handleClick?: () => void
+}): JSX.Element {
+    return (
+        <div
+            className={`onboarding-step${disabled ? ' disabled' : ''}`}
+            onClick={() => !disabled && handleClick && handleClick()}
+            data-attr="onboarding-setup-step"
+            data-step={identifier}
+        >
+            <div className="step-number">Step {stepNumber}</div>
+            <div className="icon-container">{icon}</div>
+            <Button type="primary" disabled={disabled}>
+                {callToAction}
+            </Button>
+        </div>
+    )
+}
+
 export const OnboardingSetup = hot(_OnboardingSetup)
 function _OnboardingSetup(): JSX.Element {
     return (
@@ -46,7 +78,28 @@ function _OnboardingSetup(): JSX.Element {
                     }
                     key="1"
                 >
-                    <p>text</p>
+                    <div className="step-list">
+                        <OnboardingStep
+                            callToAction="Set up project"
+                            icon={<ProjectOutlined />}
+                            stepNumber={1}
+                            identifier="set-up-project"
+                        />
+                        <OnboardingStep
+                            callToAction="Install PostHog"
+                            icon={<CodeOutlined />}
+                            stepNumber={2}
+                            identifier="install-posthog"
+                            disabled
+                        />
+                        <OnboardingStep
+                            callToAction="Verify your events"
+                            icon={<CheckOutlined />}
+                            stepNumber={3}
+                            identifier="verify-events"
+                            disabled
+                        />
+                    </div>
                 </Panel>
                 <Panel
                     header={
