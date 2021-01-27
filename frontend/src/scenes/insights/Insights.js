@@ -78,8 +78,7 @@ const showIntervalFilter = function (filter) {
     }
 }
 
-const showChartFilter = function (filter) {
-    const { featureFlags } = useValues(featureFlagLogic)
+const showChartFilter = function (filter, featureFlags) {
     switch (filter.insight) {
         case ViewType.TRENDS:
         case ViewType.STICKINESS:
@@ -242,7 +241,7 @@ function _Insights() {
                                             {showIntervalFilter(allFilters) && (
                                                 <IntervalFilter filters={allFilters} view={activeView} />
                                             )}
-                                            {showChartFilter(allFilters) && (
+                                            {showChartFilter(allFilters, featureFlags) && (
                                                 <ChartFilter
                                                     onChange={(display) => {
                                                         if (
