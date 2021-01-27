@@ -371,8 +371,8 @@ export const pluginsLogic = kea<
 
     selectors: {
         installedPlugins: [
-            (s) => [s.plugins, s.pluginConfigs, s.updateStatus, s.temporaryOrder],
-            (plugins, pluginConfigs, updateStatus, temporaryOrder): PluginTypeWithConfig[] => {
+            (s) => [s.plugins, s.pluginConfigs, s.updateStatus],
+            (plugins, pluginConfigs, updateStatus): PluginTypeWithConfig[] => {
                 const pluginValues = Object.values(plugins)
                 return pluginValues
                     .map((plugin, index) => {
@@ -393,9 +393,6 @@ export const pluginsLogic = kea<
                                 order: pluginValues.length + index,
                             }
                         }
-                        if (typeof temporaryOrder[plugin.id] !== 'undefined') {
-                            pluginConfig.order = temporaryOrder[plugin.id]
-                        }
                         return { ...plugin, pluginConfig, updateStatus: updateStatus[plugin.id] }
                     })
                     .sort((a, b) => a.pluginConfig.order - b.pluginConfig.order)
@@ -403,9 +400,16 @@ export const pluginsLogic = kea<
             },
         ],
         enabledPlugins: [
-            (s) => [s.installedPlugins, s.movedPlugins],
-            (installedPlugins, movedPlugins) =>
+            (s) => [s.installedPlugins, s.movedPlugins, s.temporaryOrder],
+            (installedPlugins, movedPlugins, temporaryOrder) =>
                 [...installedPlugins.filter(({ pluginConfig }) => pluginConfig?.enabled)]
+                    .map((plugin) => ({
+                        ...plugin,
+                        pluginConfig: {
+                            ...plugin.pluginConfig,
+                            order: temporaryOrder[plugin.id] ?? plugin.pluginConfig.order,
+                        },
+                    }))
                     .sort((a, b) => a.pluginConfig.order - b.pluginConfig.order)
                     .map((plugin, index) => ({
                         ...plugin,
