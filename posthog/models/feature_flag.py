@@ -10,6 +10,7 @@ from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.dispatch import receiver
 from django.utils import timezone
+from sentry_sdk.api import capture_exception
 
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team import Team
@@ -144,7 +145,10 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
         "id", "team_id", "filters", "key", "rollout_percentage"
     )
     for feature_flag in feature_flags:
-        # distinct_id will always be a string, but data can have non-string values ("Any")
-        if feature_flag.distinct_id_matches(distinct_id):
-            flags_enabled.append(feature_flag.key)
+        try:
+            # distinct_id will always be a string, but data can have non-string values ("Any")
+            if feature_flag.distinct_id_matches(distinct_id):
+                flags_enabled.append(feature_flag.key)
+        except Exception as err:
+            capture_exception(err)
     return flags_enabled
