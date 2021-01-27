@@ -41,7 +41,6 @@ function StepTwo(): JSX.Element {
     const { personalizationData, step } = useValues(personalizationLogic)
     const { appendPersonalizationData } = useActions(personalizationLogic)
     const { reportPersonalizationSkipped, reportPersonalization } = useActions(eventUsageLogic)
-    const { push } = useActions(router)
 
     const handleOptionChanged = (attr: 'role' | 'team_size', value: string | null): void => {
         appendPersonalizationData({ [attr]: value })
@@ -50,7 +49,8 @@ function StepTwo(): JSX.Element {
     const handleContinue = (): void => {
         reportPersonalization(personalizationData, step, answeredQuestionCount === TOTAL_QUESTION_COUNT)
         // TODO: Update organization record
-        push('/ingestion') // TODO: Temporary while the new setup page is introduced
+        // :TODO: Is there a way to force default insights graph this without hard reload?
+        location.href = '/'
     }
 
     const answeredQuestionCount: number = personalizationData
