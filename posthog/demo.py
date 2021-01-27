@@ -2,7 +2,7 @@ import json
 import random
 import secrets
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -37,7 +37,9 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
 
     Person.objects.bulk_create([Person(team=team, properties={"is_demo": True}) for _ in range(0, 100)])
     distinct_ids: List[PersonDistinctId] = []
-    events: List[Event] = []
+    events: List[Dict] = []
+    event = lambda **kw: kw
+
     days_ago = 7
     demo_data_index = 0
     for index, person in enumerate(Person.objects.filter(team=team)):
@@ -55,7 +57,7 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
         date = now() - relativedelta(days=days_ago)
         browser = random.choice(["Chrome", "Safari", "Firefox"])
         events.append(
-            Event(
+            event(
                 team=team,
                 event="$pageview",
                 distinct_id=distinct_id,
@@ -68,28 +70,30 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
             person.is_identified = True
             person.save()
             demo_data_index += 1
-            Event.objects.create(
-                team=team,
-                distinct_id=distinct_id,
-                event="$autocapture",
-                properties={"$current_url": base_url, "$browser": browser, "$lib": "web", "$event_type": "click",},
-                timestamp=date + relativedelta(seconds=14),
-                elements=[
-                    Element(
-                        tag_name="a",
-                        href="/demo/1",
-                        attr_class=["btn", "btn-success"],
-                        attr_id="sign-up",
-                        text="Sign up",
-                    ),
-                    Element(tag_name="form", attr_class=["form"]),
-                    Element(tag_name="div", attr_class=["container"]),
-                    Element(tag_name="body"),
-                    Element(tag_name="html"),
-                ],
+            events.append(
+                event(
+                    team=team,
+                    distinct_id=distinct_id,
+                    event="$autocapture",
+                    properties={"$current_url": base_url, "$browser": browser, "$lib": "web", "$event_type": "click",},
+                    timestamp=date + relativedelta(seconds=14),
+                    elements=[
+                        Element(
+                            tag_name="a",
+                            href="/demo/1",
+                            attr_class=["btn", "btn-success"],
+                            attr_id="sign-up",
+                            text="Sign up",
+                        ),
+                        Element(tag_name="form", attr_class=["form"]),
+                        Element(tag_name="div", attr_class=["container"]),
+                        Element(tag_name="body"),
+                        Element(tag_name="html"),
+                    ],
+                )
             )
             events.append(
-                Event(
+                event(
                     event="$pageview",
                     team=team,
                     distinct_id=distinct_id,
@@ -98,27 +102,29 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                 )
             )
             if index % 4 == 0:
-                Event.objects.create(
-                    team=team,
-                    event="$autocapture",
-                    distinct_id=distinct_id,
-                    properties={
-                        "$current_url": "%s/1" % base_url,
-                        "$browser": browser,
-                        "$lib": "web",
-                        "$event_type": "click",
-                    },
-                    timestamp=date + relativedelta(seconds=29),
-                    elements=[
-                        Element(tag_name="button", attr_class=["btn", "btn-success"], text="Sign up!",),
-                        Element(tag_name="form", attr_class=["form"]),
-                        Element(tag_name="div", attr_class=["container"]),
-                        Element(tag_name="body"),
-                        Element(tag_name="html"),
-                    ],
+                events.append(
+                    event(
+                        team=team,
+                        event="$autocapture",
+                        distinct_id=distinct_id,
+                        properties={
+                            "$current_url": "%s/1" % base_url,
+                            "$browser": browser,
+                            "$lib": "web",
+                            "$event_type": "click",
+                        },
+                        timestamp=date + relativedelta(seconds=29),
+                        elements=[
+                            Element(tag_name="button", attr_class=["btn", "btn-success"], text="Sign up!",),
+                            Element(tag_name="form", attr_class=["form"]),
+                            Element(tag_name="div", attr_class=["container"]),
+                            Element(tag_name="body"),
+                            Element(tag_name="html"),
+                        ],
+                    )
                 )
                 events.append(
-                    Event(
+                    event(
                         event="$pageview",
                         team=team,
                         distinct_id=distinct_id,
@@ -127,27 +133,29 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                     )
                 )
                 if index % 5 == 0:
-                    Event.objects.create(
-                        team=team,
-                        event="$autocapture",
-                        distinct_id=distinct_id,
-                        properties={
-                            "$current_url": "%s/2" % base_url,
-                            "$browser": browser,
-                            "$lib": "web",
-                            "$event_type": "click",
-                        },
-                        timestamp=date + relativedelta(seconds=59),
-                        elements=[
-                            Element(tag_name="button", attr_class=["btn", "btn-success"], text="Pay $10",),
-                            Element(tag_name="form", attr_class=["form"]),
-                            Element(tag_name="div", attr_class=["container"]),
-                            Element(tag_name="body"),
-                            Element(tag_name="html"),
-                        ],
+                    events.append(
+                        event(
+                            team=team,
+                            event="$autocapture",
+                            distinct_id=distinct_id,
+                            properties={
+                                "$current_url": "%s/2" % base_url,
+                                "$browser": browser,
+                                "$lib": "web",
+                                "$event_type": "click",
+                            },
+                            timestamp=date + relativedelta(seconds=59),
+                            elements=[
+                                Element(tag_name="button", attr_class=["btn", "btn-success"], text="Pay $10",),
+                                Element(tag_name="form", attr_class=["form"]),
+                                Element(tag_name="div", attr_class=["container"]),
+                                Element(tag_name="body"),
+                                Element(tag_name="html"),
+                            ],
+                        )
                     )
                     events.append(
-                        Event(
+                        event(
                             event="purchase",
                             team=team,
                             distinct_id=distinct_id,
@@ -156,7 +164,7 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                         )
                     )
                     events.append(
-                        Event(
+                        event(
                             event="$pageview",
                             team=team,
                             distinct_id=distinct_id,
@@ -167,7 +175,13 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
     team.event_properties_numerical.append("purchase")
     team.save()
     PersonDistinctId.objects.bulk_create(distinct_ids)
-    Event.objects.bulk_create(events)
+
+    if is_ee_enabled():
+        from ee.clickhouse.demo import bulk_create_events
+
+        bulk_create_events(events)
+    else:
+        Event.objects.bulk_create([Event(kw) for kw in events])
 
 
 def _create_funnel(team: Team, base_url: str) -> None:
@@ -221,12 +235,11 @@ def demo(request: Request):
         team.save()
 
     if is_ee_enabled():  # :TRICKY: Lazily backfill missing event data.
-        from ee.clickhouse.demo import create_anonymous_users_ch
         from ee.clickhouse.models.event import get_events_by_team
 
         result = get_events_by_team(team_id=team.pk)
         if not result:
-            create_anonymous_users_ch(team=team, base_url=request.build_absolute_uri("/demo"))
+            _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo"))
 
     return render_template("demo.html", request=request, context={"api_token": team.api_token})
 
@@ -241,10 +254,5 @@ def create_demo_team(organization: Organization, user: User, request: Request) -
         team=team, rollout_percentage=100, name="Sign Up CTA", key="sign-up-cta", created_by=user,
     )
     _recalculate(team=team)
-
-    if is_ee_enabled():
-        from ee.clickhouse.demo import create_anonymous_users_ch
-
-        create_anonymous_users_ch(team=team, base_url=request.build_absolute_uri("/demo"))
 
     return team
