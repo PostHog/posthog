@@ -6,6 +6,9 @@ import { ProjectOutlined, CodeOutlined, CheckOutlined, CheckCircleOutlined } fro
 import './OnboardingSetup.scss'
 import { useActions, useValues } from 'kea'
 import { onboardingSetupLogic } from './onboardingSetupLogic'
+import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
+import { Link } from 'lib/components/Link'
+import { IconExternalLink } from 'lib/components/icons'
 
 const { Panel } = Collapse
 
@@ -71,8 +74,8 @@ function OnboardingStep({
 
 export const OnboardingSetup = hot(_OnboardingSetup)
 function _OnboardingSetup(): JSX.Element {
-    const { stepProjectSetup, stepInstallation } = useValues(onboardingSetupLogic)
-    const { switchToNonDemoProject } = useActions(onboardingSetupLogic)
+    const { stepProjectSetup, stepInstallation, projectModalShown, stepVerification } = useValues(onboardingSetupLogic)
+    const { switchToNonDemoProject, setProjectModalShown } = useActions(onboardingSetupLogic)
 
     return (
         <div className="onboarding-setup">
@@ -99,6 +102,7 @@ function _OnboardingSetup(): JSX.Element {
                             stepNumber={1}
                             identifier="set-up-project"
                             completed={stepProjectSetup}
+                            handleClick={() => setProjectModalShown(true)}
                         />
                         <OnboardingStep
                             label="Install PostHog"
@@ -115,6 +119,7 @@ function _OnboardingSetup(): JSX.Element {
                             stepNumber={3}
                             identifier="verify-events"
                             disabled={!stepProjectSetup || !stepInstallation}
+                            completed={stepVerification}
                             handleClick={() => switchToNonDemoProject('/ingestion/verify')}
                         />
                     </div>
@@ -128,7 +133,7 @@ function _OnboardingSetup(): JSX.Element {
                         />
                     }
                     key="2"
-                    collapsible="disabled"
+                    disabled
                 >
                     <p>text</p>
                 </Panel>
@@ -146,11 +151,34 @@ function _OnboardingSetup(): JSX.Element {
                         />
                     }
                     key="3"
-                    collapsible="disabled"
+                    disabled
                 >
                     <p>text</p>
                 </Panel>
             </Collapse>
+            <CreateProjectModal
+                isVisible={projectModalShown}
+                setIsVisible={setProjectModalShown}
+                title="Set up your first project"
+                caption={
+                    <div className="mb">
+                        <div>
+                            Enter a <b>name</b> for your first project
+                        </div>
+                        <div className="text-muted">
+                            It’s helpful to separate your different apps in multiple projects. Read more about our
+                            recommendations and{' '}
+                            <Link
+                                to="https://posthog.com/docs/features/organizations?utm_medium=in-product&utm_campaign=onboarding-setup-2822"
+                                rel="noopener"
+                                target="_blank"
+                            >
+                                best practices <IconExternalLink />
+                            </Link>
+                        </div>
+                    </div>
+                }
+            />
         </div>
     )
 }

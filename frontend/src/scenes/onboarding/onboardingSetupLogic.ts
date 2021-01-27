@@ -1,13 +1,23 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { UserType } from '~/types'
+import { OrganizationType } from '~/types'
 import { onboardingSetupLogicType } from './onboardingSetupLogicType'
 
 export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
     actions: {
         switchToNonDemoProject: (dest) => ({ dest }),
+        setProjectModalShown: (shown) => ({ shown }),
+    },
+    reducers: {
+        projectModalShown: [
+            false,
+            {
+                setProjectModalShown: (_, { shown }) => shown,
+            },
+        ],
     },
     listeners: {
         switchToNonDemoProject: ({ dest }: { dest: string }) => {
@@ -40,12 +50,27 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
             },
         ],
         stepInstallation: [
-            () => [userLogic.selectors.user],
-            (user: UserType) => {
+            () => [organizationLogic.selectors.currentOrganization],
+            (organization: OrganizationType) => {
                 // Step is completed if the user has ingested an event in any non-demo project
-                if (user.organization?.teams) {
-                    for (const team of user.organization?.teams) {
-                        if (!team.is_demo && user.team?.ingested_event) {
+                if (organization.teams) {
+                    for (const team of organization.teams) {
+                        if (!team.is_demo && team.ingested_event) {
+                            return true
+                        }
+                    }
+                }
+
+                return false
+            },
+        ],
+        stepVerification: [
+            (selectors) => [organizationLogic.selectors.currentOrganization, selectors.stepInstallation],
+            (organization: OrganizationType, stepInstallation: boolean) => {
+                // Step is completed if the user has completed the snippet onboarding in any non-demo project
+                if (stepInstallation && organization.teams) {
+                    for (const team of organization.teams) {
+                        if (!team.is_demo && team.completed_snippet_onboarding) {
                             return true
                         }
                     }
