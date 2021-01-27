@@ -1,5 +1,5 @@
 import React from 'react'
-import { Alert, Button, Col, Empty, Row, Skeleton, Space } from 'antd'
+import { Button, Col, Empty, Row, Skeleton, Space, Tag } from 'antd'
 import { CloudDownloadOutlined, SyncOutlined, SwapOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -8,11 +8,32 @@ import { userLogic } from 'scenes/userLogic'
 import { PluginLoading } from 'scenes/plugins/plugin/PluginLoading'
 import { InstalledPlugin } from 'scenes/plugins/tabs/installed/InstalledPlugin'
 import { PluginTab, PluginTypeWithConfig } from 'scenes/plugins/types'
-import { SortableContainer, SortableElement } from 'react-sortable-hoc'
+import { SortableContainer, SortableElement, SortableHandle } from 'react-sortable-hoc'
+
+type HandleProps = { children?: JSX.Element }
+const DragColumn = SortableHandle<HandleProps>(({ children }: HandleProps) => (
+    <Col className="order-handle">{children}</Col>
+))
 
 const SortablePlugin = SortableElement(
-    ({ plugin, order, maxOrder }: { plugin: PluginTypeWithConfig; order: number; maxOrder: number }) => (
-        <InstalledPlugin plugin={plugin} order={order} maxOrder={maxOrder} className="rearranging" />
+    ({
+        plugin,
+        order,
+        maxOrder,
+        rearranging,
+    }: {
+        plugin: PluginTypeWithConfig
+        order: number
+        maxOrder: number
+        rearranging: boolean
+    }) => (
+        <InstalledPlugin
+            plugin={plugin}
+            order={order}
+            maxOrder={maxOrder}
+            rearranging={rearranging}
+            DragColumn={DragColumn}
+        />
     )
 )
 const SortablePlugins = SortableContainer(({ children }: { children: React.ReactNode }) => {
@@ -57,12 +78,38 @@ export function InstalledTab(): JSX.Element {
             </Button>
         ) : null
 
-    const rearrangeButton =
-        user?.plugin_access.install && enabledPlugins.length > 1 ? (
-            <Button type="default" icon={<SwapOutlined style={{ transform: 'rotate(90deg)' }} />} onClick={rearrange}>
-                Rearrange
+    const canRearrange = user?.plugin_access.configure && enabledPlugins.length > 1
+
+    const rearrangeButton = canRearrange ? (
+        <Button type="default" icon={<SwapOutlined style={{ transform: 'rotate(90deg)' }} />} onClick={rearrange}>
+            Rearrange
+        </Button>
+    ) : null
+
+    const rearrangingButtons = rearranging ? (
+        <Space>
+            <Button type="primary">Save Order</Button>
+            <Button type="default" onClick={cancelRearranging}>
+                Cancel
             </Button>
-        ) : null
+        </Space>
+    ) : (
+        <></>
+    )
+
+    const onSortEnd = ({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void => {
+        console.log({ oldIndex, newIndex })
+        rearrange()
+        // const move = (arr, from, to) => {
+        //     const clone = [...arr]
+        //     Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
+        //     return clone.map((child, order) => ({ ...child, order }))
+        // }
+        // setFilters(toFilters(move(localFilters, oldIndex, newIndex)))
+        // if (oldIndex !== newIndex) {
+        //     posthog.capture('funnel step reordered')
+        // }
+    }
 
     return (
         <div>
@@ -83,39 +130,31 @@ export function InstalledTab(): JSX.Element {
             {enabledPlugins.length > 0 ? (
                 <>
                     <Subtitle
-                        subtitle={`Enabled plugins (${enabledPlugins.length})`}
+                        subtitle={
+                            rearranging ? (
+                                <>
+                                    Rearranging plugins{' '}
+                                    <Tag color="red" style={{ fontWeight: 'normal', marginLeft: 10 }}>
+                                        Unsaved
+                                    </Tag>
+                                </>
+                            ) : (
+                                `Enabled plugins (${enabledPlugins.length})`
+                            )
+                        }
                         buttons={
-                            !rearranging ? (
+                            rearranging ? (
+                                rearrangingButtons
+                            ) : (
                                 <Space key="not-rearranging">
                                     {rearrangeButton}
                                     {upgradeButton}
                                 </Space>
-                            ) : (
-                                <></>
                             )
                         }
                     />
-                    {rearranging ? (
-                        <Alert
-                            message="Drag the plugins to set the ingestion order"
-                            description={
-                                <>
-                                    <Space>
-                                        <Button type="primary">Save Order</Button>
-                                        <Button type="default" onClick={cancelRearranging}>
-                                            Cancel
-                                        </Button>
-                                    </Space>
-                                </>
-                            }
-                            onClose={cancelRearranging}
-                            type="info"
-                            showIcon
-                            closable
-                        />
-                    ) : null}
-                    {rearranging ? (
-                        <SortablePlugins>
+                    {canRearrange || rearranging ? (
+                        <SortablePlugins useDragHandle onSortEnd={onSortEnd}>
                             {enabledPlugins.map((plugin, index) => (
                                 <SortablePlugin
                                     key={plugin.id}
@@ -123,6 +162,7 @@ export function InstalledTab(): JSX.Element {
                                     index={index}
                                     order={index + 1}
                                     maxOrder={enabledPlugins.length}
+                                    rearranging={rearranging}
                                 />
                             ))}
                         </SortablePlugins>

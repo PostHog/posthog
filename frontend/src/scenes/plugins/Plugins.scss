@@ -1,12 +1,6 @@
 .plugins-scene {
     padding-bottom: 60px;
 }
-.plugins-scene-plugin-card-col.rearranging {
-    cursor: move;
-    .plugins-scene-plugin-card {
-        pointer-events: none;
-    }
-}
 .plugins-scene-plugin-card {
     > .ant-card-body {
         padding: 15px;
@@ -37,7 +31,7 @@
     .order-handle {
         .ant-tag {
             margin-right: 0;
-            cursor: pointer;
+            cursor: move;
         }
         .arrow {
             &.hide {
@@ -46,6 +40,7 @@
             color: #888;
             height: 19px;
         }
+        cursor: move;
         text-align: center;
         height: 100%;
         margin-top: -10px;

@@ -1,4 +1,4 @@
-import { Button, Card, Col, Popconfirm, Row, Switch, Tag, Tooltip } from 'antd'
+import { Button, Card, Col, Popconfirm, Row, Switch, Tag } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -27,7 +27,8 @@ interface PluginCardProps {
     showUpdateButton?: boolean
     order?: number
     maxOrder?: number
-    className?: string
+    rearranging?: boolean
+    DragColumn?: React.ComponentClass | React.FC
 }
 
 export function PluginCard({
@@ -37,7 +38,8 @@ export function PluginCard({
     showUpdateButton,
     order,
     maxOrder,
-    className,
+    rearranging,
+    DragColumn = ({ children }) => <Col className="order-handle">{children}</Col>,
 }: PluginCardProps): JSX.Element {
     const {
         name,
@@ -57,32 +59,30 @@ export function PluginCard({
     const { loading, installingPluginUrl, checkingForUpdates, updatingPlugin } = useValues(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
-    const switchDisabled = pluginConfig?.global
+    const switchDisabled = rearranging || pluginConfig?.global
 
     return (
         <Col
             style={{ width: '100%', marginBottom: 20 }}
-            className={`plugins-scene-plugin-card-col${className ? ` ${className}` : ''}`}
+            className={`plugins-scene-plugin-card-col${rearranging ? ` rearranging` : ''}`}
             data-attr={`plugin-card-${pluginConfig ? 'installed' : 'available'}`}
         >
             <Card className="plugins-scene-plugin-card">
                 <Row align="middle" className="plugin-card-row">
                     {typeof order === 'number' && typeof maxOrder === 'number' ? (
-                        <Col className="order-handle">
+                        <DragColumn>
                             <div className={`arrow${order !== maxOrder ? ' hide' : ''}`}>
                                 <DownOutlined />
                             </div>
                             <div>
-                                <Tooltip placement="left" title="Click to rearrange ingestion order">
-                                    <Tag color="#555" onClick={rearrange}>
-                                        {order}
-                                    </Tag>
-                                </Tooltip>
+                                <Tag color="#555" onClick={rearrange}>
+                                    {order}
+                                </Tag>
                             </div>
                             <div className={`arrow${order === maxOrder ? ' hide' : ''}`}>
                                 <DownOutlined />
                             </div>
-                        </Col>
+                        </DragColumn>
                     ) : null}
                     {pluginConfig && (
                         <Col>
@@ -174,7 +174,12 @@ export function PluginCard({
                                 <span className="show-over-500">{updateStatus?.updated ? 'Updated' : 'Update'}</span>
                             </Button>
                         ) : canConfigure && pluginId ? (
-                            <Button type="primary" className="padding-under-500" onClick={() => editPlugin(pluginId)}>
+                            <Button
+                                type="primary"
+                                className="padding-under-500"
+                                disabled={rearranging}
+                                onClick={() => editPlugin(pluginId)}
+                            >
                                 <span className="show-over-500">Configure</span>
                                 <span className="hide-over-500">
                                     <SettingOutlined />

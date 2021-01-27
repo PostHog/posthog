@@ -1,5 +1,5 @@
-import { PluginCard } from 'scenes/plugins/plugin/PluginCard'
 import React from 'react'
+import { PluginCard } from 'scenes/plugins/plugin/PluginCard'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
 
 export function InstalledPlugin({
@@ -7,13 +7,15 @@ export function InstalledPlugin({
     showUpdateButton,
     order,
     maxOrder,
-    className,
+    rearranging,
+    DragColumn,
 }: {
     plugin: PluginTypeWithConfig
     showUpdateButton?: boolean
     order?: number
     maxOrder?: number
-    className?: string
+    rearranging?: boolean
+    DragColumn?: React.ComponentClass | React.FC
 }): JSX.Element {
     return (
         <PluginCard
@@ -22,7 +24,8 @@ export function InstalledPlugin({
             showUpdateButton={showUpdateButton}
             order={order}
             maxOrder={maxOrder}
-            className={className}
+            rearranging={rearranging}
+            DragColumn={DragColumn}
         />
     )
 }
