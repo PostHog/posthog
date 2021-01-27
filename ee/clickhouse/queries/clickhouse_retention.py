@@ -214,15 +214,7 @@ class ClickhouseRetention(Retention):
         new_data = filter._data
         new_data.update({"total_intervals": filter.total_intervals - filter.selected_interval})
         filter = RetentionFilter(data=new_data)
-        print(
-            RETENTION_PEOPLE_PER_PERIOD_SQL.format(
-                returning_query=return_query_formatted,
-                filters=prop_filters,
-                first_event_sql=first_event_sql,
-                first_event_default_sql=default_event_query,
-                trunc_func=trunc_func,
-            ),
-        )
+
         query_result = sync_execute(
             RETENTION_PEOPLE_PER_PERIOD_SQL.format(
                 returning_query=return_query_formatted,
