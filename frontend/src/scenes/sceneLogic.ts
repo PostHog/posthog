@@ -35,6 +35,7 @@ export enum Scene {
     Signup = 'signup',
     Personalization = 'personalization',
     Ingestion = 'ingestion',
+    OnboardingSetup = 'onboardingSetup',
 }
 
 interface LoadedScene {
@@ -75,6 +76,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Billing]: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
     [Scene.Plugins]: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
     [Scene.Personalization]: () => import(/* webpackChunkName: 'personalization' */ './onboarding/Personalization'),
+    [Scene.OnboardingSetup]: () => import(/* webpackChunkName: 'onboardingSetup' */ './onboarding/OnboardingSetup'),
 }
 
 interface SceneConfig {
@@ -151,6 +153,7 @@ export const routes: Record<string, Scene> = {
     '/personalization': Scene.Personalization,
     '/ingestion': Scene.Ingestion,
     '/ingestion/*': Scene.Ingestion,
+    '/setup': Scene.OnboardingSetup,
 }
 
 export const sceneLogic = kea<sceneLogicType>({
