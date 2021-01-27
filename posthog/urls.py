@@ -38,7 +38,7 @@ from .utils import render_template
 from .views import health, preflight_check, stats, system_status
 
 
-def home(request, **kwargs):
+def home(request, *args, **kwargs):
     return render_template("index.html", request)
 
 

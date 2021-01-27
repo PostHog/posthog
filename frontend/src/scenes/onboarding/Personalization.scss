@@ -1,0 +1,10 @@
+@import '~/vars';
+
+.personalization-screen {
+    padding: $default_spacing * 2;
+
+    .section-continue {
+        text-align: center;
+        margin-top: 32px;
+    }
+}

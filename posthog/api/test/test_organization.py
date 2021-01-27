@@ -9,7 +9,10 @@ from posthog.test.base import APIBaseTest
 
 
 class TestOrganizationAPI(APIBaseTest):
-    def test_no_create_organization_without_license_selfhosted(self):
+
+    # Creating organizations
+
+    def test_cant_create_organization_without_valid_license_on_self_hosted(self):
         with self.settings(MULTI_TENANCY=False):
             response = self.client.post("/api/organizations/", {"name": "Test"})
             self.assertEqual(response.status_code, 403)
@@ -26,11 +29,15 @@ class TestOrganizationAPI(APIBaseTest):
             response = self.client.post("/api/organizations/", {"name": "Test"})
             self.assertEqual(Organization.objects.count(), 1)
 
+    # Updating organizations
+
     def test_rename_organization_without_license_if_admin(self):
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "QWERTY"})
         self.assertEqual(response.status_code, 200)
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "QWERTY")
+
+        # Member (non-admin, non-owner) cannot update organization's name
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "ASDFG"})
@@ -124,7 +131,7 @@ class TestSignup(APIBaseTest):
             {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog2@posthog.com"},
         )
 
-        # Assert that the user was properly created
+        # Assert that the user & org were properly created
         self.assertEqual(user.first_name, "Jane")
         self.assertEqual(user.email, "hedgehog2@posthog.com")
         self.assertEqual(user.email_opt_in, True)  # Defaults to True
