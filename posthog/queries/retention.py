@@ -280,14 +280,16 @@ class Retention(BaseQuery):
 
     def process_people_in_period(
         self, filter: RetentionFilter, vals, people_dict: Dict[str, ReturnDict]
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         marker_length = filter.total_intervals
         result = []
+        appearance_totals = [0 for _ in range(marker_length)]
         for val in vals:
-            result.append(
-                {"person": people_dict[val[0]], "appearances": appearance_to_markers(sorted(val[2]), marker_length)}
-            )
-        return result
+            appearances = appearance_to_markers(sorted(val[2]), marker_length)
+            result.append({"person": people_dict[val[0]], "appearances": appearances})
+            appearance_totals = [sum(x) for x in zip(*[appearance_totals, appearances])]
+
+        return {"detail": result, "totals": appearance_totals}
 
     def get_entity_condition(self, entity: Entity, table: str) -> Tuple[Q, str]:
         if entity.type == TREND_FILTER_TYPE_EVENTS:
