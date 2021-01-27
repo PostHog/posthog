@@ -7,9 +7,9 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { Link } from 'lib/components/Link'
 
 export function DemoWarning(): JSX.Element | null {
-    const { user, demoOnlyUser } = useValues(userLogic)
+    const { user, demoOnlyProject } = useValues(userLogic)
 
-    if (!demoOnlyUser) {
+    if (!demoOnlyProject) {
         return null
     }
 
