@@ -74,12 +74,14 @@ class FeatureFlagMatcher:
         self.feature_flag = feature_flag
 
     def is_match(self):
-        return any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.groups))
+        return any(self.is_group_match(group) for group in self.feature_flag.groups)
 
-    def is_group_match(self, group: Dict, group_index: int):
+    def is_group_match(self, group: Dict):
         rollout_percentage = group.get("rollout_percentage")
+
         if len(group.get("properties", [])) > 0:
-            if not self._match_distinct_id(group_index):
+
+            if not self.query_group(group):
                 return False
             elif not rollout_percentage:
                 return True
@@ -90,28 +92,18 @@ class FeatureFlagMatcher:
 
         return False
 
-    def _match_distinct_id(self, group_index: int) -> bool:
-        return len(self.query_groups) > 0 and self.query_groups[0][group_index]
-
-    @cached_property
-    def query_groups(self) -> List[List[bool]]:
+    def query_group(self, group: Dict) -> QuerySet:
         query: QuerySet = Person.objects.filter(
-            team_id=self.feature_flag.team_id,
+            team_id=self.feature_flag.team.pk,
             persondistinctid__distinct_id=self.distinct_id,
-            persondistinctid__team_id=self.feature_flag.team_id,
+            persondistinctid__team_id=self.feature_flag.team.pk,
         )
 
-        fields = []
-        for index, group in enumerate(self.feature_flag.groups):
-            key = f"group_{index}"
-
-            subquery = properties_to_Q(
-                Filter(data=group).properties, team_id=self.feature_flag.team_id, is_person_query=True
-            )
-            query = query.annotate(**{key: ExpressionWrapper(subquery, output_field=BooleanField())})
-            fields.append(key)
-
-        return query.values_list(*fields)
+        filters = properties_to_Q(
+            Filter(data=group).properties, team_id=self.feature_flag.team.pk, is_person_query=True
+        )
+        query = query.filter(filters)
+        return query
 
     # This function takes a distinct_id and a feature flag key and returns a float between 0 and 1.
     # Given the same distinct_id and key, it'll always return the same float. These floats are

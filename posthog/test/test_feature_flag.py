@@ -30,6 +30,27 @@ class TestFeatureFlag(BaseTest):
         )
         with self.assertNumQueries(1):
             self.assertTrue(feature_flag.distinct_id_matches("example_id"))
+        with self.assertNumQueries(2):
+            self.assertTrue(feature_flag.distinct_id_matches("another_id"))
+        self.assertFalse(feature_flag.distinct_id_matches("false_id"))
+
+    def test_multi_property_rollout_filters(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"},
+        )
+        Person.objects.create(
+            team=self.team, distinct_ids=["another_id"], properties={"email": "example@example.com"},
+        )
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {"rollout_percentage": 0},
+                    {"properties": [{"key": "email", "value": "example@example.com"}]},
+                ]
+            }
+        )
+        # with self.assertNumQueries(0):
+        #     feature_flag.distinct_id_matches("example_id")
         with self.assertNumQueries(1):
             self.assertTrue(feature_flag.distinct_id_matches("another_id"))
         self.assertFalse(feature_flag.distinct_id_matches("false_id"))
