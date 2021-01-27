@@ -105,7 +105,7 @@ function _App(): JSX.Element | null {
     if (!scene || sceneConfig.plain) {
         return (
             <Layout style={{ minHeight: '100vh' }}>
-                {featureFlags['navigation-1775'] && !sceneConfig.hide_top_nav ? <TopNavigation /> : null}
+                {featureFlags['navigation-1775'] && !sceneConfig.hideTopNav ? <TopNavigation /> : null}
                 <SceneComponent user={user} {...params} />
                 {essentialElements}
             </Layout>
@@ -135,9 +135,9 @@ function _App(): JSX.Element | null {
                     }`}
                     style={{ minHeight: '100vh' }}
                 >
-                    {!sceneConfig.hide_top_nav && featureFlags['navigation-1775'] ? <TopNavigation /> : <TopContent />}
+                    {!sceneConfig.hideTopNav && featureFlags['navigation-1775'] ? <TopNavigation /> : <TopContent />}
                     <Layout.Content className="main-app-content" data-attr="layout-content">
-                        <DemoWarning />
+                        {!sceneConfig.hideDemoWarning && <DemoWarning />}
 
                         {!featureFlags['hide-billing-toolbar'] && <BillingToolbar />}
                         {featureFlags['navigation-1775'] ? <BackTo /> : null}
