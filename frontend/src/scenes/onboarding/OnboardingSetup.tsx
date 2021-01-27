@@ -4,6 +4,8 @@ import { hot } from 'react-hot-loader/root'
 import { Button, Collapse } from 'antd'
 import { ProjectOutlined, CodeOutlined, CheckOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import './OnboardingSetup.scss'
+import { useActions, useValues } from 'kea'
+import { onboardingSetupLogic } from './onboardingSetupLogic'
 
 const { Panel } = Collapse
 
@@ -69,6 +71,9 @@ function OnboardingStep({
 
 export const OnboardingSetup = hot(_OnboardingSetup)
 function _OnboardingSetup(): JSX.Element {
+    const { stepProjectSetup, stepInstallation } = useValues(onboardingSetupLogic)
+    const { switchToNonDemoProject } = useActions(onboardingSetupLogic)
+
     return (
         <div className="onboarding-setup">
             <PageHeader
@@ -93,22 +98,24 @@ function _OnboardingSetup(): JSX.Element {
                             icon={<ProjectOutlined />}
                             stepNumber={1}
                             identifier="set-up-project"
-                            completed
-                            handleClick={() => alert(1)}
+                            completed={stepProjectSetup}
                         />
                         <OnboardingStep
                             label="Install PostHog"
                             icon={<CodeOutlined />}
                             stepNumber={2}
                             identifier="install-posthog"
-                            disabled
+                            disabled={!stepProjectSetup}
+                            completed={stepInstallation}
+                            handleClick={() => switchToNonDemoProject('/ingestion')}
                         />
                         <OnboardingStep
                             label="Verify your events"
                             icon={<CheckOutlined />}
                             stepNumber={3}
                             identifier="verify-events"
-                            disabled
+                            disabled={!stepProjectSetup || !stepInstallation}
+                            handleClick={() => switchToNonDemoProject('/ingestion/verify')}
                         />
                     </div>
                 </Panel>
