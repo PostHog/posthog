@@ -17,7 +17,8 @@ from rest_framework import (
 )
 
 from posthog.api.user import UserSerializer
-from posthog.models import Organization, User
+from posthog.demo import create_demo_team
+from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.permissions import (
     CREATE_METHODS,
@@ -125,7 +126,9 @@ class OrganizationSignupSerializer(serializers.Serializer):
         is_instance_first_user: bool = not User.objects.exists()
 
         company_name = validated_data.pop("company_name", validated_data["first_name"])
-        self._organization, self._team, self._user = User.objects.bootstrap(company_name=company_name, **validated_data)
+        self._organization, self._team, self._user = User.objects.bootstrap(
+            company_name=company_name, create_team=self.create_team, **validated_data
+        )
         user = self._user
 
         login(
@@ -143,9 +146,21 @@ class OrganizationSignupSerializer(serializers.Serializer):
 
         return user
 
-    def to_representation(self, instance):
-        serializer = UserSerializer(instance=instance)
-        return serializer.data
+    def create_team(self, organization: Organization, user: User) -> Team:
+        if self.enable_new_onboarding(user):
+            return create_demo_team(user=user, organization=organization, request=self.context["request"])
+        else:
+            return Team.objects.create_with_data(user=user, organization=organization)
+
+    def to_representation(self, instance) -> Dict:
+        data = UserSerializer(instance=instance).data
+        data["redirect_url"] = "/personalization" if self.enable_new_onboarding() else "/ingestion"
+        return data
+
+    def enable_new_onboarding(self, user: Optional[User] = None) -> bool:
+        if user is None:
+            user = self._user
+        return posthoganalytics.feature_enabled("onboarding-2822", user.distinct_id) or settings.DEBUG
 
 
 class OrganizationSignupViewset(generics.CreateAPIView):

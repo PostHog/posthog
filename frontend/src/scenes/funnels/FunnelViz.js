@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react'
 import FunnelGraph from 'funnel-graph-js'
 import { Loading, humanFriendlyDuration } from 'lib/utils'
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 import './FunnelViz.scss'
 

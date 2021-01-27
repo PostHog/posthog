@@ -23,6 +23,7 @@ import { preflightLogic } from './PreflightCheck/logic'
 import { Link } from 'lib/components/Link'
 import { BackTo } from 'lib/components/BackTo'
 import { Papercups } from 'lib/components/Papercups'
+import { DemoWarning } from '~/layout/navigation/DemoWarning'
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
@@ -136,6 +137,8 @@ function _App(): JSX.Element | null {
                 >
                     {!sceneConfig.hide_top_nav && featureFlags['navigation-1775'] ? <TopNavigation /> : <TopContent />}
                     <Layout.Content className="main-app-content" data-attr="layout-content">
+                        <DemoWarning />
+
                         {!featureFlags['hide-billing-toolbar'] && <BillingToolbar />}
                         {featureFlags['navigation-1775'] ? <BackTo /> : null}
 

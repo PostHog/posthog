@@ -1,14 +1,17 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { signupLogicType } from './logicType'
 
-export const signupLogic = kea<signupLogicType>({
+interface AccountResponse {
+    redirect_url: string
+}
+
+export const signupLogic = kea<signupLogicType<AccountResponse>>({
     loaders: () => ({
         account: [
-            [],
+            null as AccountResponse | null,
             {
-                createAccount: async (payload) => await api.create('api/signup/', payload),
+                createAccount: async (payload): Promise<AccountResponse> => await api.create('api/signup/', payload),
             },
         ],
     }),
@@ -16,9 +19,7 @@ export const signupLogic = kea<signupLogicType>({
     listeners: {
         createAccountSuccess: ({ account }) => {
             if (account) {
-                location.href = featureFlagLogic.values.featureFlags['onboarding-2822']
-                    ? '/personalization'
-                    : '/ingestion'
+                location.href = account.redirect_url
             }
         },
     },

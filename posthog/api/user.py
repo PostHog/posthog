@@ -132,6 +132,7 @@ def user(request):
                 "session_recording_retention_period_days": team.session_recording_retention_period_days,
                 "plugins_opt_in": team.plugins_opt_in,
                 "ingested_event": team.ingested_event,
+                "is_demo": team.is_demo,
             },
             "teams": teams,
             "has_password": user.has_usable_password(),
