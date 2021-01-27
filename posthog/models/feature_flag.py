@@ -1,15 +1,16 @@
 import hashlib
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import posthoganalytics
 from django.contrib.postgres.fields import JSONField
 from django.db import models
-from django.db.models.expressions import ExpressionWrapper
+from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.dispatch import receiver
 from django.utils import timezone
+from sentry_sdk.api import capture_exception
 
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team import Team
@@ -105,13 +106,17 @@ class FeatureFlagMatcher:
         for index, group in enumerate(self.feature_flag.groups):
             key = f"group_{index}"
 
-            subquery = properties_to_Q(
-                Filter(data=group).properties, team_id=self.feature_flag.team_id, is_person_query=True
-            )
-            query = query.annotate(**{key: ExpressionWrapper(subquery, output_field=BooleanField())})
+            if len(group.get("properties", {})) > 0:
+                expr: Any = properties_to_Q(
+                    Filter(data=group).properties, team_id=self.feature_flag.team_id, is_person_query=True
+                )
+            else:
+                expr = RawSQL("true", [])
+
+            query = query.annotate(**{key: ExpressionWrapper(expr, output_field=BooleanField())})
             fields.append(key)
 
-        return query.values_list(*fields)
+        return list(query.values_list(*fields))
 
     # This function takes a distinct_id and a feature flag key and returns a float between 0 and 1.
     # Given the same distinct_id and key, it'll always return the same float. These floats are
@@ -140,7 +145,10 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
         "id", "team_id", "filters", "key", "rollout_percentage"
     )
     for feature_flag in feature_flags:
-        # distinct_id will always be a string, but data can have non-string values ("Any")
-        if feature_flag.distinct_id_matches(distinct_id):
-            flags_enabled.append(feature_flag.key)
+        try:
+            # distinct_id will always be a string, but data can have non-string values ("Any")
+            if feature_flag.distinct_id_matches(distinct_id):
+                flags_enabled.append(feature_flag.key)
+        except Exception as err:
+            capture_exception(err)
     return flags_enabled
