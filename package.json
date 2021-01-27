@@ -40,7 +40,7 @@
         "@posthog/plugin-scaffold": "0.2.6",
         "@posthog/simmerjs": "0.7.2-posthog.2",
         "@sentry/browser": "^5.27.2",
-        "antd": "^4.11.2",
+        "antd": "4.1.1",
         "babel-preset-nano-react-app": "^0.1.0",
         "chart.js": "^2.9.3",
         "core-js": "3.6.5",
