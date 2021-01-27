@@ -35,6 +35,7 @@ services:
             SECRET_KEY: 'alsdfjiosdajfklalsdjkf'
             DEBUG: 'true'
             PRIMARY_DB: 'clickhouse'
+            PLUGIN_SERVER_INGESTION_HANDOFF: 'true'
         depends_on:
             - db
             - redis
@@ -59,9 +60,10 @@ services:
             CLICKHOUSE_VERIFY: 'false'
             KAFKA_URL: 'kafka://kafka'
             REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: 'asdflaisdjkfalsdkjf'
+            SECRET_KEY: 'alsdfjiosdajfklalsdjkf'
             DEBUG: 'true'
             PRIMARY_DB: 'clickhouse'
+            PLUGIN_SERVER_INGESTION_HANDOFF: 'true'
         depends_on:
             - db
             - redis

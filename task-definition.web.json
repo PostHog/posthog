@@ -101,6 +101,10 @@
                 {
                     "name": "CLICKHOUSE_DENORMALIZED_PROPERTIES",
                     "value": "issampledevent,currentscreen,objectname"
+                },
+                {
+                    "name": "PLUGIN_SERVER_INGESTION_HANDOFF",
+                    "value": "true"
                 }
             ],
             "secrets": [
