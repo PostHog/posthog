@@ -29,6 +29,15 @@ export function getConfigSchemaObject(
     }
 }
 
+export function defaultConfigForPlugin(plugin: PluginTypeWithConfig): Record<string, any> {
+    const config: Record<string, any> = {}
+    for (const field of getConfigSchemaArray(plugin.config_schema)) {
+        if (field.key && typeof field.default !== 'undefined') {
+            config[field.key] = field.default
+        }
+    }
+    return config
+}
 export function getPluginConfigFormData(
     editingPlugin: PluginTypeWithConfig,
     pluginConfigChanges: Record<string, any>
