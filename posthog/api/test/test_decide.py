@@ -117,11 +117,11 @@ class TestDecide(BaseTest):
             key="filer-by-property-2",
             created_by=self.user,
         )
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(7):
             response = self._post_decide()
         self.assertEqual(response["featureFlags"][0], "beta-feature")
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(7):
             response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"})
         self.assertEqual(len(response["featureFlags"]), 0)
 
