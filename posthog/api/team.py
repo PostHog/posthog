@@ -99,7 +99,6 @@ class TeamSerializer(serializers.ModelSerializer):
         if organization is None:
             raise exceptions.ValidationError("You need to belong to an organization first!")
         with transaction.atomic():
-            validated_data.setdefault("completed_snippet_onboarding", True)
             team = Team.objects.create_with_data(**validated_data, organization=organization)
             request.user.current_team = team
             request.user.save()

@@ -2,7 +2,6 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { teamLogicType } from './teamLogicType'
 import { TeamType } from '~/types'
-import { userLogic } from './userLogic'
 
 export const teamLogic = kea<teamLogicType<TeamType>>({
     actions: {
@@ -22,7 +21,7 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
                 // no API request in patch as that's handled in userLogic for now
                 patchCurrentTeam: (patch: Partial<TeamType>) =>
                     values.currentTeam ? { ...values.currentTeam, ...patch } : null,
-                createTeam: async (name: string) => await api.create('api/projects/', { name }),
+                createTeam: async (name: string): Promise<TeamType> => await api.create('api/projects/', { name }),
                 resetToken: async () => await api.update('api/projects/@current/reset_token', {}),
             },
         ],
@@ -34,17 +33,11 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
             }
         },
         createTeamSuccess: () => {
-            let location = '/ingestion'
-            if (userLogic.values.user?.organization?.teams) {
-                for (const team of userLogic.values.user.organization.teams) {
-                    if (!team.is_demo && team.id !== values.currentTeam?.id) {
-                        /* If organization already has another non-demo project setup, take to settings, otherwise take to
-                        ingestion wizard */
-                        location = '/project/settings'
-                    }
-                }
+            if (values.currentTeam) {
+                window.location.href = values.currentTeam.completed_snippet_onboarding
+                    ? '/project/settings'
+                    : '/ingestion'
             }
-            window.location.href = location
         },
     }),
     events: ({ actions }) => ({
