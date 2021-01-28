@@ -34,14 +34,14 @@ function StepOne(): JSX.Element {
 
     const handleContinue = (): void => {
         reportPersonalization(personalizationData, step, answeredQuestionCount === TOTAL_QUESTION_COUNT)
-        // TODO: Update organization record
-        // TODO: Is there a way to force default insights graph this without hard reload?
+        // :TODO: Update organization record
+        // :TODO: Is there a way to force default insights graph this without hard reload?
         location.href = '/'
     }
 
     const answeredQuestionCount: number = personalizationData
         ? (!!personalizationData.role ? 1 : 0) +
-          (!!personalizationData.products ? 1 : 0) +
+          (!!personalizationData.products && personalizationData.products.length ? 1 : 0) +
           (!!personalizationData.technical ? 1 : 0)
         : 0
     const TOTAL_QUESTION_COUNT = 3

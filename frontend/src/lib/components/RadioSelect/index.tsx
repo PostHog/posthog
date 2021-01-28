@@ -38,7 +38,7 @@ export function RadioSelect({
 
         if (multipleSelection) {
             if (selectedOption instanceof Array) {
-                const _selectedOptions = selectedOption
+                const _selectedOptions = [...selectedOption]
                 const idx = _selectedOptions.indexOf(option.key)
                 if (idx > -1) {
                     // Option was previously selected, remove
