@@ -1,5 +1,6 @@
 import { Alert, Input, Modal } from 'antd'
 import { useActions, useValues } from 'kea'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { Dispatch, SetStateAction, useCallback, useRef, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -17,6 +18,7 @@ export function CreateProjectModal({
 }): JSX.Element {
     const { createTeam } = useActions(teamLogic)
     const { user } = useValues(userLogic)
+    const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const inputRef = useRef<Input | null>(null)
 
@@ -49,15 +51,13 @@ export function CreateProjectModal({
             onOk={() => {
                 const name = inputRef.current?.state.value?.trim()
                 if (name) {
+                    reportProjectCreationSubmitted(user?.organization?.teams.length, name.length)
                     setErrorMessage(null)
                     createTeam(name)
                     closeModal()
                 } else {
                     setErrorMessage('Your project needs a name!')
                 }
-            }}
-            okButtonProps={{
-                'data-attr': 'create-project-ok',
             }}
             onCancel={closeModal}
             visible={isVisible}
