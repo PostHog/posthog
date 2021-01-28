@@ -4,11 +4,10 @@ import { hot } from 'react-hot-loader/root'
 import { personalizationLogic } from './personalizationLogic'
 import { Row, Col, Button } from 'antd'
 import { RadioSelect } from 'lib/components/RadioSelect'
-import { ROLES, TEAM_SIZES } from './personalizationOptions'
+import { ROLES, PRODUCTS } from './personalizationOptions'
 import { Link } from 'lib/components/Link'
 import './Personalization.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { router } from 'kea-router'
 
 export const Personalization = hot(_Personalization)
 
@@ -20,43 +19,30 @@ function _Personalization(): JSX.Element {
     return (
         <Row className="personalization-screen">
             <Col xs={24}>{step === null && <StepOne />}</Col>
-            <Col xs={24}>{step === 2 && <StepTwo />}</Col>
         </Row>
     )
 }
 
 function StepOne(): JSX.Element {
-    const { push } = useActions(router)
-    return (
-        <div>
-            <h2 className="subtitle">Nothing to see here yet! Tap Continue</h2>
-            <Button type="primary" onClick={() => push('/personalization?step=2')}>
-                Continue
-            </Button>
-        </div>
-    )
-}
-
-function StepTwo(): JSX.Element {
     const { personalizationData, step } = useValues(personalizationLogic)
     const { appendPersonalizationData } = useActions(personalizationLogic)
     const { reportPersonalizationSkipped, reportPersonalization } = useActions(eventUsageLogic)
 
-    const handleOptionChanged = (attr: 'role' | 'team_size', value: string | null): void => {
+    const handleOptionChanged = (attr: 'role' | 'product' | 'technical', value: string | string[] | null): void => {
         appendPersonalizationData({ [attr]: value })
     }
 
     const handleContinue = (): void => {
         reportPersonalization(personalizationData, step, answeredQuestionCount === TOTAL_QUESTION_COUNT)
         // TODO: Update organization record
-        // :TODO: Is there a way to force default insights graph this without hard reload?
+        // TODO: Is there a way to force default insights graph this without hard reload?
         location.href = '/'
     }
 
     const answeredQuestionCount: number = personalizationData
         ? (!!personalizationData.role ? 1 : 0) + (!!personalizationData.team_size ? 1 : 0)
         : 0
-    const TOTAL_QUESTION_COUNT = 2
+    const TOTAL_QUESTION_COUNT = 3
 
     return (
         <div>
@@ -79,14 +65,17 @@ function StepTwo(): JSX.Element {
 
             <div style={{ marginTop: 32 }}>
                 <div>
-                    2. Company's <b>team size</b> is
+                    2. What <b>products</b> does your company/team have? <b>Select all that apply</b>
                 </div>
                 <RadioSelect
-                    options={TEAM_SIZES}
-                    selectedOption={personalizationData.team_size}
-                    onOptionChanged={(value) => handleOptionChanged('team_size', value)}
+                    options={PRODUCTS}
+                    selectedOption={personalizationData.product}
+                    onOptionChanged={(value) => handleOptionChanged('product', value)}
+                    multipleSelection
                 />
             </div>
+
+            {JSON.stringify(personalizationData)}
 
             <div className="section-continue">
                 {answeredQuestionCount === 0 ? (
