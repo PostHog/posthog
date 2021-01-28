@@ -25,6 +25,7 @@ import {
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
     BAR_CHART_LABEL,
+    LIFECYCLE,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
@@ -112,6 +113,8 @@ function _Insights() {
     const { setActiveView } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const compareDisabled = allFilters?.shown_as === LIFECYCLE || allFilters?.date_from === 'all'
+    const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
     return (
         user?.team && (
             <div className="actions-graph">
@@ -242,15 +245,11 @@ function _Insights() {
                                                 />
                                             )}
 
-                                            {showDateFilter[activeView] && (
-                                                <DateFilter
-                                                    disabled={
-                                                        activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
-                                                    }
-                                                />
-                                            )}
+                                            {showDateFilter[activeView] && <DateFilter disabled={dateFilterDisabled} />}
 
-                                            {showComparePrevious[activeView] && <CompareFilter filters={allFilters} />}
+                                            {showComparePrevious[activeView] && (
+                                                <CompareFilter disabled={compareDisabled} />
+                                            )}
                                             <SaveToDashboard
                                                 item={{
                                                     entity: {
