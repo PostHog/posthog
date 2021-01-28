@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
 import { AnnotationType, FilterType, DashboardType } from '~/types'
+import { ViewType } from 'scenes/insights/insightLogic'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
@@ -144,7 +145,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
 
             for (const item of dashboard.items) {
-                const key = `${item.filters.insight.toLowerCase()}_count`
+                const key = `${item.filters?.insight?.toLowerCase() || ViewType.TRENDS}_count`
                 if (!properties[key]) {
                     properties[key] = 1
                 } else {
