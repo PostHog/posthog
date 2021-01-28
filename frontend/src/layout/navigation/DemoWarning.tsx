@@ -17,11 +17,12 @@ export function DemoWarning(): JSX.Element | null {
         <>
             <Alert
                 type="warning"
-                message={`Get started using Posthog, ${user?.name}`}
+                message={`Get started using Posthog, ${user?.name}!`}
+                className="demo-warning"
                 description={
                     <span>
                         You're currently viewing <b>demo data</b>. Go to <Link to="/setup">setup</Link> to start sending
-                        your own data!
+                        your own data
                     </span>
                 }
                 icon={<StarOutlined />}
