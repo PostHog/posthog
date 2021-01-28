@@ -123,7 +123,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     <InfoCircleOutlined className="info-indicator" />
                 </Tooltip>
             </h4>
-            <ShownAsFilter filters={filters} onChange={(filters: Partial<FilterType>): void => setFilters(filters)} />
+            <ShownAsFilter filters={filters} onChange={(_filters: Partial<FilterType>): void => setFilters(_filters)} />
         </>
     )
 }

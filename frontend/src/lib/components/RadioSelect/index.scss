@@ -6,7 +6,7 @@ $color-transition: color $transition_params;
 .ph-radio-options {
     display: flex;
     justify-content: center;
-    padding: $default_spacing 0;
+    padding-bottom: $default_spacing;
 
     .radio-option {
         margin-left: $default_spacing * 2;
@@ -20,7 +20,13 @@ $color-transition: color $transition_params;
             margin-left: 0;
         }
 
-        &:hover,
+        &:hover {
+            font-weight: bold;
+            .graphic {
+                background-color: $border;
+            }
+        }
+
         &.active {
             color: $primary;
             font-weight: bold;
