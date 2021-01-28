@@ -32,30 +32,6 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
         return True
 
 
-class TeamNestedSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Team
-        fields = (
-            "id",
-            "name",
-            "slack_incoming_webhook",
-            "created_at",
-            "updated_at",
-            "anonymize_ips",
-            "completed_snippet_onboarding",
-            "ingested_event",
-            "uuid",
-            "opt_out_capture",
-            "is_demo",
-        )
-
-    def create(self, validated_data: Dict[str, Any], **kwargs) -> None:
-        raise NotImplementedError()
-
-    def update(self, instance: Any, validated_data: Dict[str, Any], **kwargs) -> None:
-        raise NotImplementedError()
-
-
 class TeamSerializer(serializers.ModelSerializer):
     class Meta:
         model = Team

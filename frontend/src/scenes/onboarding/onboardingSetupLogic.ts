@@ -26,14 +26,7 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
             if (!user?.team?.is_demo) {
                 router.actions.push(dest)
             } else {
-                let teamId = null
-                if (user.organization?.teams) {
-                    for (const team of user.organization?.teams) {
-                        if (!team.is_demo) {
-                            teamId = team.id
-                        }
-                    }
-                }
+                const teamId = organizationLogic.values.currentOrganization?.non_demo_team_id
                 if (teamId) {
                     navigationLogic.actions.updateCurrentProject(teamId, dest)
                 }
@@ -51,33 +44,12 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
         ],
         stepInstallation: [
             () => [organizationLogic.selectors.currentOrganization],
-            (organization: OrganizationType) => {
-                // Step is completed if the user has ingested an event in any non-demo project
-                if (organization.teams) {
-                    for (const team of organization.teams) {
-                        if (!team.is_demo && team.ingested_event) {
-                            return true
-                        }
-                    }
-                }
-
-                return false
-            },
+            (organization: OrganizationType) => organization.any_project_ingested_events,
         ],
         stepVerification: [
             (selectors) => [organizationLogic.selectors.currentOrganization, selectors.stepInstallation],
-            (organization: OrganizationType, stepInstallation: boolean) => {
-                // Step is completed if the user has completed the snippet onboarding in any non-demo project
-                if (stepInstallation && organization.teams) {
-                    for (const team of organization.teams) {
-                        if (!team.is_demo && team.completed_snippet_onboarding) {
-                            return true
-                        }
-                    }
-                }
-
-                return false
-            },
+            (organization: OrganizationType, stepInstallation: boolean) =>
+                stepInstallation && organization.any_project_completed_snippet_onboarding,
         ],
     },
 })

@@ -16,7 +16,6 @@ from rest_framework import (
     viewsets,
 )
 
-from posthog.api.team import TeamNestedSerializer
 from posthog.api.user import UserSerializer
 from posthog.demo import create_demo_team
 from posthog.models import Organization, Team, User
@@ -50,12 +49,23 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
-    membership_level = serializers.SerializerMethodField(read_only=True)
-    teams = TeamNestedSerializer(many=True, read_only=True)
+    membership_level = serializers.SerializerMethodField()
+    any_project_ingested_events = serializers.SerializerMethodField()
+    any_project_completed_snippet_onboarding = serializers.SerializerMethodField()
+    non_demo_team_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Organization
-        fields = ["id", "name", "created_at", "updated_at", "membership_level", "teams"]
+        fields = [
+            "id",
+            "name",
+            "created_at",
+            "updated_at",
+            "membership_level",
+            "any_project_ingested_events",
+            "any_project_completed_snippet_onboarding",
+            "non_demo_team_id",
+        ]
         read_only_fields = [
             "id",
             "created_at",
@@ -72,6 +82,15 @@ class OrganizationSerializer(serializers.ModelSerializer):
             organization=organization, user=self.context["request"].user,
         ).first()
         return membership.level if membership is not None else None
+
+    def get_any_project_ingested_events(self, organization: Organization) -> bool:
+        return any(team.ingested_event for team in organization.teams.filter(is_demo=False))
+
+    def get_any_project_completed_snippet_onboarding(self, organization: Organization) -> bool:
+        return any(team.completed_snippet_onboarding for team in organization.teams.filter(is_demo=False))
+
+    def get_non_demo_team_id(self, organization: Organization) -> Optional[int]:
+        return next((team.pk for team in organization.teams.filter(is_demo=False)), None)
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):

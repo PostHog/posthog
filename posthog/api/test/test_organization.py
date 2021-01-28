@@ -13,17 +13,25 @@ class TestOrganizationAPI(APIBaseTest):
     # Retrieving organization
 
     def test_get_current_organization(self):
-
-        response = self.client.get("/api/organizations/@current")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
+        response_data = self.client.get("/api/organizations/@current").json()
 
         self.assertEqual(response_data["id"], str(self.organization.id))
-        self.assertEqual(len(response_data["teams"]), Team.objects.filter(organization=self.organization).count())
-        self.assertEqual(response_data["teams"][0]["name"], self.team.name)
-        self.assertEqual(response_data["teams"][0]["is_demo"], False)
-        self.assertEqual(response_data["teams"][0]["ingested_event"], False)
-        self.assertEqual(response_data["teams"][0]["completed_snippet_onboarding"], False)
+        self.assertEqual(response_data["any_project_ingested_events"], False)
+        self.assertEqual(response_data["any_project_completed_snippet_onboarding"], False)
+        self.assertEqual(response_data["non_demo_team_id"], self.team.id)
+
+    def test_get_current_team_fields(self):
+        Team.objects.create(organization=self.organization, is_demo=True, ingested_event=True)
+        team2 = Team.objects.create(organization=self.organization, completed_snippet_onboarding=True)
+        self.team.is_demo = True
+        self.team.save()
+
+        response_data = self.client.get("/api/organizations/@current").json()
+
+        self.assertEqual(response_data["id"], str(self.organization.id))
+        self.assertEqual(response_data["any_project_ingested_events"], False)
+        self.assertEqual(response_data["any_project_completed_snippet_onboarding"], True)
+        self.assertEqual(response_data["non_demo_team_id"], team2.id)
 
     # Creating organizations
 
