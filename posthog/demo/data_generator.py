@@ -11,7 +11,7 @@ class DataGenerator:
         self.events = []
         self.distinct_ids = []
 
-    def create(self):
+    def create(self, dashboards=True):
         self.create_missing_events_and_properties()
         self.create_people()
 
@@ -19,7 +19,8 @@ class DataGenerator:
             self.populate_person_events(person, distinct_id, index)
 
         self.bulk_import_events()
-        self.create_actions_dashboards()
+        if dashboards:
+            self.create_actions_dashboards()
         self.team.save()
         _recalculate(team=self.team)
 
