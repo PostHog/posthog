@@ -3,6 +3,8 @@ import { Button, Card, Col, Input, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginInstallationType } from 'scenes/plugins/types'
+import Title from 'antd/es/typography/Title'
+import Paragraph from 'antd/es/typography/Paragraph'
 
 export function SourcePlugin(): JSX.Element {
     const { sourcePluginName, pluginError, loading } = useValues(pluginsLogic)
@@ -11,13 +13,13 @@ export function SourcePlugin(): JSX.Element {
     return (
         <div style={{ marginTop: 16 }}>
             <Card>
-                <h3 className="l3">Write The Code</h3>
-                <p>
+                <Title level={5}>Plugin Editor</Title>
+                <Paragraph>
                     Write your plugin directly in PostHog.{' '}
                     <a href="https://posthog.com/docs/plugins/overview" target="_blank">
                         Read the documentation for more information!
                     </a>
-                </p>
+                </Paragraph>
                 <Row style={{ width: '100%' }} gutter={16}>
                     <Col style={{ flex: 1 }}>
                         <Input

@@ -9,7 +9,7 @@ import { Link } from 'lib/components/Link'
 import { Drawer } from 'lib/components/Drawer'
 import { LocalPluginTag } from 'scenes/plugins/plugin/LocalPluginTag'
 import { UploadField } from './UploadField'
-import { getConfigSchemaArray } from 'scenes/plugins/utils'
+import { defaultConfigForPlugin, getConfigSchemaArray } from 'scenes/plugins/utils'
 import Markdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from './PluginSource'
@@ -42,7 +42,7 @@ export function PluginDrawer(): JSX.Element {
     useEffect(() => {
         if (editingPlugin) {
             form.setFieldsValue({
-                ...(editingPlugin.pluginConfig.config || {}),
+                ...(editingPlugin.pluginConfig.config || defaultConfigForPlugin(editingPlugin)),
                 __enabled: editingPlugin.pluginConfig.enabled,
                 ...editingPluginInitialChanges,
             })

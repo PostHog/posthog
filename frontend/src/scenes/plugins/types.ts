@@ -12,6 +12,7 @@ export interface PluginRepositoryEntry {
 export interface PluginTypeWithConfig extends PluginType {
     pluginConfig: PluginConfigType
     updateStatus: PluginUpdateStatusType
+    hasMoved?: boolean
 }
 
 export interface PluginUpdateStatusType {
@@ -30,5 +31,5 @@ export enum PluginInstallationType {
 export enum PluginTab {
     Installed = 'installed',
     Repository = 'repository',
-    Custom = 'custom',
+    Advanced = 'advanced',
 }

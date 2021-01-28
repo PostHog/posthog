@@ -86,8 +86,8 @@ class PluginSerializer(serializers.ModelSerializer):
             raise ValidationError("Plugin upgrades via the web are disabled!")
         if plugin.plugin_type != Plugin.PluginType.SOURCE:
             validated_data = self._update_validated_data_from_url({}, plugin.url)
-            response = super().update(plugin, validated_data)
-            reload_plugins_on_workers()
+        response = super().update(plugin, validated_data)
+        reload_plugins_on_workers()
         return response
 
     # If remote plugin, download the archive and get up-to-date validated_data from there.
@@ -306,3 +306,25 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             response.append(plugin)
 
         return Response(response)
+
+    @action(methods=["PATCH"], detail=False)
+    def rearrange(self, request: request.Request, **kwargs):
+        if not can_configure_plugins_via_api(self.team.organization_id):
+            raise ValidationError("Plugin configuration via the web is disabled!")
+
+        orders = request.data.get("orders", {})
+
+        did_save = False
+        plugin_configs = PluginConfig.objects.filter(team_id=self.team.pk, enabled=True)
+        plugin_configs_dict = {p.plugin_id: p for p in plugin_configs}
+        for plugin_id, order in orders.items():
+            plugin_config = plugin_configs_dict.get(int(plugin_id), None)
+            if plugin_config and plugin_config.order != order:
+                plugin_config.order = order
+                plugin_config.save()
+                did_save = True
+
+        if did_save:
+            reload_plugins_on_workers()
+
+        return Response(PluginConfigSerializer(plugin_configs, many=True).data)
