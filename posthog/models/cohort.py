@@ -128,8 +128,10 @@ class Cohort(models.Model):
                 batch = items[i : i + batchsize]
                 persons_query = (
                     Person.objects.filter(team_id=self.team_id)
-                    .filter(persondistinctid__team_id=self.team_id)
-                    .filter(Q(persondistinctid__distinct_id__in=batch) | Q(properties__email__in=batch))
+                    .filter(
+                        Q(persondistinctid__team_id=self.team_id, persondistinctid__distinct_id__in=batch)
+                        | Q(properties__email__in=batch)
+                    )
                     .exclude(cohort__id=self.id)
                 )
                 if use_clickhouse:
