@@ -26,6 +26,7 @@ export interface UserType {
     ee_enabled: boolean
     email_service_available: boolean
     realm: 'cloud' | 'hosted'
+    billing?: OrganizationBilling
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
