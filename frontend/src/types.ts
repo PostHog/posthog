@@ -67,6 +67,9 @@ export interface OrganizationType {
     billing: OrganizationBilling
     teams: TeamType[]
     membership_level: OrganizationMembershipLevel | null
+    any_project_ingested_events: boolean
+    any_project_completed_snippet_onboarding: boolean
+    non_demo_team_id: number | null
 }
 
 export interface OrganizationMemberType {

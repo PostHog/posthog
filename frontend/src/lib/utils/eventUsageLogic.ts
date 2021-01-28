@@ -18,6 +18,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionBookmarkletCollapsible: (activePanels) => ({ activePanels }),
         reportPersonalizationSkipped: (step) => ({ step }),
         reportPersonalization: (payload, step, step_completed_fully) => ({ payload, step, step_completed_fully }),
+        reportProjectCreationSubmitted: (projectCount, nameLength) => ({ projectCount, nameLength }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }: { annotations: AnnotationType[] | null }, breakpoint) => {
@@ -182,6 +183,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 step_completed_fully,
                 payload,
                 number_of_answers: Object.keys(payload).length,
+            })
+        },
+        reportProjectCreationSubmitted: async ({
+            projectCount,
+            nameLength,
+        }: {
+            projectCount: number
+            nameLength: number
+        }) => {
+            posthog.capture('project create submitted', {
+                current_project_count: projectCount,
+                name_length: nameLength,
             })
         },
     },

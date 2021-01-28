@@ -1,5 +1,6 @@
 import { Alert, Input, Modal } from 'antd'
 import { useActions, useValues } from 'kea'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { Dispatch, SetStateAction, useCallback, useRef, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -7,12 +8,17 @@ import { userLogic } from 'scenes/userLogic'
 export function CreateProjectModal({
     isVisible,
     setIsVisible,
+    title,
+    caption,
 }: {
     isVisible: boolean
     setIsVisible?: Dispatch<SetStateAction<boolean>>
+    title?: string
+    caption?: JSX.Element
 }): JSX.Element {
     const { createTeam } = useActions(teamLogic)
     const { user } = useValues(userLogic)
+    const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const inputRef = useRef<Input | null>(null)
 
@@ -26,15 +32,26 @@ export function CreateProjectModal({
         }
     }, [inputRef, setIsVisible])
 
+    const defaultCaption = (
+        <p>
+            Projects are a way of tracking multiple products under the umbrella of a single organization.
+            <br />
+            All organization members will be able to access the new project.
+        </p>
+    )
+
     return (
         <Modal
-            title={user?.organization ? `Creating a Project in ${user.organization.name}` : 'Creating a Project'}
+            title={
+                title || (user?.organization ? `Creating a Project in ${user.organization.name}` : 'Creating a Project')
+            }
             okText="Create Project"
             cancelButtonProps={setIsVisible ? undefined : { style: { display: 'none' } }}
             closable={!!setIsVisible}
             onOk={() => {
                 const name = inputRef.current?.state.value?.trim()
                 if (name) {
+                    reportProjectCreationSubmitted(user?.organization?.teams.length, name.length)
                     setErrorMessage(null)
                     createTeam(name)
                     closeModal()
@@ -42,24 +59,20 @@ export function CreateProjectModal({
                     setErrorMessage('Your project needs a name!')
                 }
             }}
-            okButtonProps={{
-                'data-attr': 'create-project-ok',
-            }}
             onCancel={closeModal}
             visible={isVisible}
         >
-            <p>
-                Projects are a way of tracking multiple products under the umbrella of a single organization.
-                <br />
-                All organization members will be able to access the new project.
-            </p>
-            <Input
-                addonBefore="Name"
-                ref={inputRef}
-                placeholder='for example "Global Website"'
-                maxLength={64}
-                autoFocus
-            />
+            {caption || defaultCaption}
+            <div className="input-set">
+                <label htmlFor="projectName">Project Name</label>
+                <Input
+                    ref={inputRef}
+                    placeholder='for example "Web app", "Mobile app", "Production", "Landing website"'
+                    maxLength={64}
+                    autoFocus
+                    name="projectName"
+                />
+            </div>
             {errorMessage && <Alert message={errorMessage} type="error" style={{ marginTop: '1rem' }} />}
         </Modal>
     )
