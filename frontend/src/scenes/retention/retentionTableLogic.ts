@@ -7,13 +7,13 @@ import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insight
 import { retentionTableLogicType } from './retentionTableLogicType'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from 'lib/constants'
 import { actionsModel } from '~/models'
+import { ActionType } from '~/types'
 import {
-    ActionType,
     RetentionTablePayload,
     RetentionTrendPayload,
     RetentionTablePeoplePayload,
     RetentionTrendPeoplePayload,
-} from '~/types'
+} from 'scenes/retention/types'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 

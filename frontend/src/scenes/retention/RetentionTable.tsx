@@ -4,7 +4,12 @@ import { Table, Modal, Button, Spin, Tooltip } from 'antd'
 import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
-import { RetentionTablePayload, RetentionTablePeoplePayload, RetentionTableAppearanceType } from '~/types'
+import {
+    RetentionTablePayload,
+    RetentionTablePeoplePayload,
+    RetentionTableAppearanceType,
+} from 'scenes/retention/types'
+
 import './RetentionTable.scss'
 import moment from 'moment'
 import { ColumnsType } from 'antd/lib/table'
@@ -146,33 +151,29 @@ export function RetentionTable({
                                                     ))}
                                             </tr>
                                             {people.result &&
-                                                (people.result as any[]).map(
-                                                    (personAppearances: RetentionTableAppearanceType) => (
-                                                        <tr key={personAppearances.person.id}>
-                                                            <td className="text-overflow" style={{ minWidth: 200 }}>
-                                                                <Link
-                                                                    to={`/person_by_id/${personAppearances.person.id}`}
-                                                                >
-                                                                    {personAppearances.person.name}
-                                                                </Link>
-                                                            </td>
-                                                            {personAppearances.appearances.map(
-                                                                (appearance: number, index: number) => {
-                                                                    return (
-                                                                        <td
-                                                                            key={index}
-                                                                            className={
-                                                                                appearance
-                                                                                    ? 'retention-success'
-                                                                                    : 'retention-dropped'
-                                                                            }
-                                                                        />
-                                                                    )
-                                                                }
-                                                            )}
-                                                        </tr>
-                                                    )
-                                                )}
+                                                people.result.map((personAppearances: RetentionTableAppearanceType) => (
+                                                    <tr key={personAppearances.person.id}>
+                                                        <td className="text-overflow" style={{ minWidth: 200 }}>
+                                                            <Link to={`/person_by_id/${personAppearances.person.id}`}>
+                                                                {personAppearances.person.name}
+                                                            </Link>
+                                                        </td>
+                                                        {personAppearances.appearances.map(
+                                                            (appearance: number, index: number) => {
+                                                                return (
+                                                                    <td
+                                                                        key={index}
+                                                                        className={
+                                                                            appearance
+                                                                                ? 'retention-success'
+                                                                                : 'retention-dropped'
+                                                                        }
+                                                                    />
+                                                                )
+                                                            }
+                                                        )}
+                                                    </tr>
+                                                ))}
                                         </tbody>
                                     </table>
                                     <div

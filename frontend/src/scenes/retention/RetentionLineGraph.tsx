@@ -7,7 +7,8 @@ import { router } from 'kea-router'
 import { LineGraphEmptyState } from '../insights/EmptyStates'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
-import { RetentionTrendPayload, RetentionTrendPeoplePayload, PersonType } from '~/types'
+import { PersonType } from '~/types'
+import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null
