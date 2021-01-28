@@ -52,7 +52,7 @@ class TeamNestedSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict[str, Any], **kwargs) -> None:
         raise NotImplementedError()
 
-    def update(self, instance: Team, validated_data: Dict[str, Any], **kwargs) -> None:
+    def update(self, instance: Any, validated_data: Dict[str, Any], **kwargs) -> None:
         raise NotImplementedError()
 
 
