@@ -18,7 +18,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import OrganizationMemberPermissions, ProjectMembershipNecessaryPermissions
 from posthog.plugins import (
     can_configure_plugins_via_api,
     can_install_plugins_via_api,
@@ -188,7 +188,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
 
     class Meta:
         model = PluginConfig
@@ -281,7 +281,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         if not can_configure_plugins_via_api(self.team.organization_id):
             return self.queryset.none()
-        return super().get_queryset()
+        return super().get_queryset().order_by("order", "plugin_id")
 
     # we don't really use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:  # type: ignore
