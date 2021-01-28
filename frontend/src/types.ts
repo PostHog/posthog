@@ -317,7 +317,7 @@ export interface PlanInterface {
     custom_setup_billing_message: string
     image_url: string
     self_serve: boolean
-    allowance: null | Record<string, string | number>
+    allowance: { value: number; formatted: string } | null
 }
 
 export interface BillingSubscription {
