@@ -28,7 +28,7 @@ function StepOne(): JSX.Element {
     const { appendPersonalizationData } = useActions(personalizationLogic)
     const { reportPersonalizationSkipped, reportPersonalization } = useActions(eventUsageLogic)
 
-    const handleOptionChanged = (attr: 'role' | 'product' | 'technical', value: string | string[] | null): void => {
+    const handleOptionChanged = (attr: 'role' | 'products' | 'technical', value: string | string[] | null): void => {
         appendPersonalizationData({ [attr]: value })
     }
 
@@ -40,7 +40,7 @@ function StepOne(): JSX.Element {
     }
 
     const answeredQuestionCount: number = personalizationData
-        ? (!!personalizationData.role ? 1 : 0) + (!!personalizationData.team_size ? 1 : 0)
+        ? (!!personalizationData.role ? 1 : 0) + (!!personalizationData.products ? 1 : 0)
         : 0
     const TOTAL_QUESTION_COUNT = 3
 
@@ -60,6 +60,7 @@ function StepOne(): JSX.Element {
                     options={ROLES}
                     selectedOption={personalizationData.role}
                     onOptionChanged={(value) => handleOptionChanged('role', value)}
+                    focusSelection
                 />
             </div>
 
@@ -69,8 +70,8 @@ function StepOne(): JSX.Element {
                 </div>
                 <RadioSelect
                     options={PRODUCTS}
-                    selectedOption={personalizationData.product}
-                    onOptionChanged={(value) => handleOptionChanged('product', value)}
+                    selectedOption={personalizationData.products}
+                    onOptionChanged={(value) => handleOptionChanged('products', value)}
                     multipleSelection
                 />
             </div>

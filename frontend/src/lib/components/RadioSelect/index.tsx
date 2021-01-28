@@ -1,5 +1,7 @@
 import React from 'react'
+import { ArrowLeftOutlined } from '@ant-design/icons'
 import './index.scss'
+import { Button } from 'antd'
 
 export interface RadioSelectType {
     key: string
@@ -12,6 +14,7 @@ interface RadioSelectProps {
     selectedOption: null | string | string[]
     onOptionChanged: (key: string | string[] | null) => void
     multipleSelection?: boolean
+    focusSelection?: boolean // will hide other choices after making a selection
 }
 
 export function RadioSelect({
@@ -19,6 +22,7 @@ export function RadioSelect({
     selectedOption,
     onOptionChanged,
     multipleSelection,
+    focusSelection,
 }: RadioSelectProps): JSX.Element {
     const isSelected = (option: RadioSelectType): boolean => {
         return multipleSelection && selectedOption
@@ -26,7 +30,12 @@ export function RadioSelect({
             : selectedOption === option.key
     }
 
-    const handleClick = (option: RadioSelectType): void => {
+    const handleClick = (option: RadioSelectType | null): void => {
+        if (!option) {
+            onOptionChanged(null)
+            return
+        }
+
         if (multipleSelection) {
             if (selectedOption instanceof Array) {
                 const _selectedOptions = selectedOption
@@ -47,17 +56,30 @@ export function RadioSelect({
     }
 
     return (
-        <div className="ph-radio-options">
-            {options.map((option) => (
-                <div
-                    className={`radio-option${isSelected(option) ? ' active' : ''}`}
-                    key={option.key}
-                    onClick={() => handleClick(option)}
-                >
-                    <div className="graphic">{option.icon}</div>
-                    <div className="label">{option.label}</div>
+        <div className="mt">
+            {focusSelection && selectedOption && (
+                <div className="text-center">
+                    <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => handleClick(null)}>
+                        change
+                    </Button>
                 </div>
-            ))}
+            )}
+            <div className="ph-radio-options">
+                {options.map((option) => {
+                    if (!focusSelection || !selectedOption || isSelected(option)) {
+                        return (
+                            <div
+                                className={`radio-option${isSelected(option) ? ' active' : ''}`}
+                                key={option.key}
+                                onClick={() => handleClick(option)}
+                            >
+                                <div className="graphic">{option.icon}</div>
+                                <div className="label">{option.label}</div>
+                            </div>
+                        )
+                    }
+                })}
+            </div>
         </div>
     )
 }
