@@ -31,9 +31,7 @@ def demo(request: Request):
 
         result = get_events_by_team(team_id=team.pk)
         if not result:
-            WebDataGenerator(team, n_people=40).create(dashboards=False)
-            AppDataGenerator(team, n_people=100).create(dashboards=False)
-            RevenueDataGenerator(team, n_people=20).create(dashboards=False)
+            create_demo_data(team, dashboards=False)
 
     return render_template("demo.html", request=request, context={"api_token": team.api_token})
 
@@ -42,8 +40,11 @@ def create_demo_team(organization: Organization, user: User, request: Request) -
     team = Team.objects.create_with_data(
         organization=organization, name=TEAM_NAME, ingested_event=True, completed_snippet_onboarding=True, is_demo=True,
     )
-    WebDataGenerator(team, n_people=40).create()
-    AppDataGenerator(team, n_people=100).create()
-    RevenueDataGenerator(team, n_people=20).create()
-
+    create_demo_data(team)
     return team
+
+
+def create_demo_data(team: Team, dashboards=True):
+    WebDataGenerator(team, n_people=40).create(dashboards=dashboards)
+    AppDataGenerator(team, n_people=100).create(dashboards=dashboards)
+    RevenueDataGenerator(team, n_people=20).create(dashboards=dashboards)
