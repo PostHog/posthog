@@ -11,7 +11,6 @@ import {
     ToolOutlined,
     BlockOutlined,
     MessageOutlined,
-    CloudOutlined,
     CoffeeOutlined,
     CloudServerOutlined,
     DatabaseOutlined,
@@ -68,7 +67,7 @@ export const IS_TECHNICAL: RadioSelectType[] = [
     {
         key: 'technical',
         label: 'Yes',
-        icon: <CloudOutlined />,
+        icon: <CodeOutlined />,
     },
     {
         key: 'non_technical',
