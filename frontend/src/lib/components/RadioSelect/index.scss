@@ -20,7 +20,13 @@ $color-transition: color $transition_params;
             margin-left: 0;
         }
 
-        &:hover,
+        &:hover {
+            font-weight: bold;
+            .graphic {
+                background-color: $border;
+            }
+        }
+
         &.active {
             color: $primary;
             font-weight: bold;
