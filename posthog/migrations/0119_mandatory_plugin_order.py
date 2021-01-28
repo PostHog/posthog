@@ -3,28 +3,17 @@
 from django.db import migrations, models
 
 
-def set_plugin_organization(apps, schema_editor):
-    PluginConfig = apps.get_model("posthog", "PluginConfig")
-    Team = apps.get_model("posthog", "Team")
-    for team in Team.objects.filter(pluginconfig__isnull=False):
-        for index, plugin_config in enumerate(team.pluginconfig_set.order_by("order")):
-            plugin_config.order = index
-            plugin_config.save()
-
-
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0118_is_demo"),
+        ('posthog', '0118_is_demo'),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name="pluginconfig", name="order", field=models.IntegerField(default=0), preserve_default=False,
-        ),
-        migrations.RunPython(set_plugin_organization, migrations.RunPython.noop),
-        migrations.AddConstraint(
-            model_name="pluginconfig",
-            constraint=models.UniqueConstraint(fields=("team", "order"), name="unique_order_per_project"),
+            model_name='pluginconfig',
+            name='order',
+            field=models.IntegerField(default=0),
+            preserve_default=False,
         ),
     ]

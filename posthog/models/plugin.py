@@ -36,9 +36,6 @@ class Plugin(models.Model):
 
 
 class PluginConfig(models.Model):
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "order"], name="unique_order_per_project")]
-
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
     enabled: models.BooleanField = models.BooleanField(default=False)
