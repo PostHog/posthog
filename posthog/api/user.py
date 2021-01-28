@@ -107,10 +107,7 @@ def user(request):
                 "available_features": organization.available_features,
                 "created_at": organization.created_at,
                 "updated_at": organization.updated_at,
-                "teams": [
-                    {"id": team.id, "name": team.name, "is_demo": team.is_demo}
-                    for team in organization.teams.all().only("id", "name", "is_demo")
-                ],
+                "teams": [{"id": team.id, "name": team.name} for team in organization.teams.all().only("id", "name")],
             },
             "organizations": organizations,
             "team": None

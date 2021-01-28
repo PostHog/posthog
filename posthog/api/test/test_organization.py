@@ -10,12 +10,27 @@ from posthog.test.base import APIBaseTest
 
 class TestOrganizationAPI(APIBaseTest):
 
+    # Retrieving organization
+
+    def test_get_current_organization(self):
+
+        response = self.client.get("/api/organizations/@current")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertEqual(response_data["id"], str(self.organization.id))
+        self.assertEqual(len(response_data["teams"]), Team.objects.filter(organization=self.organization).count())
+        self.assertEqual(response_data["teams"][0]["name"], self.team.name)
+        self.assertEqual(response_data["teams"][0]["is_demo"], False)
+        self.assertEqual(response_data["teams"][0]["ingested_event"], False)
+        self.assertEqual(response_data["teams"][0]["completed_snippet_onboarding"], False)
+
     # Creating organizations
 
     def test_cant_create_organization_without_valid_license_on_self_hosted(self):
         with self.settings(MULTI_TENANCY=False):
             response = self.client.post("/api/organizations/", {"name": "Test"})
-            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertEqual(
                 response.data,
                 {
