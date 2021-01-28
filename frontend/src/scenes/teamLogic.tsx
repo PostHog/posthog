@@ -33,11 +33,7 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
             }
         },
         createTeamSuccess: () => {
-            if (values.currentTeam) {
-                window.location.href = values.currentTeam.completed_snippet_onboarding
-                    ? '/project/settings'
-                    : '/ingestion'
-            }
+            window.location.href = '/ingestion'
         },
     }),
     events: ({ actions }) => ({

@@ -84,10 +84,10 @@ class OrganizationSerializer(serializers.ModelSerializer):
         return membership.level if membership is not None else None
 
     def get_any_project_ingested_events(self, organization: Organization) -> bool:
-        return any(team.ingested_event for team in organization.teams.filter(is_demo=False))
+        return organization.teams.filter(is_demo=False, ingested_event=True).exists()
 
     def get_any_project_completed_snippet_onboarding(self, organization: Organization) -> bool:
-        return any(team.completed_snippet_onboarding for team in organization.teams.filter(is_demo=False))
+        return organization.teams.filter(is_demo=False, completed_snippet_onboarding=True).exists()
 
     def get_non_demo_team_id(self, organization: Organization) -> Optional[int]:
         return next((team.pk for team in organization.teams.filter(is_demo=False)), None)
