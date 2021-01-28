@@ -84,7 +84,7 @@ function _OnboardingSetup(): JSX.Element {
                 caption="Get your PostHog instance up and running with all the bells and whistles"
             />
 
-            <Collapse defaultActiveKey={['1']} expandIconPosition="right">
+            <Collapse defaultActiveKey={['1']} expandIconPosition="right" accordion>
                 <Panel
                     header={
                         <PanelHeader
@@ -133,7 +133,7 @@ function _OnboardingSetup(): JSX.Element {
                         />
                     }
                     key="2"
-                    disabled
+                    collapsible="disabled"
                 >
                     <p>text</p>
                 </Panel>
@@ -151,7 +151,7 @@ function _OnboardingSetup(): JSX.Element {
                         />
                     }
                     key="3"
-                    disabled
+                    collapsible="disabled"
                 >
                     <p>text</p>
                 </Panel>
