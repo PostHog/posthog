@@ -57,44 +57,38 @@ function StepOne(): JSX.Element {
             </div>
 
             <div style={{ marginTop: 32 }}>
-                <Row>
-                    <Col span={askTechnicalQuestion ? 12 : 24}>
-                        <div>
-                            1. <b>Your role</b> at company is (or closest to)
-                        </div>
-                        <RadioSelect
-                            options={ROLES}
-                            selectedOption={personalizationData.role}
-                            onOptionChanged={(value) => {
-                                if (value === 'engineer') {
-                                    // If user is an engineer, we assume technical by default
-                                    handleOptionChanged('technical', 'technical')
-                                } else {
-                                    handleOptionChanged('technical', null)
-                                }
-                                handleOptionChanged('role', value)
-                            }}
-                            focusSelection={askTechnicalQuestion}
-                        />
-                    </Col>
-                    {askTechnicalQuestion && (
-                        <Col span={12}>
-                            <div style={{ marginBottom: 16 + 22 }}>
-                                Are you <b>technical</b>? (i.e. coding/developer expertise)
-                            </div>
-                            <RadioSelect
-                                options={IS_TECHNICAL}
-                                selectedOption={personalizationData.technical}
-                                onOptionChanged={(value) => handleOptionChanged('technical', value)}
-                            />
-                        </Col>
-                    )}
-                </Row>
+                <div>
+                    1. <b>Your role</b> at company is (or closest to)
+                </div>
+                <RadioSelect
+                    options={ROLES}
+                    selectedOption={personalizationData.role}
+                    onOptionChanged={(value) => {
+                        if (value === 'engineer') {
+                            // If user is an engineer, we assume technical by default
+                            handleOptionChanged('technical', 'technical')
+                        } else {
+                            handleOptionChanged('technical', null)
+                        }
+                        handleOptionChanged('role', value)
+                    }}
+                />
+            </div>
+            <div style={{ marginTop: 32 }} className={`toggle-question${askTechnicalQuestion ? ' show' : ''}`}>
+                <div>
+                    2. Are you <b>technical</b>? (i.e. coding/developer expertise)
+                </div>
+                <RadioSelect
+                    options={IS_TECHNICAL}
+                    selectedOption={personalizationData.technical}
+                    onOptionChanged={(value) => handleOptionChanged('technical', value)}
+                />
             </div>
 
             <div style={{ marginTop: 32 }}>
                 <div>
-                    2. What <b>products</b> does your company/team have? Select <b>all</b> that apply
+                    {askTechnicalQuestion ? '3' : '2'}. What <b>products</b> does your company/team have? Select{' '}
+                    <b>all</b> that apply
                 </div>
                 <RadioSelect
                     options={PRODUCTS}
