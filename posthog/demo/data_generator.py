@@ -1,3 +1,5 @@
+from typing import Dict, List
+
 from posthog.ee import is_ee_enabled
 from posthog.models import Action, Event, Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
@@ -8,8 +10,8 @@ class DataGenerator:
         self.team = team
         self.n_days = n_days
         self.n_people = n_people
-        self.events = []
-        self.distinct_ids = []
+        self.events: List[Dict] = []
+        self.distinct_ids: List[str] = []
 
     def create(self, dashboards=True):
         self.create_missing_events_and_properties()
