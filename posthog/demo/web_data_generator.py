@@ -41,7 +41,7 @@ class WebDataGenerator(DataGenerator):
         )
 
         dashboard = Dashboard.objects.create(
-            name="Default", pinned=True, team=self.team, share_token=secrets.token_urlsafe(22)
+            name="Web Analytics", pinned=True, team=self.team, share_token=secrets.token_urlsafe(22)
         )
         DashboardItem.objects.create(
             team=self.team,

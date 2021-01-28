@@ -31,4 +31,4 @@ class Command(BaseCommand):
             base_url = (
                 f"https://{heroku_app_name}.herokuapp.com/demo/" if heroku_app_name else f"{settings.SITE_URL}/demo/"
             )
-            create_demo_data(team=team)
+            create_demo_data(team)
