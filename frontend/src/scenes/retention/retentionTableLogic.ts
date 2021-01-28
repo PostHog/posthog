@@ -4,11 +4,16 @@ import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import { Moment } from 'moment'
 import { retentionTableLogicType } from './retentionTableLogicType'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from 'lib/constants'
 import { actionsModel } from '~/models'
 import { ActionType } from '~/types'
+import {
+    RetentionTablePayload,
+    RetentionTrendPayload,
+    RetentionTablePeoplePayload,
+    RetentionTrendPeoplePayload,
+} from 'scenes/retention/types'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -41,13 +46,21 @@ function defaultFilters(filters: Record<string, any>): Record<string, any> {
     }
 }
 
-export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
+export const retentionTableLogic = kea<
+    retentionTableLogicType<
+        RetentionTablePayload,
+        RetentionTrendPayload,
+        RetentionTablePeoplePayload,
+        RetentionTrendPeoplePayload,
+        ActionType
+    >
+>({
     key: (props) => {
         return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },
     loaders: ({ values, props }) => ({
         results: {
-            __default: [],
+            __default: [] as RetentionTablePayload[] | RetentionTrendPayload[],
             loadResults: async (refresh = false, breakpoint) => {
                 if (!refresh && (props.cachedResults || props.preventLoading)) {
                     return props.cachedResults
@@ -67,17 +80,15 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             },
         },
         people: {
-            __default: {} as Record<string, unknown>,
+            __default: {} as RetentionTablePeoplePayload | RetentionTrendPeoplePayload,
             loadPeople: async (rowIndex) => {
                 if (values.filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
                     const urlParams = toParams({ ...values.filters, selected_interval: rowIndex })
                     const res = await api.get(`api/person/retention/?${urlParams}`)
-
                     return res
                 } else {
                     const urlParams = toParams({ ...values.filters, selected_interval: rowIndex })
                     const res = await api.get(`api/person/retention/?${urlParams}`)
-
                     return res
                 }
             },
@@ -88,10 +99,10 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         values: [actionsModel, ['actions']],
     },
     actions: () => ({
-        setFilters: (filters) => ({ filters }),
+        setFilters: (filters: Record<string, any>) => ({ filters }),
         loadMorePeople: true,
         updatePeople: (people) => ({ people }),
-        updateRetention: (retention) => ({ retention }),
+        updateRetention: (retention: RetentionTablePayload[] | RetentionTrendPayload[]) => ({ retention }),
         clearPeople: true,
         clearRetention: true,
     }),
@@ -144,7 +155,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         },
     }),
     urlToAction: ({ actions, values, key }) => ({
-        '/insights': (_: any, searchParams: Record<string, any>) => {
+        '/insights': ({}, searchParams: Record<string, any>) => {
             if (searchParams.insight === ViewType.RETENTION) {
                 if (key != DEFAULT_RETENTION_LOGIC_KEY) {
                     return
