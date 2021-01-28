@@ -64,7 +64,7 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
         result = _calculate_by_filter(filter, key, team_id, cache_type)
 
     if result:
-        cache.set(key, {"result": result, "details": payload, "type": cache_type}, CACHED_RESULTS_TTL)
+        cache.set(key, {"data": result, "type": cache_type, "last_refresh": timezone.now()}, CACHED_RESULTS_TTL)
 
 
 def get_cache_type(filter: FilterType) -> CacheType:

@@ -203,7 +203,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         result = cache.get(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
-        return result["result"]
+        return result.get("data")
 
     def get_last_refresh(self, dashboard_item: DashboardItem):
         if self.get_result(dashboard_item):

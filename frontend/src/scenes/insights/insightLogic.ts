@@ -1,8 +1,12 @@
-import { kea } from 'kea'
+import { kea, Logic } from 'kea'
 import { toParams, fromParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
+import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
+import { pathsLogic } from 'scenes/paths/pathsLogic'
+import { trendsLogic } from './trendsLogic'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
 export const ViewType = {
     TRENDS: 'TRENDS',
@@ -21,6 +25,18 @@ This includes handling the urls and view state
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
 
+export const logicFromInsight = (insight: string, logicProps: Record<string, any>): Logic => {
+    if (insight === ViewType.FUNNELS) {
+        return funnelLogic(logicProps)
+    } else if (insight === ViewType.RETENTION) {
+        return retentionTableLogic(logicProps)
+    } else if (insight === ViewType.PATHS) {
+        return pathsLogic(logicProps)
+    } else {
+        return trendsLogic(logicProps)
+    }
+}
+
 export const insightLogic = kea<insightLogicType>({
     actions: () => ({
         setActiveView: (type) => ({ type }),
@@ -28,12 +44,17 @@ export const insightLogic = kea<insightLogicType>({
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: true,
-        endQuery: (view: string, exception?: Record<string, any>) => ({ view, exception }),
+        endQuery: (view: string, lastRefresh: string | false, exception?: Record<string, any>) => ({
+            view,
+            lastRefresh,
+            exception,
+        }),
         setMaybeShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
         setShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
         setShowErrorMessage: (showErrorMessage: boolean) => ({ showErrorMessage }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setTimeout: (timeout) => ({ timeout }),
+        setLastRefresh: (lastRefresh: string | false) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
     }),
 
@@ -77,6 +98,12 @@ export const insightLogic = kea<insightLogicType>({
             },
         ],
         timeout: [null, { setTimeout: (_, { timeout }) => timeout }],
+        lastRefresh: [
+            false,
+            {
+                setLastRefresh: (_, { lastRefresh }) => lastRefresh,
+            },
+        ],
         isLoading: [
             false,
             {
@@ -119,11 +146,12 @@ export const insightLogic = kea<insightLogicType>({
             )
             actions.setIsLoading(true)
         },
-        endQuery: ({ view, exception }) => {
+        endQuery: ({ view, lastRefresh, exception }) => {
             clearTimeout(values.timeout || undefined)
             if (view === values.activeView) {
                 actions.setShowTimeoutMessage(values.maybeShowTimeoutMessage)
                 actions.setShowErrorMessage(values.maybeShowErrorMessage)
+                actions.setLastRefresh(lastRefresh || false)
                 actions.setIsLoading(false)
                 if (values.maybeShowTimeoutMessage) {
                     posthog.capture('insight timeout message shown', { insight: values.activeView, ...exception })

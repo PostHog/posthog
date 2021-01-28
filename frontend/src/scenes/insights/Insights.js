@@ -3,6 +3,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
+import moment from 'moment'
 import { DateFilter } from 'lib/components/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 
@@ -37,13 +38,12 @@ import { Paths } from 'scenes/paths/Paths'
 import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { People } from 'scenes/funnels/People'
-import { insightLogic, ViewType } from './insightLogic'
+import { insightLogic, logicFromInsight, ViewType } from './insightLogic'
 import { trendsLogic } from './trendsLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 
@@ -108,9 +108,14 @@ function _Insights() {
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
     const { user } = useValues(userLogic)
-    const { isLoading, activeView, allFilters, showTimeoutMessage, showErrorMessage } = useValues(insightLogic)
+    const { lastRefresh, isLoading, activeView, allFilters, showTimeoutMessage, showErrorMessage } = useValues(
+        insightLogic
+    )
     const { setActiveView } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: fromItem, filters: allFilters }))
+    console.log(allFilters)
 
     return (
         user?.team && (
@@ -264,6 +269,22 @@ function _Insights() {
                                     headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
                                 >
                                     <div>
+                                        {lastRefresh && (
+                                            <small style={{ position: 'absolute', marginTop: -21, right: 24 }}>
+                                                Computed {moment(lastRefresh).fromNow()}
+                                                <Button
+                                                    size="small"
+                                                    type="link"
+                                                    onClick={() => loadResults(true)}
+                                                    style={{ margin: 0 }}
+                                                >
+                                                    refresh
+                                                    <ReloadOutlined
+                                                        style={{ cursor: 'pointer', marginTop: -3, marginLeft: 3 }}
+                                                    />
+                                                </Button>
+                                            </small>
+                                        )}
                                         {showErrorMessage ? (
                                             <ErrorMessage />
                                         ) : (
@@ -372,9 +393,9 @@ function FunnelInsight() {
 }
 
 function FunnelPeople() {
-    const { stepsWithCount } = useValues(funnelLogic)
-    if (stepsWithCount && stepsWithCount.length > 0) {
-        return <People />
-    }
+    // const { stepsWithCount } = useValues(funnelLogic)
+    // if (stepsWithCount && stepsWithCount.length > 0) {
+    //     return <People />
+    // }
     return <></>
 }

@@ -41,7 +41,7 @@ export const pathsLogic = kea({
         return props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
     },
     connect: {
-        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
+        actions: [insightHistoryLogic, ['createInsight']],
     },
     loaders: ({ values, props }) => ({
         results: [
@@ -58,12 +58,12 @@ export const pathsLogic = kea({
                     try {
                         paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
                     } catch (e) {
-                        insightLogic.actions.endQuery(ViewType.PATHS, e)
+                        insightLogic.actions.endQuery(ViewType.PATHS, false, e)
                         return { paths: [], filter, error: true }
                     }
                     breakpoint()
-                    insightLogic.actions.endQuery(ViewType.PATHS)
-                    return { paths, filter }
+                    insightLogic.actions.endQuery(ViewType.PATHS, paths.last_refresh)
+                    return { paths: paths.data, filter }
                 },
             },
         ],
@@ -99,7 +99,7 @@ export const pathsLogic = kea({
             actions.loadResults(true)
         },
         loadResults: () => {
-            actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
+            insightLogic.actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
             if (!props.dashboardItemId) {
                 actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
             }

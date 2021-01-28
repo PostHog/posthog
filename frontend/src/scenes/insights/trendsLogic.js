@@ -133,7 +133,7 @@ export const trendsLogic = kea({
     },
 
     connect: {
-        values: [userLogic, ['eventNames'], actionsModel, ['actions'], insightLogic, ['isFirstLoad']],
+        values: [userLogic, ['eventNames'], actionsModel, ['actions']],
         actions: [insightHistoryLogic, ['createInsight']],
     },
 
@@ -153,7 +153,6 @@ export const trendsLogic = kea({
                                 (refresh ? 'refresh=true&' : '') +
                                 toAPIParams(filterClientSideParams(values.filters))
                         )
-                        response = response.result
                     } else {
                         response = await api.get(
                             'api/insight/trend/?' +
@@ -162,12 +161,12 @@ export const trendsLogic = kea({
                         )
                     }
                 } catch (e) {
-                    insightLogic.actions.endQuery(values.filters.insight, e)
+                    insightLogic.actions.endQuery(values.filters.insight, false, e)
                     return []
                 }
-                insightLogic.actions.endQuery(values.filters.insight)
+                insightLogic.actions.endQuery(values.filters.insight, response.last_refresh)
                 breakpoint()
-                return response
+                return response.data
             },
         },
     }),
@@ -405,7 +404,7 @@ export const trendsLogic = kea({
                 } else {
                     /* Edge case when opening a trends graph from a dashboard or sometimes when trends are loaded
                     with filters already set, `setAllFilters` action is not triggered, and therefore usage is not reported */
-                    eventUsageLogic.actions.reportInsightViewed(values.filters, values.isFirstLoad)
+                    eventUsageLogic.actions.reportInsightViewed(values.filters, insightLogic.values.isFirstLoad)
                 }
 
                 handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))

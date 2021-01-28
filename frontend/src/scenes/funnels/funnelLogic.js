@@ -11,10 +11,10 @@ function wait(ms = 1000) {
 }
 const SECONDS_TO_POLL = 3 * 60
 
-export async function pollFunnel(params = {}) {
+async function pollFunnel(params = {}) {
     let result = await api.get('api/insight/funnel/?' + toParams(params))
     let start = window.performance.now()
-    while (result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
+    while (result.data.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
         await wait()
         const { refresh: _, ...restParams } = params // eslint-disable-line
         result = await api.get('api/insight/funnel/?' + toParams(restParams))
@@ -26,7 +26,7 @@ export async function pollFunnel(params = {}) {
     return result
 }
 
-export const cleanFunnelParams = (filters) => {
+const cleanFunnelParams = (filters) => {
     return {
         ...filters,
         ...(filters.date_from ? { date_from: filters.date_from } : {}),
@@ -41,6 +41,7 @@ export const cleanFunnelParams = (filters) => {
 const isStepsEmpty = (filters) => [...(filters.actions || []), ...(filters.events || [])].length === 0
 
 export const funnelLogic = kea({
+    // key: (props) => props.dashboardItemId || 'some_funnel',
     actions: () => ({
         setSteps: (steps) => ({ steps }),
         clearFunnel: true,
@@ -50,10 +51,35 @@ export const funnelLogic = kea({
     }),
 
     connect: {
-        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
+        actions: [insightHistoryLogic, ['createInsight']],
     },
 
-    loaders: () => ({
+    loaders: ({ props, values }) => ({
+        results: {
+            loadResults: async (refresh = false) => {
+                if (!refresh && props.cachedResults) {
+                    return props.cachedResults
+                }
+                const { from_dashboard } = values.filters
+                const cleanedParams = cleanFunnelParams(values.filters)
+                const params = {
+                    ...(refresh ? { refresh: true } : {}),
+                    ...(from_dashboard ? { from_dashboard } : {}),
+                    ...cleanedParams,
+                }
+                let result
+
+                insightLogic.actions.startQuery()
+                try {
+                    result = await pollFunnel(params)
+                } catch (e) {
+                    insightLogic.actions.endQuery(ViewType.FUNNELS, false, e)
+                    return []
+                }
+                insightLogic.actions.endQuery(ViewType.FUNNELS, result.last_refresh)
+                return result.data
+            },
+        },
         people: {
             loadPeople: async (steps) => {
                 return (await api.get('api/person/?uuid=' + steps[0].people.join(','))).results
@@ -130,12 +156,12 @@ export const funnelLogic = kea({
                 actions.loadFunnel()
             }
             const cleanedParams = cleanFunnelParams(values.filters)
-            actions.setAllFilters(cleanedParams)
+            insightLogic.actions.setAllFilters(cleanedParams)
         },
         loadFunnel: async () => {
             const cleanedParams = cleanFunnelParams(values.filters)
 
-            actions.setAllFilters(cleanedParams)
+            insightLogic.actions.setAllFilters(cleanedParams)
             if (!props.dashboardItemId) {
                 actions.createInsight({ ...cleanedParams, insight: ViewType.FUNNELS })
             }
@@ -145,11 +171,11 @@ export const funnelLogic = kea({
             try {
                 result = await pollFunnel(cleanedParams)
             } catch (e) {
-                insightLogic.actions.endQuery(ViewType.FUNNELS, e)
+                insightLogic.actions.endQuery(ViewType.FUNNELS, false, e)
                 return []
             }
-            insightLogic.actions.endQuery(ViewType.FUNNELS)
-            actions.setSteps(result)
+            insightLogic.actions.endQuery(ViewType.FUNNELS, result.last_refresh)
+            actions.setSteps(result.data)
         },
         saveFunnelInsight: async ({ name }) => {
             await api.create('api/insight', {
@@ -159,7 +185,7 @@ export const funnelLogic = kea({
             })
         },
         clearFunnel: async () => {
-            actions.setAllFilters({})
+            insightLogic.actions.setAllFilters({})
         },
     }),
     actionToUrl: ({ actions, values }) => ({

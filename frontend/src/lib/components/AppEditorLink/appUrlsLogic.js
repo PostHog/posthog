@@ -25,7 +25,7 @@ export const appUrlsLogic = kea({
                     breakdown: '$current_url',
                     date_from: moment().subtract(3, 'days').toISOString(),
                 }
-                let data = await api.get('api/insight/trend/?' + toParams(params))
+                let data = await api.get('api/insight/trend/?' + toParams(params)).data
                 if (data[0]?.count === 0) {
                     return []
                 }
