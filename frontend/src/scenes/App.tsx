@@ -137,12 +137,11 @@ function _App(): JSX.Element | null {
                 >
                     {!sceneConfig.hideTopNav && featureFlags['navigation-1775'] ? <TopNavigation /> : <TopContent />}
                     <Layout.Content className="main-app-content" data-attr="layout-content">
-                        {!sceneConfig.hideDemoWarning && <DemoWarning />}
+                        {!sceneConfig.hideDemoWarnings && <DemoWarning />}
 
                         {!featureFlags['hide-billing-toolbar'] && <BillingToolbar />}
                         {featureFlags['navigation-1775'] ? <BackTo /> : null}
-
-                        {currentTeam && !currentTeam.ingested_event && (
+                        {currentTeam && !currentTeam.completed_snippet_onboarding && !sceneConfig.hideDemoWarnings && (
                             <Alert
                                 type="warning"
                                 style={{ marginTop: featureFlags['navigation-1775'] ? '1rem' : 0 }}

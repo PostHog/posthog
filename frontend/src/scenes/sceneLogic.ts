@@ -84,7 +84,7 @@ interface SceneConfig {
     dark?: boolean // Background is $bg_mid
     plain?: boolean // Only keeps the main content and the top navigation bar
     hideTopNav?: boolean // Hides the top navigation bar (regardless of whether `plain` is `true` or not)
-    hideDemoWarning?: boolean // Hides the warning if on demo project even if current project is demo
+    hideDemoWarnings?: boolean // Hides demo project (DemoWarning.tsx) or project has no events (App.tsx) warnings
 }
 
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
@@ -115,7 +115,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         plain: true,
     },
     [Scene.OnboardingSetup]: {
-        hideDemoWarning: true,
+        hideDemoWarnings: true,
     },
 }
 
