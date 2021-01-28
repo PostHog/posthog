@@ -83,14 +83,16 @@ export async function setupPlugins(server: PluginsServer): Promise<void> {
         }
     }
 
-    if (server.defaultConfigs.length > 0) {
-        server.defaultConfigs.sort((a, b) => a.order - b.order)
-        for (const teamId of Object.keys(server.pluginConfigsPerTeam).map((key: string) => parseInt(key))) {
-            server.pluginConfigsPerTeam.set(teamId, [
+    const sortFunction = (a: PluginConfig, b: PluginConfig) => a.order - b.order
+    for (const teamId of server.pluginConfigsPerTeam.keys()) {
+        if (server.defaultConfigs.length > 0) {
+            const combinedPluginConfigs = [
                 ...(server.pluginConfigsPerTeam.get(teamId) || []),
                 ...server.defaultConfigs,
-            ])
-            server.pluginConfigsPerTeam.get(teamId)?.sort((a, b) => a.id - b.id)
+            ].sort(sortFunction)
+            server.pluginConfigsPerTeam.set(teamId, combinedPluginConfigs)
+        } else {
+            server.pluginConfigsPerTeam.get(teamId)?.sort(sortFunction)
         }
     }
 }

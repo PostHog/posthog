@@ -40,6 +40,7 @@ export async function resetTestDatabase(code: string): Promise<void> {
             session_recording_opt_in: true,
             plugins_opt_in: true,
             opt_out_capture: false,
+            is_demo: false,
         })
     }
     for (const plugin of mocks.pluginRows) {

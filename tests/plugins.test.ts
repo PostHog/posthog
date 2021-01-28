@@ -92,7 +92,7 @@ test('plugin returns null', async () => {
 test('plugin meta has what it should have', async () => {
     getPluginRows.mockReturnValueOnce([
         mockPluginWithArchive(`
-            function setupPlugin (meta) { meta.global.key = 'value' } 
+            function setupPlugin (meta) { meta.global.key = 'value' }
             function processEvent (event, meta) { event.properties=meta; return event }
         `),
     ])
@@ -266,4 +266,23 @@ test("plugin with broken archive doesn't load", async () => {
     expect(setError.mock.calls[0][1]!.message).toEqual('Could not read archive as .zip or .tgz')
     expect(setError.mock.calls[0][1]!.time).toBeDefined()
     expect(pluginConfigs.get(39)!.vm).toEqual(null)
+})
+
+test('plugin config order', async () => {
+    getPluginRows.mockReturnValueOnce([plugin60, { ...plugin60, id: 61 }, { ...plugin60, id: 62 }])
+    getPluginAttachmentRows.mockReturnValueOnce([])
+    getPluginConfigRows.mockReturnValueOnce([
+        { ...pluginConfig39, order: 2 },
+        { ...pluginConfig39, plugin_id: 61, id: 40, order: 1 },
+        { ...pluginConfig39, plugin_id: 62, id: 41, order: 3 },
+    ])
+
+    await setupPlugins(mockServer)
+    const { pluginConfigsPerTeam, defaultConfigs } = mockServer
+
+    expect(pluginConfigsPerTeam.get(pluginConfig39.team_id)?.map((c) => [c.id, c.order])).toEqual([
+        [40, 1],
+        [39, 2],
+        [41, 3],
+    ])
 })
