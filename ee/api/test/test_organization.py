@@ -22,6 +22,26 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             OrganizationMembership.Level.OWNER,
         )
 
+    def test_at_most_one_organization_on_noncloud(self):
+        organization, _, team = Organization.objects.bootstrap(self.user, name="X")
+
+        response = self.client.post("/api/organizations/", {"name": "Test"})
+        response_data = response.json()
+
+        self.assertTrue(Organization.objects.filter(id=organization.id).exists())
+        self.assertTrue(Team.objects.filter(id=team.id).exists())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Organization.objects.count(), 1)
+        self.assertDictEqual(
+            response_data,
+            {
+                "attr": None,
+                "detail": "Private instances can only have one organization! Join the existing one.",
+                "code": "invalid_input",
+                "type": "validation_error",
+            },
+        )
+
     def test_delete_second_managed_organization(self):
         with self.settings(MULTI_TENANCY=True):
             organization, _, team = Organization.objects.bootstrap(self.user, name="X")
