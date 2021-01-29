@@ -53,6 +53,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.assertFalse(Team.objects.filter(id=team.id).exists())
 
     def test_no_delete_last_organization(self):
+        self.bootstrap()
         org_id = self.organization.id
         self.assertTrue(Organization.objects.filter(id=org_id).exists())
         response = self.client.delete(f"/api/organizations/{org_id}")
@@ -81,10 +82,12 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertTrue(Team.objects.filter(id=team.id).exists())
 
     def test_no_delete_organization_not_belonging_to(self):
+        self.bootstrap()
         # as member only
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        organization = Organization.objects.create(name="Some Other Org")
+        with self.settings(MUTLI_TENANCY=True):  # avoiding 1 org per instance limit
+            organization = Organization.objects.create(name="Some Other Org")
         response_1 = self.client.delete(f"/api/organizations/{organization.id}")
         self.assertEqual(
             response_1.data, {"attr": None, "detail": "Not found.", "code": "not_found", "type": "invalid_request"}

@@ -61,6 +61,7 @@ class APITestMixin(ErrorResponsesMixin):
     Test API using Django REST Framework test suite.
     """
 
+    CONFIG_BOOTSTRAP: bool = True
     CONFIG_ORGANIZATION_NAME: str = "Test"
     CONFIG_USER_EMAIL: Optional[str] = "user1@posthog.com"
     CONFIG_PASSWORD: Optional[str] = "testpassword12345"
@@ -77,6 +78,11 @@ class APITestMixin(ErrorResponsesMixin):
         )
 
     def setUp(self):
+        super().setUp()  # type: ignore
+        if self.CONFIG_BOOTSTRAP:
+            self.bootstrap()
+
+    def bootstrap(self):
         super().setUp()  # type: ignore
         self.organization: Organization = Organization.objects.create(name=self.CONFIG_ORGANIZATION_NAME)
         self.team: Team = Team.objects.create(organization=self.organization, api_token=self.CONFIG_API_TOKEN)

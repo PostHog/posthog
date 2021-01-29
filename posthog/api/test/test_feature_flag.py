@@ -77,6 +77,8 @@ class TestFeatureFlag(TransactionBaseTest):
 
 
 class TestAPIFeatureFlag(APIBaseTest):
+    CONFIG_BOOTSTRAP = False
+
     def setUp(self):
         super().setUp()
         self.organization, self.team, self.user = User.objects.bootstrap("Feature Flags", "ff@posthog.com", None)
