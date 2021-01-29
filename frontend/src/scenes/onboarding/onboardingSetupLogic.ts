@@ -51,5 +51,14 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
             (organization: OrganizationType, stepInstallation: boolean) =>
                 stepInstallation && organization.any_project_completed_snippet_onboarding,
         ],
+        defaultActiveSection: [
+            (selectors) => [selectors.stepProjectSetup, selectors.stepInstallation, selectors.stepVerification],
+            (stepProjectSetup: boolean, stepInstallation: boolean, stepVerification: boolean): number => {
+                if (stepProjectSetup && stepInstallation && stepVerification) {
+                    return 2
+                }
+                return 1
+            },
+        ],
     },
 })

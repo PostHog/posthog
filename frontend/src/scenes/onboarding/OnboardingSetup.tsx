@@ -74,7 +74,9 @@ function OnboardingStep({
 
 export const OnboardingSetup = hot(_OnboardingSetup)
 function _OnboardingSetup(): JSX.Element {
-    const { stepProjectSetup, stepInstallation, projectModalShown, stepVerification } = useValues(onboardingSetupLogic)
+    const { stepProjectSetup, stepInstallation, projectModalShown, stepVerification, defaultActiveSection } = useValues(
+        onboardingSetupLogic
+    )
     const { switchToNonDemoProject, setProjectModalShown } = useActions(onboardingSetupLogic)
 
     return (
@@ -84,7 +86,7 @@ function _OnboardingSetup(): JSX.Element {
                 caption="Get your PostHog instance up and running with all the bells and whistles"
             />
 
-            <Collapse defaultActiveKey={['1']} expandIconPosition="right" accordion>
+            <Collapse defaultActiveKey={defaultActiveSection} expandIconPosition="right" accordion>
                 <Panel
                     header={
                         <PanelHeader
@@ -133,7 +135,7 @@ function _OnboardingSetup(): JSX.Element {
                         />
                     }
                     key="2"
-                    collapsible="disabled"
+                    collapsible={defaultActiveSection < 2 ? 'disabled' : undefined}
                 >
                     <p>text</p>
                 </Panel>
