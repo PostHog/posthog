@@ -185,8 +185,8 @@ class OrganizationSignupSerializer(serializers.Serializer):
 
     def create_team(self, organization: Organization, user: User) -> Team:
         if self.enable_new_onboarding(user):
-            organization.setup_last_completed_section = (
-                0  # Temp (due to FF-release): Activate the setup/onboarding process
+            organization.setup_section_2_completed = (
+                False  # Temp (due to FF-release): Activate the setup/onboarding process
             )
             organization.save()
             return create_demo_team(user=user, organization=organization, request=self.context["request"])

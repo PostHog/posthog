@@ -26,7 +26,7 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
             if (!user?.team?.is_demo) {
                 router.actions.push(dest)
             } else {
-                const teamId = organizationLogic.values.currentOrganization?.non_demo_team_id
+                const teamId = organizationLogic.values.currentOrganization?.setup_state.non_demo_team_id
                 if (teamId) {
                     navigationLogic.actions.updateCurrentProject(teamId, dest)
                 }
@@ -44,20 +44,17 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
         ],
         stepInstallation: [
             () => [organizationLogic.selectors.currentOrganization],
-            (organization: OrganizationType) => organization.any_project_ingested_events,
+            (organization: OrganizationType) => organization.setup_state.any_project_ingested_events,
         ],
         stepVerification: [
             (selectors) => [organizationLogic.selectors.currentOrganization, selectors.stepInstallation],
             (organization: OrganizationType, stepInstallation: boolean) =>
-                stepInstallation && organization.any_project_completed_snippet_onboarding,
+                stepInstallation && organization.setup_state.any_project_completed_snippet_onboarding,
         ],
-        defaultActiveSection: [
-            (selectors) => [selectors.stepProjectSetup, selectors.stepInstallation, selectors.stepVerification],
-            (stepProjectSetup: boolean, stepInstallation: boolean, stepVerification: boolean): number => {
-                if (stepProjectSetup && stepInstallation && stepVerification) {
-                    return 2
-                }
-                return 1
+        currentSection: [
+            () => [organizationLogic.selectors.currentOrganization],
+            (organization: OrganizationType): number | null => {
+                return organization.setup_state.current_section
             },
         ],
     },

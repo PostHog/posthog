@@ -110,4 +110,20 @@
             }
         }
     }
+
+    .already-completed {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        .anticon {
+            font-size: 100px;
+            color: $success;
+        }
+
+        h2 {
+            color: $success;
+        }
+    }
 }

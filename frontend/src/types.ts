@@ -66,11 +66,9 @@ export interface OrganizationType {
     available_features: string[]
     billing_plan: string
     billing: OrganizationBilling
-    teams: TeamType[]
+    teams?: TeamType[]
     membership_level: OrganizationMembershipLevel | null
-    any_project_ingested_events: boolean
-    any_project_completed_snippet_onboarding: boolean
-    non_demo_team_id: number | null
+    setup_state: SetupState
 }
 
 export interface OrganizationMemberType {
@@ -447,3 +445,10 @@ export interface SystemStatus {
 }
 
 export type PersonalizationData = Record<string, string | string[] | null>
+export interface SetupState {
+    enabled: boolean
+    current_section: number | null
+    any_project_ingested_events?: boolean
+    any_project_completed_snippet_onboarding?: boolean
+    non_demo_team_id?: number | null
+}
