@@ -5,9 +5,11 @@ import { StarOutlined, SettingOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { Link } from 'lib/components/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function DemoWarning(): JSX.Element | null {
     const { user, demoOnlyProject } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!demoOnlyProject) {
         return null
@@ -33,6 +35,7 @@ export function DemoWarning(): JSX.Element | null {
                     </LinkButton>
                 }
                 closable
+                style={featureFlags['navigation-1775'] ? { marginTop: 32 } : undefined}
             />
         </>
     )
