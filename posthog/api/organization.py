@@ -83,26 +83,28 @@ class OrganizationSerializer(serializers.ModelSerializer):
         return membership.level if membership is not None else None
 
     def get_setup_state(self, instance: Organization) -> Dict[str, Union[bool, int, str]]:
+
+        if instance.setup_section_2_completed:
+            # As Section 2 is the last one of the setup process (as of today), if it's completed it means the setup process is done
+            return {"enabled": False, "current_section": None}
+
+        non_demo_team_id = next((team.pk for team in instance.teams.filter(is_demo=False)), None)
         any_project_ingested_events = instance.teams.filter(is_demo=False, ingested_event=True).exists()
         any_project_completed_snippet_onboarding = instance.teams.filter(
             is_demo=False, completed_snippet_onboarding=True,
         ).exists()
-        non_demo_team_id = next((team.pk for team in instance.teams.filter(is_demo=False)), None)
 
-        last_completed_section = instance.setup_last_completed_section
-        if not last_completed_section:
-            # Check if Section 1 has been completed (which is the only section that is dynamically computed)
-            last_completed_section = (
-                1
-                if non_demo_team_id and any_project_ingested_events and any_project_completed_snippet_onboarding
-                else None
-            )
+        current_section = 1
+        if non_demo_team_id and any_project_ingested_events and any_project_completed_snippet_onboarding:
+            # All steps from section 1 completed, move on to section 2
+            current_section = 2
 
         return {
+            "enabled": True,
+            "current_section": current_section,
             "any_project_ingested_events": any_project_ingested_events,
             "any_project_completed_snippet_onboarding": any_project_completed_snippet_onboarding,
             "non_demo_team_id": non_demo_team_id,
-            "last_completed_section": last_completed_section,
         }
 
 

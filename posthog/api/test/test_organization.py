@@ -16,11 +16,23 @@ class TestOrganizationAPI(APIBaseTest):
         response_data = self.client.get("/api/organizations/@current").json()
 
         self.assertEqual(response_data["id"], str(self.organization.id))
-        self.assertEqual(response_data["any_project_ingested_events"], False)
-        self.assertEqual(response_data["any_project_completed_snippet_onboarding"], False)
-        self.assertEqual(response_data["non_demo_team_id"], self.team.id)
+        # By default, setup state is marked as completed
+        self.assertEqual(response_data["setup_state"], {"enabled": False, "current_section": None})
+
+    def test_current_organization_on_setup_mode(self):
+
+        self.organization.setup_section_2_completed = False
+        self.organization.save()
+
+        response_data = self.client.get("/api/organizations/@current").json()
+        self.assertEqual(response_data["setup_state"]["enabled"], True)
+        self.assertEqual(response_data["setup_state"]["current_section"], 1)
+        self.assertEqual(response_data["setup_state"]["any_project_completed_snippet_onboarding"], False)
+        self.assertEqual(response_data["setup_state"]["non_demo_team_id"], self.team.id)
 
     def test_get_current_team_fields(self):
+        self.organization.setup_section_2_completed = False
+        self.organization.save()
         Team.objects.create(organization=self.organization, is_demo=True, ingested_event=True)
         team2 = Team.objects.create(organization=self.organization, completed_snippet_onboarding=True)
         self.team.is_demo = True
@@ -29,9 +41,9 @@ class TestOrganizationAPI(APIBaseTest):
         response_data = self.client.get("/api/organizations/@current").json()
 
         self.assertEqual(response_data["id"], str(self.organization.id))
-        self.assertEqual(response_data["any_project_ingested_events"], False)
-        self.assertEqual(response_data["any_project_completed_snippet_onboarding"], True)
-        self.assertEqual(response_data["non_demo_team_id"], team2.id)
+        self.assertEqual(response_data["setup_state"]["any_project_ingested_events"], False)
+        self.assertEqual(response_data["setup_state"]["any_project_completed_snippet_onboarding"], True)
+        self.assertEqual(response_data["setup_state"]["non_demo_team_id"], team2.id)
 
     # Creating organizations
 
