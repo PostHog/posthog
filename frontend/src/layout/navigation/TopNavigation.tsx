@@ -79,26 +79,16 @@ export function _TopNavigation(): JSX.Element {
                         </a>
                     )
                 })}
-                <a
-                    style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center' }}
-                    onClick={() =>
-                        guardPremiumFeature(
-                            user,
-                            showUpgradeModal,
-                            'organizations_projects',
-                            'multiple organizations',
-                            () => {
-                                setOrganizationModalShown(true)
-                            },
-                            {
-                                cloud: false,
-                                selfHosted: true,
-                            }
-                        )
-                    }
-                >
-                    <PlusOutlined style={{ marginRight: 8, fontSize: 18 }} /> New organization
-                </a>
+                {user.is_multi_tenancy && (
+                    <a
+                        style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center' }}
+                        onClick={() => {
+                            setOrganizationModalShown(true)
+                        }}
+                    >
+                        <PlusOutlined style={{ marginRight: 8, fontSize: 18 }} /> New organization
+                    </a>
+                )}
             </div>
             <div className="divider mb-05" />
             <div className="text-center">

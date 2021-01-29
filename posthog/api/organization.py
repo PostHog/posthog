@@ -20,32 +20,7 @@ from posthog.api.user import UserSerializer
 from posthog.demo import create_demo_team
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
-from posthog.permissions import (
-    CREATE_METHODS,
-    OrganizationAdminWritePermissions,
-    OrganizationMemberPermissions,
-    UninitiatedOrCloudOnly,
-)
-
-
-class PremiumMultiorganizationPermissions(permissions.BasePermission):
-    """Require user to have all necessary premium features on their plan for create access to the endpoint."""
-
-    message = "You must upgrade your PostHog plan to be able to create and manage multiple organizations."
-
-    def has_permission(self, request: request.Request, view) -> bool:
-        if (
-            # make multiple orgs only premium on self-hosted, since enforcement of this is not possible on Cloud
-            not getattr(settings, "MULTI_TENANCY", False)
-            and request.method in CREATE_METHODS
-            and (
-                request.user.organization is None
-                or not request.user.organization.is_feature_available("organizations_projects")
-            )
-            and request.user.organizations.count() >= 1
-        ):
-            return False
-        return True
+from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions, UninitiatedOrCloudOnly
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
@@ -98,7 +73,6 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     serializer_class = OrganizationSerializer
     permission_classes = [
         permissions.IsAuthenticated,
-        PremiumMultiorganizationPermissions,
         OrganizationMemberPermissions,
         OrganizationAdminWritePermissions,
     ]

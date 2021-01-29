@@ -35,6 +35,11 @@ class OrganizationManager(models.Manager):
                 user.save()
         return organization, organization_membership, team
 
+    def create(self, *args, **kwargs) -> "Organization":
+        if not settings.MULTI_TENANCY and Organization.objects.exists():
+            raise Exception("Private instances can only have one organization! Join the existing one.")
+        return super().create(*args, **kwargs)
+
 
 class Organization(UUIDModel):
     members: models.ManyToManyField = models.ManyToManyField(

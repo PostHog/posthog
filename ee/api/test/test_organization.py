@@ -23,13 +23,14 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         )
 
     def test_delete_second_managed_organization(self):
-        organization, _, team = Organization.objects.bootstrap(self.user, name="X")
-        self.assertTrue(Organization.objects.filter(id=organization.id).exists())
-        self.assertTrue(Team.objects.filter(id=team.id).exists())
-        response = self.client.delete(f"/api/organizations/{organization.id}")
-        self.assertEqual(response.status_code, 204)
-        self.assertFalse(Organization.objects.filter(id=organization.id).exists())
-        self.assertFalse(Team.objects.filter(id=team.id).exists())
+        with self.settings(MULTI_TENANCY=True):
+            organization, _, team = Organization.objects.bootstrap(self.user, name="X")
+            self.assertTrue(Organization.objects.filter(id=organization.id).exists())
+            self.assertTrue(Team.objects.filter(id=team.id).exists())
+            response = self.client.delete(f"/api/organizations/{organization.id}")
+            self.assertEqual(response.status_code, 204)
+            self.assertFalse(Organization.objects.filter(id=organization.id).exists())
+            self.assertFalse(Team.objects.filter(id=team.id).exists())
 
     def test_no_delete_last_organization(self):
         org_id = self.organization.id

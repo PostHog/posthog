@@ -55,7 +55,6 @@ export function User(): JSX.Element {
 
 export function Organization(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { showUpgradeModal } = useActions(sceneLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
 
     return (
@@ -84,29 +83,19 @@ export function Organization(): JSX.Element {
                                     </Menu.Item>
                                 )
                         )}
-                        <Menu.Item>
-                            <a
-                                href="#"
-                                onClick={() => {
-                                    guardPremiumFeature(
-                                        user,
-                                        showUpgradeModal,
-                                        'organizations_projects',
-                                        'multiple organizations',
-                                        () => {
-                                            setIsModalVisible(true)
-                                        },
-                                        {
-                                            cloud: false,
-                                            selfHosted: true,
-                                        }
-                                    )
-                                }}
-                            >
-                                <PlusOutlined size={1} style={{ marginRight: '0.5rem' }} />
-                                <i>New Organization</i>
-                            </a>
-                        </Menu.Item>
+                        {user.is_multi_tenancy && (
+                            <Menu.Item>
+                                <a
+                                    href="#"
+                                    onClick={() => {
+                                        setIsModalVisible(true)
+                                    }}
+                                >
+                                    <PlusOutlined size={1} style={{ marginRight: '0.5rem' }} />
+                                    <i>New Organization</i>
+                                </a>
+                            </Menu.Item>
+                        )}
                     </Menu>
                 }
             >
