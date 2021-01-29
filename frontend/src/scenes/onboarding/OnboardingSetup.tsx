@@ -148,24 +148,6 @@ function _OnboardingSetup(): JSX.Element {
                                 />
                             </div>
                         </Panel>
-                        <Panel
-                            header={
-                                <PanelHeader
-                                    title="First steps"
-                                    caption={
-                                        <>
-                                            Walk through some initial steps (like creating your first action). Optional,
-                                            but you get <b>extra free event allocation for every month, forever</b>.
-                                        </>
-                                    }
-                                    stepNumber={3}
-                                />
-                            }
-                            key="3"
-                            collapsible="disabled"
-                        >
-                            <p>text</p>
-                        </Panel>
                     </Collapse>
                     <CreateProjectModal
                         isVisible={projectModalShown}
