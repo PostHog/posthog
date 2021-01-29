@@ -29,6 +29,15 @@ export function getConfigSchemaObject(
     }
 }
 
+export function defaultConfigForPlugin(plugin: PluginTypeWithConfig): Record<string, any> {
+    const config: Record<string, any> = {}
+    for (const field of getConfigSchemaArray(plugin.config_schema)) {
+        if (field.key && typeof field.default !== 'undefined') {
+            config[field.key] = field.default
+        }
+    }
+    return config
+}
 export function getPluginConfigFormData(
     editingPlugin: PluginTypeWithConfig,
     pluginConfigChanges: Record<string, any>
@@ -39,7 +48,7 @@ export function getPluginConfigFormData(
 
     const formData = new FormData()
     const otherConfig: Record<string, any> = {}
-    formData.append('enabled', enabled)
+    formData.append('enabled', Boolean(enabled).toString())
     for (const [key, value] of Object.entries(config)) {
         if (configSchema[key]?.type === 'attachment') {
             if (value && !value.saved) {

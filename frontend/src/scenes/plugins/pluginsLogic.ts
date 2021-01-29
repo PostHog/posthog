@@ -15,6 +15,8 @@ import { PersonalAPIKeyType } from '~/types'
 import posthog from 'posthog-js'
 import { FormInstance } from 'antd/lib/form'
 
+type PluginForm = FormInstance
+
 function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
     posthog.capture(event, {
         plugin_name: plugin.name,
@@ -32,7 +34,8 @@ export const pluginsLogic = kea<
         PluginTypeWithConfig,
         PluginInstallationType,
         PluginUpdateStatusType,
-        PluginTab
+        PluginTab,
+        PluginForm
     >
 >({
     actions: {
@@ -57,7 +60,14 @@ export const pluginsLogic = kea<
         setUpdateError: (id: number) => ({ id }),
         updatePlugin: (id: number) => ({ id }),
         pluginUpdated: (id: number) => ({ id }),
-        generateApiKeysIfNeeded: (form: FormInstance<any>) => ({ form }),
+        generateApiKeysIfNeeded: (form: PluginForm) => ({ form }),
+        rearrange: true,
+        setTemporaryOrder: (temporaryOrder: Record<number, number>, movedPluginId: number) => ({
+            temporaryOrder,
+            movedPluginId,
+        }),
+        savePluginOrders: (newOrders: Record<number, number>) => ({ newOrders }),
+        cancelRearranging: true,
     },
 
     loaders: ({ actions, values }) => ({
@@ -151,12 +161,15 @@ export const pluginsLogic = kea<
 
                     const formData = getPluginConfigFormData(editingPlugin, pluginConfigChanges)
 
+                    if (!editingPlugin.pluginConfig?.enabled) {
+                        formData.append('order', values.nextPluginOrder.toString())
+                    }
+
                     let response
                     if (editingPlugin.pluginConfig.id) {
                         response = await api.update(`api/plugin_config/${editingPlugin.pluginConfig.id}`, formData)
                     } else {
                         formData.append('plugin', editingPlugin.id.toString())
-                        formData.append('order', '0')
                         response = await api.create(`api/plugin_config/`, formData)
                     }
                     capturePluginEvent(`plugin config updated`, editingPlugin)
@@ -178,6 +191,7 @@ export const pluginsLogic = kea<
                     }
                     const response = await api.update(`api/plugin_config/${id}`, {
                         enabled,
+                        order: values.nextPluginOrder,
                     })
                     return { ...pluginConfigs, [response.plugin]: response }
                 },
@@ -187,6 +201,17 @@ export const pluginsLogic = kea<
                         error: null,
                     })
                     return { ...pluginConfigs, [response.plugin]: response }
+                },
+                savePluginOrders: async ({ newOrders }) => {
+                    const { pluginConfigs } = values
+                    const response: PluginConfigType[] = await api.update(`api/plugin_config/rearrange`, {
+                        orders: newOrders,
+                    })
+                    const newPluginConfigs: Record<string, PluginConfigType> = { ...pluginConfigs }
+                    for (const pluginConfig of response) {
+                        newPluginConfigs[pluginConfig.plugin] = pluginConfig
+                    }
+                    return newPluginConfigs
                 },
             },
         ],
@@ -316,6 +341,32 @@ export const pluginsLogic = kea<
                 checkedForUpdates: () => false,
             },
         ],
+        rearranging: [
+            false,
+            {
+                rearrange: () => true,
+                cancelRearranging: () => false,
+                savePluginOrdersSuccess: () => false,
+            },
+        ],
+        temporaryOrder: [
+            {} as Record<number, number>,
+            {
+                rearrange: () => ({}),
+                setTemporaryOrder: (_, { temporaryOrder }) => temporaryOrder,
+                cancelRearranging: () => ({}),
+                savePluginOrdersSuccess: () => ({}),
+            },
+        ],
+        movedPlugins: [
+            {} as Record<number, boolean>,
+            {
+                rearrange: () => ({}),
+                setTemporaryOrder: (state, { movedPluginId }) => ({ ...state, [movedPluginId]: true }),
+                cancelRearranging: () => ({}),
+                savePluginOrdersSuccess: () => ({}),
+            },
+        ],
     },
 
     selectors: {
@@ -325,7 +376,7 @@ export const pluginsLogic = kea<
                 const pluginValues = Object.values(plugins)
                 return pluginValues
                     .map((plugin, index) => {
-                        let pluginConfig = pluginConfigs[plugin.id]
+                        let pluginConfig = { ...pluginConfigs[plugin.id] }
                         if (!pluginConfig) {
                             const config: Record<string, any> = {}
                             Object.entries(getConfigSchemaObject(plugin.config_schema)).forEach(
@@ -347,6 +398,33 @@ export const pluginsLogic = kea<
                     .sort((a, b) => a.pluginConfig.order - b.pluginConfig.order)
                     .map((plugin, index) => ({ ...plugin, order: index + 1 }))
             },
+        ],
+        enabledPlugins: [
+            (s) => [s.installedPlugins, s.movedPlugins, s.temporaryOrder],
+            (installedPlugins, movedPlugins, temporaryOrder) =>
+                [...installedPlugins.filter(({ pluginConfig }) => pluginConfig?.enabled)]
+                    .map((plugin) => ({
+                        ...plugin,
+                        pluginConfig: {
+                            ...plugin.pluginConfig,
+                            order: temporaryOrder[plugin.id] ?? plugin.pluginConfig.order,
+                        },
+                    }))
+                    .sort((a, b) => a.pluginConfig.order - b.pluginConfig.order)
+                    .map((plugin, index) => ({
+                        ...plugin,
+                        pluginConfig: { ...plugin.pluginConfig, order: index + 1 },
+                        hasMoved: movedPlugins[plugin.id],
+                    })) as PluginTypeWithConfig[],
+        ],
+        nextPluginOrder: [
+            (s) => [s.enabledPlugins],
+            (enabledPlugins) =>
+                enabledPlugins.reduce((maxOrder, plugin) => Math.max(plugin.pluginConfig?.order ?? 0, maxOrder), 0) + 1,
+        ],
+        disabledPlugins: [
+            (s) => [s.installedPlugins],
+            (installedPlugins) => installedPlugins.filter(({ pluginConfig }) => !pluginConfig?.enabled),
         ],
         pluginsNeedingUpdates: [
             (s) => [s.installedPlugins],
@@ -434,7 +512,7 @@ export const pluginsLogic = kea<
             const configSchema = getConfigSchemaArray(editingPlugin?.config_schema || [])
 
             const posthogApiKeySchema = configSchema.find(({ key }) => key === 'posthogApiKey')
-            if (posthogApiKeySchema && !pluginConfig.posthogApiKey) {
+            if (posthogApiKeySchema && !pluginConfig?.posthogApiKey) {
                 try {
                     const { value: posthogApiKey }: PersonalAPIKeyType = await api.create('api/personal_api_keys/', {
                         label: `Plugin: ${editingPlugin.name}`,
@@ -449,7 +527,7 @@ export const pluginsLogic = kea<
             const posthogHostSchema = configSchema.find(({ key }) => key === 'posthogHost')
             if (
                 posthogHostSchema &&
-                (!pluginConfig.posthogHost || pluginConfig.posthogHost === 'https://app.posthog.com')
+                (!pluginConfig?.posthogHost || pluginConfig.posthogHost === 'https://app.posthog.com')
             ) {
                 form.setFieldsValue({ posthogHost: window.location.origin })
             }

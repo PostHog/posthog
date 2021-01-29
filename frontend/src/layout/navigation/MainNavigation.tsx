@@ -8,6 +8,7 @@ import {
     MessageOutlined,
     PushpinFilled,
     PlusOutlined,
+    SettingOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -32,6 +33,7 @@ import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import { dashboardsModel } from '~/models'
 import { DashboardType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 // to show the right page in the sidebar
 const sceneOverride: Record<string, string> = {
@@ -86,6 +88,7 @@ function _MainNavigation(): JSX.Element {
     const navRef = useRef<HTMLDivElement | null>(null)
     const [canScroll, setCanScroll] = useState(false)
     const { pinnedDashboards, dashboards } = useValues(dashboardsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEscapeKey(collapseMenu, [menuCollapsed])
 
@@ -183,6 +186,10 @@ function _MainNavigation(): JSX.Element {
                             <img src={lgLogo} className="logo-lg" alt="" />
                         </Link>
                     </div>
+                    {/* TODO: Only if setup hasn't been completed  */}
+                    {featureFlags['onboarding-2822'] && (
+                        <MenuItem title="Setup" icon={<SettingOutlined />} identifier="onboardingSetup" to="/setup" />
+                    )}
                     <Popover
                         content={PinnedDashboards}
                         placement="right"

@@ -81,7 +81,7 @@ export function Billing(): JSX.Element {
             </Card>
             <div className="space-top" />
             <Card title="Billing plan">
-                {user?.billing.plan && !user?.billing.should_setup_billing && (
+                {user?.billing?.plan && !user?.billing.should_setup_billing && (
                     <>
                         Your organization is currently on the <b>{user.billing.plan.name}</b>. We're working on allowing
                         self-serve billing management, in the meantime, please{' '}
@@ -89,14 +89,14 @@ export function Billing(): JSX.Element {
                         change or cancel your subscription.
                     </>
                 )}
-                {user?.billing.plan && user?.billing.should_setup_billing && (
+                {user?.billing?.plan && user?.billing?.should_setup_billing && (
                     <>
                         Your organization is currently enrolled in the <b>{user?.billing.plan.name}</b>, but billing
                         details have not been set up. Please{' '}
                         <a href={user?.billing.subscription_url}>set them up now</a> or change your plan.{' '}
                     </>
                 )}
-                {!user?.billing.plan && <>Your organization does not have a billing plan set up yet.</>}
+                {!user?.billing?.plan && <>Your organization does not have a billing plan set up yet.</>}
                 {plans?.length > 0 && (
                     <>
                         Choose a plan from the list below to initiate a subscription.{' '}

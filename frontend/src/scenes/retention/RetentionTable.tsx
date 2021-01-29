@@ -4,6 +4,8 @@ import { Table, Modal, Button, Spin, Tooltip } from 'antd'
 import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
+import { RetentionTablePayload, RetentionTablePeoplePayload } from 'scenes/retention/types'
+
 import './RetentionTable.scss'
 import moment from 'moment'
 import { ColumnsType } from 'antd/lib/table'
@@ -15,13 +17,16 @@ export function RetentionTable({
 }): JSX.Element | null {
     const logic = retentionTableLogic({ dashboardItemId })
     const {
-        results,
+        results: _results,
         resultsLoading,
         peopleLoading,
-        people,
+        people: _people,
         loadingMore,
         filters: { period, date_to },
     } = useValues(logic)
+    const results = _results as RetentionTablePayload[]
+    const people = _people as RetentionTablePeoplePayload
+
     const { loadPeople, loadMorePeople } = useActions(logic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
@@ -87,7 +92,7 @@ export function RetentionTable({
                 onRow={(_, rowIndex: number | undefined) => ({
                     onClick: () => {
                         if (rowIndex !== undefined) {
-                            !people[rowIndex] && loadPeople(rowIndex)
+                            loadPeople(rowIndex)
                             setModalVisible(true)
                             selectRow(rowIndex)
                         }
@@ -130,7 +135,11 @@ export function RetentionTable({
                                                             {count}&nbsp;{' '}
                                                             {count > 0 && (
                                                                 <span>
-                                                                    ({percentage(count / people.result.totals[0])})
+                                                                    (
+                                                                    {people.result
+                                                                        ? percentage(count / people.result.totals[0])
+                                                                        : percentage(0)}
+                                                                    )
                                                                 </span>
                                                             )}
                                                         </td>

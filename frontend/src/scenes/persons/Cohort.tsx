@@ -48,9 +48,7 @@ function StaticCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
                     <InboxOutlined />
                 </p>
                 <p className="ant-upload-text">Click or drag CSV to this area to upload</p>
-                <p className="ant-upload-hint">
-                    Make sure the file has a single column with either the user's distinct_id or email.
-                </p>
+                <p className="ant-upload-hint">Make sure the file has a single column with the user's distinct_id.</p>
             </Dragger>
             {cohort.id !== 'new' && (
                 <p style={{ marginTop: '1rem' }}>
