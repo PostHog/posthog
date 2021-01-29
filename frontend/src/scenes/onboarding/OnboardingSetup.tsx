@@ -2,7 +2,16 @@ import { PageHeader } from 'lib/components/PageHeader'
 import React from 'react'
 import { hot } from 'react-hot-loader/root'
 import { Button, Collapse } from 'antd'
-import { ProjectOutlined, CodeOutlined, CheckOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import {
+    ProjectOutlined,
+    CodeOutlined,
+    CheckOutlined,
+    CheckCircleOutlined,
+    PlaySquareOutlined,
+    SlackOutlined,
+    UsergroupAddOutlined,
+    PlusOutlined,
+} from '@ant-design/icons'
 import './OnboardingSetup.scss'
 import { useActions, useValues } from 'kea'
 import { onboardingSetupLogic } from './onboardingSetupLogic'
@@ -34,21 +43,35 @@ function PanelHeader({
 
 function OnboardingStep({
     label,
-    stepNumber,
+    title,
     icon,
     identifier,
     disabled,
     completed,
     handleClick,
+    caption,
+    customActionElement,
 }: {
-    label: string
-    stepNumber?: number
+    label?: string
+    title?: string
     icon: React.ReactNode
     identifier: string
     disabled?: boolean
     completed?: boolean
     handleClick?: () => void
+    caption?: JSX.Element | string
+    customActionElement?: JSX.Element
 }): JSX.Element {
+    const actionElement = (
+        <>
+            {customActionElement || (
+                <Button type="primary" disabled={disabled}>
+                    {label}
+                </Button>
+            )}
+        </>
+    )
+
     return (
         <div
             className={`onboarding-step${disabled ? ' disabled' : ''}${completed ? ' completed' : ''}`}
@@ -56,17 +79,16 @@ function OnboardingStep({
             data-attr="onboarding-setup-step"
             data-step={identifier}
         >
-            {stepNumber && <div className="step-number">Step {stepNumber}</div>}
+            {title && <div className="title">{title}</div>}
             <div className="icon-container">{icon}</div>
+            {caption && <div className="caption">{caption}</div>}
             {completed ? (
                 <div className="completed-label">
                     <CheckCircleOutlined />
                     {label}
                 </div>
             ) : (
-                <Button type="primary" disabled={disabled}>
-                    {label}
-                </Button>
+                actionElement
             )}
         </div>
     )
@@ -78,6 +100,8 @@ function _OnboardingSetup(): JSX.Element {
         onboardingSetupLogic
     )
     const { switchToNonDemoProject, setProjectModalShown } = useActions(onboardingSetupLogic)
+
+    const UTM_TAGS = 'utm_medium=in-product&utm_campaign=onboarding-setup-2822'
 
     return (
         <div className="onboarding-setup">
@@ -103,7 +127,7 @@ function _OnboardingSetup(): JSX.Element {
                                 <OnboardingStep
                                     label="Set up project"
                                     icon={<ProjectOutlined />}
-                                    stepNumber={1}
+                                    title="Step 1"
                                     identifier="set-up-project"
                                     completed={stepProjectSetup}
                                     handleClick={() => setProjectModalShown(true)}
@@ -111,7 +135,7 @@ function _OnboardingSetup(): JSX.Element {
                                 <OnboardingStep
                                     label="Install PostHog"
                                     icon={<CodeOutlined />}
-                                    stepNumber={2}
+                                    title="Step 2"
                                     identifier="install-posthog"
                                     disabled={!stepProjectSetup}
                                     completed={stepInstallation}
@@ -120,7 +144,7 @@ function _OnboardingSetup(): JSX.Element {
                                 <OnboardingStep
                                     label="Verify your events"
                                     icon={<CheckOutlined />}
-                                    stepNumber={3}
+                                    title="Step 3"
                                     identifier="verify-events"
                                     disabled={!stepProjectSetup || !stepInstallation}
                                     completed={stepVerification}
@@ -141,11 +165,51 @@ function _OnboardingSetup(): JSX.Element {
                         >
                             <div className="step-list">
                                 <OnboardingStep
-                                    label="Enable session recording"
-                                    icon={<ProjectOutlined />}
+                                    title="Enable session recording"
+                                    icon={<PlaySquareOutlined />}
                                     identifier="session-recording"
                                     handleClick={() => setProjectModalShown(true)}
+                                    caption={
+                                        <>
+                                            Play user interactions as if you were right there with them.{' '}
+                                            <Link
+                                                to={`https://posthog.com/docs/features/session-recording?${UTM_TAGS}`}
+                                                rel="noopener"
+                                                target="_blank"
+                                            >
+                                                Learn more
+                                            </Link>
+                                            .
+                                        </>
+                                    }
                                 />
+                                <OnboardingStep
+                                    title="Join us on Slack"
+                                    icon={<SlackOutlined />}
+                                    identifier="slack"
+                                    handleClick={() => setProjectModalShown(true)}
+                                    caption="Fastest way to reach the PostHog team and the community."
+                                    customActionElement={
+                                        <Button type="primary" icon={<SlackOutlined />}>
+                                            Join us
+                                        </Button>
+                                    }
+                                />
+                                <OnboardingStep
+                                    title="Invite your team members"
+                                    icon={<UsergroupAddOutlined />}
+                                    identifier="invite-team"
+                                    handleClick={() => setProjectModalShown(true)}
+                                    caption="Spread the knowledge, share insights with everyone in your team."
+                                    customActionElement={
+                                        <Button type="primary" icon={<PlusOutlined />}>
+                                            Invite my team
+                                        </Button>
+                                    }
+                                />
+                            </div>
+                            <div className="text-center" style={{ marginTop: 32 }}>
+                                <Button type="default">Finish setup</Button>
                             </div>
                         </Panel>
                     </Collapse>
@@ -162,7 +226,7 @@ function _OnboardingSetup(): JSX.Element {
                                     It’s helpful to separate your different apps in multiple projects. Read more about
                                     our recommendations and{' '}
                                     <Link
-                                        to="https://posthog.com/docs/features/organizations?utm_medium=in-product&utm_campaign=onboarding-setup-2822"
+                                        to={`https://posthog.com/docs/features/organizations?${UTM_TAGS}`}
                                         rel="noopener"
                                         target="_blank"
                                     >
@@ -178,11 +242,7 @@ function _OnboardingSetup(): JSX.Element {
                     <CheckCircleOutlined /> <h2 className="">Your organization is already set up!</h2>
                     <div className="text-muted">
                         Looks like your organization is already good to go. If you still need some help, check out{' '}
-                        <Link
-                            to="https://posthog.com/docs?utm_medium=in-product&amp;utm_campaign=onboarding-setup-completed"
-                            target="_blank"
-                            rel="noopener"
-                        >
+                        <Link to={`https://posthog.com/docs?${UTM_TAGS}`} target="_blank" rel="noopener">
                             our docs <IconExternalLink />
                         </Link>
                     </div>

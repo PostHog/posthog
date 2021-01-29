@@ -54,8 +54,15 @@
             margin-left: 0;
         }
 
-        .step-number {
+        .title {
             font-weight: bold;
+        }
+
+        .caption {
+            text-align: center;
+            color: $text_muted;
+            max-width: 240px;
+            margin-bottom: $default_spacing;
         }
 
         .icon-container {
@@ -80,7 +87,7 @@
                 color: $text_muted;
             }
 
-            .step-number {
+            .title {
                 color: $text_muted;
             }
 
@@ -97,7 +104,7 @@
                 color: $success;
             }
 
-            .step-number {
+            .title {
                 color: $text_muted;
             }
 
