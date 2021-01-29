@@ -28,7 +28,7 @@ class OrganizationManager(models.Manager):
             organization_membership: Optional[OrganizationMembership] = None
             if user is not None:
                 organization_membership = OrganizationMembership.objects.create(
-                    organization=organization, user=user, level=OrganizationMembership.Level.OWNER
+                    organization=organization, user=user, level=OrganizationMembership.Level.OWNER,
                 )
                 user.current_organization = organization
                 user.current_team = team

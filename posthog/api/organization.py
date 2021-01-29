@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import posthoganalytics
 from django.conf import settings
@@ -50,9 +50,9 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
 class OrganizationSerializer(serializers.ModelSerializer):
     membership_level = serializers.SerializerMethodField()
-    any_project_ingested_events = serializers.SerializerMethodField()
-    any_project_completed_snippet_onboarding = serializers.SerializerMethodField()
-    non_demo_team_id = serializers.SerializerMethodField()
+    setup_state = (
+        serializers.SerializerMethodField()
+    )  # Information related to the current state of the onboarding/setup process
 
     class Meta:
         model = Organization
@@ -63,9 +63,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "updated_at",
             "membership_level",
             "personalization",
-            "any_project_ingested_events",
-            "any_project_completed_snippet_onboarding",
-            "non_demo_team_id",
+            "setup_state",
         ]
         read_only_fields = [
             "id",
@@ -84,14 +82,28 @@ class OrganizationSerializer(serializers.ModelSerializer):
         ).first()
         return membership.level if membership is not None else None
 
-    def get_any_project_ingested_events(self, organization: Organization) -> bool:
-        return organization.teams.filter(is_demo=False, ingested_event=True).exists()
+    def get_setup_state(self, instance: Organization) -> Dict[str, Union[bool, int, str]]:
+        any_project_ingested_events = instance.teams.filter(is_demo=False, ingested_event=True).exists()
+        any_project_completed_snippet_onboarding = instance.teams.filter(
+            is_demo=False, completed_snippet_onboarding=True,
+        ).exists()
+        non_demo_team_id = next((team.pk for team in instance.teams.filter(is_demo=False)), None)
 
-    def get_any_project_completed_snippet_onboarding(self, organization: Organization) -> bool:
-        return organization.teams.filter(is_demo=False, completed_snippet_onboarding=True).exists()
+        last_completed_section = instance.setup_last_completed_section
+        if not last_completed_section:
+            # Check if Section 1 has been completed (which is the only section that is dynamically computed)
+            last_completed_section = (
+                1
+                if non_demo_team_id and any_project_ingested_events and any_project_completed_snippet_onboarding
+                else None
+            )
 
-    def get_non_demo_team_id(self, organization: Organization) -> Optional[int]:
-        return next((team.pk for team in organization.teams.filter(is_demo=False)), None)
+        return {
+            "any_project_ingested_events": any_project_ingested_events,
+            "any_project_completed_snippet_onboarding": any_project_completed_snippet_onboarding,
+            "non_demo_team_id": non_demo_team_id,
+            "last_completed_section": last_completed_section,
+        }
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -150,7 +162,7 @@ class OrganizationSignupSerializer(serializers.Serializer):
 
         company_name = validated_data.pop("company_name", validated_data["first_name"])
         self._organization, self._team, self._user = User.objects.bootstrap(
-            company_name=company_name, create_team=self.create_team, **validated_data
+            company_name=company_name, create_team=self.create_team, **validated_data,
         )
         user = self._user
 
@@ -171,6 +183,10 @@ class OrganizationSignupSerializer(serializers.Serializer):
 
     def create_team(self, organization: Organization, user: User) -> Team:
         if self.enable_new_onboarding(user):
+            organization.setup_last_completed_section = (
+                0  # Temp (due to FF-release): Activate the setup/onboarding process
+            )
+            organization.save()
             return create_demo_team(user=user, organization=organization, request=self.context["request"])
         else:
             return Team.objects.create_with_data(user=user, organization=organization)
