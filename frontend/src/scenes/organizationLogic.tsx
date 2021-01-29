@@ -1,9 +1,9 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { organizationLogicType } from './organizationLogicType'
-import { OrganizationType } from '~/types'
+import { OrganizationType, PersonalizationData } from '~/types'
 
-export const organizationLogic = kea<organizationLogicType<OrganizationType>>({
+export const organizationLogic = kea<organizationLogicType<OrganizationType, PersonalizationData>>({
     loaders: {
         currentOrganization: [
             null as OrganizationType | null,
@@ -16,7 +16,7 @@ export const organizationLogic = kea<organizationLogicType<OrganizationType>>({
                     }
                 },
                 createOrganization: async (name: string) => await api.create('api/organizations/', { name }),
-                updateOrganization: async (payload: { name?: string; personalization?: Record<string, any> }) =>
+                updateOrganization: async (payload: { name?: string; personalization?: PersonalizationData }) =>
                     await api.update('api/organizations/@current', payload),
             },
         ],

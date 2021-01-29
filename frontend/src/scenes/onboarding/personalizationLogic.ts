@@ -2,25 +2,27 @@ import { kea } from 'kea'
 import posthog from 'posthog-js'
 import { personalizationLogicType } from './personalizationLogicType'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { PersonalizationData } from '~/types'
 
-export const personalizationLogic = kea<personalizationLogicType>({
+export const personalizationLogic = kea<personalizationLogicType<PersonalizationData>>({
     actions: {
-        setPersonalizationData: (payload: Record<string, string | null>) => ({ payload }),
-        appendPersonalizationData: (payload: Record<string, string | null>) => ({ payload }),
+        setPersonalizationData: (payload: PersonalizationData) => ({ payload }),
+        appendPersonalizationData: (key: 'role' | 'products' | 'technical', value: string | string[] | null) => ({
+            key,
+            value,
+        }),
         reportPersonalizationSkipped: true,
-        reportPersonalization: (payload: Record<string, string | null>, step_completed_fully: boolean) => ({
+        reportPersonalization: (payload: PersonalizationData, step_completed_fully: boolean) => ({
             payload,
             step_completed_fully,
         }),
     },
     reducers: {
         personalizationData: [
-            {} as Record<string, string | null>,
+            {} as PersonalizationData,
             {
                 setPersonalizationData: (_, { payload }) => payload,
-                appendPersonalizationData: (state, { payload }) => {
-                    return { ...state, ...payload }
-                },
+                appendPersonalizationData: (state, { key, value }) => ({ ...state, [key]: value }),
             },
         ],
     },
