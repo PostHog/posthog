@@ -1,6 +1,7 @@
 import json
 import random
 import secrets
+from datetime import timedelta
 from pathlib import Path
 
 from dateutil.relativedelta import relativedelta
@@ -10,6 +11,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.demo.data_generator import DataGenerator
 from posthog.models import Action, ActionStep, Dashboard, DashboardItem, Element, Person
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.utils import UUIDT
 
 SCREEN_OPTIONS = ("settings", "profile", "movies", "downloads")
 
@@ -63,7 +65,7 @@ class WebDataGenerator(DataGenerator):
         )
 
     def populate_person_events(self, person: Person, distinct_id: str, index: int):
-        start_day = random.randint(1, 7)
+        start_day = random.randint(1, 7) if index > 0 else 0
         browser = random.choice(["Chrome", "Safari", "Firefox"])
 
         self.add_event(
@@ -155,6 +157,24 @@ class WebDataGenerator(DataGenerator):
                     timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=60),
                 )
 
+    def populate_session_recording(self, person: Person, distinct_id: str, index: int):
+        if index != 0:
+            return
+
+        date = now()
+        start_time = self.demo_recording["result"]["snapshots"][0]["timestamp"]
+        session_id = str(UUIDT())
+
+        for snapshot in self.demo_recording["result"]["snapshots"]:
+            self.snapshots.append(
+                {
+                    "session_id": session_id,
+                    "distinct_id": distinct_id,
+                    "timestamp": date + timedelta(milliseconds=snapshot["timestamp"] - start_time),
+                    "snapshot_data": snapshot,
+                }
+            )
+
     def make_person(self, index):
         if index < len(self.demo_data):
             properties = self.demo_data[index]
@@ -167,3 +187,8 @@ class WebDataGenerator(DataGenerator):
     def demo_data(self):
         with open(Path("posthog/demo/demo_data.json").resolve(), "r") as demo_data_file:
             return json.load(demo_data_file)
+
+    @cached_property
+    def demo_recording(self):
+        with open(Path("posthog/demo/demo_session_recording.json").resolve(), "r") as demo_session_file:
+            return json.load(demo_session_file)
