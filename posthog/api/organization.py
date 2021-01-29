@@ -19,7 +19,7 @@ from rest_framework import (
 from posthog.api.user import UserSerializer
 from posthog.demo import create_demo_team
 from posthog.models import Organization, Team, User
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import OnlyOnePrivateOrgAllowed, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions, UninitiatedOrCloudOnly
 
 
@@ -50,7 +50,10 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
-        organization, _, _ = Organization.objects.bootstrap(self.context["request"].user, **validated_data)
+        try:
+            organization, _, _ = Organization.objects.bootstrap(self.context["request"].user, **validated_data)
+        except OnlyOnePrivateOrgAllowed as e:
+            raise exceptions.ValidationError(str(e))
         return organization
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:

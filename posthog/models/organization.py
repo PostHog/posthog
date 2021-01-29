@@ -15,6 +15,11 @@ except ImportError:
     License = None  # type: ignore
 
 
+class OnlyOnePrivateOrgAllowed(Exception):
+    def __init__(self):
+        super().__init__("Private instances can only have one organization! Join the existing one.")
+
+
 class OrganizationManager(models.Manager):
     def bootstrap(
         self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs
@@ -37,7 +42,7 @@ class OrganizationManager(models.Manager):
 
     def create(self, *args, **kwargs) -> "Organization":
         if not settings.MULTI_TENANCY and Organization.objects.exists():
-            raise Exception("Private instances can only have one organization! Join the existing one.")
+            raise OnlyOnePrivateOrgAllowed()
         return super().create(*args, **kwargs)
 
 
