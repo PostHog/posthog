@@ -445,3 +445,5 @@ export interface SystemStatus {
     value: string
     key?: string
 }
+
+export type PersonalizationData = Record<string, string | string[] | null>
