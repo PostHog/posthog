@@ -61,7 +61,7 @@ def create_event(
 
     p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
 
-    if Action.objects.exists():
+    if Action.objects.filter(team=team).exists():
         try:
             celery.current_app.send_task(
                 "ee.tasks.webhooks_ee.post_event_to_webhook_ee",
