@@ -1,3 +1,5 @@
+import datetime as dt
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
@@ -12,6 +14,15 @@ try:
     from ee.models.license import License
 except ImportError:
     License = None  # type: ignore
+
+
+@dataclass
+class CachedAvailableFeatuers:
+    result: List[str]
+    timestamp: dt.datetime = field(default_factory=dt.datetime.now)
+
+
+AVAILABLE_FEATURES_PER_ORGANIZATION: Dict[int, CachedAvailableFeatuers] = {}
 
 
 class OrganizationManager(models.Manager):
@@ -74,12 +85,21 @@ class Organization(UUIDModel):
 
     @property
     def available_features(self) -> List[str]:
+        cached_result = AVAILABLE_FEATURES_PER_ORGANIZATION.get(self.id)
+        if cached_result is not None:
+            # accept the cached result if not more than 60 seconds old
+            if cached_result.timestamp + dt.timedelta(seconds=60) <= dt.datetime.now():
+                return cached_result.result
+            del AVAILABLE_FEATURES_PER_ORGANIZATION[self.id]
         plan, realm = self._billing_plan_details
         if not plan:
-            return []
-        if realm == "ee":
-            return License.PLANS.get(plan, [])
-        return self.billing.available_features  # type: ignore
+            result = []
+        elif realm == "ee":
+            result = License.PLANS.get(plan, [])
+        else:
+            result = self.billing.available_features  # type: ignore
+        AVAILABLE_FEATURES_PER_ORGANIZATION[self.id] = CachedAvailableFeatuers(result)
+        return result
 
     def is_feature_available(self, feature: str) -> bool:
         return feature in self.available_features
