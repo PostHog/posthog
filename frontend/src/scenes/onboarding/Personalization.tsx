@@ -12,19 +12,17 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 export const Personalization = hot(_Personalization)
 
 function _Personalization(): JSX.Element {
-    const { step } = useValues(personalizationLogic)
-
-    // TODO: Redirect if personalization has been completed
-
     return (
         <Row className="personalization-screen">
-            <Col xs={24}>{step === null && <StepOne />}</Col>
+            <Col xs={24}>
+                <StepOne />
+            </Col>
         </Row>
     )
 }
 
 function StepOne(): JSX.Element {
-    const { personalizationData, step } = useValues(personalizationLogic)
+    const { personalizationData } = useValues(personalizationLogic)
     const { appendPersonalizationData } = useActions(personalizationLogic)
     const { reportPersonalizationSkipped, reportPersonalization } = useActions(eventUsageLogic)
 
@@ -33,7 +31,7 @@ function StepOne(): JSX.Element {
     }
 
     const handleContinue = (): void => {
-        reportPersonalization(personalizationData, step, answeredQuestionCount === TOTAL_QUESTION_COUNT)
+        reportPersonalization(personalizationData, answeredQuestionCount === TOTAL_QUESTION_COUNT)
         // :TODO: Update organization record
         // :TODO: Is there a way to force default insights graph this without hard reload?
         location.href = '/'
@@ -100,7 +98,7 @@ function StepOne(): JSX.Element {
 
             <div className="section-continue">
                 {answeredQuestionCount === 0 ? (
-                    <Link to="/" onClick={() => reportPersonalizationSkipped(step)}>
+                    <Link to="/" onClick={() => reportPersonalizationSkipped()}>
                         Skip personalization
                     </Link>
                 ) : (
