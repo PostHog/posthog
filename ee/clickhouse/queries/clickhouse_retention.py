@@ -36,7 +36,7 @@ class ClickhouseRetention(Retention):
         returning_entity = filter.returning_entity
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
         date_from = filter.date_from
-        date_to = initial_event_date = filter.date_to
+        date_to = filter.date_to
 
         target_query = ""
         target_params: Dict = {}
@@ -64,9 +64,6 @@ class ClickhouseRetention(Retention):
                 "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
             ),
             "end_date": date_to.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
-            "initial_event_date": initial_event_date.strftime(
-                "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-            ),
             "reference_start_date": date_from.strftime(
                 "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
             ),
@@ -138,8 +135,6 @@ class ClickhouseRetention(Retention):
         date_from = filter.date_from + filter.selected_interval * filter.period_increment
         date_to = filter.date_to
 
-        initial_event_date = date_from + filter.period_increment
-
         result = sync_execute(
             RETENTION_PEOPLE_SQL.format(
                 reference_event_query=reference_event_query, target_query=return_query_formatted, filters=prop_filters
@@ -150,9 +145,6 @@ class ClickhouseRetention(Retention):
                     "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
                 ),
                 "end_date": date_to.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "initial_event_date": initial_event_date.strftime(
                     "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
                 ),
                 "reference_start_date": reference_date_from.strftime(
