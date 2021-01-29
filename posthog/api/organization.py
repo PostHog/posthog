@@ -62,6 +62,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "membership_level",
+            "personalization",
             "any_project_ingested_events",
             "any_project_completed_snippet_onboarding",
             "non_demo_team_id",

@@ -16,8 +16,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportDashboardViewed: (dashboard, hasShareToken) => ({ dashboard, hasShareToken }),
         reportBookmarkletDragged: () => true,
         reportIngestionBookmarkletCollapsible: (activePanels) => ({ activePanels }),
-        reportPersonalizationSkipped: true,
-        reportPersonalization: (payload, step_completed_fully) => ({ payload, step_completed_fully }),
         reportProjectCreationSubmitted: (projectCount, nameLength) => ({ projectCount, nameLength }),
     },
     listeners: {
@@ -164,23 +162,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             breakpoint(500)
             const action = activePanels.includes('bookmarklet') ? 'shown' : 'hidden'
             posthog.capture(`ingestion bookmarklet panel ${action}`)
-        },
-        reportPersonalizationSkipped: async () => {
-            posthog.capture('personalization skipped')
-        },
-        reportPersonalization: async ({
-            payload,
-            step_completed_fully,
-        }: {
-            payload: Record<string, string>
-            step_completed_fully: boolean
-        }) => {
-            posthog.people.set_once(payload)
-            posthog.capture('personalization completed', {
-                step_completed_fully,
-                payload,
-                number_of_answers: Object.keys(payload).length,
-            })
         },
         reportProjectCreationSubmitted: async ({
             projectCount,

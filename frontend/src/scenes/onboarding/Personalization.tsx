@@ -7,7 +7,6 @@ import { RadioSelect } from 'lib/components/RadioSelect'
 import { ROLES, PRODUCTS, IS_TECHNICAL } from './personalizationOptions'
 import { Link } from 'lib/components/Link'
 import './Personalization.scss'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const Personalization = hot(_Personalization)
 
@@ -23,18 +22,16 @@ function _Personalization(): JSX.Element {
 
 function StepOne(): JSX.Element {
     const { personalizationData } = useValues(personalizationLogic)
-    const { appendPersonalizationData } = useActions(personalizationLogic)
-    const { reportPersonalizationSkipped, reportPersonalization } = useActions(eventUsageLogic)
+    const { appendPersonalizationData, reportPersonalizationSkipped, reportPersonalization } = useActions(
+        personalizationLogic
+    )
 
-    const handleOptionChanged = (attr: 'role' | 'products' | 'technical', value: string | string[] | null): void => {
+    const handleOptionChanged = (attr: 'role' | 'products' | 'technical', value: string | null): void => {
         appendPersonalizationData({ [attr]: value })
     }
 
     const handleContinue = (): void => {
         reportPersonalization(personalizationData, answeredQuestionCount === TOTAL_QUESTION_COUNT)
-        // :TODO: Update organization record
-        // :TODO: Is there a way to force default insights graph this without hard reload?
-        location.href = '/'
     }
 
     const answeredQuestionCount: number = personalizationData
@@ -68,7 +65,7 @@ function StepOne(): JSX.Element {
                         } else {
                             handleOptionChanged('technical', null)
                         }
-                        handleOptionChanged('role', value)
+                        handleOptionChanged('role', value as string | null)
                     }}
                 />
             </div>
@@ -79,7 +76,7 @@ function StepOne(): JSX.Element {
                 <RadioSelect
                     options={IS_TECHNICAL}
                     selectedOption={personalizationData.technical}
-                    onOptionChanged={(value) => handleOptionChanged('technical', value)}
+                    onOptionChanged={(value) => handleOptionChanged('technical', value as string | null)}
                 />
             </div>
 
@@ -91,7 +88,7 @@ function StepOne(): JSX.Element {
                 <RadioSelect
                     options={PRODUCTS}
                     selectedOption={personalizationData.products}
-                    onOptionChanged={(value) => handleOptionChanged('products', value)}
+                    onOptionChanged={(value) => handleOptionChanged('products', value as string | null)}
                     multipleSelection
                 />
             </div>

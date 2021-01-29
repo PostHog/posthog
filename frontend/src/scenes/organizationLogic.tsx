@@ -16,8 +16,8 @@ export const organizationLogic = kea<organizationLogicType<OrganizationType>>({
                     }
                 },
                 createOrganization: async (name: string) => await api.create('api/organizations/', { name }),
-                updateOrganization: async ({ name }: { name?: string }) =>
-                    await api.update('api/organizations/@current', { name }),
+                updateOrganization: async (payload: { name?: string; personalization?: Record<string, any> }) =>
+                    await api.update('api/organizations/@current', payload),
             },
         ],
     },
