@@ -122,7 +122,6 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         },
         '/person/*': () => {
             const destructuredPathname = window.location.pathname.split('/')
-            console.log(destructuredPathname)
             actions.loadPerson(destructuredPathname[destructuredPathname.length - 1])
         },
     }),
