@@ -322,6 +322,11 @@ code.code {
     margin-left: 5px;
 }
 
+.btn-add {
+    color: $text_muted !important;
+    border: 1px dashed $border !important;
+}
+
 // Badges styles
 .badge {
     border-radius: 50%;
