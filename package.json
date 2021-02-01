@@ -24,7 +24,7 @@
     "bin": {
         "posthog-plugin-server": "bin/posthog-plugin-server"
     },
-    "author": "Marius Andra <marius.andra@gmail.com>",
+    "author": "PostHog <hey@posthog.com>",
     "repository": "https://github.com/PostHog/posthog-plugin-server",
     "license": "MIT",
     "dependencies": {
