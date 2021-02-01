@@ -3,7 +3,6 @@ import random
 from django.core import mail
 from rest_framework import status
 
-from posthog.models import User
 from posthog.models.organization import Organization, OrganizationInvite, OrganizationMembership
 
 from .base import APIBaseTest
@@ -92,7 +91,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "type": "authentication_error",
                 "code": "permission_denied",
-                "detail": "Your organization access level is insufficient.",
+                "detail": "You do not have permission to perform this action.",
                 "attr": None,
             },
         )

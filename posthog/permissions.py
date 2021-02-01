@@ -56,12 +56,25 @@ class OrganizationMembershipNecessaryPermissions(BasePermission):
 
 
 class OrganizationMemberPermissions(BasePermission):
-    """Require relevant organization membership to access object."""
+    """Require relevant organization membership to access object. Returns a generic permission denied response."""
 
-    message = "You don't belong to the relevant organization."
+    def has_permission(self, request: Request, view: View) -> bool:
+        organization = Optional[Organization]
+        if hasattr(view, "organization"):
+            organization = view.organization
+        elif hasattr(view, "organization_id"):
+            organization = Organization.objects.get(id=view.organization_id)
+        else:
+            return False
+
+        if not hasattr(view, "organization") or not view.organization:
+            view.organization = organization
+
+        return OrganizationMembership.objects.filter(user=request.user, organization=organization).exists()
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         organization = extract_organization(object)
+        view.organization = organization
         return OrganizationMembership.objects.filter(user=request.user, organization=organization).exists()
 
 
@@ -74,34 +87,20 @@ class OrganizationAdminWritePermissions(BasePermission):
         if request.method in SAFE_METHODS:
             return True
 
-        organization = Optional[Organization]
-        if hasattr(view, "organization"):
-            organization = view.organization
-        elif hasattr(view, "organization_id"):
-            organization = Organization.objects.get(id=view.organization_id)
-        else:
-            return False
-
-        try:
-            membership = OrganizationMembership.objects.get(user=request.user, organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            return False
-
-        return membership.level >= OrganizationMembership.Level.ADMIN
+        return (
+            OrganizationMembership.objects.get(user=request.user, organization=view.organization).level
+            >= OrganizationMembership.Level.ADMIN
+        )
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
 
         if request.method in SAFE_METHODS:
             return True
 
-        organization = extract_organization(object)
-
-        try:
-            membership = OrganizationMembership.objects.get(user=request.user, organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            return False
-
-        return membership.level >= OrganizationMembership.Level.ADMIN
+        return (
+            OrganizationMembership.objects.get(user=request.user, organization=view.organization).level
+            >= OrganizationMembership.Level.ADMIN
+        )
 
 
 class OrganizationAdminAnyPermissions(BasePermission):
