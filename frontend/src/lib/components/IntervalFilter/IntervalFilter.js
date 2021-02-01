@@ -1,5 +1,5 @@
 import React from 'react'
-import { disableMinuteFor, disableHourFor } from 'scenes/insights/trendslogic'
+import { disableMinuteFor, disableHourFor } from 'scenes/insights/trendsLogic'
 import { Select } from 'antd'
 import { intervalFilterLogic } from './intervalFilterLogic'
 import { useValues, useActions } from 'kea'
