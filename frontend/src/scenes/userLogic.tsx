@@ -87,7 +87,8 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
         ],
         demoOnlyProject: [
             () => [selectors.user],
-            (user): boolean => (user?.team?.is_demo && user?.organization?.teams.length == 1) || false,
+            (user): boolean =>
+                (user?.team?.is_demo && user?.organization?.teams && user.organization.teams.length == 1) || false,
         ],
     }),
 

@@ -35,7 +35,7 @@ export function CreateProjectModal({
     const handleSubmit = (): void => {
         const name = inputRef.current?.state.value?.trim()
         if (name) {
-            reportProjectCreationSubmitted(user?.organization?.teams.length, name.length)
+            reportProjectCreationSubmitted(user?.organization?.teams && user.organization.teams.length, name.length)
             setErrorMessage(null)
             createTeam(name)
             closeModal()
