@@ -19,6 +19,34 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ActionType, EntityType, FilterType, PersonType, PropertyFilter } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
 
+interface TrendPeople {
+    people: PersonType
+    breakdown_value?: string
+    count: number
+    day: string | number
+    next?: string
+    label: string
+}
+
+interface ActionFilter {
+    id: number | string
+    math?: string
+    math_property?: string
+    name: string
+    order: number
+    properties: PropertyFilter[]
+    type: EntityType
+}
+
+interface PeopleParamType {
+    action: ActionFilter
+    label: string
+    day?: string | number
+    breakdown_value?: string
+    target_date?: number
+    lifecycle_type?: string
+}
+
 export const EntityTypes: Record<string, string> = {
     ACTIONS: 'actions',
     EVENTS: 'events',
@@ -92,34 +120,6 @@ function autocorrectInterval({ date_from, interval }: Partial<FilterType>): stri
     } else {
         return interval
     }
-}
-
-interface TrendPeople {
-    people: PersonType
-    breakdown_value?: string
-    count: number
-    day: string | number
-    next?: string
-    label: string
-}
-
-interface ActionFilter {
-    id: number | string
-    math?: string
-    math_property?: string
-    name: string
-    order: number
-    properties: PropertyFilter[]
-    type: EntityType
-}
-
-interface PeopleParamType {
-    action: ActionFilter
-    label: string
-    day?: string | number
-    breakdown_value?: string
-    target_date?: number
-    lifecycle_type?: string
 }
 
 function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
