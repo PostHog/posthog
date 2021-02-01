@@ -141,21 +141,18 @@ function _App(): JSX.Element | null {
 
                         {!featureFlags['hide-billing-toolbar'] && <BillingToolbar />}
                         {featureFlags['navigation-1775'] ? <BackTo /> : null}
-                        {currentTeam &&
-                            !sceneConfig.hideDemoWarnings &&
-                            !currentTeam.completed_snippet_onboarding &&
-                            !currentTeam.ingested_event && (
-                                <Alert
-                                    type="warning"
-                                    style={{ marginTop: featureFlags['navigation-1775'] ? '1rem' : 0 }}
-                                    message={
-                                        <>
-                                            You haven't sent any events to this project yet. Grab{' '}
-                                            <Link to="/project/settings">a snippet or library</Link> to get started!
-                                        </>
-                                    }
-                                />
-                            )}
+                        {currentTeam && !sceneConfig.hideDemoWarnings && !currentTeam.ingested_event && (
+                            <Alert
+                                type="warning"
+                                style={{ marginTop: featureFlags['navigation-1775'] ? '1rem' : 0 }}
+                                message={
+                                    <>
+                                        You haven't sent any events to this project yet. Grab{' '}
+                                        <Link to="/project/settings">a snippet or library</Link> to get started!
+                                    </>
+                                }
+                            />
+                        )}
                         <SceneComponent user={user} {...params} />
                     </Layout.Content>
                 </Layout>

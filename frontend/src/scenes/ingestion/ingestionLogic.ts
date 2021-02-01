@@ -3,8 +3,6 @@ import { Framework, PlatformType } from 'scenes/ingestion/types'
 import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { ingestionLogicType } from './ingestionLogicType'
 import { userLogic } from 'scenes/userLogic'
-import { router } from 'kea-router'
-import { teamLogic } from 'scenes/teamLogic'
 
 export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
     actions: {
@@ -101,25 +99,8 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
 
     listeners: () => ({
         completeOnboarding: () => {
-            const { user } = userLogic.values
-            if (user) {
-                // make the change immediately before the request comes back
-                // this way we are not re-redirected to the ingestion page
-                if (user.team) {
-                    userLogic.actions.setUser({
-                        ...user,
-                        team: {
-                            ...user.team,
-                            completed_snippet_onboarding: true,
-                        },
-                    })
-                }
-                teamLogic.actions.patchCurrentTeam({
-                    completed_snippet_onboarding: true,
-                })
-            }
             userLogic.actions.userUpdateRequest({ team: { completed_snippet_onboarding: true } })
-            router.actions.push('/insights')
+            window.location.href = '/insights'
         },
     }),
 })
