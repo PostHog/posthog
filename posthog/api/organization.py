@@ -82,7 +82,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         ).first()
         return membership.level if membership is not None else None
 
-    def get_setup_state(self, instance: Organization) -> Dict[str, Union[bool, int, str]]:
+    def get_setup_state(self, instance: Organization) -> Dict[str, Union[bool, int, str, None]]:
 
         if instance.setup_section_2_completed:
             # As Section 2 is the last one of the setup process (as of today), if it's completed it means the setup process is done
