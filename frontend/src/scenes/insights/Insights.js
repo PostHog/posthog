@@ -114,7 +114,7 @@ function _Insights() {
     const { setActiveView } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: fromItem, filters: allFilters }))
+    const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
     console.log(allFilters)
 
     return (
