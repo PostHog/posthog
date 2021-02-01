@@ -33,7 +33,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "updated_at",
             "emailing_attempt_made",
         ]
-        extra_kwargs = {"target_email": {"required": True}}
+        extra_kwargs = {"target_email": {"required": True, "allow_null": False}}
 
     def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
         if OrganizationMembership.objects.filter(
@@ -53,13 +53,20 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 class BulkCreateOrganizationSerializer(serializers.Serializer):
     invites = OrganizationInviteSerializer(many=True)
 
+    def validate_invites(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if len(data) > 20:
+            raise serializers.ValidationError(
+                "A maximum of 20 invites can be sent in a single request.", code="max_length",
+            )
+        return data
+
     def create(self, validated_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         output = []
 
         with transaction.atomic():
             for invite in validated_data["invites"]:
                 serializer = OrganizationInviteSerializer(data=invite, context=self.context)
-                serializer.is_valid(raise_exception=True)
+                serializer.is_valid(raise_exception=False)  # Don't raise, already validated before
                 output.append(serializer.save())
 
         return {"invites": output}
@@ -100,5 +107,10 @@ class OrganizationInviteViewSet(
         }
 
 
-class OrganizationInviteBulkViewSet(OrganizationInviteViewSet):
+class OrganizationInviteBulkViewSet(StructuredViewSetMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     serializer_class = BulkCreateOrganizationSerializer
+    permission_classes = (
+        IsAuthenticated,
+        OrganizationMemberPermissions,
+        OrganizationAdminWritePermissions,
+    )

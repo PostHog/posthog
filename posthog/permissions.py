@@ -67,14 +67,10 @@ class OrganizationMemberPermissions(BasePermission):
         else:
             return False
 
-        if not hasattr(view, "organization") or not view.organization:
-            view.organization = organization
-
         return OrganizationMembership.objects.filter(user=request.user, organization=organization).exists()
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         organization = extract_organization(object)
-        view.organization = organization
         return OrganizationMembership.objects.filter(user=request.user, organization=organization).exists()
 
 
@@ -97,8 +93,11 @@ class OrganizationAdminWritePermissions(BasePermission):
         if request.method in SAFE_METHODS:
             return True
 
+        # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
+        organization = extract_organization(object)
+
         return (
-            OrganizationMembership.objects.get(user=request.user, organization=view.organization).level
+            OrganizationMembership.objects.get(user=request.user, organization=organization).level
             >= OrganizationMembership.Level.ADMIN
         )
 

@@ -128,13 +128,76 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(len(mail.outbox), 7)
 
     def test_maximum_20_invites_per_request(self):
-        pass
+        count = OrganizationInvite.objects.count()
+        payload = self.helper_generate_bulk_invite_payload(21)
+
+        with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
+            response = self.client.post(
+                "/api/organizations/@current/invites/bulk/", {"invites": payload}, format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "max_length",
+                "detail": "A maximum of 20 invites can be sent in a single request.",
+                "attr": "invites",
+            },
+        )
+
+        # No invites created
+        self.assertEqual(OrganizationInvite.objects.count(), count)
+
+        # No emails should be sent
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_invites_are_create_atomically(self):
-        pass
+        count = OrganizationInvite.objects.count()
+        payload = self.helper_generate_bulk_invite_payload(5)
+        payload[4]["target_email"] = None
 
-    def test_only_admin_or_owner_can_bulk_create_invites(self):
-        pass
+        with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
+            response = self.client.post(
+                "/api/organizations/@current/invites/bulk/", {"invites": payload}, format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # No invites created
+        self.assertEqual(OrganizationInvite.objects.count(), count)
+
+        # No emails should be sent
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_cannot_bulk_create_invites_for_another_organization(self):
+        another_org = Organization.objects.create()
+
+        count = OrganizationInvite.objects.count()
+        payload = self.helper_generate_bulk_invite_payload(3)
+
+        with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
+            response = self.client.post(
+                f"/api/organizations/{another_org.id}/invites/bulk/", {"invites": payload}, format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "You do not have permission to perform this action.",
+                "attr": None,
+            },
+        )
+
+        # No invites created
+        self.assertEqual(OrganizationInvite.objects.count(), count)
+
+        # No emails should be sent
+        self.assertEqual(len(mail.outbox), 0)
 
     # Deleting invites
 
