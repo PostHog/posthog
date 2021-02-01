@@ -278,44 +278,29 @@ function _Insights() {
                                     }
                                     headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
                                 >
-                                    <div>
-                                        {showErrorMessage ? (
-                                            <ErrorMessage />
-                                        ) : (
-                                            showTimeoutMessage && <TimeOut isLoading={isLoading} />
-                                        )}
-                                        <div
-                                            style={{
-                                                display: showErrorMessage || showTimeoutMessage ? 'none' : 'block',
-                                            }}
-                                        >
-                                            {featureFlags['remove-shownas']
-                                                ? {
-                                                      [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                                      [`${ViewType.STICKINESS}`]: (
-                                                          <TrendInsight view={ViewType.STICKINESS} />
-                                                      ),
-                                                      [`${ViewType.LIFECYCLE}`]: (
-                                                          <TrendInsight view={ViewType.LIFECYCLE} />
-                                                      ),
-                                                      [`${ViewType.SESSIONS}`]: (
-                                                          <TrendInsight view={ViewType.SESSIONS} />
-                                                      ),
-                                                      [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                      [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                      [`${ViewType.PATHS}`]: <Paths />,
-                                                  }[activeView]
-                                                : {
-                                                      [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                                      [`${ViewType.SESSIONS}`]: (
-                                                          <TrendInsight view={ViewType.SESSIONS} />
-                                                      ),
-                                                      [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                      [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                      [`${ViewType.PATHS}`]: <Paths />,
-                                                  }[activeView]}
-                                        </div>
-                                    </div>
+                                    {showErrorMessage ? (
+                                        <ErrorMessage />
+                                    ) : showTimeoutMessage ? (
+                                        <TimeOut isLoading={isLoading} />
+                                    ) : featureFlags['remove-shownas'] ? (
+                                        {
+                                            [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                            [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
+                                            [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
+                                            [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                            [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                            [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                            [`${ViewType.PATHS}`]: <Paths />,
+                                        }[activeView]
+                                    ) : (
+                                        {
+                                            [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                            [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                            [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                            [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                            [`${ViewType.PATHS}`]: <Paths />,
+                                        }[activeView]
+                                    )}
                                 </Card>
                                 {!showErrorMessage &&
                                     !showTimeoutMessage &&
@@ -342,7 +327,7 @@ function TrendInsight({ view }) {
             {(_filters.actions || _filters.events || _filters.session) && (
                 <div
                     style={{
-                        minHeight: '70vh',
+                        minHeight: 'calc(90vh - 16rem)',
                         position: 'relative',
                     }}
                 >

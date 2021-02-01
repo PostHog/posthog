@@ -11,6 +11,12 @@ import {
     ToolOutlined,
     BlockOutlined,
     MessageOutlined,
+    CoffeeOutlined,
+    CloudServerOutlined,
+    DatabaseOutlined,
+    MobileOutlined,
+    DesktopOutlined,
+    GlobalOutlined,
 } from '@ant-design/icons'
 
 export const ROLES: RadioSelectType[] = [
@@ -56,6 +62,49 @@ export const ROLES: RadioSelectType[] = [
         icon: <BlockOutlined />,
     },
 ]
+
+export const IS_TECHNICAL: RadioSelectType[] = [
+    {
+        key: 'technical',
+        label: 'Yes',
+        icon: <CodeOutlined />,
+    },
+    {
+        key: 'non_technical',
+        label: 'No',
+        icon: <CoffeeOutlined />,
+    },
+]
+
+export const PRODUCTS: RadioSelectType[] = [
+    {
+        key: 'web',
+        label: 'Web App',
+        icon: <GlobalOutlined />,
+    },
+    {
+        key: 'mobile',
+        label: 'Mobile App',
+        icon: <MobileOutlined />,
+    },
+    {
+        key: 'website',
+        label: 'Website',
+        icon: <DesktopOutlined />,
+    },
+    {
+        key: 'backend',
+        label: 'Backend Server',
+        icon: <CloudServerOutlined />,
+    },
+    {
+        key: 'data_pipeline',
+        label: 'Data Pipeline',
+        icon: <DatabaseOutlined />,
+    },
+]
+
+/* Currently out of circulation */
 
 export const TEAM_SIZES: RadioSelectType[] = [
     {

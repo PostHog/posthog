@@ -79,7 +79,7 @@ function NoData() {
 
 const DEFAULT_PATHS_ID = 'default_paths'
 
-export function Paths({ dashboardItemId = null, filters = null }) {
+export function Paths({ dashboardItemId = null, filters = null, color = 'white' }) {
     const canvas = useRef(null)
     const size = useWindowSize()
     const { paths, loadedFilter, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
@@ -89,7 +89,7 @@ export function Paths({ dashboardItemId = null, filters = null }) {
 
     useEffect(() => {
         renderPaths()
-    }, [paths, !pathsLoading, size])
+    }, [paths, !pathsLoading, size, color])
 
     function renderPaths() {
         const elements = document
@@ -106,9 +106,10 @@ export function Paths({ dashboardItemId = null, filters = null }) {
         let svg = d3
             .select(canvas.current)
             .append('svg')
-            .style('background', '#fff')
+            .style('background', 'var(--item-background)')
             .style('width', width)
             .style('height', height)
+
         let sankey = new Sankey.sankey()
             .nodeId((d) => d.name)
             .nodeAlign(Sankey.sankeyLeft)
@@ -147,7 +148,13 @@ export function Paths({ dashboardItemId = null, filters = null }) {
                         }
                     }
                 }
-                return (d3.color(c) || d3.color('#dddddd')).darker(0.5)
+
+                const startNodeColor = d3.color(c)
+                    ? d3.color(c)
+                    : color === 'white'
+                    ? d3.color('#dddddd')
+                    : d3.color('#191919')
+                return startNodeColor.darker(0.5)
             })
             .attr('opacity', 0.5)
             .append('title')
@@ -159,9 +166,15 @@ export function Paths({ dashboardItemId = null, filters = null }) {
             .attr('id', 'dropoff-gradient')
             .attr('gradientTransform', 'rotate(90)')
 
-        dropOffGradient.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(220,53,69,0.7)')
+        dropOffGradient
+            .append('stop')
+            .attr('offset', '0%')
+            .attr('stop-color', color === 'white' ? 'rgba(220,53,69,0.7)' : 'rgb(220,53,69)')
 
-        dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', '#ffffff')
+        dropOffGradient
+            .append('stop')
+            .attr('offset', '100%')
+            .attr('stop-color', color === 'white' ? '#fff' : 'var(--item-background)')
 
         const link = svg
             .append('g')
@@ -169,9 +182,8 @@ export function Paths({ dashboardItemId = null, filters = null }) {
             .selectAll('g')
             .data(links)
             .join('g')
-            .attr('stroke', () => 'var(--primary)')
-            .attr('opacity', 0.3)
-            .style('mix-blend-mode', 'multiply')
+            .attr('stroke', () => (color === 'white' ? 'var(--primary)' : 'var(--item-lighter'))
+            .attr('opacity', 0.4)
 
         link.append('path')
             .attr('d', Sankey.sankeyLinkHorizontal())
@@ -185,11 +197,11 @@ export function Paths({ dashboardItemId = null, filters = null }) {
                 if (data.source.layer === 0) {
                     return
                 }
-                let height =
+                let _height =
                     data.source.y1 -
                     data.source.y0 -
                     data.source.sourceLinks.reduce((prev, curr) => prev + curr.width, 0)
-                return rounded_rect(0, 0, 30, height, Math.min(25, height), false, true, false, false)
+                return rounded_rect(0, 0, 30, _height, Math.min(25, _height), false, true, false, false)
             })
             .attr('fill', 'url(#dropoff-gradient)')
             .attr('stroke-width', 0)
@@ -232,10 +244,11 @@ export function Paths({ dashboardItemId = null, filters = null }) {
                 }
             })
             .style('cursor', loadedFilter.path_type === AUTOCAPTURE ? 'pointer' : 'auto')
+            .style('fill', color === 'white' ? '#000' : '#fff')
 
         textSelection
             .append('tspan')
-            .attr('fill-opacity', 0.7)
+            .attr('fill-opacity', 0.8)
             .text((d) => ` ${d.value.toLocaleString()}`)
 
         textSelection.append('title').text((d) => stripHTTP(d.name))

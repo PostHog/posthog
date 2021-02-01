@@ -9,6 +9,7 @@ import {
     LoadingOutlined,
     SettingOutlined,
     WarningOutlined,
+    DownOutlined,
 } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
@@ -17,6 +18,7 @@ import { LocalPluginTag } from './LocalPluginTag'
 import { PluginInstallationType, PluginTypeWithConfig } from 'scenes/plugins/types'
 import { SourcePluginTag } from './SourcePluginTag'
 import { CommunityPluginTag } from './CommunityPluginTag'
+import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 
 interface PluginCardProps {
     plugin: Partial<PluginTypeWithConfig>
@@ -24,9 +26,22 @@ interface PluginCardProps {
     error?: PluginErrorType
     maintainer?: string
     showUpdateButton?: boolean
+    order?: number
+    maxOrder?: number
+    rearranging?: boolean
+    DragColumn?: React.ComponentClass | React.FC
 }
 
-export function PluginCard({ plugin, error, maintainer, showUpdateButton }: PluginCardProps): JSX.Element {
+export function PluginCard({
+    plugin,
+    error,
+    maintainer,
+    showUpdateButton,
+    order,
+    maxOrder,
+    rearranging,
+    DragColumn = ({ children }) => <Col className="order-handle">{children}</Col>,
+}: PluginCardProps): JSX.Element {
     const {
         name,
         description,
@@ -37,21 +52,40 @@ export function PluginCard({ plugin, error, maintainer, showUpdateButton }: Plug
         latest_tag: latestTag,
         id: pluginId,
         updateStatus,
+        hasMoved,
     } = plugin
 
-    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin } = useActions(pluginsLogic)
+    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin, rearrange } = useActions(
+        pluginsLogic
+    )
     const { loading, installingPluginUrl, checkingForUpdates, updatingPlugin } = useValues(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
-    const switchDisabled = pluginConfig?.global
+    const switchDisabled = rearranging || pluginConfig?.global
 
     return (
         <Col
             style={{ width: '100%', marginBottom: 20 }}
+            className={`plugins-scene-plugin-card-col${rearranging ? ` rearranging` : ''}`}
             data-attr={`plugin-card-${pluginConfig ? 'installed' : 'available'}`}
         >
-            <Card className="plugin-card">
+            <Card className="plugins-scene-plugin-card">
                 <Row align="middle" className="plugin-card-row">
+                    {typeof order === 'number' && typeof maxOrder === 'number' ? (
+                        <DragColumn>
+                            <div className={`arrow${order !== maxOrder ? ' hide' : ''}`}>
+                                <DownOutlined />
+                            </div>
+                            <div>
+                                <Tag color={hasMoved ? '#bd0225' : '#555'} onClick={rearrange}>
+                                    {order}
+                                </Tag>
+                            </div>
+                            <div className={`arrow${order === maxOrder ? ' hide' : ''}`}>
+                                <DownOutlined />
+                            </div>
+                        </DragColumn>
+                    ) : null}
                     {pluginConfig && (
                         <Col>
                             <Popconfirm
@@ -100,14 +134,14 @@ export function PluginCard({ plugin, error, maintainer, showUpdateButton }: Plug
                                 <Tag color="blue">
                                     <LoadingOutlined /> Checking for updates…
                                 </Tag>
-                            ) : latestTag && tag !== latestTag ? (
-                                <Tag color="volcano">
-                                    <CloudDownloadOutlined /> Update available!
-                                </Tag>
-                            ) : latestTag && tag === latestTag ? (
-                                <Tag color="green">
-                                    <CheckOutlined /> Up to date
-                                </Tag>
+                            ) : url && latestTag && tag ? (
+                                tag === latestTag ? (
+                                    <Tag color="green">
+                                        <CheckOutlined /> Up to date
+                                    </Tag>
+                                ) : (
+                                    <UpdateAvailable url={url} tag={tag} latestTag={latestTag} />
+                                )
                             ) : null}
 
                             {pluginType === PluginInstallationType.Source ? <SourcePluginTag /> : null}
@@ -142,7 +176,12 @@ export function PluginCard({ plugin, error, maintainer, showUpdateButton }: Plug
                                 <span className="show-over-500">{updateStatus?.updated ? 'Updated' : 'Update'}</span>
                             </Button>
                         ) : canConfigure && pluginId ? (
-                            <Button type="primary" className="padding-under-500" onClick={() => editPlugin(pluginId)}>
+                            <Button
+                                type="primary"
+                                className="padding-under-500"
+                                disabled={rearranging}
+                                onClick={() => editPlugin(pluginId)}
+                            >
                                 <span className="show-over-500">Configure</span>
                                 <span className="hide-over-500">
                                     <SettingOutlined />
