@@ -3,7 +3,8 @@ import random
 from django.core import mail
 from rest_framework import status
 
-from posthog.models.organization import OrganizationInvite, OrganizationMembership
+from posthog.models import User
+from posthog.models.organization import Organization, OrganizationInvite, OrganizationMembership
 
 from .base import APIBaseTest
 
@@ -78,6 +79,25 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             self.assertEqual(obj.created_by, self.user)
 
         self.assertEqual(OrganizationInvite.objects.count(), count + 2)
+
+    def test_cannot_create_invite_for_another_org(self):
+        another_org = Organization.objects.create(name="Another Org")
+
+        count = OrganizationInvite.objects.count()
+        email = "x@posthog.com"
+        response = self.client.post(f"/api/organizations/{another_org.id}/invites/", {"target_email": email})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "Your organization access level is insufficient.",
+                "attr": None,
+            },
+        )
+
+        self.assertEqual(OrganizationInvite.objects.count(), count)
 
     # Bulk create invites
 

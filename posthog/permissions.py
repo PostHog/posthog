@@ -1,5 +1,8 @@
+from typing import Optional
+
 from django.conf import settings
 from django.db.models import Model
+from django.views.generic.base import View
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
@@ -67,14 +70,38 @@ class OrganizationAdminWritePermissions(BasePermission):
 
     message = "Your organization access level is insufficient."
 
-    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+    def has_permission(self, request: Request, view: View) -> bool:
         if request.method in SAFE_METHODS:
             return True
+
+        organization = Optional[Organization]
+        if hasattr(view, "organization"):
+            organization = view.organization
+        elif hasattr(view, "organization_id"):
+            organization = Organization.objects.get(id=view.organization_id)
+        else:
+            return False
+
+        try:
+            membership = OrganizationMembership.objects.get(user=request.user, organization=organization)
+        except OrganizationMembership.DoesNotExist:
+            return False
+
+        return membership.level >= OrganizationMembership.Level.ADMIN
+
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+
+        if request.method in SAFE_METHODS:
+            return True
+
         organization = extract_organization(object)
-        return (
-            OrganizationMembership.objects.get(user=request.user, organization=organization).level
-            >= OrganizationMembership.Level.ADMIN
-        )
+
+        try:
+            membership = OrganizationMembership.objects.get(user=request.user, organization=organization)
+        except OrganizationMembership.DoesNotExist:
+            return False
+
+        return membership.level >= OrganizationMembership.Level.ADMIN
 
 
 class OrganizationAdminAnyPermissions(BasePermission):
