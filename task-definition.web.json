@@ -103,7 +103,7 @@
                     "value": "issampledevent,currentscreen,objectname"
                 },
                 {
-                    "name": "PLUGIN_SERVER_INGESTION_HANDOFF",
+                    "name": "PLUGIN_SERVER_INGESTION",
                     "value": "true"
                 }
             ],

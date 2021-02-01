@@ -205,7 +205,7 @@ def get_event(request):
         if is_ee_enabled():
             log_topics = [KAFKA_EVENTS_WAL]
             # TODO: remove team.organization_id in ... for full rollout of Plugins on EE/Cloud
-            if settings.PLUGIN_SERVER_INGESTION_HANDOFF and team.organization_id in getattr(
+            if settings.PLUGIN_SERVER_INGESTION and team.organization_id in getattr(
                 settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", []
             ):
                 log_topics.append(KAFKA_EVENTS_INGESTION_HANDOFF)
@@ -233,7 +233,7 @@ def get_event(request):
             )
         else:
             task_name = "posthog.tasks.process_event.process_event"
-            if settings.PLUGIN_SERVER_INGESTION_HANDOFF or team.plugins_opt_in:
+            if settings.PLUGIN_SERVER_INGESTION or team.plugins_opt_in:
                 task_name += "_with_plugins"
                 celery_queue = settings.PLUGINS_CELERY_QUEUE
             else:
