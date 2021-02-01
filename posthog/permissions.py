@@ -59,13 +59,13 @@ class OrganizationMemberPermissions(BasePermission):
     """Require relevant organization membership to access object. Returns a generic permission denied response."""
 
     def has_permission(self, request: Request, view: View) -> bool:
-        organization = Optional[Organization]
+        organization: Optional[Organization] = None
         if hasattr(view, "organization"):
             organization = view.organization  # type: ignore
         elif hasattr(view, "organization_id"):
             organization = Organization.objects.get(id=view.organization_id)  # type: ignore
         else:
-            return False
+            return True
 
         return OrganizationMembership.objects.filter(user=request.user, organization=organization).exists()
 
@@ -83,8 +83,17 @@ class OrganizationAdminWritePermissions(BasePermission):
         if request.method in SAFE_METHODS:
             return True
 
+        # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
+        organization: Optional[Organization] = None
+        if hasattr(view, "organization"):
+            organization = view.organization  # type: ignore
+        elif hasattr(view, "organization_id"):
+            organization = Organization.objects.get(id=view.organization_id)  # type: ignore
+        else:
+            return True
+
         return (
-            OrganizationMembership.objects.get(user=request.user, organization=view.organization).level  # type: ignore
+            OrganizationMembership.objects.get(user=request.user, organization=organization).level
             >= OrganizationMembership.Level.ADMIN
         )
 
