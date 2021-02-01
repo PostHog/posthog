@@ -3,7 +3,7 @@ import { Loading, formatLabel } from '../../lib/utils'
 import { Table } from 'antd'
 import PropTypes from 'prop-types'
 import { useValues } from 'kea'
-import { trendsLogic } from 'scenes/insights/trendsLogic'
+import { trendsLogic } from 'scenes/insights/trendsLogic.ts'
 
 export function ActionsTable({ dashboardItemId = null, view, filters: filtersParam, cachedResults }) {
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })

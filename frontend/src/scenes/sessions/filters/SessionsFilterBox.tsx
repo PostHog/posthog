@@ -4,7 +4,7 @@ import { SelectBox, SelectBoxItem, SelectedItem } from 'lib/components/SelectBox
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType, CohortType } from '~/types'
-import { EntityTypes } from 'scenes/insights/trendsLogic'
+import { EntityTypes } from 'scenes/insights/trendsLogic.ts'
 import { ActionInfo } from 'scenes/insights/ActionFilter/ActionFilterDropdown'
 import { FilterSelector, sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { Link } from 'lib/components/Link'

@@ -5,7 +5,7 @@ import { Loading } from 'lib/utils'
 import { LineGraph } from './LineGraph'
 import { getChartColors } from 'lib/colors'
 import { useValues } from 'kea'
-import { trendsLogic } from 'scenes/insights/trendsLogic'
+import { trendsLogic } from 'scenes/insights/trendsLogic.ts'
 
 export function ActionsPie({ dashboardItemId, view, filters: filtersParam, color, cachedResults }) {
     const [data, setData] = useState(null)
