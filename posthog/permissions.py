@@ -61,9 +61,9 @@ class OrganizationMemberPermissions(BasePermission):
     def has_permission(self, request: Request, view: View) -> bool:
         organization = Optional[Organization]
         if hasattr(view, "organization"):
-            organization = view.organization
+            organization = view.organization  # type: ignore
         elif hasattr(view, "organization_id"):
-            organization = Organization.objects.get(id=view.organization_id)
+            organization = Organization.objects.get(id=view.organization_id)  # type: ignore
         else:
             return False
 
@@ -84,7 +84,7 @@ class OrganizationAdminWritePermissions(BasePermission):
             return True
 
         return (
-            OrganizationMembership.objects.get(user=request.user, organization=view.organization).level
+            OrganizationMembership.objects.get(user=request.user, organization=view.organization).level  # type: ignore
             >= OrganizationMembership.Level.ADMIN
         )
 

@@ -60,7 +60,7 @@ class BulkCreateOrganizationSerializer(serializers.Serializer):
             )
         return data
 
-    def create(self, validated_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def create(self, validated_data: Dict[str, Any]) -> Dict[str, Any]:
         output = []
 
         with transaction.atomic():
