@@ -66,13 +66,14 @@ function _Invites(): JSX.Element {
             title: 'Created At',
             dataIndex: 'created_at',
             key: 'created_at',
-            render: (createdAt: string) => humanFriendlyDetailedTime(createdAt),
+            render: (created_at: string) => humanFriendlyDetailedTime(created_at),
         },
         {
             title: 'Created By',
             dataIndex: 'created_by',
             key: 'created_by',
-            render: (created_by: UserNestedType) => `${created_by.first_name} (${created_by.email})`,
+            render: (created_by?: UserNestedType) =>
+                created_by ? `${created_by.first_name} (${created_by.email})` : '',
         },
         {
             title: 'Invite Link',
@@ -84,7 +85,6 @@ function _Invites(): JSX.Element {
             title: '',
             dataIndex: 'actions',
             key: 'actions',
-            align: 'center',
             render: makeActionsComponent(deleteInvite),
         },
     ]
