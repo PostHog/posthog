@@ -3,7 +3,7 @@ import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { SessionFilter } from 'lib/components/SessionsFilter'
 import { ViewType } from '../insightLogic'
-import { trendsLogic } from '../trendsLogic.ts'
+import { trendsLogic } from '../trendslogic'
 
 export function SessionTab(): JSX.Element {
     const { filters } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))

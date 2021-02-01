@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
-import { EntityTypes } from '../trendsLogic.ts'
+import { EntityTypes } from '../trendslogic'
 import { userLogic } from 'scenes/userLogic'
 
 export function toLocalFilters(filters) {
