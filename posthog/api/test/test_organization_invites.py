@@ -33,9 +33,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             response_data,
             {
                 "target_email": email,
-                "created_by_email": self.user.email,
-                "created_by_id": self.user.id,
-                "created_by_first_name": self.user.first_name,
+                "created_by": {
+                    "id": self.user.id,
+                    "distinct_id": self.user.distinct_id,
+                    "email": self.user.email,
+                    "first_name": self.user.first_name,
+                },
                 "is_expired": False,
                 "emailing_attempt_made": False,
             },
