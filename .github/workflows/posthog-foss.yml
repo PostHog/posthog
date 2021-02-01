@@ -24,6 +24,8 @@ jobs:
                   repository: 'posthog/posthog-foss'
                   ref: master
                   token: ${{ secrets.SYNC_GITHUB_TOKEN }} # SYNC_GITHUB_TOKEN is a PAT token with the workflows scope which is not in GITHUB_TOKEN
+            - name: Change LICENSE to pure MIT
+              run: sed -i -e '/PostHog Inc\./,/Permission is hereby granted/c\PostHog Inc\.\n\n\nPermission is hereby granted' LICENSE
             - name: Commit "Sync and remove all non-FOSS parts"
               uses: EndBug/add-and-commit@v7
               with:
