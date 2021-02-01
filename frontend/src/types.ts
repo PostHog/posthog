@@ -1,4 +1,13 @@
-import { OrganizationMembershipLevel } from 'lib/constants'
+import {
+    ACTION_TYPE,
+    AUTOCAPTURE,
+    CUSTOM_EVENT,
+    EVENT_TYPE,
+    OrganizationMembershipLevel,
+    PAGEVIEW,
+    SCREEN,
+    ShownAsValue,
+} from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 export interface UserType {
@@ -220,12 +229,12 @@ interface RecordingNotViewedFilter extends BasePropertyFilter {
 export type RecordingPropertyFilter = RecordingDurationFilter | RecordingNotViewedFilter
 
 interface ActionTypePropertyFilter extends BasePropertyFilter {
-    type: 'action_type'
+    type: typeof ACTION_TYPE
     properties?: Array<EventPropertyFilter>
 }
 
 export interface EventTypePropertyFilter extends BasePropertyFilter {
-    type: 'event_type'
+    type: typeof EVENT_TYPE
     properties?: Array<EventPropertyFilter>
 }
 
@@ -425,9 +434,9 @@ export type DisplayType =
     | 'PathsViz'
     | 'FunnelViz'
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
-export type ShownAsType = 'Volume' | 'Stickiness' | 'Lifecycle' // DEPRECATED: Remove when releasing `remove-shownas`
+export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
-export type PathType = '$pageview' | '$screen' | '$autocapture' | 'custom_event'
+export type PathType = typeof PAGEVIEW | typeof AUTOCAPTURE | typeof SCREEN | typeof CUSTOM_EVENT
 export type RetentionType = 'retention_recurring' | 'retention_first_time'
 
 export interface FilterType {

@@ -6,11 +6,14 @@ import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 import {
-    STICKINESS,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_TABLE,
-    LIFECYCLE,
+    PAGEVIEW,
+    SCREEN,
+    EVENT_TYPE,
+    ACTION_TYPE,
+    ShownAsValue,
 } from 'lib/constants'
 import { ViewType, insightLogic } from './insightLogic'
 import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
@@ -132,11 +135,11 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
     })
 
     // casting here is not the best
-    if (filters.shown_as === STICKINESS) {
+    if (filters.shown_as === ShownAsValue.STICKINESS) {
         params.stickiness_days = day as number
     } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
         params.date_to = day as string
-    } else if (filters.shown_as === LIFECYCLE) {
+    } else if (filters.shown_as === ShownAsValue.LIFECYCLE) {
         params.date_from = filters.date_from
         params.date_to = filters.date_to
     } else {
@@ -285,7 +288,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType>>({
                     date: day,
                     filters: [
                         {
-                            type: action.type === 'actions' ? 'action_type' : 'event_type',
+                            type: action.type === 'actions' ? ACTION_TYPE : EVENT_TYPE,
                             key: 'id',
                             value: action.id,
                             properties: eventProperties,
@@ -315,14 +318,14 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType>>({
         },
         loadPeople: async ({ label, action, day, breakdown_value }, breakpoint) => {
             let people = []
-            if (values.filters.shown_as === LIFECYCLE) {
+            if (values.filters.shown_as === ShownAsValue.LIFECYCLE) {
                 const filterParams = parsePeopleParams(
                     { label, action, target_date: day, lifecycle_type: breakdown_value },
                     values.filters
                 )
                 actions.setPeople(null, null, action, label, day, breakdown_value, null)
                 people = await api.get(`api/person/lifecycle/?${filterParams}`)
-            } else if (values.filters.shown_as === STICKINESS) {
+            } else if (values.filters.shown_as === ShownAsValue.STICKINESS) {
                 const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
                 actions.setPeople(null, null, action, label, day, breakdown_value, null)
                 people = await api.get(`api/person/stickiness/?${filterParams}`)
@@ -411,10 +414,10 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType>>({
                     values.eventNames &&
                     values.eventNames[0]
                 ) {
-                    const event = values.eventNames.includes('$pageview')
-                        ? '$pageview'
-                        : values.eventNames.includes('$screen')
-                        ? '$screen'
+                    const event = values.eventNames.includes(PAGEVIEW)
+                        ? PAGEVIEW
+                        : values.eventNames.includes(SCREEN)
+                        ? SCREEN
                         : values.eventNames[0]
 
                     cleanSearchParams[EntityTypes.EVENTS] = [
@@ -428,10 +431,10 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType>>({
                 }
 
                 if (searchParams.insight === ViewType.STICKINESS) {
-                    cleanSearchParams['shown_as'] = 'Stickiness'
+                    cleanSearchParams['shown_as'] = ShownAsValue.STICKINESS
                 }
                 if (searchParams.insight === ViewType.LIFECYCLE) {
-                    cleanSearchParams['shown_as'] = 'Lifecycle'
+                    cleanSearchParams['shown_as'] = ShownAsValue.LIFECYCLE
                 }
 
                 if (searchParams.insight === ViewType.SESSIONS && !searchParams.session) {
@@ -455,7 +458,7 @@ const handleLifecycleDefault = (
     params: Partial<FilterType>,
     callback: (filters: Partial<FilterType>) => void
 ): void => {
-    if (params.shown_as === LIFECYCLE) {
+    if (params.shown_as === ShownAsValue.LIFECYCLE) {
         if (params.events?.length) {
             callback({
                 ...params,
