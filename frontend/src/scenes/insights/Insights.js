@@ -324,7 +324,7 @@ function TrendInsight({ view }) {
             {(_filters.actions || _filters.events || _filters.session) && (
                 <div
                     style={{
-                        minHeight: '70vh',
+                        minHeight: 'calc(90vh - 16rem)',
                         position: 'relative',
                     }}
                 >
