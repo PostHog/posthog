@@ -1,11 +1,31 @@
+import random
+
 from rest_framework import status
 
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 
 from .base import APIBaseTest
 
+NAME_SEEDS = ["John", "Jane", "Alice", "Bob", "", None]
+
 
 class TestOrganizationInvitesAPI(APIBaseTest):
+    def helper_generate_bulk_invite_payload(self, count: int):
+
+        payload = []
+
+        for i in range(0, count):
+            payload.append(
+                {
+                    "target_email": f"test+{random.randint(1000000, 9999999)}@posthog.com",
+                    "first_name": NAME_SEEDS[i % len(NAME_SEEDS)],
+                },
+            )
+
+        return payload
+
+    # Creating invites
+
     def test_add_organization_invite_email_required(self):
         response = self.client.post("/api/organizations/@current/invites/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -45,7 +65,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
 
     def test_can_create_invites_for_the_same_email_multiple_times(self):
-        email = "x@x.com"
+        email = "x@posthog.com"
         count = OrganizationInvite.objects.count()
 
         for _ in range(0, 2):
@@ -56,6 +76,32 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             self.assertEqual(obj.created_by, self.user)
 
         self.assertEqual(OrganizationInvite.objects.count(), count + 2)
+
+    # Bulk create invites
+
+    def test_allow_bulk_creating_invites(self):
+        response = self.client.post(
+            "/api/organizations/@current/invites/bulk/",
+            {"invites": self.helper_generate_bulk_invite_payload(7)},
+            format="json",
+        )
+        print(response.json())
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_data = response.json()
+
+        self.assertEqual(len(response_data), 7)
+
+    def test_maximum_20_invites_per_request(self):
+        pass
+
+    def test_invites_are_create_atomically(self):
+        pass
+
+    def test_only_admin_or_owner_can_bulk_create_invites(self):
+        pass
+
+    # Deleting invites
 
     def test_delete_organization_invite_only_if_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

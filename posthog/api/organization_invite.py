@@ -1,5 +1,6 @@
-from typing import Any, Dict
+from typing import Any, Dict, List
 
+from django.db import transaction
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
@@ -50,6 +51,21 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         return invite
 
 
+class BulkCreateOrganizationSerializer(serializers.Serializer):
+    invites = OrganizationInviteSerializer(many=True)
+
+    def create(self, validated_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        output = []
+
+        with transaction.atomic():
+            for invite in validated_data["invites"]:
+                serializer = OrganizationInviteSerializer(data=invite, context=self.context)
+                serializer.is_valid(raise_exception=True)
+                output.append(serializer.save())
+
+        return {"invites": output}
+
+
 class OrganizationInviteViewSet(
     StructuredViewSetMixin,
     mixins.DestroyModelMixin,
@@ -83,3 +99,7 @@ class OrganizationInviteViewSet(
                 else parents_query_dict["organization_id"]
             ),
         }
+
+
+class OrganizationInviteBulkViewSet(OrganizationInviteViewSet):
+    serializer_class = BulkCreateOrganizationSerializer
