@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import { bulkInviteLogicType } from './bulkInviteLogicType'
+import { OrganizationInviteType } from '~/types'
 
 interface InviteType {
     email: string
@@ -10,7 +11,7 @@ interface InviteType {
 const DEFAULT_INVITE = { email: '', first_name: '', isValid: true }
 const DEFAULT_INVITES = [DEFAULT_INVITE, DEFAULT_INVITE, DEFAULT_INVITE]
 
-export const bulkInviteLogic = kea<bulkInviteLogicType>({
+export const bulkInviteLogic = kea<bulkInviteLogicType<OrganizationInviteType>>({
     actions: {
         updateInviteAtIndex: (payload, index: number) => ({ payload, index }),
         addMoreInvites: true,
@@ -49,4 +50,17 @@ export const bulkInviteLogic = kea<bulkInviteLogicType>({
             },
         ],
     },
+    loaders: ({ values }) => ({
+        invitedTeamMembers: [
+            [] as OrganizationInviteType[],
+            {
+                inviteTeamMembers: async () => {
+                    if (!values.canSubmit) {
+                        return []
+                    }
+                    console.log(values.invites)
+                },
+            },
+        ],
+    }),
 })
