@@ -60,10 +60,10 @@ class OrganizationMemberPermissions(BasePermission):
 
     def has_permission(self, request: Request, view: View) -> bool:
         organization: Optional[Organization] = None
-        if hasattr(view, "organization"):
+        if hasattr(view, "team"):
+            organization = view.team.organization  # type: ignore
+        elif hasattr(view, "organization"):
             organization = view.organization  # type: ignore
-        elif hasattr(view, "organization_id"):
-            organization = Organization.objects.get(id=view.organization_id)  # type: ignore
         else:
             return True
 
@@ -85,10 +85,10 @@ class OrganizationAdminWritePermissions(BasePermission):
 
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
         organization: Optional[Organization] = None
-        if hasattr(view, "organization"):
+        if hasattr(view, "team"):
+            organization = view.team.organization  # type: ignore
+        elif hasattr(view, "organization"):
             organization = view.organization  # type: ignore
-        elif hasattr(view, "organization_id"):
-            organization = Organization.objects.get(id=view.organization_id)  # type: ignore
         else:
             return True
 
