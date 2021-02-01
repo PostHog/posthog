@@ -1,12 +1,13 @@
 import random
 
+from django.core import mail
 from rest_framework import status
 
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 
 from .base import APIBaseTest
 
-NAME_SEEDS = ["John", "Jane", "Alice", "Bob", "", None]
+NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
 
 class TestOrganizationInvitesAPI(APIBaseTest):
@@ -53,6 +54,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             response_data,
             {
                 "target_email": email,
+                "first_name": "",
                 "created_by": {
                     "id": self.user.id,
                     "distinct_id": self.user.distinct_id,
@@ -80,17 +82,31 @@ class TestOrganizationInvitesAPI(APIBaseTest):
     # Bulk create invites
 
     def test_allow_bulk_creating_invites(self):
-        response = self.client.post(
-            "/api/organizations/@current/invites/bulk/",
-            {"invites": self.helper_generate_bulk_invite_payload(7)},
-            format="json",
-        )
-        print(response.json())
+        count = OrganizationInvite.objects.count()
+        payload = self.helper_generate_bulk_invite_payload(7)
+
+        with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
+            response = self.client.post(
+                "/api/organizations/@current/invites/bulk/", {"invites": payload}, format="json",
+            )
+
+        self.assertEqual(OrganizationInvite.objects.count(), count + 7)
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        response_data = response.json()
+        response_data = response.json()["invites"]
 
         self.assertEqual(len(response_data), 7)
+
+        # Check objects are properly saved and response matches
+        for i, item in enumerate(response_data):
+            instance = OrganizationInvite.objects.get(id=item["id"])
+            self.assertEqual(instance.target_email, payload[i]["target_email"])
+            self.assertEqual(instance.target_email, item["target_email"])
+            self.assertEqual(instance.first_name, payload[i]["first_name"])
+            self.assertEqual(instance.first_name, item["first_name"])
+
+        # Emails should be sent
+        self.assertEqual(len(mail.outbox), 7)
 
     def test_maximum_20_invites_per_request(self):
         pass
