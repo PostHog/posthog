@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
+from django.contrib.postgres.fields import JSONField
 from django.db import models, transaction
 from django.dispatch import receiver
 from django.utils import timezone
@@ -45,6 +46,7 @@ class Organization(UUIDModel):
     name: models.CharField = models.CharField(max_length=64)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    personalization: JSONField = JSONField(default=dict, null=False)
 
     objects = OrganizationManager()
 

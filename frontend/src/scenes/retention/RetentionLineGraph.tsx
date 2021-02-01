@@ -8,6 +8,7 @@ import { LineGraphEmptyState } from '../insights/EmptyStates'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { PersonType } from '~/types'
+import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null
@@ -23,7 +24,10 @@ export function RetentionLineGraph({
     filters: filtersParams = {},
 }: RetentionLineGraphProps): JSX.Element | null {
     const logic = retentionTableLogic({ dashboardItemId: dashboardItemId, filters: filtersParams })
-    const { filters, results, resultsLoading, people, peopleLoading } = useValues(logic)
+    const { filters, results: _results, resultsLoading, people: _people, peopleLoading, loadingMore } = useValues(logic)
+    const results = _results as RetentionTrendPayload[]
+    const people = _people as RetentionTrendPeoplePayload
+
     const { loadPeople, loadMorePeople } = useActions(logic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const [modalVisible, setModalVisible] = useState(false)
@@ -88,7 +92,7 @@ export function RetentionLineGraph({
                 >
                     {peopleNext && (
                         <Button type="primary" onClick={loadMorePeople}>
-                            {people?.loadingMore ? <Spin /> : 'Load more people'}
+                            {loadingMore ? <Spin /> : 'Load more people'}
                         </Button>
                     )}
                 </div>

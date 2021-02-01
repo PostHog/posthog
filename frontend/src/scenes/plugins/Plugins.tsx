@@ -9,10 +9,9 @@ import { userLogic } from 'scenes/userLogic'
 import { pluginsLogic } from './pluginsLogic'
 import { Tabs, Tag } from 'antd'
 import { OptInPlugins } from 'scenes/plugins/optin/OptInPlugins'
-import { OptOutPlugins } from 'scenes/plugins/optin/OptOutPlugins'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
-import { CustomTab } from 'scenes/plugins/tabs/custom/CustomTab'
+import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
 
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element {
@@ -46,7 +45,6 @@ function _Plugins(): JSX.Element {
                     </>
                 }
                 caption={user.team?.plugins_opt_in ? "Plugins enable you to extend PostHog's core functionality." : ''}
-                buttons={user.team?.plugins_opt_in && <OptOutPlugins />}
             />
 
             {user.team?.plugins_opt_in ? (
@@ -60,8 +58,8 @@ function _Plugins(): JSX.Element {
                                 <TabPane tab="Repository" key={PluginTab.Repository}>
                                     <RepositoryTab />
                                 </TabPane>
-                                <TabPane tab="Custom" key={PluginTab.Custom}>
-                                    <CustomTab />
+                                <TabPane tab="Advanced" key={PluginTab.Advanced}>
+                                    <AdvancedTab />
                                 </TabPane>
                             </>
                         )}

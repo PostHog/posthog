@@ -295,39 +295,36 @@ function _Insights() {
                                                 display: showErrorMessage || showTimeoutMessage ? 'none' : 'block',
                                             }}
                                         >
-                                            {featureFlags['remove-shownas']
-                                                ? {
-                                                      [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                                      [`${ViewType.STICKINESS}`]: (
-                                                          <TrendInsight view={ViewType.STICKINESS} />
-                                                      ),
-                                                      [`${ViewType.LIFECYCLE}`]: (
-                                                          <TrendInsight view={ViewType.LIFECYCLE} />
-                                                      ),
-                                                      [`${ViewType.SESSIONS}`]: (
-                                                          <TrendInsight view={ViewType.SESSIONS} />
-                                                      ),
-                                                      [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                      [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                      [`${ViewType.PATHS}`]: <Paths />,
-                                                  }[activeView]
-                                                : {
-                                                      [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                                      [`${ViewType.SESSIONS}`]: (
-                                                          <TrendInsight view={ViewType.SESSIONS} />
-                                                      ),
-                                                      [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                      [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                      [`${ViewType.PATHS}`]: <Paths />,
-                                                  }[activeView]}
+                                            {showErrorMessage ? (
+                                                <ErrorMessage />
+                                            ) : showTimeoutMessage ? (
+                                                <TimeOut isLoading={isLoading} />
+                                            ) : featureFlags['remove-shownas'] ? (
+                                                {
+                                                    [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                                    [`${ViewType.STICKINESS}`]: (
+                                                        <TrendInsight view={ViewType.STICKINESS} />
+                                                    ),
+                                                    [`${ViewType.LIFECYCLE}`]: (
+                                                        <TrendInsight view={ViewType.LIFECYCLE} />
+                                                    ),
+                                                    [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                                    [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                                    [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                                    [`${ViewType.PATHS}`]: <Paths />,
+                                                }[activeView]
+                                            ) : (
+                                                {
+                                                    [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                                    [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                                    [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                                    [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                                    [`${ViewType.PATHS}`]: <Paths />,
+                                                }[activeView]
+                                            )}
                                         </div>
                                     </div>
                                 </Card>
-                                {!showErrorMessage && !showTimeoutMessage && activeView === ViewType.FUNNELS && (
-                                    <Card>
-                                        <FunnelPeople />
-                                    </Card>
-                                )}
                             </Col>
                         </>
                     )}
@@ -345,7 +342,7 @@ function TrendInsight({ view }) {
             {(_filters.actions || _filters.events || _filters.session) && (
                 <div
                     style={{
-                        minHeight: '70vh',
+                        minHeight: 'calc(90vh - 16rem)',
                         position: 'relative',
                     }}
                 >
@@ -390,12 +387,4 @@ function FunnelInsight() {
             )}
         </div>
     )
-}
-
-function FunnelPeople() {
-    // const { stepsWithCount } = useValues(funnelLogic)
-    // if (stepsWithCount && stepsWithCount.length > 0) {
-    //     return <People />
-    // }
-    return <></>
 }

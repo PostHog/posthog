@@ -4,6 +4,7 @@ on:
     push:
         branches:
             - master
+            - main
 
 jobs:
     repo-sync:
@@ -24,11 +25,11 @@ jobs:
                   ref: master
                   token: ${{ secrets.SYNC_GITHUB_TOKEN }} # SYNC_GITHUB_TOKEN is a PAT token with the workflows scope which is not in GITHUB_TOKEN
             - name: Commit "Sync and remove all non-FOSS parts"
-              uses: EndBug/add-and-commit@v4
+              uses: EndBug/add-and-commit@v7
               with:
                   author_name: PostHog Bot
                   author_email: hey@posthog.com
                   message: 'Sync and remove all non-FOSS parts'
-                  remove: '-r ee/'
+                  remove: '["-r ee/", "-r .github/"]'
               env:
                   GITHUB_TOKEN: ${{ secrets.SYNC_GITHUB_TOKEN }}

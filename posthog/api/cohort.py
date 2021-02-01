@@ -35,6 +35,15 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
             "is_static",
         ]
+        read_only_fields = [
+            "id",
+            "is_calculating",
+            "created_by",
+            "created_at",
+            "last_calculation",
+            "errors_calculating",
+            "count",
+        ]
 
     def _handle_csv(self, file, cohort: Cohort) -> None:
         decoded_file = file.read().decode("utf-8").splitlines()
