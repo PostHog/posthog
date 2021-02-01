@@ -1,7 +1,7 @@
 import { Button, Col, Input, Row } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import React, { useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { PlusOutlined } from '@ant-design/icons'
 import './BulkInviteModal.scss'
@@ -47,8 +47,14 @@ function InviteRow({ index }: { index: number }): JSX.Element {
 
 export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClose: () => void }): JSX.Element {
     const { user } = useValues(userLogic)
-    const { invites, canSubmit } = useValues(bulkInviteLogic)
-    const { addMoreInvites, resetInvites } = useActions(bulkInviteLogic)
+    const { invites, canSubmit, invitedTeamMembersLoading, invitedTeamMembers } = useValues(bulkInviteLogic)
+    const { addMoreInvites, resetInvites, inviteTeamMembers } = useActions(bulkInviteLogic)
+
+    useEffect(() => {
+        if (invitedTeamMembers.invites.length) {
+            onClose()
+        }
+    }, [invitedTeamMembers])
 
     return (
         <>
@@ -59,9 +65,12 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
                     resetInvites()
                     onClose()
                 }}
+                onOk={inviteTeamMembers}
                 okText="Invite team members"
                 destroyOnClose
-                okButtonProps={{ disabled: !canSubmit }}
+                okButtonProps={{ disabled: !canSubmit, loading: invitedTeamMembersLoading }}
+                cancelButtonProps={{ disabled: invitedTeamMembersLoading }}
+                closable={!invitedTeamMembersLoading}
             >
                 <div className="bulk-invite-modal">
                     <div>
