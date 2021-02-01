@@ -131,6 +131,7 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
         breakdown_value,
     })
 
+    // casting here is not the best
     if (filters.shown_as === STICKINESS) {
         params.stickiness_days = day as number
     } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
