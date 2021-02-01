@@ -34,10 +34,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                 hideMathSelector={filters.shown_as === ShownAsValue.LIFECYCLE}
                 copy="Add graph series"
                 disabled={
-                    !!(
-                        filters.shown_as === ShownAsValue.LIFECYCLE &&
-                        (filters.events?.length || filters.actions?.length)
-                    )
+                    filters.shown_as === ShownAsValue.LIFECYCLE && !!(filters.events?.length || filters.actions?.length)
                 }
                 singleFilter={filters.shown_as === ShownAsValue.LIFECYCLE}
             />
@@ -87,10 +84,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                 hideMathSelector={filters.shown_as === ShownAsValue.LIFECYCLE}
                 copy="Add graph series"
                 disabled={
-                    !!(
-                        filters.shown_as === ShownAsValue.LIFECYCLE &&
-                        (filters.events?.length || filters.actions?.length)
-                    )
+                    filters.shown_as === ShownAsValue.LIFECYCLE && !!(filters.events?.length || filters.actions?.length)
                 }
             />
             <hr />
