@@ -4,6 +4,7 @@ on:
     push:
         branches:
             - master
+            - main
 
 jobs:
     repo-sync:
@@ -29,6 +30,6 @@ jobs:
                   author_name: PostHog Bot
                   author_email: hey@posthog.com
                   message: 'Sync and remove all non-FOSS parts'
-                  remove: '-r ee/'
+                  remove: ['-r ee/', '-r .github/']
               env:
                   GITHUB_TOKEN: ${{ secrets.SYNC_GITHUB_TOKEN }}
