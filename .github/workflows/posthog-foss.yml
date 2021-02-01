@@ -25,7 +25,9 @@ jobs:
                   ref: master
                   token: ${{ secrets.SYNC_GITHUB_TOKEN }} # SYNC_GITHUB_TOKEN is a PAT token with the workflows scope which is not in GITHUB_TOKEN
             - name: Change LICENSE to pure MIT
-              run: sed -i -e '/PostHog Inc\./,/Permission is hereby granted/c\Copyright (c) 2020-2021 PostHog Inc\.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy' LICENSE
+              run: |
+                  sed -i -e '/PostHog Inc\./,/Permission is hereby granted/c\Copyright (c) 2020-2021 PostHog Inc\.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy' LICENSE
+                  echo -e "MIT License\n\n$(cat LICENSE)" > LICENSE
             - name: Commit "Sync and remove all non-FOSS parts"
               uses: EndBug/add-and-commit@v7
               with:
