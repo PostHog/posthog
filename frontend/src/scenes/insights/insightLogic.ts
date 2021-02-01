@@ -54,7 +54,7 @@ export const insightLogic = kea<insightLogicType>({
         setShowErrorMessage: (showErrorMessage: boolean) => ({ showErrorMessage }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setTimeout: (timeout) => ({ timeout }),
-        setLastRefresh: (lastRefresh: string | boolean) => ({ lastRefresh }),
+        setLastRefresh: (lastRefresh: string | boolean): { lastRefresh: string | boolean } => ({ lastRefresh }),
         setNotFirstLoad: () => {},
     }),
 
@@ -99,9 +99,9 @@ export const insightLogic = kea<insightLogicType>({
         ],
         timeout: [null, { setTimeout: (_, { timeout }) => timeout }],
         lastRefresh: [
-            false,
+            false as boolean | string,
             {
-                setLastRefresh: (_, { lastRefresh }) => lastRefresh,
+                setLastRefresh: (_, { lastRefresh }): string | boolean => lastRefresh,
             },
         ],
         isLoading: [
