@@ -120,9 +120,8 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                 actions.loadPersons()
             }
         },
-        '/person/*': () => {
-            const destructuredPathname = window.location.pathname.split('/')
-            actions.loadPerson(destructuredPathname[destructuredPathname.length - 1])
+        '/person/*': ({ _ }: { _: string }) => {
+            actions.loadPerson(_) // underscore contains the wildcard
         },
     }),
 })
