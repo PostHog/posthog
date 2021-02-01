@@ -1,5 +1,5 @@
 import { PageHeader } from 'lib/components/PageHeader'
-import React from 'react'
+import React, { useState } from 'react'
 import { hot } from 'react-hot-loader/root'
 import { Button, Collapse } from 'antd'
 import {
@@ -96,6 +96,7 @@ function OnboardingStep({
 
 export const OnboardingSetup = hot(_OnboardingSetup)
 function _OnboardingSetup(): JSX.Element {
+    const [slackClicked, setslackClicked] = useState(false)
     const { stepProjectSetup, stepInstallation, projectModalShown, stepVerification, currentSection } = useValues(
         onboardingSetupLogic
     )
@@ -187,10 +188,13 @@ function _OnboardingSetup(): JSX.Element {
                                     title="Join us on Slack"
                                     icon={<SlackOutlined />}
                                     identifier="slack"
-                                    handleClick={() => setProjectModalShown(true)}
+                                    handleClick={() => {
+                                        setslackClicked(true)
+                                        window.open(`https://posthog.com/slack?s=app&${UTM_TAGS}`, '_blank')
+                                    }}
                                     caption="Fastest way to reach the PostHog team and the community."
                                     customActionElement={
-                                        <Button type="primary" icon={<SlackOutlined />}>
+                                        <Button type={slackClicked ? 'default' : 'primary'} icon={<SlackOutlined />}>
                                             Join us
                                         </Button>
                                     }
