@@ -10,7 +10,6 @@ settings.yml
 debug.log
 *.swp
 *.swo
-impliu/static/CACHE/
 node_modules/
 *.code-workspace
 node_modules
