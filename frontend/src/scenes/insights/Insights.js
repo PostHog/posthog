@@ -263,31 +263,29 @@ function _Insights() {
                                     }
                                     headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
                                 >
-                                    <div>
-                                        {showErrorMessage ? (
-                                            <ErrorMessage />
-                                        ) : showTimeoutMessage ? (
-                                            <TimeOut isLoading={isLoading} />
-                                        ) : featureFlags['remove-shownas'] ? (
-                                            {
-                                                [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                                [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
-                                                [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
-                                                [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
-                                                [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                [`${ViewType.PATHS}`]: <Paths />,
-                                            }[activeView]
-                                        ) : (
-                                            {
-                                                [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                                [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
-                                                [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                [`${ViewType.PATHS}`]: <Paths />,
-                                            }[activeView]
-                                        )}
-                                    </div>
+                                    {showErrorMessage ? (
+                                        <ErrorMessage />
+                                    ) : showTimeoutMessage ? (
+                                        <TimeOut isLoading={isLoading} />
+                                    ) : featureFlags['remove-shownas'] ? (
+                                        {
+                                            [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                            [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
+                                            [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
+                                            [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                            [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                            [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                            [`${ViewType.PATHS}`]: <Paths />,
+                                        }[activeView]
+                                    ) : (
+                                        {
+                                            [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                            [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                            [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                            [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                            [`${ViewType.PATHS}`]: <Paths />,
+                                        }[activeView]
+                                    )}
                                 </Card>
                                 {!showErrorMessage && !showTimeoutMessage && activeView === ViewType.FUNNELS && (
                                     <Card>
