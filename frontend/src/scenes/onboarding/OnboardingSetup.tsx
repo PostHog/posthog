@@ -1,7 +1,7 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import React, { useState } from 'react'
 import { hot } from 'react-hot-loader/root'
-import { Button, Collapse } from 'antd'
+import { Button, Collapse, Switch } from 'antd'
 import {
     ProjectOutlined,
     CodeOutlined,
@@ -18,6 +18,7 @@ import { onboardingSetupLogic } from './onboardingSetupLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { Link } from 'lib/components/Link'
 import { IconExternalLink } from 'lib/components/icons'
+import { userLogic } from 'scenes/userLogic'
 
 const { Panel } = Collapse
 
@@ -100,6 +101,9 @@ function _OnboardingSetup(): JSX.Element {
     const { stepProjectSetup, stepInstallation, projectModalShown, stepVerification, currentSection } = useValues(
         onboardingSetupLogic
     )
+    const { user, userUpdateLoading } = useValues(userLogic)
+    const { userUpdateRequest } = useActions(userLogic)
+
     const { switchToNonDemoProject, setProjectModalShown } = useActions(onboardingSetupLogic)
 
     const UTM_TAGS = 'utm_medium=in-product&utm_campaign=onboarding-setup-2822'
@@ -169,7 +173,11 @@ function _OnboardingSetup(): JSX.Element {
                                     title="Enable session recording"
                                     icon={<PlaySquareOutlined />}
                                     identifier="session-recording"
-                                    handleClick={() => setProjectModalShown(true)}
+                                    handleClick={() =>
+                                        userUpdateRequest({
+                                            team: { session_recording_opt_in: !user?.team?.session_recording_opt_in },
+                                        })
+                                    }
                                     caption={
                                         <>
                                             Play user interactions as if you were right there with them.{' '}
@@ -182,6 +190,20 @@ function _OnboardingSetup(): JSX.Element {
                                             </Link>
                                             .
                                         </>
+                                    }
+                                    customActionElement={
+                                        <div style={{ fontWeight: 'bold' }}>
+                                            {user?.team?.session_recording_opt_in ? (
+                                                <span style={{ color: 'var(--success)' }}>Enabled</span>
+                                            ) : (
+                                                <span style={{ color: 'var(--danger)' }}>Disabled</span>
+                                            )}
+                                            <Switch
+                                                checked={user?.team?.session_recording_opt_in}
+                                                loading={userUpdateLoading}
+                                                style={{ marginLeft: 6 }}
+                                            />
+                                        </div>
                                     }
                                 />
                                 <OnboardingStep
