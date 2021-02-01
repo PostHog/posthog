@@ -151,7 +151,6 @@ export const insightLogic = kea<insightLogicType>({
             if (view === values.activeView) {
                 actions.setShowTimeoutMessage(values.maybeShowTimeoutMessage)
                 actions.setShowErrorMessage(values.maybeShowErrorMessage)
-                console.log(lastRefresh, view, exception)
                 actions.setLastRefresh(lastRefresh || false)
                 actions.setIsLoading(false)
                 if (values.maybeShowTimeoutMessage) {

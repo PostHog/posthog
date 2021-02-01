@@ -115,7 +115,6 @@ function _Insights() {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
-    console.log(allFilters)
 
     return (
         user?.team && (
