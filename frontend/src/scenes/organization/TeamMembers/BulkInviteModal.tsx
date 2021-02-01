@@ -21,6 +21,7 @@ function InviteRow({ index }: { index: number }): JSX.Element {
                 <Input
                     placeholder={`${name}@posthog.com`}
                     type="email"
+                    className={`error-on-blur${!invites[index].isValid ? ' errored' : ''}`}
                     onChange={(e) => {
                         const { value } = e.target
                         let isValid = true

@@ -300,6 +300,12 @@ code.code {
     }
 }
 
+.error-on-blur {
+    &.errored:not(:focus) {
+        border-color: $danger !important;
+    }
+}
+
 // Button styles
 .btn-close {
     color: $text_muted;
