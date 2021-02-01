@@ -44,7 +44,7 @@ export const insightLogic = kea<insightLogicType>({
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: true,
-        endQuery: (view: string, lastRefresh: string | false, exception?: Record<string, any>) => ({
+        endQuery: (view: string, lastRefresh: string | boolean, exception?: Record<string, any>) => ({
             view,
             lastRefresh,
             exception,
@@ -54,11 +54,11 @@ export const insightLogic = kea<insightLogicType>({
         setShowErrorMessage: (showErrorMessage: boolean) => ({ showErrorMessage }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setTimeout: (timeout) => ({ timeout }),
-        setLastRefresh: (lastRefresh: string | false) => ({ lastRefresh }),
+        setLastRefresh: (lastRefresh: string | boolean) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
     }),
 
-    reducers: () => ({
+    reducers: {
         showTimeoutMessage: [false, { setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage }],
         maybeShowTimeoutMessage: [
             false,
@@ -128,7 +128,7 @@ export const insightLogic = kea<insightLogicType>({
                 setNotFirstLoad: () => false,
             },
         ],
-    }),
+    },
     listeners: ({ actions, values }) => ({
         setAllFilters: (filters) => {
             eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad)
