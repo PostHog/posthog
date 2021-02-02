@@ -86,7 +86,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
         if instance.setup_section_2_completed:
             # As Section 2 is the last one of the setup process (as of today), if it's completed it means the setup process is done
-            return {"enabled": False, "current_section": None}
+            return {"is_active": False, "current_section": None}
 
         non_demo_team_id = next((team.pk for team in instance.teams.filter(is_demo=False)), None)
         any_project_ingested_events = instance.teams.filter(is_demo=False, ingested_event=True).exists()
@@ -100,7 +100,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             current_section = 2
 
         return {
-            "enabled": True,
+            "is_active": True,
             "current_section": current_section,
             "any_project_ingested_events": any_project_ingested_events,
             "any_project_completed_snippet_onboarding": any_project_completed_snippet_onboarding,

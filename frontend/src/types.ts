@@ -445,10 +445,18 @@ export interface SystemStatus {
 }
 
 export type PersonalizationData = Record<string, string | string[] | null>
-export interface SetupState {
-    enabled: boolean
-    current_section: number | null
+
+interface EnabledSetupState {
+    is_active: true // Whether the onbarding setup is currently active
+    current_section: number
     any_project_ingested_events?: boolean
     any_project_completed_snippet_onboarding?: boolean
     non_demo_team_id?: number | null
 }
+
+interface DisabledSetupState {
+    is_active: false
+    current_section: null
+}
+
+export type SetupState = EnabledSetupState | DisabledSetupState
