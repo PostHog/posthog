@@ -4,7 +4,7 @@ import './IngestionWizard.scss'
 import { VerificationPanel } from 'scenes/ingestion/panels/VerificationPanel'
 import { AutocapturePanel } from 'scenes/ingestion/panels/AutocapturePanel'
 import { InstructionsPanel } from 'scenes/ingestion/panels/InstructionsPanel'
-import { MOBILE, WEB } from 'scenes/ingestion/constants'
+import { MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { FrameworkPanel } from 'scenes/ingestion/panels/FrameworkPanel'
@@ -28,7 +28,7 @@ export function IngestionContainer({ children }: { children: React.ReactNode }):
 }
 
 export default function IngestionWizard(): JSX.Element {
-    const { platform, framework, customEvent, verify } = useValues(ingestionLogic)
+    const { platform, framework, verify } = useValues(ingestionLogic)
 
     if (verify) {
         return (
@@ -54,7 +54,7 @@ export default function IngestionWizard(): JSX.Element {
         )
     }
 
-    if (platform === WEB && !customEvent) {
+    if (platform === WEB) {
         return (
             <IngestionContainer>
                 <AutocapturePanel />
@@ -62,7 +62,7 @@ export default function IngestionWizard(): JSX.Element {
         )
     }
 
-    if (platform === MOBILE || (platform === WEB && customEvent)) {
+    if (platform === MOBILE || platform === BACKEND) {
         return (
             <IngestionContainer>
                 <FrameworkPanel />

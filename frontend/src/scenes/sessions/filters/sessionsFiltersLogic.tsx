@@ -3,7 +3,7 @@ import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { SESSIONS_WITH_RECORDINGS_FILTER, SESSIONS_WITH_UNSEEN_RECORDINGS } from 'scenes/sessions/filters/constants'
-import { sessionsFiltersLogicType } from 'types/scenes/sessions/filters/sessionsFiltersLogicType'
+import { sessionsFiltersLogicType } from './sessionsFiltersLogicType'
 import { SessionsPropertyFilter } from '~/types'
 
 export type FilterSelector = number | string

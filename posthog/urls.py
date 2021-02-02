@@ -33,12 +33,13 @@ from posthog.demo import demo
 from posthog.email import is_email_available
 from posthog.models.organization import Organization
 
+from .api.organization import OrganizationSignupSerializer
 from .models import OrganizationInvite, Team, User
 from .utils import render_template
 from .views import health, preflight_check, stats, system_status
 
 
-def home(request, **kwargs):
+def home(request, *args, **kwargs):
     return render_template("index.html", request)
 
 
@@ -187,7 +188,7 @@ def finish_social_signup(request):
 
 
 @partial
-def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *args, **kwargs):
+def social_create_user(strategy: DjangoStrategy, details, backend, request, user=None, *args, **kwargs):
     if user:
         return {"is_new": False}
     user_email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
@@ -201,9 +202,20 @@ def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *a
         email_opt_in = strategy.session_get("email_opt_in", None)
         if not company_name or email_opt_in is None:
             return redirect(finish_social_signup)
-        _, _, user = User.objects.bootstrap(
-            company_name=company_name, first_name=user_name, email=user_email, email_opt_in=email_opt_in, password=None
+
+        serializer = OrganizationSignupSerializer(
+            data=dict(
+                company_name=company_name,
+                email_opt_in=email_opt_in,
+                first_name=user_name,
+                email=user_email,
+                password=None,
+            ),
+            context={"request": request},
         )
+
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
     else:
         from_invite = True
         try:

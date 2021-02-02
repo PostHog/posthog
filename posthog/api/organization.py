@@ -17,7 +17,8 @@ from rest_framework import (
 )
 
 from posthog.api.user import UserSerializer
-from posthog.models import Organization, User
+from posthog.demo import create_demo_team
+from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.permissions import (
     CREATE_METHODS,
@@ -48,11 +49,24 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
-    membership_level = serializers.SerializerMethodField(read_only=True)
+    membership_level = serializers.SerializerMethodField()
+    any_project_ingested_events = serializers.SerializerMethodField()
+    any_project_completed_snippet_onboarding = serializers.SerializerMethodField()
+    non_demo_team_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Organization
-        fields = ["id", "name", "created_at", "updated_at", "membership_level"]
+        fields = [
+            "id",
+            "name",
+            "created_at",
+            "updated_at",
+            "membership_level",
+            "personalization",
+            "any_project_ingested_events",
+            "any_project_completed_snippet_onboarding",
+            "non_demo_team_id",
+        ]
         read_only_fields = [
             "id",
             "created_at",
@@ -66,9 +80,18 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
         membership = OrganizationMembership.objects.filter(
-            organization=organization, user=self.context["request"].user
+            organization=organization, user=self.context["request"].user,
         ).first()
         return membership.level if membership is not None else None
+
+    def get_any_project_ingested_events(self, organization: Organization) -> bool:
+        return organization.teams.filter(is_demo=False, ingested_event=True).exists()
+
+    def get_any_project_completed_snippet_onboarding(self, organization: Organization) -> bool:
+        return organization.teams.filter(is_demo=False, completed_snippet_onboarding=True).exists()
+
+    def get_non_demo_team_id(self, organization: Organization) -> Optional[int]:
+        return next((team.pk for team in organization.teams.filter(is_demo=False)), None)
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -113,19 +136,22 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 class OrganizationSignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128)
     email: serializers.Field = serializers.EmailField()
-    password: serializers.Field = serializers.CharField()
+    password: serializers.Field = serializers.CharField(allow_null=True)
     company_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
 
     def validate_password(self, value):
-        password_validation.validate_password(value)
+        if value is not None:
+            password_validation.validate_password(value)
         return value
 
     def create(self, validated_data, **kwargs):
         is_instance_first_user: bool = not User.objects.exists()
 
         company_name = validated_data.pop("company_name", validated_data["first_name"])
-        self._organization, self._team, self._user = User.objects.bootstrap(company_name=company_name, **validated_data)
+        self._organization, self._team, self._user = User.objects.bootstrap(
+            company_name=company_name, create_team=self.create_team, **validated_data
+        )
         user = self._user
 
         login(
@@ -143,9 +169,21 @@ class OrganizationSignupSerializer(serializers.Serializer):
 
         return user
 
-    def to_representation(self, instance):
-        serializer = UserSerializer(instance=instance)
-        return serializer.data
+    def create_team(self, organization: Organization, user: User) -> Team:
+        if self.enable_new_onboarding(user):
+            return create_demo_team(user=user, organization=organization, request=self.context["request"])
+        else:
+            return Team.objects.create_with_data(user=user, organization=organization)
+
+    def to_representation(self, instance) -> Dict:
+        data = UserSerializer(instance=instance).data
+        data["redirect_url"] = "/personalization" if self.enable_new_onboarding() else "/ingestion"
+        return data
+
+    def enable_new_onboarding(self, user: Optional[User] = None) -> bool:
+        if user is None:
+            user = self._user
+        return posthoganalytics.feature_enabled("onboarding-2822", user.distinct_id) or settings.DEBUG
 
 
 class OrganizationSignupViewset(generics.CreateAPIView):

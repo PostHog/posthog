@@ -9,6 +9,7 @@ from posthog.models import (
     Element,
     Event,
     FeatureFlag,
+    Organization,
     Person,
     Team,
     User,
@@ -55,3 +56,8 @@ class UserAdmin(DjangoUserAdmin):
     list_filter = ("is_staff", "is_active", "groups")
     search_fields = ("email", "first_name", "last_name")
     ordering = ("email",)
+
+
+@admin.register(Organization)
+class OrganizationBillingAdmin(admin.ModelAdmin):
+    search_fields = ("name", "members__email")

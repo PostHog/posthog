@@ -62,13 +62,13 @@ jobs:
                   container-name: posthog-production-worker
                   image: ${{ steps.build-image.outputs.image }}
 
-            - name: Fill in the new plugins image ID in the Amazon ECS task definition
+            - name: Fill in the public ECR plugin server image ID in the Amazon ECS task definition
               id: task-def-plugins
               uses: aws-actions/amazon-ecs-render-task-definition@v1
               with:
                   task-definition: deploy/task-definition.plugins.json
                   container-name: posthog-production-plugins
-                  image: ${{ steps.build-image.outputs.image }}
+                  image: public.ecr.aws/p1o5l3m0/posthog-plugin-server:latest
 
             - name: Fill in the new migration image ID in the Amazon ECS task definition
               id: task-def-migrate

@@ -34,12 +34,13 @@ def sessions_test_factory(sessions, event_factory):
 
             self.assertEqual(response[0]["count"], 3)  # average length of all sessions
             # time series
-            self.assertEqual(response[0]["data"][0], 240)
-            self.assertEqual(response[0]["data"][1], 120)
+            self.assertEqual(response[0]["data"][0], 4.0)
+            self.assertEqual(response[0]["data"][1], 2.0)
             self.assertEqual(response[0]["labels"][0], "Sat. 14 January")
             self.assertEqual(response[0]["labels"][1], "Sun. 15 January")
             self.assertEqual(response[0]["days"][0], "2012-01-14")
             self.assertEqual(response[0]["days"][1], "2012-01-15")
+            self.assertEqual(response[0]["chartLabel"], "Average Session Length (minutes)")
 
         def test_sessions_avg_length_interval(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):
@@ -72,8 +73,8 @@ def sessions_test_factory(sessions, event_factory):
                 self.team,
             )
 
-            self.assertEqual(month_response[0]["data"][0], 180)
-            self.assertEqual(month_response[0]["data"][2], 180)
+            self.assertEqual(month_response[0]["data"][0], 3.0)
+            self.assertEqual(month_response[0]["data"][2], 3.0)
             self.assertEqual(month_response[0]["labels"][0], "Tue. 31 January")
             self.assertEqual(month_response[0]["labels"][1], "Wed. 29 February")
             self.assertEqual(month_response[0]["days"][0], "2012-01-31")
@@ -86,8 +87,8 @@ def sessions_test_factory(sessions, event_factory):
                 ),
                 self.team,
             )
-            self.assertEqual(week_response[0]["data"][1], 240.0)
-            self.assertEqual(week_response[0]["data"][3], 120.0)
+            self.assertEqual(week_response[0]["data"][1], 4.0)
+            self.assertEqual(week_response[0]["data"][3], 2.0)
             self.assertEqual(week_response[0]["labels"][0], "Sun. 1 January")
             self.assertEqual(week_response[0]["labels"][1], "Sun. 8 January")
             self.assertEqual(week_response[0]["days"][0], "2012-01-01")
@@ -100,8 +101,8 @@ def sessions_test_factory(sessions, event_factory):
                 ),
                 self.team,
             )
-            self.assertEqual(hour_response[0]["data"][3], 240.0)
-            self.assertEqual(hour_response[0]["data"][27], 120.0)
+            self.assertEqual(hour_response[0]["data"][3], 4.0)
+            self.assertEqual(hour_response[0]["data"][27], 2.0)
             self.assertEqual(hour_response[0]["labels"][0], "Wed. 14 March, 00:00")
             self.assertEqual(hour_response[0]["labels"][1], "Wed. 14 March, 01:00")
             self.assertEqual(hour_response[0]["days"][0], "2012-03-14 00:00:00")
@@ -141,8 +142,8 @@ def sessions_test_factory(sessions, event_factory):
             # Run without anything to compare to
             compare_response = sessions().run(filter=filter, team=self.team)
 
-            self.assertEqual(compare_response[0]["data"][5], 120.0)
-            self.assertEqual(compare_response[1]["data"][4], 240.0)
+            self.assertEqual(compare_response[0]["data"][5], 2.0)
+            self.assertEqual(compare_response[1]["data"][4], 4.0)
 
         def test_sessions_count_buckets_default(self):
             with freeze_time("2012-01-11T01:25:30.000Z"):

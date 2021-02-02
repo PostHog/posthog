@@ -4,15 +4,15 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Button, Form, Input, Popconfirm, Switch } from 'antd'
 import { DeleteOutlined, CodeOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
-import { PluginImage } from './PluginImage'
+import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Link } from 'lib/components/Link'
 import { Drawer } from 'lib/components/Drawer'
-import { LocalPluginTag } from 'scenes/plugins/LocalPluginTag'
-import { UploadField } from 'scenes/plugins/UploadField'
-import { getConfigSchemaArray } from 'scenes/plugins/utils'
+import { LocalPluginTag } from 'scenes/plugins/plugin/LocalPluginTag'
+import { UploadField } from './UploadField'
+import { defaultConfigForPlugin, getConfigSchemaArray } from 'scenes/plugins/utils'
 import Markdown from 'react-markdown'
-import { SourcePluginTag } from 'scenes/plugins/SourcePluginTag'
-import { PluginSource } from 'scenes/plugins/PluginSource'
+import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
+import { PluginSource } from './PluginSource'
 
 function EnabledDisabledSwitch({
     value,
@@ -31,8 +31,10 @@ function EnabledDisabledSwitch({
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { editingPlugin, editingPluginInitialChanges, loading, editingSource } = useValues(pluginsLogic)
-    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource } = useActions(pluginsLogic)
+    const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
+    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, generateApiKeysIfNeeded } = useActions(
+        pluginsLogic
+    )
     const [form] = Form.useForm()
 
     const canDelete = user?.plugin_access.install
@@ -40,14 +42,15 @@ export function PluginDrawer(): JSX.Element {
     useEffect(() => {
         if (editingPlugin) {
             form.setFieldsValue({
-                ...(editingPlugin.pluginConfig.config || {}),
+                ...(editingPlugin.pluginConfig.config || defaultConfigForPlugin(editingPlugin)),
                 __enabled: editingPlugin.pluginConfig.enabled,
                 ...editingPluginInitialChanges,
             })
+            generateApiKeysIfNeeded(form)
         } else {
             form.resetFields()
         }
-    }, [editingPlugin?.name])
+    }, [editingPlugin?.id])
 
     return (
         <>

@@ -1313,6 +1313,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(response[0]["count"], 4.0)
             self.assertEqual(response[1]["label"], "sign up - 80")
             self.assertEqual(response[1]["count"], 1.0)
+            self.assertTrue(
+                "aggregated_value" not in response[0]
+            )  # should not have aggregated value unless it's a table or pie query
 
         def test_breakdown_filtering_limit(self):
             self._create_breakdown_events()

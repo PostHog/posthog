@@ -23,7 +23,10 @@ export interface UserType {
     is_staff: boolean
     is_debug: boolean
     is_impersonated: boolean
+    ee_enabled: boolean
     email_service_available: boolean
+    realm: 'cloud' | 'hosted'
+    billing?: OrganizationBilling
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -65,6 +68,9 @@ export interface OrganizationType {
     billing: OrganizationBilling
     teams: TeamType[]
     membership_level: OrganizationMembershipLevel | null
+    any_project_ingested_events: boolean
+    any_project_completed_snippet_onboarding: boolean
+    non_demo_team_id: number | null
 }
 
 export interface OrganizationMemberType {
@@ -104,8 +110,10 @@ export interface TeamType {
     opt_out_capture: boolean
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
+    session_recording_retention_period_days: number | null
     plugins_opt_in: boolean
     ingested_event: boolean
+    is_demo: boolean
 }
 
 export interface ActionType {
@@ -312,7 +320,7 @@ export interface PlanInterface {
     custom_setup_billing_message: string
     image_url: string
     self_serve: boolean
-    allowance: null | Record<string, string | number>
+    allowance: { value: number; formatted: string } | null
 }
 
 export interface BillingSubscription {
@@ -368,6 +376,7 @@ export interface PluginType {
     description?: string
     url?: string
     tag?: string
+    latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     error?: PluginErrorType
@@ -430,3 +439,11 @@ export interface FilterType {
     startEntity?: Record<string, any>
     path_type?: '$pageview' | '$screen' | '$autocapture' | 'custom_event'
 }
+
+export interface SystemStatus {
+    metric: string
+    value: string
+    key?: string
+}
+
+export type PersonalizationData = Record<string, string | string[] | null>

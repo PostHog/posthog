@@ -18,7 +18,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import OrganizationMemberPermissions, ProjectMembershipNecessaryPermissions
 from posthog.plugins import (
     can_configure_plugins_via_api,
     can_install_plugins_via_api,
@@ -45,12 +45,22 @@ class PluginSerializer(serializers.ModelSerializer):
             "config_schema",
             "tag",
             "source",
+            "latest_tag",
         ]
-        read_only_fields = ["id"]
+        read_only_fields = ["id", "latest_tag"]
 
     def get_url(self, plugin: Plugin) -> Optional[str]:
         # remove ?private_token=... from url
         return str(plugin.url).split("?")[0] if plugin.url else None
+
+    def get_latest_tag(self, plugin: Plugin) -> Optional[str]:
+        if not plugin.latest_tag or not plugin.latest_tag_checked_at:
+            return None
+
+        if plugin.latest_tag != plugin.tag or plugin.latest_tag_checked_at > now() - relativedelta(seconds=60 * 30):
+            return str(plugin.latest_tag)
+
+        return None
 
     def _raise_if_plugin_installed(self, url: str):
         url_without_private_key = url.split("?")[0]
@@ -75,8 +85,7 @@ class PluginSerializer(serializers.ModelSerializer):
         if not can_install_plugins_via_api(self.context["organization_id"]):
             raise ValidationError("Plugin upgrades via the web are disabled!")
         if plugin.plugin_type != Plugin.PluginType.SOURCE:
-            validated_data["url"] = self.initial_data.get("url", None)
-            validated_data = self._update_validated_data_from_url(validated_data, validated_data["url"])
+            validated_data = self._update_validated_data_from_url({}, plugin.url)
         response = super().update(plugin, validated_data)
         reload_plugins_on_workers()
         return response
@@ -101,7 +110,7 @@ class PluginSerializer(serializers.ModelSerializer):
             parsed_url = parse_url(url, get_latest_if_none=True)
             if parsed_url:
                 validated_data["url"] = parsed_url["root_url"]
-                validated_data["tag"] = parsed_url.get("version", parsed_url.get("tag", None))
+                validated_data["tag"] = parsed_url.get("tag", None)
                 validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
                 plugin_json = get_json_from_archive(validated_data["archive"], "plugin.json")
                 if not plugin_json:
@@ -158,6 +167,19 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return Response({"status": "offline"})
 
+    @action(methods=["GET"], detail=True)
+    def check_for_updates(self, request: request.Request, **kwargs):
+        if not can_install_plugins_via_api(self.organization):
+            raise ValidationError("Plugin installation via the web is disabled!")
+
+        plugin = self.get_object()
+        latest_url = parse_url(plugin.url, get_latest_if_none=True)
+        plugin.latest_tag = latest_url.get("tag", latest_url.get("version", None))
+        plugin.latest_tag_checked_at = now()
+        plugin.save()
+
+        return Response({"plugin": PluginSerializer(plugin).data})
+
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:
         response = super().destroy(request, *args, **kwargs)
         reload_plugins_on_workers()
@@ -166,7 +188,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
 
     class Meta:
         model = PluginConfig
@@ -259,7 +281,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         if not can_configure_plugins_via_api(self.team.organization_id):
             return self.queryset.none()
-        return super().get_queryset()
+        return super().get_queryset().order_by("order", "plugin_id")
 
     # we don't really use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:  # type: ignore
@@ -284,3 +306,25 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             response.append(plugin)
 
         return Response(response)
+
+    @action(methods=["PATCH"], detail=False)
+    def rearrange(self, request: request.Request, **kwargs):
+        if not can_configure_plugins_via_api(self.team.organization_id):
+            raise ValidationError("Plugin configuration via the web is disabled!")
+
+        orders = request.data.get("orders", {})
+
+        did_save = False
+        plugin_configs = PluginConfig.objects.filter(team_id=self.team.pk, enabled=True)
+        plugin_configs_dict = {p.plugin_id: p for p in plugin_configs}
+        for plugin_id, order in orders.items():
+            plugin_config = plugin_configs_dict.get(int(plugin_id), None)
+            if plugin_config and plugin_config.order != order:
+                plugin_config.order = order
+                plugin_config.save()
+                did_save = True
+
+        if did_save:
+            reload_plugins_on_workers()
+
+        return Response(PluginConfigSerializer(plugin_configs, many=True).data)

@@ -23,6 +23,7 @@ import { preflightLogic } from './PreflightCheck/logic'
 import { Link } from 'lib/components/Link'
 import { BackTo } from 'lib/components/BackTo'
 import { Papercups } from 'lib/components/Papercups'
+import { DemoWarning } from '~/layout/navigation/DemoWarning'
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
@@ -74,7 +75,8 @@ function _App(): JSX.Element | null {
         if (
             currentTeam?.id &&
             !currentTeam.completed_snippet_onboarding &&
-            !location.pathname.startsWith('/ingestion')
+            !location.pathname.startsWith('/ingestion') &&
+            !location.pathname.startsWith('/personalization')
         ) {
             replace('/ingestion')
             return
@@ -103,7 +105,7 @@ function _App(): JSX.Element | null {
     if (!scene || sceneConfig.plain) {
         return (
             <Layout style={{ minHeight: '100vh' }}>
-                {featureFlags['navigation-1775'] ? <TopNavigation /> : null}
+                {featureFlags['navigation-1775'] && !sceneConfig.hideTopNav ? <TopNavigation /> : null}
                 <SceneComponent user={user} {...params} />
                 {essentialElements}
             </Layout>
@@ -133,12 +135,13 @@ function _App(): JSX.Element | null {
                     }`}
                     style={{ minHeight: '100vh' }}
                 >
-                    {featureFlags['navigation-1775'] ? <TopNavigation /> : <TopContent />}
+                    {!sceneConfig.hideTopNav && featureFlags['navigation-1775'] ? <TopNavigation /> : <TopContent />}
                     <Layout.Content className="main-app-content" data-attr="layout-content">
+                        {!sceneConfig.hideDemoWarnings && <DemoWarning />}
+
                         {!featureFlags['hide-billing-toolbar'] && <BillingToolbar />}
                         {featureFlags['navigation-1775'] ? <BackTo /> : null}
-
-                        {currentTeam && !currentTeam.ingested_event && (
+                        {currentTeam && !currentTeam.completed_snippet_onboarding && !sceneConfig.hideDemoWarnings && (
                             <Alert
                                 type="warning"
                                 style={{ marginTop: featureFlags['navigation-1775'] ? '1rem' : 0 }}

@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { posthogEvents } from 'lib/utils'
-import { userLogicType } from 'types/scenes/userLogicType'
+import { userLogicType } from './userLogicType'
 import { UserType, UserUpdateType } from '~/types'
 import posthog from 'posthog-js'
 
@@ -84,6 +84,10 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                 }
                 return data
             },
+        ],
+        demoOnlyProject: [
+            () => [selectors.user],
+            (user): boolean => (user?.team?.is_demo && user?.organization?.teams.length == 1) || false,
         ],
     }),
 

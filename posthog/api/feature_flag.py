@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from django.db import IntegrityError
 from django.db.models import QuerySet
@@ -14,7 +14,10 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     created_by = UserSerializer(required=False, read_only=True)
+    # :TRICKY: Needed for backwards compatibility
+    filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
+    rollout_percentage = serializers.SerializerMethodField()
 
     class Meta:
         model = FeatureFlag
@@ -22,29 +25,33 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "id",
             "name",
             "key",
-            "rollout_percentage",
             "filters",
             "deleted",
             "active",
             "created_by",
             "created_at",
             "is_simple_flag",
+            "rollout_percentage",
         ]
 
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
-    def get_is_simple_flag(self, feature_flag: FeatureFlag):
-        filters = feature_flag.filters
-        if not filters:
-            return True
-        if not filters.get("properties", []):
-            return True
-        return False
+    def get_is_simple_flag(self, feature_flag: FeatureFlag) -> bool:
+        return len(feature_flag.groups) == 1 and all(
+            len(group.get("properties", [])) == 0 for group in feature_flag.groups
+        )
+
+    def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
+        if self.get_is_simple_flag(feature_flag):
+            return feature_flag.groups[0].get("rollout_percentage")
+        else:
+            return None
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
+        self._update_filters(validated_data)
         try:
             FeatureFlag.objects.filter(key=validated_data["key"], team=request.user.team, deleted=True).delete()
             feature_flag = super().create(validated_data)
@@ -58,9 +65,14 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             validated_key = validated_data.get("key", None)
             if validated_key:
                 FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
+            self._update_filters(validated_data)
             return super().update(instance, validated_data)
         except IntegrityError:
             raise serializers.ValidationError("This key already exists.", code="key-exists")
+
+    def _update_filters(self, validated_data):
+        if "get_filters" in validated_data:
+            validated_data["filters"] = validated_data.pop("get_filters")
 
 
 class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):

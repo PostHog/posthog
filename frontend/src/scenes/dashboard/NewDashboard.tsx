@@ -27,7 +27,7 @@ export function NewDashboard(): JSX.Element {
                 <Input
                     autoFocus={true}
                     onChange={(e) => form.setFieldsValue({ key: slugify(e.target.value) })}
-                    data-attr="dashboard-name"
+                    data-attr="dashboard-name-input"
                 />
             </Form.Item>
 

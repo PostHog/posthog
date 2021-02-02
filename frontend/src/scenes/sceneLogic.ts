@@ -5,7 +5,7 @@ import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
 import posthog from 'posthog-js'
 import { userLogic } from './userLogic'
-import { sceneLogicType } from 'types/scenes/sceneLogicType'
+import { sceneLogicType } from './sceneLogicType'
 
 export enum Scene {
     // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
@@ -28,11 +28,14 @@ export enum Scene {
     InstanceLicenses = 'instanceLicenses',
     MySettings = 'mySettings',
     Annotations = 'annotations',
-    PreflightCheck = 'preflightCheck',
-    Signup = 'signup',
-    Ingestion = 'ingestion',
     Billing = 'billing',
     Plugins = 'plugins',
+    // Onboarding / setup routes
+    PreflightCheck = 'preflightCheck',
+    Signup = 'signup',
+    Personalization = 'personalization',
+    Ingestion = 'ingestion',
+    OnboardingSetup = 'onboardingSetup',
 }
 
 interface LoadedScene {
@@ -68,39 +71,51 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.MySettings]: () => import(/* webpackChunkName: 'mySettings' */ './me/Settings'),
     [Scene.Annotations]: () => import(/* webpackChunkName: 'annotations' */ './annotations'),
     [Scene.PreflightCheck]: () => import(/* webpackChunkName: 'preflightCheck' */ './PreflightCheck'),
-    [Scene.Signup]: () => import(/* webpackChunkName: 'signup' */ './Signup'),
+    [Scene.Signup]: () => import(/* webpackChunkName: 'signup' */ './onboarding'),
     [Scene.Ingestion]: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
     [Scene.Billing]: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
     [Scene.Plugins]: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
+    [Scene.Personalization]: () => import(/* webpackChunkName: 'personalization' */ './onboarding/Personalization'),
+    [Scene.OnboardingSetup]: () => import(/* webpackChunkName: 'onboardingSetup' */ './onboarding/OnboardingSetup'),
 }
 
 interface SceneConfig {
     unauthenticated?: boolean // If route is to be accessed when logged out (N.B. add to posthog/urls.py too)
     dark?: boolean // Background is $bg_mid
     plain?: boolean // Only keeps the main content and the top navigation bar
+    hideTopNav?: boolean // Hides the top navigation bar (regardless of whether `plain` is `true` or not)
+    hideDemoWarnings?: boolean // Hides demo project (DemoWarning.tsx) or project has no events (App.tsx) warnings
 }
 
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
-    [Scene.PreflightCheck]: {
-        unauthenticated: true,
-    },
-    [Scene.Signup]: {
-        unauthenticated: true,
-    },
     [Scene.Dashboard]: {
         dark: true,
     },
     [Scene.Insights]: {
         dark: true,
     },
-    [Scene.Ingestion]: {
-        plain: true,
-    },
     [Scene.OrganizationCreateFirst]: {
         plain: true,
     },
     [Scene.ProjectCreateFirst]: {
         plain: true,
+    },
+    // Onboarding / setup routes
+    [Scene.PreflightCheck]: {
+        unauthenticated: true,
+    },
+    [Scene.Signup]: {
+        unauthenticated: true,
+    },
+    [Scene.Personalization]: {
+        plain: true,
+        hideTopNav: true,
+    },
+    [Scene.Ingestion]: {
+        plain: true,
+    },
+    [Scene.OnboardingSetup]: {
+        hideDemoWarnings: true,
     },
 }
 
@@ -136,10 +151,13 @@ export const routes: Record<string, Scene> = {
     '/instance/licenses': Scene.InstanceLicenses,
     '/instance/status': Scene.SystemStatus,
     '/me/settings': Scene.MySettings,
+    // Onboarding / setup routes
     '/preflight': Scene.PreflightCheck,
     '/signup': Scene.Signup,
+    '/personalization': Scene.Personalization,
     '/ingestion': Scene.Ingestion,
     '/ingestion/*': Scene.Ingestion,
+    '/setup': Scene.OnboardingSetup,
 }
 
 export const sceneLogic = kea<sceneLogicType>({
@@ -151,17 +169,17 @@ export const sceneLogic = kea<sceneLogicType>({
         hideUpgradeModal: true,
         takeToPricing: true,
     },
-    reducers: ({ actions }) => ({
+    reducers: {
         scene: [
             null as Scene | null,
             {
-                [actions.setScene]: (_, payload) => payload.scene,
+                setScene: (_, payload) => payload.scene,
             },
         ],
         params: [
             {} as Params,
             {
-                [actions.setScene]: (_, payload) => payload.params || {},
+                setScene: (_, payload) => payload.params || {},
             },
         ],
         loadedScenes: [
@@ -174,25 +192,25 @@ export const sceneLogic = kea<sceneLogicType>({
                 },
             } as Record<string | number, LoadedScene>,
             {
-                [actions.setLoadedScene]: (state, { scene, loadedScene }) => ({ ...state, [scene]: loadedScene }),
+                setLoadedScene: (state, { scene, loadedScene }) => ({ ...state, [scene]: loadedScene }),
             },
         ],
         loadingScene: [
             null as Scene | null,
             {
-                [actions.loadScene]: (_, { scene }) => scene,
-                [actions.setScene]: () => null,
+                loadScene: (_, { scene }) => scene,
+                setScene: () => null,
             },
         ],
         upgradeModalFeatureName: [
             null as string | null,
             {
-                [actions.showUpgradeModal]: (_, { featureName }) => featureName,
-                [actions.hideUpgradeModal]: () => null,
-                [actions.takeToPricing]: () => null,
+                showUpgradeModal: (_, { featureName }) => featureName,
+                hideUpgradeModal: () => null,
+                takeToPricing: () => null,
             },
         ],
-    }),
+    },
     selectors: {
         sceneConfig: [
             (selectors) => [selectors.scene],
