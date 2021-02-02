@@ -91,7 +91,7 @@ class TeamViewSet(viewsets.ModelViewSet):
     ]
     lookup_field = "id"
     ordering = "-created_by"
-    organization: ClassVar[Optional[Organization]] = None
+    organization: Optional[Organization] = None
 
     def get_queryset(self):
         queryset = super().get_queryset().filter(organization__in=self.request.user.organizations.all())
