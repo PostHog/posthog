@@ -31,7 +31,9 @@
         "typegen:write": "kea-typegen write",
         "typegen:check": "kea-typegen check",
         "typegen:watch": "kea-typegen watch",
-        "format-python": "black . && isort ."
+        "format:python": "black . && isort .",
+        "format:js": "yarn prettier && yarn eslint --fix",
+        "format": "yarn format:python && yarn format:js"
     },
     "dependencies": {
         "@babel/core": "^7.10.4",

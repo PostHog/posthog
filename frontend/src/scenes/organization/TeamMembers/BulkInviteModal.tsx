@@ -5,7 +5,7 @@ import React, { useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { PlusOutlined } from '@ant-design/icons'
 import './BulkInviteModal.scss'
-import { capitalizeFirstLetter, isEmail } from 'lib/utils'
+import { isEmail } from 'lib/utils'
 import { bulkInviteLogic } from './bulkInviteLogic'
 
 const PLACEHOLDER_NAMES = ['Jane', 'John']

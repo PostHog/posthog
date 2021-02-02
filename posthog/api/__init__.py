@@ -49,7 +49,10 @@ organizations_router.register(
     r"members", organization_member.OrganizationMemberViewSet, "organization_members", ["organization_id"],
 )
 organizations_router.register(
-    r"invites\/bulk", organization_invite.OrganizationInviteBulkViewSet, "organization_invites_bulk", ["organization_id"],
+    r"invites\/bulk",
+    organization_invite.OrganizationInviteBulkViewSet,
+    "organization_invites_bulk",
+    ["organization_id"],
 )
 organizations_router.register(
     r"invites", organization_invite.OrganizationInviteViewSet, "organization_invites", ["organization_id"],
