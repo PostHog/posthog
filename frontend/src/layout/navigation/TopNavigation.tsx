@@ -111,26 +111,27 @@ export function _TopNavigation(): JSX.Element {
         <div className="navigation-top-dropdown project-dropdown">
             <div className="dp-title">SELECT A PROJECT</div>
             <div className="projects">
-                {user?.organization?.teams.map((team) => {
-                    return (
-                        <a onClick={() => updateCurrentProject(team.id, '/')} key={team.id}>
-                            <span style={{ flexGrow: 1 }}>{team.name}</span>
-                            <span
-                                className="settings"
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    if (team.id === user?.team?.id) {
-                                        push('/project/settings')
-                                    } else {
-                                        updateCurrentProject(team.id, '/project/settings')
-                                    }
-                                }}
-                            >
-                                <ToolOutlined />
-                            </span>
-                        </a>
-                    )
-                })}
+                {user?.organization?.teams &&
+                    user.organization.teams.map((team) => {
+                        return (
+                            <a onClick={() => updateCurrentProject(team.id, '/')} key={team.id}>
+                                <span style={{ flexGrow: 1 }}>{team.name}</span>
+                                <span
+                                    className="settings"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (team.id === user?.team?.id) {
+                                            push('/project/settings')
+                                        } else {
+                                            updateCurrentProject(team.id, '/project/settings')
+                                        }
+                                    }}
+                                >
+                                    <ToolOutlined />
+                                </span>
+                            </a>
+                        )
+                    })}
             </div>
             <div className="divider mt mb-05" />
             <div className="text-center">

@@ -20,6 +20,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
         userUpdateRequest: (update: UserUpdateType, updateKey?: string) => ({ update, updateKey }),
         userUpdateSuccess: (user: UserType, updateKey?: string) => ({ user, updateKey }),
         userUpdateFailure: (error: string, updateKey?: string) => ({ updateKey, error }),
+        userUpdateLoading: (loading: boolean) => ({ loading }),
         currentTeamUpdateRequest: (teamId: number) => ({ teamId }),
         currentOrganizationUpdateRequest: (organizationId: string) => ({ organizationId }),
         completedOnboarding: true,
@@ -32,6 +33,14 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
             {
                 setUser: (_, payload) => payload.user,
                 userUpdateSuccess: (_, payload) => payload.user,
+            },
+        ],
+        userUpdateLoading: [
+            false,
+            {
+                userUpdateRequest: () => true,
+                userUpdateSuccess: () => false,
+                userUpdateFailure: () => false,
             },
         ],
     },
@@ -87,7 +96,8 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
         ],
         demoOnlyProject: [
             () => [selectors.user],
-            (user): boolean => (user?.team?.is_demo && user?.organization?.teams.length == 1) || false,
+            (user): boolean =>
+                (user?.team?.is_demo && user?.organization?.teams && user.organization.teams.length == 1) || false,
         ],
     }),
 
