@@ -83,11 +83,15 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
         },
     }),
     reducers: ({ props }) => ({
-        initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
+        initialPathname: [
+            (state: Record<string, any>) => router.selectors.location(state).pathname,
+            { noop: (a) => a },
+        ],
         filter: [
             (props.filters
                 ? cleanPathParams(props.filters as Partial<FilterType>)
-                : (state) => cleanPathParams(router.selectors.searchParams(state)) as Record<string, any>) as Partial<
+                : (state: Record<string, any>) =>
+                      cleanPathParams(router.selectors.searchParams(state)) as Record<string, any>) as Partial<
                 FilterType
             >,
             {
@@ -97,7 +101,8 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
         properties: [
             (props.filters
                 ? (props.filters as Partial<FilterType>).properties || []
-                : (state) => router.selectors.searchParams(state).properties || []) as PropertyFilter[],
+                : (state: Record<string, any>) =>
+                      router.selectors.searchParams(state).properties || []) as PropertyFilter[],
             {
                 setProperties: (_, { properties }) => properties,
             },
