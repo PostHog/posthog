@@ -87,6 +87,7 @@ function Signup() {
                                 type="email"
                                 value={formState.email.value}
                                 onChange={(e) => updateForm('email', e.target)}
+                                autoFocus
                                 required
                                 disabled={accountLoading}
                                 id="signupEmail"
@@ -115,7 +116,6 @@ function Signup() {
                             <label htmlFor="signupFirstName">First Name</label>
                             <Input
                                 placeholder="Jane"
-                                autoFocus
                                 value={formState.firstName.value}
                                 onChange={(e) => updateForm('firstName', e.target)}
                                 required

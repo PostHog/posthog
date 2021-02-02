@@ -141,7 +141,7 @@ function _App(): JSX.Element | null {
 
                         {!featureFlags['hide-billing-toolbar'] && <BillingToolbar />}
                         {featureFlags['navigation-1775'] ? <BackTo /> : null}
-                        {currentTeam && !currentTeam.completed_snippet_onboarding && !sceneConfig.hideDemoWarnings && (
+                        {currentTeam && !sceneConfig.hideDemoWarnings && !currentTeam.ingested_event && (
                             <Alert
                                 type="warning"
                                 style={{ marginTop: featureFlags['navigation-1775'] ? '1rem' : 0 }}

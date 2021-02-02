@@ -28,7 +28,7 @@ class OrganizationManager(models.Manager):
             organization_membership: Optional[OrganizationMembership] = None
             if user is not None:
                 organization_membership = OrganizationMembership.objects.create(
-                    organization=organization, user=user, level=OrganizationMembership.Level.OWNER
+                    organization=organization, user=user, level=OrganizationMembership.Level.OWNER,
                 )
                 user.current_organization = organization
                 user.current_team = team
@@ -46,6 +46,7 @@ class Organization(UUIDModel):
     name: models.CharField = models.CharField(max_length=64)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)  # Onboarding (#2822)
     personalization: JSONField = JSONField(default=dict, null=False)
 
     objects = OrganizationManager()

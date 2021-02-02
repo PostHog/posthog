@@ -72,12 +72,20 @@ function _Personalization(): JSX.Element {
                             {askTechnicalQuestion ? '3' : '2'}. What <b>products</b> does your company/team have? Select{' '}
                             <b>all</b> that apply
                         </div>
+
                         <RadioSelect
                             options={PRODUCTS}
                             selectedOption={personalizationData.products}
                             onOptionChanged={(value) => appendPersonalizationData('products', value)}
                             multipleSelection
                         />
+                        <div
+                            className={`multiselect-reminder${
+                                personalizationData.products && personalizationData.products.length === 1 ? ' show' : ''
+                            }`}
+                        >
+                            Any other product? Remember to <b>select all that apply</b>
+                        </div>
                     </div>
 
                     <div className="section-continue">
