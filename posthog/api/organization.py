@@ -163,10 +163,16 @@ class OrganizationSignupSerializer(serializers.Serializer):
         is_instance_first_user: bool = not User.objects.exists()
 
         company_name = validated_data.pop("company_name", validated_data["first_name"])
+
         self._organization, self._team, self._user = User.objects.bootstrap(
             company_name=company_name, create_team=self.create_team, **validated_data,
         )
         user = self._user
+
+        # Temp (due to FF-release [`onboarding-2822`]): Activate the setup/onboarding process if applicable
+        if self.enable_new_onboarding(user):
+            self._organization.setup_section_2_completed = False
+            self._organization.save()
 
         login(
             self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
@@ -185,10 +191,6 @@ class OrganizationSignupSerializer(serializers.Serializer):
 
     def create_team(self, organization: Organization, user: User) -> Team:
         if self.enable_new_onboarding(user):
-            organization.setup_section_2_completed = (
-                False  # Temp (due to FF-release): Activate the setup/onboarding process
-            )
-            organization.save()
             return create_demo_team(user=user, organization=organization, request=self.context["request"])
         else:
             return Team.objects.create_with_data(user=user, organization=organization)
