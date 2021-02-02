@@ -22,7 +22,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.utils import render_template, get_safe_cache
+from posthog.utils import get_safe_cache, render_template
 
 
 class DashboardSerializer(serializers.ModelSerializer):
