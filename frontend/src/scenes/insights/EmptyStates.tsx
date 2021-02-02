@@ -6,17 +6,21 @@ import imgEmptyLineGraphDark from 'public/empty-line-graph-dark.svg'
 import { QuestionCircleOutlined, LoadingOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { IllustrationDanger } from 'lib/components/icons'
+import { trendsLogic } from 'scenes/insights/trendsLogic.js'
+import { ViewType } from './insightLogic'
 
 export function LineGraphEmptyState({ color }: { color: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { filters } = useValues(trendsLogic({ dashboard: null, view: ViewType.TRENDS }))
+    const { breakdown } = filters
+
+    const breakdownErrorMessage = `We were unable to process this query.
+    If you are breaking down data by high volume properties like emails or Distinct IDs, try limiting your dataset with additional filters.
+    Otherwise, try changing dates or pick another action or event. `
+
     return (
         <>
-            {!featureFlags['1694-dashboards'] && (
-                <p style={{ textAlign: 'center', paddingTop: '4rem' }}>
-                    We couldn't find any matching events. Try changing dates or pick another action or event.
-                </p>
-            )}
-            {featureFlags['1694-dashboards'] && (
+            {featureFlags['1694-dashboards'] ? (
                 <div className="text-center" style={{ height: '100%' }}>
                     <img
                         src={color === 'white' ? imgEmptyLineGraphDark : imgEmptyLineGraph}
@@ -24,7 +28,7 @@ export function LineGraphEmptyState({ color }: { color: string }): JSX.Element {
                         style={{ maxHeight: '100%', maxWidth: '80%', opacity: 0.5 }}
                     />
                     <div style={{ textAlign: 'center', fontWeight: 'bold', marginTop: 16 }}>
-                        Seems like there's no data to show this graph yet{' '}
+                        {breakdown ? breakdownErrorMessage : `Seems like there's no data to show this graph yet. `}
                         <a
                             target="_blank"
                             href="https://posthog.com/docs/features/trends"
@@ -34,6 +38,12 @@ export function LineGraphEmptyState({ color }: { color: string }): JSX.Element {
                         </a>
                     </div>
                 </div>
+            ) : (
+                <p style={{ textAlign: 'center', paddingTop: '4rem' }}>
+                    {breakdown
+                        ? breakdownErrorMessage
+                        : `We couldn't find any events that match your query. Try changing dates or pick another action or event.`}
+                </p>
             )}
         </>
     )
