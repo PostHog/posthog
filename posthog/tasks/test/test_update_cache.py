@@ -1,7 +1,6 @@
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
 from django.utils.timezone import now
 
 from posthog.models import Dashboard, DashboardItem, Event, Filter

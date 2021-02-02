@@ -2,7 +2,6 @@ import json
 import warnings
 from typing import Any, Dict, List, Optional, Union
 
-from django.core.cache import cache
 from django.db.models import Count, Func, Prefetch, Q, QuerySet
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
@@ -23,7 +22,7 @@ from posthog.queries.base import properties_to_Q
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
-from posthog.utils import convert_property_value, relative_date_parse, get_safe_cache
+from posthog.utils import convert_property_value, get_safe_cache, relative_date_parse
 
 
 class PersonCursorPagination(CursorPagination):
