@@ -532,4 +532,4 @@ def get_safe_cache(cache_key: str):
             cache.delete(cache_key)  # in that case, try to delete the cache
         except:
             pass
-        return None
+    return None
