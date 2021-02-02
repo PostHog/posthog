@@ -3,16 +3,15 @@ import { toParams, fromParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
-import { InsightType } from '~/types'
 
-export const ViewType: Record<string, InsightType> = {
-    TRENDS: 'TRENDS',
-    STICKINESS: 'STICKINESS',
-    LIFECYCLE: 'LIFECYCLE',
-    SESSIONS: 'SESSIONS',
-    FUNNELS: 'FUNNELS',
-    RETENTION: 'RETENTION',
-    PATHS: 'PATHS',
+export enum ViewType {
+    TRENDS = 'TRENDS',
+    STICKINESS = 'STICKINESS',
+    LIFECYCLE = 'LIFECYCLE',
+    SESSIONS = 'SESSIONS',
+    FUNNELS = 'FUNNELS',
+    RETENTION = 'RETENTION',
+    PATHS = 'PATHS',
 }
 
 /*
