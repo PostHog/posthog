@@ -39,9 +39,9 @@ function _Dashboards(): JSX.Element {
             title: 'Dashboard',
             dataIndex: 'name',
             key: 'name',
-            render: function RenderName(name: string, { id }: { id: number }, index: number) {
+            render: function RenderName(name: string, { id }: { id: number }) {
                 return (
-                    <Link data-attr={'dashboard-name-' + index} to={`/dashboard/${id}`}>
+                    <Link data-attr="dashboard-name" to={`/dashboard/${id}`}>
                         {name || 'Untitled'}
                     </Link>
                 )

@@ -1,6 +1,8 @@
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
+import { ViewType } from 'scenes/insights/insightLogic'
+
 export interface UserType {
     anonymize_data: boolean
     distinct_id: string
@@ -26,6 +28,7 @@ export interface UserType {
     ee_enabled: boolean
     email_service_available: boolean
     realm: 'cloud' | 'hosted'
+    billing?: OrganizationBilling
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -67,6 +70,9 @@ export interface OrganizationType {
     billing: OrganizationBilling
     teams: TeamType[]
     membership_level: OrganizationMembershipLevel | null
+    any_project_ingested_events: boolean
+    any_project_completed_snippet_onboarding: boolean
+    non_demo_team_id: number | null
 }
 
 export interface OrganizationMemberType {
@@ -272,6 +278,7 @@ export interface InsightHistory {
     name?: string
     createdAt: string
     saved: boolean
+    type: ViewType
 }
 
 export interface SavedFunnel extends InsightHistory {
@@ -316,7 +323,7 @@ export interface PlanInterface {
     custom_setup_billing_message: string
     image_url: string
     self_serve: boolean
-    allowance: null | Record<string, string | number>
+    allowance: { value: number; formatted: string } | null
 }
 
 export interface BillingSubscription {
@@ -441,3 +448,5 @@ export interface SystemStatus {
     value: string
     key?: string
 }
+
+export type PersonalizationData = Record<string, string | string[] | null>

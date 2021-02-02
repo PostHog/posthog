@@ -197,11 +197,11 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                 if (data.source.layer === 0) {
                     return
                 }
-                let height =
+                let _height =
                     data.source.y1 -
                     data.source.y0 -
                     data.source.sourceLinks.reduce((prev, curr) => prev + curr.width, 0)
-                return rounded_rect(0, 0, 30, height, Math.min(25, height), false, true, false, false)
+                return rounded_rect(0, 0, 30, _height, Math.min(25, _height), false, true, false, false)
             })
             .attr('fill', 'url(#dropoff-gradient)')
             .attr('stroke-width', 0)

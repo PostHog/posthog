@@ -9,7 +9,7 @@ from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
-from django.conf import settings
+from django.conf import settings as app_settings
 from django.core.cache import cache
 from django.utils.timezone import now
 from sentry_sdk.api import capture_exception
@@ -37,13 +37,13 @@ if PRIMARY_DB != RDBMS.CLICKHOUSE:
     ch_client = None  # type: Client
     ch_sync_pool = None  # type: ChPool
 
-    def async_execute(query, args=None):
+    def async_execute(query, args=None, settings=None):
         return
 
-    def sync_execute(query, args=None):
+    def sync_execute(query, args=None, settings=None):
         return
 
-    def cache_sync_execute(query, args=None, redis_client=None, ttl=None):
+    def cache_sync_execute(query, args=None, redis_client=None, ttl=None, settings=None):
         return
 
 
@@ -60,9 +60,9 @@ else:
         )
 
         @async_to_sync
-        async def async_execute(query, args=None):
+        async def async_execute(query, args=None, settings=None):
             loop = asyncio.get_event_loop()
-            task = loop.create_task(ch_client.execute(query, args))
+            task = loop.create_task(ch_client.execute(query, args, settings=settings))
             return task
 
     else:
@@ -77,8 +77,8 @@ else:
             verify=CLICKHOUSE_VERIFY,
         )
 
-        def async_execute(query, args=None):
-            return sync_execute(query, args)
+        def async_execute(query, args=None, settings=None):
+            return sync_execute(query, args, settings=settings)
 
     ch_sync_pool = ChPool(
         host=CLICKHOUSE_HOST,
@@ -92,7 +92,7 @@ else:
         connections_max=100,
     )
 
-    def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL):
+    def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, settings=None):
         if not redis_client:
             redis_client = redis.get_client()
         key = _key_hash(query, args)
@@ -100,18 +100,17 @@ else:
             result = _deserialize(redis_client.get(key))
             return result
         else:
-            result = sync_execute(query, args)
+            result = sync_execute(query, args, settings=settings)
             redis_client.set(key, _serialize(result), ex=ttl)
             return result
 
-    def sync_execute(query, args=None):
+    def sync_execute(query, args=None, settings=None):
         start_time = time()
         try:
-            with ch_sync_pool.get_client() as client:
-                result = client.execute(query, args)
+            result = ch_client.execute(query, args, settings=settings)
         finally:
             execution_time = time() - start_time
-            if settings.SHELL_PLUS_PRINT_SQL:
+            if app_settings.SHELL_PLUS_PRINT_SQL:
                 print(format_sql(query, args))
                 print("Execution time: %.6fs" % (execution_time,))
             if _save_query_user_id:

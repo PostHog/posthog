@@ -1,5 +1,7 @@
 import React from 'react'
+import { ArrowLeftOutlined } from '@ant-design/icons'
 import './index.scss'
+import { Button } from 'antd'
 
 export interface RadioSelectType {
     key: string
@@ -9,23 +11,75 @@ export interface RadioSelectType {
 
 interface RadioSelectProps {
     options: RadioSelectType[]
-    selectedOption: null | string
-    onOptionChanged: (key: string | null) => void
+    selectedOption: null | string | string[]
+    onOptionChanged: (key: string | string[] | null) => void
+    multipleSelection?: boolean
+    focusSelection?: boolean // will hide other choices after making a selection
 }
 
-export function RadioSelect({ options, selectedOption, onOptionChanged }: RadioSelectProps): JSX.Element {
+export function RadioSelect({
+    options,
+    selectedOption,
+    onOptionChanged,
+    multipleSelection,
+    focusSelection,
+}: RadioSelectProps): JSX.Element {
+    const isSelected = (option: RadioSelectType): boolean => {
+        return multipleSelection && selectedOption
+            ? selectedOption?.includes(option.key)
+            : selectedOption === option.key
+    }
+
+    const handleClick = (option: RadioSelectType | null): void => {
+        if (!option) {
+            onOptionChanged(null)
+            return
+        }
+
+        if (multipleSelection) {
+            if (selectedOption instanceof Array) {
+                const _selectedOptions = [...selectedOption]
+                const idx = _selectedOptions.indexOf(option.key)
+                if (idx > -1) {
+                    // Option was previously selected, remove
+                    _selectedOptions.splice(idx, 1)
+                } else {
+                    _selectedOptions.push(option.key)
+                }
+                onOptionChanged(_selectedOptions)
+            } else {
+                onOptionChanged([option.key])
+            }
+        } else {
+            onOptionChanged(selectedOption !== option.key ? option.key : null)
+        }
+    }
+
     return (
-        <div className="ph-radio-options">
-            {options.map((option) => (
-                <div
-                    className={`radio-option${selectedOption === option.key ? ' active' : ''}`}
-                    key={option.key}
-                    onClick={() => onOptionChanged(selectedOption !== option.key ? option.key : null)}
-                >
-                    <div className="graphic">{option.icon}</div>
-                    <div className="label">{option.label}</div>
+        <div className="mt">
+            {focusSelection && selectedOption && (
+                <div className="text-center">
+                    <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => handleClick(null)}>
+                        change
+                    </Button>
                 </div>
-            ))}
+            )}
+            <div className="ph-radio-options">
+                {options.map((option) => {
+                    if (!focusSelection || !selectedOption || isSelected(option)) {
+                        return (
+                            <div
+                                className={`radio-option${isSelected(option) ? ' active' : ''}`}
+                                key={option.key}
+                                onClick={() => handleClick(option)}
+                            >
+                                <div className="graphic">{option.icon}</div>
+                                <div className="label">{option.label}</div>
+                            </div>
+                        )
+                    }
+                })}
+            </div>
         </div>
     )
 }

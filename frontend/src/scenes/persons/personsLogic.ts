@@ -120,8 +120,8 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                 actions.loadPersons()
             }
         },
-        '/person/:id': ({ id }: { id: string }) => {
-            actions.loadPerson(id)
+        '/person/*': ({ _ }: { _: string }) => {
+            actions.loadPerson(_) // underscore contains the wildcard
         },
     }),
 })

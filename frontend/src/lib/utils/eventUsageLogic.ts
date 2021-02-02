@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
 import { AnnotationType, FilterType, DashboardType } from '~/types'
+import { ViewType } from 'scenes/insights/insightLogic'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
@@ -16,8 +17,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportDashboardViewed: (dashboard, hasShareToken) => ({ dashboard, hasShareToken }),
         reportBookmarkletDragged: () => true,
         reportIngestionBookmarkletCollapsible: (activePanels) => ({ activePanels }),
-        reportPersonalizationSkipped: (step) => ({ step }),
-        reportPersonalization: (payload, step, step_completed_fully) => ({ payload, step, step_completed_fully }),
+        reportProjectCreationSubmitted: (projectCount, nameLength) => ({ projectCount, nameLength }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }: { annotations: AnnotationType[] | null }, breakpoint) => {
@@ -144,7 +144,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
 
             for (const item of dashboard.items) {
-                const key = `${item.filters.insight.toLowerCase()}_count`
+                const key = `${item.filters?.insight?.toLowerCase() || ViewType.TRENDS}_count`
                 if (!properties[key]) {
                     properties[key] = 1
                 } else {
@@ -164,24 +164,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             const action = activePanels.includes('bookmarklet') ? 'shown' : 'hidden'
             posthog.capture(`ingestion bookmarklet panel ${action}`)
         },
-        reportPersonalizationSkipped: async ({ step }: { step: number | null }) => {
-            posthog.capture('personalization skipped', { at_step: step })
-        },
-        reportPersonalization: async ({
-            payload,
-            step,
-            step_completed_fully,
+        reportProjectCreationSubmitted: async ({
+            projectCount,
+            nameLength,
         }: {
-            payload: Record<string, string>
-            step: number | null
-            step_completed_fully: boolean
+            projectCount: number
+            nameLength: number
         }) => {
-            posthog.people.set_once(payload)
-            posthog.capture('personalization step completed', {
-                step,
-                step_completed_fully,
-                payload,
-                number_of_answers: Object.keys(payload).length,
+            posthog.capture('project create submitted', {
+                current_project_count: projectCount,
+                name_length: nameLength,
             })
         },
     },

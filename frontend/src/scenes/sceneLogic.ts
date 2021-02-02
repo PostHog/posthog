@@ -35,6 +35,7 @@ export enum Scene {
     Signup = 'signup',
     Personalization = 'personalization',
     Ingestion = 'ingestion',
+    OnboardingSetup = 'onboardingSetup',
 }
 
 interface LoadedScene {
@@ -75,13 +76,15 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Billing]: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
     [Scene.Plugins]: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
     [Scene.Personalization]: () => import(/* webpackChunkName: 'personalization' */ './onboarding/Personalization'),
+    [Scene.OnboardingSetup]: () => import(/* webpackChunkName: 'onboardingSetup' */ './onboarding/OnboardingSetup'),
 }
 
 interface SceneConfig {
     unauthenticated?: boolean // If route is to be accessed when logged out (N.B. add to posthog/urls.py too)
     dark?: boolean // Background is $bg_mid
     plain?: boolean // Only keeps the main content and the top navigation bar
-    hide_top_nav?: boolean // Hides the top navigation bar (regardless of whether `plain` is `true` or not)
+    hideTopNav?: boolean // Hides the top navigation bar (regardless of whether `plain` is `true` or not)
+    hideDemoWarnings?: boolean // Hides demo project (DemoWarning.tsx) or project has no events (App.tsx) warnings
 }
 
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
@@ -106,10 +109,13 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Personalization]: {
         plain: true,
-        hide_top_nav: true,
+        hideTopNav: true,
     },
     [Scene.Ingestion]: {
         plain: true,
+    },
+    [Scene.OnboardingSetup]: {
+        hideDemoWarnings: true,
     },
 }
 
@@ -151,6 +157,7 @@ export const routes: Record<string, Scene> = {
     '/personalization': Scene.Personalization,
     '/ingestion': Scene.Ingestion,
     '/ingestion/*': Scene.Ingestion,
+    '/setup': Scene.OnboardingSetup,
 }
 
 export const sceneLogic = kea<sceneLogicType>({

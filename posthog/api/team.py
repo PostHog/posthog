@@ -14,8 +14,6 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
 )
 
-from .organization import OrganizationSignupSerializer, OrganizationSignupViewset
-
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
@@ -26,7 +24,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
         if request.method in CREATE_METHODS and (
             (request.user.organization is None)
             or (
-                request.user.organization.teams.count() >= 1
+                request.user.organization.teams.exclude(is_demo=True).count() >= 1
                 and not request.user.organization.is_feature_available("organizations_projects")
             )
         ):
@@ -54,6 +52,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "ingested_event",
             "uuid",
             "opt_out_capture",
+            "is_demo",
         )
         read_only_fields = (
             "id",
@@ -76,7 +75,6 @@ class TeamSerializer(serializers.ModelSerializer):
         if organization is None:
             raise exceptions.ValidationError("You need to belong to an organization first!")
         with transaction.atomic():
-            validated_data.setdefault("completed_snippet_onboarding", True)
             team = Team.objects.create_with_data(**validated_data, organization=organization)
             request.user.current_team = team
             request.user.save()
