@@ -23,7 +23,7 @@ from posthog.queries.base import properties_to_Q
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
-from posthog.utils import convert_property_value, relative_date_parse
+from posthog.utils import convert_property_value, relative_date_parse, get_safe_cache
 
 
 class PersonCursorPagination(CursorPagination):
@@ -210,7 +210,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             return response.Response({})
 
         offset_value = int(offset)
-        cached_result = cache.get(reference_id)
+        cached_result = get_safe_cache(reference_id)
         if cached_result:
             return response.Response(
                 {

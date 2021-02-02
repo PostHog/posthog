@@ -520,3 +520,14 @@ def get_daterange(
             time_range.append(start_date)
             start_date = (start_date.replace(day=1) + delta).replace(day=1)
     return time_range
+
+def get_safe_cache(cache_key: str):
+    try:
+        cached_result = cache.get(cache_key) # cache.get is safe in most cases
+        return cached_result
+    except: # if it errors out, the cache is probably corrupted
+        try:
+            cache.delete(cache_key) # in that case, try to delete the cache
+        except:
+            pass
+    return None

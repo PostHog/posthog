@@ -22,7 +22,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.utils import render_template
+from posthog.utils import render_template, get_safe_cache
 
 
 class DashboardSerializer(serializers.ModelSerializer):
@@ -200,7 +200,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         if not dashboard_item.filters_hash:
             return None
 
-        result = cache.get(dashboard_item.filters_hash)
+        result = get_safe_cache(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
         return result["result"]

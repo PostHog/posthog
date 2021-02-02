@@ -5,6 +5,7 @@ from rest_framework import viewsets
 from rest_framework.response import Response
 
 from posthog.models.team import Team
+from posthog.utils import get_safe_cache
 
 
 class DebugCHQueries(viewsets.ViewSet):
@@ -13,7 +14,7 @@ class DebugCHQueries(viewsets.ViewSet):
     """
 
     def list(self, request):
-        return Response(json.loads(cache.get("save_query_{}".format(request.user.pk)) or "[]"))
+        return Response(json.loads(get_safe_cache("save_query_{}".format(request.user.pk)) or "[]"))
 
     def get(self, request):
         return Response([{"hey": "hi"}])
