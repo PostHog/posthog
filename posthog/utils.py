@@ -33,7 +33,7 @@ from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception, push_scope
-from posthog.utils import get_safe_cache
+from django.core.cache import cache
 
 from posthog.redis import get_client
 from posthog.settings import print_warning
@@ -532,4 +532,4 @@ def get_safe_cache(cache_key: str):
             cache.delete(cache_key) # in that case, try to delete the cache
         except:
             pass
-        return None
+    return None
