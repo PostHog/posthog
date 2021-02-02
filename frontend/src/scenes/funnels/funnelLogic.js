@@ -3,6 +3,7 @@ import api from 'lib/api'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { objectsEqual, toParams } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
+import { funnelsModel } from '../../models/funnelsModel'
 
 function wait(ms = 1000) {
     return new Promise((resolve) => {
@@ -50,7 +51,14 @@ export const funnelLogic = kea({
     }),
 
     connect: {
-        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
+        actions: [
+            insightLogic,
+            ['setAllFilters'],
+            insightHistoryLogic,
+            ['createInsight'],
+            funnelsModel,
+            ['loadFunnels'],
+        ],
     },
 
     loaders: () => ({
@@ -157,6 +165,7 @@ export const funnelLogic = kea({
                 name,
                 saved: true,
             })
+            actions.loadFunnels()
         },
         clearFunnel: async () => {
             actions.setAllFilters({})

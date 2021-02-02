@@ -1,6 +1,8 @@
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
+import { ViewType } from 'scenes/insights/insightLogic'
+
 export interface UserType {
     anonymize_data: boolean
     distinct_id: string
@@ -274,6 +276,7 @@ export interface InsightHistory {
     name?: string
     createdAt: string
     saved: boolean
+    type: ViewType
 }
 
 export interface SavedFunnel extends InsightHistory {
