@@ -1,6 +1,5 @@
 describe('Person Visualization Check', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-people]').click() // TODO: Adjust when releasing navigation-1775
         cy.get('[data-attr=menu-item-persons].ant-menu-item-selected').should('be.visible')
         cy.get('.ant-tabs-nav-list > :nth-child(2)').click()
         cy.contains('deborah.fernandez@gmail.com').click()
