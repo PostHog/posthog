@@ -72,12 +72,13 @@ class Person(models.Model):
     is_identified: models.BooleanField = models.BooleanField(default=False)
     uuid = models.UUIDField(db_index=True, default=UUIDT, editable=False)
 
+    # Has an index on properties -> email, built concurrently
+    # See migration 0121
+
 
 class PersonDistinctId(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
-        # Also has an index on properties -> email, built concurrently
-        # See migration 0119
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     person: models.ForeignKey = models.ForeignKey(Person, on_delete=models.CASCADE)
