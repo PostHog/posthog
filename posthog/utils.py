@@ -525,7 +525,7 @@ def get_daterange(
 
 def get_safe_cache(cache_key: str):
     try:
-        cached_result = get_safe_cache(cache_key) # get_safe_cache is safe in most cases
+        cached_result = cache.get(cache_key) # get_safe_cache is safe in most cases
         return cached_result
     except: # if it errors out, the cache is probably corrupted
         try:
