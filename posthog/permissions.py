@@ -31,14 +31,14 @@ def get_organization_from_view(view: View) -> Organization:
         organization = view.organization  # type: ignore
         if isinstance(organization, Organization):
             return organization
-    except KeyError:
+    except (KeyError, AttributeError):
         pass
 
     try:
         organization = view.team.organization  # type: ignore
         if isinstance(organization, Organization):
             return organization
-    except KeyError:
+    except (KeyError, AttributeError):
         pass
 
     raise ValueError("View not compatible with organization-based permissions!")
@@ -98,7 +98,6 @@ class OrganizationAdminWritePermissions(BasePermission):
     Require organization admin or owner level to change object, allowing everyone read.
     Must always be used **after** `OrganizationMemberPermissions` (which is always required).
     Note: For POST requests, it will **only** work with nested routers that derive from an Organization or Project (Team).
-        Per the above, not suitable to validate permissions to create organizations (as there is no nested object).
     """
 
     message = "Your organization access level is insufficient."

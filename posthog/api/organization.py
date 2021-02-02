@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import posthoganalytics
 from django.conf import settings
@@ -112,13 +112,19 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     serializer_class = OrganizationSerializer
     permission_classes = [
         permissions.IsAuthenticated,
-        PremiumMultiorganizationPermissions,
         OrganizationMemberPermissions,
         OrganizationAdminWritePermissions,
     ]
     queryset = Organization.objects.none()
     lookup_field = "id"
     ordering = "-created_by"
+
+    def get_permissions(self) -> List[permissions.BasePermission]:
+        if self.request.method == "POST":
+            # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions` because they require an existing org,
+            # unneded anyways because permissions are organization-based
+            return [permission() for permission in [permissions.IsAuthenticated, PremiumMultiorganizationPermissions]]
+        return super().get_permissions()
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
