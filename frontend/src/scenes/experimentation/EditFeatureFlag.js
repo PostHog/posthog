@@ -5,7 +5,7 @@ import { slugify } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DeleteOutlined, SaveOutlined } from '@ant-design/icons'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+
 import { CloseButton } from 'lib/components/CloseButton'
 
 const editLogic = kea({
@@ -98,7 +98,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
             <Form.Item
                 name="name"
                 label="Name"
-                className={rrwebBlockClass}
+                className="ph-no-capture"
                 rules={[
                     { required: true, message: 'Please give your feature flag a name, like "experimental feature".' },
                 ]}
@@ -146,7 +146,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
                     )}
 
                     <Form.Item
-                        className={rrwebBlockClass}
+                        className="ph-no-capture"
                         label="Filter by user properties"
                         style={{ position: 'relative' }}
                     >

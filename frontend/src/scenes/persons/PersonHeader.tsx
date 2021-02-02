@@ -1,7 +1,6 @@
 import { PersonType } from '~/types'
 import React from 'react'
 import { IconPerson } from 'lib/components/icons'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 export function PersonHeader({ person }: { person: PersonType }): JSX.Element {
     return (
@@ -10,7 +9,7 @@ export function PersonHeader({ person }: { person: PersonType }): JSX.Element {
                 <div className="person-header identified">
                     <IconPerson />{' '}
                     {person.properties.email ? (
-                        <span className={rrwebBlockClass}>{person.properties.email}</span>
+                        <span className="ph-no-capture">{person.properties.email}</span>
                     ) : (
                         <i>No email recorded</i>
                     )}

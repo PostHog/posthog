@@ -158,6 +158,7 @@ export function PluginDrawer(): JSX.Element {
                                     ) : null}
                                     {fieldConfig.type ? (
                                         <Form.Item
+                                            className="ph-no-capture"
                                             label={fieldConfig.name || fieldConfig.key}
                                             extra={
                                                 fieldConfig.hint ? (

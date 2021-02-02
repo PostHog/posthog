@@ -4,7 +4,7 @@ import { Link } from 'lib/components/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { DeleteOutlined } from '@ant-design/icons'
 import { deletePersonData } from 'lib/utils'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+
 import { PersonsTable as PersonsTableV2 } from './PersonsTableV2'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -28,7 +28,7 @@ function PersonsTableV1({ people, loading, actions, onChange, cohort }) {
                             encodeURIComponent(person.distinct_ids[0]) +
                             (cohort ? `#backTo=Back to cohorts&backToURL=/cohorts/${cohort.id}` : '')
                         }
-                        className={'ph-no-capture ' + rrwebBlockClass}
+                        className="ph-no-capture"
                     >
                         {person.name}
                     </Link>

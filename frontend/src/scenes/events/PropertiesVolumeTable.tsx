@@ -69,17 +69,19 @@ export function PropertiesVolumeTable(): JSX.Element {
             </Button>
             <br />
             <br />
-            {user?.team.event_properties_with_usage[0]?.volume === null && (
+            {user?.team?.event_properties_with_usage[0]?.volume === null && (
                 <>
                     <Alert
                         type="warning"
                         description="We haven't been able to get usage and volume data yet. Please check back later"
+                        message={<></>}
                     />
                     <br />
                 </>
             )}
             <Table
-                dataSource={user?.team.event_properties_with_usage
+                className="ph-no-capture"
+                dataSource={user?.team?.event_properties_with_usage
                     .filter((item: PropertyUsageType) => (keyMapping.event[item.key] ? showPostHogProps : true))
                     .filter((item: PropertyUsageType) =>
                         keyMapping.event[item.key] && keyMapping.event[item.key].hide ? false : true

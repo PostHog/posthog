@@ -50,17 +50,19 @@ export function EventsVolumeTable(): JSX.Element {
     const { user } = useValues(userLogic)
     return (
         <>
-            {user?.team.event_names_with_usage[0]?.volume === null && (
+            {user?.team?.event_names_with_usage[0]?.volume === null && (
                 <>
                     <Alert
                         type="warning"
                         description="We haven't been able to get usage and volume data yet. Please check back later"
+                        message={<></>}
                     />
                     <br />
                 </>
             )}
             <Table
-                dataSource={user?.team.event_names_with_usage}
+                className="ph-no-capture"
+                dataSource={user?.team?.event_names_with_usage}
                 columns={columns}
                 rowKey="event"
                 size="small"

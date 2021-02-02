@@ -12,7 +12,7 @@ import { Cohort } from './Cohort'
 import { Drawer } from 'lib/components/Drawer'
 import { CohortType } from '~/types'
 import api from 'lib/api'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+
 import './cohorts.scss'
 import Fuse from 'fuse.js'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
@@ -151,7 +151,7 @@ function _Cohorts(): JSX.Element {
                     loading={cohortsLoading}
                     rowKey="id"
                     pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                    rowClassName={'cursor-pointer ' + rrwebBlockClass}
+                    rowClassName={'cursor-pointer ' + 'ph-no-capture'}
                     onRow={(cohort) => ({
                         onClick: () => setOpenCohort(cohort),
                     })}

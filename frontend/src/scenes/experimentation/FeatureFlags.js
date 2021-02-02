@@ -4,7 +4,7 @@ import { useValues, useActions } from 'kea'
 import { featureFlagLogic } from './featureFlagLogic'
 import { Table, Switch, Drawer, Button } from 'antd'
 import { EditFeatureFlag } from './EditFeatureFlag'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+
 import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
@@ -122,7 +122,7 @@ function _FeatureFlags() {
                     onClick: () => setOpenFeatureFlag(featureFlag),
                 })}
                 size="small"
-                rowClassName={'cursor-pointer ' + rrwebBlockClass}
+                rowClassName={'cursor-pointer ' + 'ph-no-capture'}
                 data-attr="feature-flag-table"
             />
             <Drawer

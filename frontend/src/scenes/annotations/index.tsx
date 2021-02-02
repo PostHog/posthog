@@ -100,6 +100,7 @@ function _Annotations(): JSX.Element {
                     </Button>
                 </div>
                 <Table
+                    className="ph-no-capture"
                     data-attr="annotations-table"
                     size="small"
                     rowKey="id"

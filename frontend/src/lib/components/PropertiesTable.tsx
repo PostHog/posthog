@@ -218,6 +218,7 @@ export function PropertiesTable({
     if (properties instanceof Object) {
         return (
             <Table
+                className="ph-no-capture"
                 columns={columns}
                 showHeader={false}
                 rowKey={(item) => item[0]}

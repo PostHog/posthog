@@ -20,15 +20,17 @@ function _MySettings(): JSX.Element {
         <div style={{ marginBottom: 128 }}>
             <PageHeader title="My Settings" />
             <Card>
-                <h2 id="password" className="subtitle">
-                    Change Password
-                </h2>
-                <ChangePassword />
-                <Divider />
-                <h2 id="personal-api-keys" className="subtitle">
-                    Personal API Keys
-                </h2>
-                <PersonalAPIKeys />
+                <span className="ph-no-capture">
+                    <h2 id="password" className="subtitle">
+                        Change Password
+                    </h2>
+                    <ChangePassword />
+                    <Divider />
+                    <h2 id="personal-api-keys" className="subtitle">
+                        Personal API Keys
+                    </h2>
+                    <PersonalAPIKeys />
+                </span>
                 <Divider />
                 <h2 className="subtitle">Security and Feature Updates</h2>
                 <UpdateEmailPreferences />

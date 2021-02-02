@@ -169,7 +169,7 @@ function _Insights() {
                     ) : (
                         <>
                             <Col xs={24} xl={7}>
-                                <Card className="" style={{ overflow: 'visible' }}>
+                                <Card style={{ overflow: 'visible' }}>
                                     <div>
                                         {/* 
                                 These are insight specific filters. 
@@ -209,6 +209,7 @@ function _Insights() {
                         They each have generic logic that updates the url
                         */}
                                 <Card
+                                    className="ph-no-capture"
                                     title={
                                         <div className="float-right">
                                             {showIntervalFilter[activeView] && (

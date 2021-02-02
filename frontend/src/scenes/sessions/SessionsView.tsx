@@ -18,7 +18,7 @@ import {
 } from '@ant-design/icons'
 import { SessionsPlayerButton, sessionPlayerUrl } from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+
 import { SessionsPlay } from './SessionsPlay'
 import { userLogic } from 'scenes/userLogic'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
@@ -84,10 +84,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             key: 'person',
             render: function RenderSession(session: SessionType) {
                 return (
-                    <Link
-                        to={`/person/${encodeURIComponent(session.distinct_id)}`}
-                        className={rrwebBlockClass + ' ph-no-capture'}
-                    >
+                    <Link to={`/person/${encodeURIComponent(session.distinct_id)}`} className="ph-no-capture">
                         {session?.email || session.distinct_id}
                     </Link>
                 )
@@ -208,6 +205,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             </div>
 
             <Table
+                className="ph-no-capture"
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
                 size="small"

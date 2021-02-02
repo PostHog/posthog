@@ -3,7 +3,6 @@ import { SearchOutlined, EditOutlined } from '@ant-design/icons'
 import { useValues, useActions } from 'kea'
 import { commandPaletteLogic } from './commandPaletteLogic'
 import PostHogIcon from 'public/icon-white.svg'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 export function CommandInput(): JSX.Element {
     const { input, isSqueak, activeFlow } = useValues(commandPaletteLogic)
@@ -19,7 +18,7 @@ export function CommandInput(): JSX.Element {
                 <SearchOutlined className="palette__icon" />
             )}
             <input
-                className={`palette__display palette__input ${rrwebBlockClass}`}
+                className={`palette__display palette__input ph-no-capture`}
                 autoFocus
                 value={input}
                 onChange={(event) => {

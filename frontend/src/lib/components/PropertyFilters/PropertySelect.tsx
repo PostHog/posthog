@@ -1,7 +1,6 @@
 import React from 'react'
 import { Select } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { EventProperty } from 'scenes/userLogic'
 
@@ -24,7 +23,6 @@ interface PropertyOptionGroup {
 export function PropertySelect({ optionGroups, value, onChange, placeholder, autoOpenIfEmpty }: Props): JSX.Element {
     return (
         <SelectGradientOverflow
-            className={rrwebBlockClass}
             showSearch
             autoFocus={autoOpenIfEmpty && !value}
             defaultOpen={autoOpenIfEmpty && !value}

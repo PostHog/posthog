@@ -3,7 +3,7 @@ import { Input, Button, Form, Select } from 'antd'
 import { useActions } from 'kea'
 import { slugify } from 'lib/utils'
 import { SaveOutlined } from '@ant-design/icons'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+
 import { dashboardsModel } from '~/models/dashboardsModel'
 
 export function NewDashboard(): JSX.Element {
@@ -21,7 +21,7 @@ export function NewDashboard(): JSX.Element {
             <Form.Item
                 name="name"
                 label="Dashboard name"
-                className={rrwebBlockClass}
+                className="ph-no-capture"
                 rules={[{ required: true, message: 'Please give your dashboard a name.' }]}
             >
                 <Input
@@ -31,7 +31,7 @@ export function NewDashboard(): JSX.Element {
                 />
             </Form.Item>
 
-            <Form.Item name="useTemplate" label="Start from" className={rrwebBlockClass}>
+            <Form.Item name="useTemplate" label="Start from" className="ph-no-capture">
                 <Select data-attr="copy-from-template" style={{ width: '100%' }}>
                     <Select.Option data-attr="dashboard-select-empty" value="">
                         Empty Dashboard

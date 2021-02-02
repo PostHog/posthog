@@ -17,7 +17,7 @@ import { colorForString } from 'lib/utils'
 import { Loading } from 'lib/utils'
 import { sessionsPlayLogic } from './sessionsPlayLogic'
 import { IconExternalLink } from 'lib/components/icons'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
 import './Sessions.scss'
@@ -96,7 +96,7 @@ function _SessionsPlay(): JSX.Element {
     }
 
     return (
-        <div className="session-player">
+        <div className="session-player ph-no-capture">
             <Row gutter={16} style={{ height: '100%' }}>
                 <Col span={18} style={{ paddingRight: 0 }}>
                     <div className="mb-05" style={{ display: 'flex' }}>
@@ -155,7 +155,7 @@ function _SessionsPlay(): JSX.Element {
                                         to={`/person/${encodeURIComponent(
                                             sessionPlayerData?.person?.distinct_ids[0] || ''
                                         )}`}
-                                        className={rrwebBlockClass + ' ph-no-capture'}
+                                        className="ph-no-capture"
                                         target="_blank"
                                         style={{ display: 'inline-flex', alignItems: 'center' }}
                                     >
