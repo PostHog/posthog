@@ -51,17 +51,18 @@ def _get_token(data, request) -> Optional[str]:
         return request.POST["api_key"]
     if request.POST.get("token"):
         return request.POST["token"]
-    if isinstance(data, list):
-        data = data[0]  # Mixpanel Swift SDK
-    elif isinstance(data, dict):
-        if data.get("$token"):
-            return data["$token"]  # JS identify call
-        if data.get("token"):
-            return data["token"]  # JS reloadFeatures call
-        if data.get("api_key"):
-            return data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
-        if data.get("properties") and data["properties"].get("token"):
-            return data["properties"]["token"]  # JS capture call
+    if data:
+        if isinstance(data, list):
+            data = data[0]  # Mixpanel Swift SDK
+        if isinstance(data, dict):
+            if data.get("$token"):
+                return data["$token"]  # JS identify call
+            if data.get("token"):
+                return data["token"]  # JS reloadFeatures call
+            if data.get("api_key"):
+                return data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
+            if data.get("properties") and data["properties"].get("token"):
+                return data["properties"]["token"]  # JS capture call
     return None
 
 
