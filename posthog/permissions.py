@@ -1,5 +1,3 @@
-from typing import Optional
-
 from django.conf import settings
 from django.db.models import Model
 from django.views.generic.base import View
@@ -26,6 +24,24 @@ def extract_organization(object: Model) -> Organization:
             except AttributeError:
                 pass
     raise ValueError("Object not compatible with organization-based permissions!")
+
+
+def get_organization_from_view(view: View) -> Organization:
+    try:
+        organization = view.organization  # type: ignore
+        if isinstance(organization, Organization):
+            return organization
+    except KeyError:
+        pass
+
+    try:
+        organization = view.team.organization  # type: ignore
+        if isinstance(organization, Organization):
+            return organization
+    except KeyError:
+        pass
+
+    raise ValueError("View not compatible with organization-based permissions!")
 
 
 class UninitiatedOrCloudOnly(BasePermission):
@@ -56,16 +72,19 @@ class OrganizationMembershipNecessaryPermissions(BasePermission):
 
 
 class OrganizationMemberPermissions(BasePermission):
-    """Require relevant organization membership to access object. Returns a generic permission denied response."""
+    """
+    Require relevant organization membership to access object.
+    Returns a generic permission denied response.
+    Note: For POST requests, it will **only** work with nested routers that derive from an Organization or Project (Team).
+    """
 
     def has_permission(self, request: Request, view: View) -> bool:
-        organization: Optional[Organization] = None
-        if hasattr(view, "team"):
-            organization = view.team.organization  # type: ignore
-        elif hasattr(view, "organization"):
-            organization = view.organization  # type: ignore
-        else:
+
+        # When request is not create, an object exists, delegate to `has_object_permission`
+        if request.method != "POST":
             return True
+
+        organization = get_organization_from_view(view)
 
         return OrganizationMembership.objects.filter(user=request.user, organization=organization).exists()
 
@@ -75,22 +94,23 @@ class OrganizationMemberPermissions(BasePermission):
 
 
 class OrganizationAdminWritePermissions(BasePermission):
-    """Require organization admin level to change object, allowing everyone read."""
+    """
+    Require organization admin or owner level to change object, allowing everyone read.
+    Must always be used **after** `OrganizationMemberPermissions` (which is always required).
+    Note: For POST requests, it will **only** work with nested routers that derive from an Organization or Project (Team).
+        Per the above, not suitable to validate permissions to create organizations (as there is no nested object).
+    """
 
     message = "Your organization access level is insufficient."
 
     def has_permission(self, request: Request, view: View) -> bool:
-        if request.method in SAFE_METHODS:
+
+        # When request is not create, an object exists, delegate to `has_object_permission`
+        if request.method != "POST":
             return True
 
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
-        organization: Optional[Organization] = None
-        if hasattr(view, "team"):
-            organization = view.team.organization  # type: ignore
-        elif hasattr(view, "organization"):
-            organization = view.organization  # type: ignore
-        else:
-            return True
+        organization = get_organization_from_view(view)
 
         return (
             OrganizationMembership.objects.get(user=request.user, organization=organization).level
