@@ -32,9 +32,9 @@ export const funnelsModel = kea<funnelsModelType<SavedFunnel, DashboardItemType>
                             insight: ViewType.FUNNELS,
                         })
                 )
-                const result = response.results.map((result: Record<string, any>) => parseSavedFunnel(result))
+                const results = response.results.map((result: Record<string, any>) => parseSavedFunnel(result))
                 actions.setNext(response.next)
-                return result
+                return results
             },
             deleteFunnel: async (funnelId: number) => {
                 await api.delete(`api/insight/${funnelId}`)
@@ -71,9 +71,9 @@ export const funnelsModel = kea<funnelsModelType<SavedFunnel, DashboardItemType>
     listeners: ({ values, actions }) => ({
         loadNext: async () => {
             const response = await api.get(values.next)
-            const result = response.results.map((result: Record<string, any>) => parseSavedFunnel(result))
+            const results = response.results.map((result: Record<string, any>) => parseSavedFunnel(result))
             actions.setNext(response.next)
-            actions.appendFunnels(result)
+            actions.appendFunnels(results)
         },
         updateInsight: () => actions.loadFunnels(),
     }),
