@@ -4,7 +4,6 @@ import { toParams } from 'lib/utils'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { DashboardItemType, SavedFunnel } from '~/types'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { funnelsModelType } from './funnelsModelType'
 
 const parseSavedFunnel = (result: Record<string, any>): SavedFunnel => {
@@ -20,7 +19,7 @@ const parseSavedFunnel = (result: Record<string, any>): SavedFunnel => {
 }
 
 export const funnelsModel = kea<funnelsModelType<SavedFunnel, DashboardItemType>>({
-    loaders: ({ actions }) => ({
+    loaders: ({ values, actions }) => ({
         funnels: {
             __default: [] as SavedFunnel[],
             loadFunnels: async () => {
@@ -37,10 +36,14 @@ export const funnelsModel = kea<funnelsModelType<SavedFunnel, DashboardItemType>
                 actions.setNext(response.next)
                 return result
             },
+            deleteFunnel: async (funnelId: number) => {
+                await api.delete(`api/insight/${funnelId}`)
+                return values.funnels.filter((funnel) => funnel.id !== funnelId)
+            },
         },
     }),
     connect: {
-        actions: [insightHistoryLogic, ['updateInsight'], funnelLogic, ['saveFunnelInsight']],
+        actions: [insightHistoryLogic, ['updateInsight']],
     },
     reducers: () => ({
         next: [
@@ -73,7 +76,6 @@ export const funnelsModel = kea<funnelsModelType<SavedFunnel, DashboardItemType>
             actions.appendFunnels(result)
         },
         updateInsight: () => actions.loadFunnels(),
-        saveFunnelInsight: () => actions.loadFunnels(),
     }),
     events: ({ actions }) => ({
         afterMount: actions.loadFunnels,
