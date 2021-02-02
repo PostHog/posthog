@@ -6,6 +6,9 @@ import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
+    connect: {
+        actions: [userLogic, ['userUpdateSuccess']],
+    },
     actions: {
         setPlatform: (platform: PlatformType) => ({ platform }),
         setFramework: (framework: Framework) => ({ framework: framework as Framework }),
@@ -101,9 +104,11 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
     listeners: () => ({
         completeOnboarding: () => {
             userLogic.actions.userUpdateRequest({ team: { completed_snippet_onboarding: true } })
-            const enabled = organizationLogic.values.currentOrganization?.setup_state.enabled
+        },
+        userUpdateSuccess: () => {
+            const usingOnboardingSetup = organizationLogic.values.currentOrganization?.setup.is_active
             // If user is under the new setup state (#2822), take them back to start section II of the setup
-            window.location.href = enabled ? '/setup' : '/insights'
+            window.location.href = usingOnboardingSetup ? '/setup' : '/insights'
         },
     }),
 })
