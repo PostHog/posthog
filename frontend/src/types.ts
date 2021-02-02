@@ -68,7 +68,7 @@ export interface OrganizationType {
     billing: OrganizationBilling
     teams?: TeamType[]
     membership_level: OrganizationMembershipLevel | null
-    setup_state: SetupState
+    setup: SetupState
 }
 
 export interface OrganizationMemberType {

@@ -50,7 +50,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
 class OrganizationSerializer(serializers.ModelSerializer):
     membership_level = serializers.SerializerMethodField()
-    setup_state = (
+    setup = (
         serializers.SerializerMethodField()
     )  # Information related to the current state of the onboarding/setup process
 
@@ -63,7 +63,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "updated_at",
             "membership_level",
             "personalization",
-            "setup_state",
+            "setup",
         ]
         read_only_fields = [
             "id",
@@ -82,7 +82,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         ).first()
         return membership.level if membership is not None else None
 
-    def get_setup_state(self, instance: Organization) -> Dict[str, Union[bool, int, str, None]]:
+    def get_setup(self, instance: Organization) -> Dict[str, Union[bool, int, str, None]]:
 
         if instance.setup_section_2_completed:
             # As Section 2 is the last one of the setup process (as of today), if it's completed it means the setup process is done
