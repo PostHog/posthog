@@ -8,14 +8,14 @@ import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from './trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
-export const ViewType = {
-    TRENDS: 'TRENDS',
-    STICKINESS: 'STICKINESS',
-    LIFECYCLE: 'LIFECYCLE',
-    SESSIONS: 'SESSIONS',
-    FUNNELS: 'FUNNELS',
-    RETENTION: 'RETENTION',
-    PATHS: 'PATHS',
+export enum ViewType {
+    TRENDS = 'TRENDS',
+    STICKINESS = 'STICKINESS',
+    LIFECYCLE = 'LIFECYCLE',
+    SESSIONS = 'SESSIONS',
+    FUNNELS = 'FUNNELS',
+    RETENTION = 'RETENTION',
+    PATHS = 'PATHS',
 }
 
 /*
