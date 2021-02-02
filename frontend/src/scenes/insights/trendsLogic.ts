@@ -21,15 +21,7 @@ import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constan
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ActionType, EntityType, FilterType, PersonType, PropertyFilter } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
-
-interface TrendPeople {
-    people: PersonType
-    breakdown_value?: string
-    count: number
-    day: string | number
-    next?: string
-    label: string
-}
+import { ToastId } from 'react-toastify'
 
 interface ActionFilter {
     id: number | string
@@ -39,6 +31,17 @@ interface ActionFilter {
     order: number
     properties: PropertyFilter[]
     type: EntityType
+}
+
+interface TrendPeople {
+    people: PersonType[]
+    breakdown_value?: string
+    count: number
+    day: string | number
+    next?: string
+    label: string
+    action: ActionFilter
+    loadingMore?: boolean
 }
 
 interface PeopleParamType {
@@ -165,7 +168,7 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
 // props:
 // - dashboardItemId
 // - filters
-export const trendsLogic = kea<trendsLogicType<FilterType, ActionType>>({
+export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeople, PropertyFilter, ToastId>>({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
     },
@@ -246,11 +249,16 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType>>({
             },
         ],
         people: [
-            {} as TrendPeople,
+            {} as TrendPeople | null,
             {
                 setFilters: () => null,
                 setPeople: (_, people) => people,
-                setLoadingMorePeople: (state, { status }) => ({ ...state, loadingMore: status }),
+            },
+        ],
+        loadingMorePeople: [
+            false,
+            {
+                setLoadingMorePeople: (_, { status }) => status,
             },
         ],
         showingPeople: [
@@ -272,7 +280,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType>>({
 
                 const { action, day, breakdown_value } = people
                 const properties = filters.properties || []
-                if (filters.breakdown && filters.breakdown_type) {
+                if (filters.breakdown && filters.breakdown_type && breakdown_value) {
                     properties.push({
                         key: filters.breakdown,
                         value: breakdown_value,
@@ -346,20 +354,22 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType>>({
             )
         },
         loadMorePeople: async ({}, breakpoint) => {
-            const { people: currPeople, count, action, label, day, breakdown_value, next } = values.people
-            actions.setLoadingMorePeople(true)
-            const people = await api.get(next)
-            actions.setLoadingMorePeople(false)
-            breakpoint()
-            actions.setPeople(
-                [...currPeople, ...people.results[0]?.people],
-                count + people.results[0]?.count,
-                action,
-                label,
-                day,
-                breakdown_value,
-                people.next
-            )
+            if (values.people) {
+                const { people: currPeople, count, action, label, day, breakdown_value, next } = values.people
+                actions.setLoadingMorePeople(true)
+                const people = await api.get(next)
+                actions.setLoadingMorePeople(false)
+                breakpoint()
+                actions.setPeople(
+                    [...currPeople, ...people.results[0]?.people],
+                    count + people.results[0]?.count,
+                    action,
+                    label,
+                    day,
+                    breakdown_value,
+                    people.next
+                )
+            }
         },
         setFilters: async () => {
             insightLogic.actions.setAllFilters(values.filters)
