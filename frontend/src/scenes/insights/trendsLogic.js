@@ -334,9 +334,12 @@ export const trendsLogic = kea({
         },
     }),
 
-    events: ({ actions }) => ({
+    events: ({ actions, props }) => ({
         afterMount: () => {
-            actions.loadResults()
+            if (props.dashboardItemId) {
+                // loadResults gets called in urlToAction for non-dashboard insights
+                actions.loadResults()
+            }
         },
     }),
 
@@ -349,7 +352,7 @@ export const trendsLogic = kea({
         },
     }),
 
-    urlToAction: ({ actions, values, props }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/insights': (_, searchParams) => {
             if (
                 !searchParams.insight ||
@@ -358,11 +361,6 @@ export const trendsLogic = kea({
                 searchParams.insight === ViewType.STICKINESS ||
                 searchParams.insight === ViewType.LIFECYCLE
             ) {
-                if (props.dashboardItemId) {
-                    actions.loadResults()
-                    return // don't use the URL if on the dashboard
-                }
-
                 const cleanSearchParams = cleanFilters(searchParams)
 
                 const keys = Object.keys(searchParams)

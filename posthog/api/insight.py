@@ -77,7 +77,8 @@ class InsightSerializer(serializers.ModelSerializer):
         result = cache.get(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
-        return result["data"]
+        # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
+        return result.get("data")
 
     def get_created_by(self, dashboard_item: DashboardItem):
         if dashboard_item.created_by:
