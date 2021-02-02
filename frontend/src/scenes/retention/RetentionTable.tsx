@@ -4,6 +4,12 @@ import { Table, Modal, Button, Spin, Tooltip } from 'antd'
 import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
+import {
+    RetentionTablePayload,
+    RetentionTablePeoplePayload,
+    RetentionTableAppearanceType,
+} from 'scenes/retention/types'
+
 import './RetentionTable.scss'
 import moment from 'moment'
 import { ColumnsType } from 'antd/lib/table'
@@ -15,13 +21,16 @@ export function RetentionTable({
 }): JSX.Element | null {
     const logic = retentionTableLogic({ dashboardItemId })
     const {
-        results,
+        results: _results,
         resultsLoading,
         peopleLoading,
-        people,
+        people: _people,
         loadingMore,
         filters: { period, date_to },
     } = useValues(logic)
+    const results = _results as RetentionTablePayload[]
+    const people = _people as RetentionTablePeoplePayload
+
     const { loadPeople, loadMorePeople } = useActions(logic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
@@ -87,7 +96,7 @@ export function RetentionTable({
                 onRow={(_, rowIndex: number | undefined) => ({
                     onClick: () => {
                         if (rowIndex !== undefined) {
-                            !people[rowIndex] && loadPeople(rowIndex)
+                            loadPeople(rowIndex)
                             setModalVisible(true)
                             selectRow(rowIndex)
                         }
@@ -142,7 +151,7 @@ export function RetentionTable({
                                                     ))}
                                             </tr>
                                             {people.result &&
-                                                (people.result as any[]).map((personAppearances) => (
+                                                people.result.map((personAppearances: RetentionTableAppearanceType) => (
                                                     <tr key={personAppearances.person.id}>
                                                         <td className="text-overflow" style={{ minWidth: 200 }}>
                                                             <Link to={`/person_by_id/${personAppearances.person.id}`}>

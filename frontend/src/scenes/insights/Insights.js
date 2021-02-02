@@ -13,7 +13,7 @@ import { PersonModal } from './PersonModal'
 import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Tooltip, Card, Button } from 'antd'
+import { Tabs, Row, Col, Card, Button } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -43,7 +43,6 @@ import { trendsLogic } from './trendsLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 
@@ -197,19 +196,7 @@ function _Insights() {
                                 </Card>
                                 {activeView === ViewType.FUNNELS && (
                                     <Card
-                                        title={
-                                            <Row align="middle">
-                                                <span>Saved Funnels</span>
-                                                <Tooltip
-                                                    key="1"
-                                                    getPopupContainer={(trigger) => trigger.parentElement}
-                                                    placement="right"
-                                                    title="These consist of funnels by you and the rest of the team"
-                                                >
-                                                    <InfoCircleOutlined className="info-indicator" />
-                                                </Tooltip>
-                                            </Row>
-                                        }
+                                        title={<Row align="middle">Funnels Saved in Project</Row>}
                                         style={{ marginTop: 16 }}
                                     >
                                         <SavedFunnels />
@@ -263,44 +250,29 @@ function _Insights() {
                                     }
                                     headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
                                 >
-                                    <div>
-                                        {showErrorMessage ? (
-                                            <ErrorMessage />
-                                        ) : (
-                                            showTimeoutMessage && <TimeOut isLoading={isLoading} />
-                                        )}
-                                        <div
-                                            style={{
-                                                display: showErrorMessage || showTimeoutMessage ? 'none' : 'block',
-                                            }}
-                                        >
-                                            {featureFlags['remove-shownas']
-                                                ? {
-                                                      [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                                      [`${ViewType.STICKINESS}`]: (
-                                                          <TrendInsight view={ViewType.STICKINESS} />
-                                                      ),
-                                                      [`${ViewType.LIFECYCLE}`]: (
-                                                          <TrendInsight view={ViewType.LIFECYCLE} />
-                                                      ),
-                                                      [`${ViewType.SESSIONS}`]: (
-                                                          <TrendInsight view={ViewType.SESSIONS} />
-                                                      ),
-                                                      [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                      [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                      [`${ViewType.PATHS}`]: <Paths />,
-                                                  }[activeView]
-                                                : {
-                                                      [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                                      [`${ViewType.SESSIONS}`]: (
-                                                          <TrendInsight view={ViewType.SESSIONS} />
-                                                      ),
-                                                      [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                      [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                      [`${ViewType.PATHS}`]: <Paths />,
-                                                  }[activeView]}
-                                        </div>
-                                    </div>
+                                    {showErrorMessage ? (
+                                        <ErrorMessage />
+                                    ) : showTimeoutMessage ? (
+                                        <TimeOut isLoading={isLoading} />
+                                    ) : featureFlags['remove-shownas'] ? (
+                                        {
+                                            [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                            [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
+                                            [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
+                                            [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                            [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                            [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                            [`${ViewType.PATHS}`]: <Paths />,
+                                        }[activeView]
+                                    ) : (
+                                        {
+                                            [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                            [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                            [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                            [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                            [`${ViewType.PATHS}`]: <Paths />,
+                                        }[activeView]
+                                    )}
                                 </Card>
                                 {!showErrorMessage && !showTimeoutMessage && activeView === ViewType.FUNNELS && (
                                     <Card>
@@ -324,7 +296,7 @@ function TrendInsight({ view }) {
             {(_filters.actions || _filters.events || _filters.session) && (
                 <div
                     style={{
-                        minHeight: '70vh',
+                        minHeight: 'calc(90vh - 16rem)',
                         position: 'relative',
                     }}
                 >

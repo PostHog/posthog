@@ -4,7 +4,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from posthog.demo import ORGANIZATION_NAME, TEAM_NAME, _create_anonymous_users, _create_funnel, _recalculate
+from posthog.demo import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
 from posthog.models import User
 
 
@@ -31,6 +31,4 @@ class Command(BaseCommand):
             base_url = (
                 f"https://{heroku_app_name}.herokuapp.com/demo/" if heroku_app_name else f"{settings.SITE_URL}/demo/"
             )
-            _create_anonymous_users(team=team, base_url=base_url)
-            _create_funnel(team=team, base_url=base_url)
-            _recalculate(team=team)
+            create_demo_data(team)

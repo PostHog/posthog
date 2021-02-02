@@ -7,4 +7,17 @@
         text-align: center;
         margin-top: 32px;
     }
+
+    .toggle-question {
+        transition: all 1s ease-out;
+        opacity: 0;
+        visibility: hidden;
+        max-height: 0;
+
+        &.show {
+            max-height: 200px;
+            opacity: 1;
+            visibility: visible;
+        }
+    }
 }

@@ -107,8 +107,7 @@ else:
     def sync_execute(query, args=None, settings=None):
         start_time = time()
         try:
-            with ch_sync_pool.get_client() as client:
-                result = client.execute(query, args, settings=settings)
+            result = ch_client.execute(query, args, settings=settings)
         finally:
             execution_time = time() - start_time
             if app_settings.SHELL_PLUS_PRINT_SQL:

@@ -10,12 +10,35 @@ from posthog.test.base import APIBaseTest
 
 class TestOrganizationAPI(APIBaseTest):
 
+    # Retrieving organization
+
+    def test_get_current_organization(self):
+        response_data = self.client.get("/api/organizations/@current").json()
+
+        self.assertEqual(response_data["id"], str(self.organization.id))
+        self.assertEqual(response_data["any_project_ingested_events"], False)
+        self.assertEqual(response_data["any_project_completed_snippet_onboarding"], False)
+        self.assertEqual(response_data["non_demo_team_id"], self.team.id)
+
+    def test_get_current_team_fields(self):
+        Team.objects.create(organization=self.organization, is_demo=True, ingested_event=True)
+        team2 = Team.objects.create(organization=self.organization, completed_snippet_onboarding=True)
+        self.team.is_demo = True
+        self.team.save()
+
+        response_data = self.client.get("/api/organizations/@current").json()
+
+        self.assertEqual(response_data["id"], str(self.organization.id))
+        self.assertEqual(response_data["any_project_ingested_events"], False)
+        self.assertEqual(response_data["any_project_completed_snippet_onboarding"], True)
+        self.assertEqual(response_data["non_demo_team_id"], team2.id)
+
     # Creating organizations
 
     def test_cant_create_organization_without_valid_license_on_self_hosted(self):
         with self.settings(MULTI_TENANCY=False):
             response = self.client.post("/api/organizations/", {"name": "Test"})
-            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertEqual(
                 response.data,
                 {
