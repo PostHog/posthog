@@ -278,7 +278,7 @@ export interface InsightHistory {
     name?: string
     createdAt: string
     saved: boolean
-    type: typeof ViewType
+    type: ViewType
 }
 
 export interface SavedFunnel extends InsightHistory {

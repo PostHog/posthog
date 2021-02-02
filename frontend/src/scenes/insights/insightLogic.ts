@@ -4,14 +4,14 @@ import posthog from 'posthog-js'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
 
-export const ViewType = {
-    TRENDS: 'TRENDS',
-    STICKINESS: 'STICKINESS',
-    LIFECYCLE: 'LIFECYCLE',
-    SESSIONS: 'SESSIONS',
-    FUNNELS: 'FUNNELS',
-    RETENTION: 'RETENTION',
-    PATHS: 'PATHS',
+export enum ViewType {
+    TRENDS = 'TRENDS',
+    STICKINESS = 'STICKINESS',
+    LIFECYCLE = 'LIFECYCLE',
+    SESSIONS = 'SESSIONS',
+    FUNNELS = 'FUNNELS',
+    RETENTION = 'RETENTION',
+    PATHS = 'PATHS',
 }
 
 /*
