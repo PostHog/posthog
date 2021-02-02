@@ -88,7 +88,7 @@ export function RetentionTable({
                 size="small"
                 className="retention-table"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowClassName={!dashboardItemId ? 'cursor-pointer' : ''}
+                rowClassName={dashboardItemId ? '' : 'cursor-pointer'}
                 dataSource={results}
                 columns={columns}
                 rowKey="date"
