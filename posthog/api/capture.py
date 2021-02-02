@@ -52,8 +52,7 @@ def _get_token(data, request) -> Optional[str]:
     if request.POST.get("token"):
         return request.POST["token"]
     if isinstance(data, list):
-        if data and "properties" in data and data[0]["properties"].get("token"):
-            return data[0]["properties"]["token"]  # Mixpanel Swift SDK
+        data = data[0]  # Mixpanel Swift SDK
     elif isinstance(data, dict):
         if data.get("$token"):
             return data["$token"]  # JS identify call
