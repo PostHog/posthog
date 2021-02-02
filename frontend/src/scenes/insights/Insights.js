@@ -13,7 +13,7 @@ import { PersonModal } from './PersonModal'
 import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Tooltip, Card, Button } from 'antd'
+import { Tabs, Row, Col, Card, Button } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -44,7 +44,6 @@ import { trendsLogic } from './trendsLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 
@@ -212,19 +211,7 @@ function _Insights() {
                                 </Card>
                                 {activeView === ViewType.FUNNELS && (
                                     <Card
-                                        title={
-                                            <Row align="middle">
-                                                <span>Saved Funnels</span>
-                                                <Tooltip
-                                                    key="1"
-                                                    getPopupContainer={(trigger) => trigger.parentElement}
-                                                    placement="right"
-                                                    title="These consist of funnels by you and the rest of the team"
-                                                >
-                                                    <InfoCircleOutlined className="info-indicator" />
-                                                </Tooltip>
-                                            </Row>
-                                        }
+                                        title={<Row align="middle">Funnels Saved in Project</Row>}
                                         style={{ marginTop: 16 }}
                                     >
                                         <SavedFunnels />
