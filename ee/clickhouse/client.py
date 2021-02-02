@@ -10,7 +10,7 @@ from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from django.conf import settings as app_settings
-from django.core.cache import cache
+from posthog.utils import get_safe_cache
 from django.utils.timezone import now
 from sentry_sdk.api import capture_exception
 
@@ -159,7 +159,7 @@ def save_query(sql: str, params: Dict, execution_time: float) -> None:
 
     try:
         key = "save_query_{}".format(_save_query_user_id)
-        queries = json.loads(cache.get(key) or "[]")
+        queries = json.loads(get_safe_cache(key) or "[]")
 
         queries.insert(
             0, {"timestamp": now().isoformat(), "query": format_sql(sql, params), "execution_time": execution_time}

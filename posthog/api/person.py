@@ -2,7 +2,7 @@ import json
 import warnings
 from typing import Any, Dict, List, Optional, Union
 
-from django.core.cache import cache
+from posthog.utils import get_safe_cache
 from django.db.models import Count, Func, Prefetch, Q, QuerySet
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
@@ -210,7 +210,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             return response.Response({})
 
         offset_value = int(offset)
-        cached_result = cache.get(reference_id)
+        cached_result = get_safe_cache(reference_id)
         if cached_result:
             return response.Response(
                 {

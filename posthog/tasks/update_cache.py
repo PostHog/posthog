@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from celery import group
 from dateutil.relativedelta import relativedelta
-from django.core.cache import cache
+from posthog.utils import get_safe_cache
 from django.db.models import Prefetch, Q
 from django.db.models.expressions import F, Subquery
 from django.utils import timezone

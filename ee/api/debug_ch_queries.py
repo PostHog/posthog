@@ -1,6 +1,6 @@
 import json
 
-from django.core.cache import cache
+from posthog.utils import get_safe_cache
 from rest_framework import viewsets
 from rest_framework.response import Response
 
@@ -13,7 +13,7 @@ class DebugCHQueries(viewsets.ViewSet):
     """
 
     def list(self, request):
-        return Response(json.loads(cache.get("save_query_{}".format(request.user.pk)) or "[]"))
+        return Response(json.loads(get_safe_cache("save_query_{}".format(request.user.pk)) or "[]"))
 
     def get(self, request):
         return Response([{"hey": "hi"}])

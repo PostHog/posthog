@@ -1,7 +1,7 @@
 from distutils.util import strtobool
 from typing import Any, Dict, List
 
-from django.core.cache import cache
+from posthog.utils import get_safe_cache
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
 from django.utils.timezone import now
@@ -74,7 +74,7 @@ class InsightSerializer(serializers.ModelSerializer):
     def get_result(self, dashboard_item: DashboardItem):
         if not dashboard_item.filters:
             return None
-        result = cache.get(dashboard_item.filters_hash)
+        result = get_safe_cache(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
         return result["result"]
@@ -102,7 +102,6 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.order_by(order)
         else:
             queryset = queryset.order_by("order")
-
         return queryset
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
@@ -207,7 +206,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if refresh:
             cache.delete(cache_key)
         else:
-            cached_result = cache.get(cache_key)
+            cached_result = get_safe_cache(cache_key)
             if cached_result:
                 task_id = cached_result.get("task_id", None)
                 if not task_id:

@@ -3,7 +3,7 @@ from distutils.util import strtobool
 from typing import Any, Dict, Optional, cast
 
 import posthoganalytics
-from django.core.cache import cache
+from posthog.utils import get_safe_cache
 from django.db.models import Model, Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpRequest
@@ -200,7 +200,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         if not dashboard_item.filters_hash:
             return None
 
-        result = cache.get(dashboard_item.filters_hash)
+        result = get_safe_cache(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
         return result["result"]

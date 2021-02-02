@@ -33,6 +33,7 @@ from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception, push_scope
+from posthog.utils import get_safe_cache
 
 from posthog.redis import get_client
 from posthog.settings import print_warning
@@ -520,3 +521,15 @@ def get_daterange(
             time_range.append(start_date)
             start_date = (start_date.replace(day=1) + delta).replace(day=1)
     return time_range
+
+
+def get_safe_cache(cache_key: str):
+    try:
+        cached_result = get_safe_cache(cache_key) # get_safe_cache is safe in most cases
+        return cached_result
+    except: # if it errors out, the cache is probably corrupted
+        try:
+            cache.delete(cache_key) # in that case, try to delete the cache
+        except:
+            pass
+        return None

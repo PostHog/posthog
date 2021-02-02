@@ -2,7 +2,7 @@ from enum import Enum
 from functools import wraps
 from typing import Callable, cast
 
-from django.core.cache import cache
+from posthog.utils import get_safe_cache
 from django.http.request import HttpRequest
 from django.utils.timezone import now
 
@@ -40,7 +40,7 @@ def cached_function():
             payload = {"filter": filter.toJSON(), "team_id": team.pk}
             # return cached result if possible
             if not request.GET.get("refresh", False):
-                cached_result = cache.get(cache_key)
+                cached_result = get_safe_cache(cache_key)
                 if cached_result and cached_result.get("result"):
                     return cached_result["result"]
             # call function being wrapped
