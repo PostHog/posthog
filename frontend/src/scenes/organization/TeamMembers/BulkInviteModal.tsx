@@ -8,10 +8,11 @@ import './BulkInviteModal.scss'
 import { capitalizeFirstLetter, isEmail } from 'lib/utils'
 import { bulkInviteLogic } from './bulkInviteLogic'
 
-const PLACEHOLDER_NAMES = ['jane', 'john']
+const PLACEHOLDER_NAMES = ['Jane', 'John']
 
 function InviteRow({ index }: { index: number }): JSX.Element {
     const name = PLACEHOLDER_NAMES[index % 2]
+
     const { invites } = useValues(bulkInviteLogic)
     const { updateInviteAtIndex } = useActions(bulkInviteLogic)
 
@@ -19,7 +20,7 @@ function InviteRow({ index }: { index: number }): JSX.Element {
         <Row gutter={16} className="invite-row">
             <Col xs={12}>
                 <Input
-                    placeholder={`${name}@posthog.com`}
+                    placeholder={`${name.toLowerCase()}@posthog.com`}
                     type="email"
                     className={`error-on-blur${!invites[index].isValid ? ' errored' : ''}`}
                     onChange={(e) => {
@@ -35,7 +36,7 @@ function InviteRow({ index }: { index: number }): JSX.Element {
             </Col>
             <Col xs={12}>
                 <Input
-                    placeholder={capitalizeFirstLetter(name)}
+                    placeholder={name}
                     onBlur={(e) => {
                         updateInviteAtIndex({ first_name: e.target.value }, index)
                     }}
