@@ -19,17 +19,8 @@ describe('Person Visualization Check', () => {
 
 describe('Person Show All Distinct Checks', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-people]').click()
-        cy.get('[data-attr=menu-item-persons].ant-menu-item-selected').should('be.visible')
+        cy.get('[data-attr=menu-item-persons]').click()
     })
-
-    // it('Should have Show All Distinct Id Button', () => {
-    //     cy.get('.ant-input').type('smith.nunez@gmail.com').type('{enter}')
-
-    //     cy.contains('smith.nunez@gmail.com').click()
-    //     cy.get('[data-cy="show-more-distinct-id"]').should('exist')
-    //     cy.get('[data-cy="show-more-distinct-id"]').click()
-    // })
 
     it('Should have no Show All Distinct Id Button', () => {
         cy.get('.ant-tabs-nav-list > :nth-child(2)').click()
