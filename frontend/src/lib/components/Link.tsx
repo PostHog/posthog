@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 export interface LinkProps extends HTMLProps<HTMLAnchorElement> {
     to: string
     preventClick?: boolean
-    tag?: string | React.Component
+    tag?: string | React.ReactNode
 }
 
 export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProps): JSX.Element {
@@ -16,7 +16,6 @@ export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProp
 
         if (!props.target) {
             event.preventDefault()
-            event.stopPropagation()
             if (to && to !== '#' && !preventClick) {
                 router.actions.push(to) // router is mounted automatically, so this is safe to call
             }
