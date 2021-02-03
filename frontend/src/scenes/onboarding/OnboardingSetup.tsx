@@ -19,6 +19,7 @@ import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { Link } from 'lib/components/Link'
 import { IconExternalLink } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
+import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
 
 const { Panel } = Collapse
 
@@ -98,13 +99,18 @@ function OnboardingStep({
 export const OnboardingSetup = hot(_OnboardingSetup)
 function _OnboardingSetup(): JSX.Element {
     const [slackClicked, setslackClicked] = useState(false)
-    const { stepProjectSetup, stepInstallation, projectModalShown, stepVerification, currentSection } = useValues(
-        onboardingSetupLogic
-    )
+    const {
+        stepProjectSetup,
+        stepInstallation,
+        projectModalShown,
+        stepVerification,
+        currentSection,
+        inviteTeamModalShown,
+    } = useValues(onboardingSetupLogic)
+    const { switchToNonDemoProject, setProjectModalShown, setInviteTeamModalShown } = useActions(onboardingSetupLogic)
+
     const { user, userUpdateLoading } = useValues(userLogic)
     const { userUpdateRequest } = useActions(userLogic)
-
-    const { switchToNonDemoProject, setProjectModalShown } = useActions(onboardingSetupLogic)
 
     const UTM_TAGS = 'utm_medium=in-product&utm_campaign=onboarding-setup-2822'
 
@@ -225,7 +231,7 @@ function _OnboardingSetup(): JSX.Element {
                                     title="Invite your team members"
                                     icon={<UsergroupAddOutlined />}
                                     identifier="invite-team"
-                                    handleClick={() => setProjectModalShown(true)}
+                                    handleClick={() => setInviteTeamModalShown(true)}
                                     caption="Spread the knowledge, share insights with everyone in your team."
                                     customActionElement={
                                         <Button type="primary" icon={<PlusOutlined />}>
@@ -262,6 +268,7 @@ function _OnboardingSetup(): JSX.Element {
                             </div>
                         }
                     />
+                    <BulkInviteModal visible={inviteTeamModalShown} onClose={() => setInviteTeamModalShown(false)} />
                 </>
             ) : (
                 <div className="already-completed">

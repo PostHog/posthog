@@ -1,10 +1,11 @@
-from typing import Dict, Optional
+from typing import Optional
 
 from django.test import Client, TestCase, TransactionTestCase
 from rest_framework.test import APITestCase
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.test.base import ErrorResponsesMixin
 
 
 class TestMixin:
@@ -30,22 +31,6 @@ class TestMixin:
             self.client = Client()
             if self.TESTS_FORCE_LOGIN and self.TESTS_EMAIL:
                 self.client.force_login(self.user)
-
-
-class ErrorResponsesMixin:
-    ERROR_RESPONSE_UNAUTHENTICATED: Dict[str, Optional[str]] = {
-        "type": "authentication_error",
-        "code": "not_authenticated",
-        "detail": "Authentication credentials were not provided.",
-        "attr": None,
-    }
-
-    ERROR_RESPONSE_NOT_FOUND: Dict[str, Optional[str]] = {
-        "type": "invalid_request",
-        "code": "not_found",
-        "detail": "Not found.",
-        "attr": None,
-    }
 
 
 class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):

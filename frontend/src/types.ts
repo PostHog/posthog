@@ -359,15 +359,13 @@ export interface DashboardType {
 }
 
 export interface OrganizationInviteType {
-    created_at: string
-    created_by_email: string
-    created_by_first_name: string
-    created_by_id: number
-    emailing_attempt_made: boolean
     id: string
     target_email: string
-    updated_at: string
     is_expired: boolean
+    emailing_attempt_made: boolean
+    created_by: UserNestedType | null
+    created_at: string
+    updated_at: string
 }
 
 export interface PluginType {
