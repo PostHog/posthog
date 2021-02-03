@@ -183,6 +183,7 @@ export function _TopNavigation(): JSX.Element {
                         )}
                         {(!user?.is_multi_tenancy || user.is_staff) && (
                             <Badge
+                                data-attr="system-status-badge"
                                 type={systemStatus ? 'success' : 'danger'}
                                 onClick={() => push('/instance/status')}
                                 tooltip={systemStatus ? 'All systems operational' : 'Potential system issue'}
@@ -190,6 +191,7 @@ export function _TopNavigation(): JSX.Element {
                             />
                         )}
                         <Badge
+                            data-attr="update-indicator-badge"
                             type={updateAvailable ? 'warning' : undefined}
                             tooltip={updateAvailable ? 'New version available' : undefined}
                             icon={<UpOutlined />}
