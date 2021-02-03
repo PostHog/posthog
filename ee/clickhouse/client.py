@@ -28,6 +28,7 @@ from posthog.settings import (
     PRIMARY_DB,
     TEST,
 )
+from posthog.utils import get_safe_cache
 
 CACHE_TTL = 60  # seconds
 
@@ -160,7 +161,7 @@ def save_query(sql: str, params: Dict, execution_time: float) -> None:
 
     try:
         key = "save_query_{}".format(_save_query_user_id)
-        queries = json.loads(cache.get(key) or "[]")
+        queries = json.loads(get_safe_cache(key) or "[]")
 
         queries.insert(
             0, {"timestamp": now().isoformat(), "query": format_sql(sql, params), "execution_time": execution_time}
