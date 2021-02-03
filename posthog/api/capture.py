@@ -209,6 +209,9 @@ def get_event(request):
                 settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", []
             ):
                 log_topics.append(KAFKA_EVENTS_INGESTION_HANDOFF)
+                statsd.Counter(
+                    "%s_posthog_cloud_plugin_server_ingestion_handoff" % (settings.STATSD_PREFIX,)
+                ).increment()
             else:
                 process_event_ee(
                     distinct_id=distinct_id,
