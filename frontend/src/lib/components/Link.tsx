@@ -1,7 +1,7 @@
-import React, { HTMLProps } from 'react'
+import React from 'react'
 import { router } from 'kea-router'
 
-export interface LinkProps extends HTMLProps<HTMLAnchorElement> {
+export interface LinkProps extends React.HTMLProps<HTMLAnchorElement> {
     to: string
     preventClick?: boolean
     tag?: string | React.ReactNode
@@ -23,7 +23,7 @@ export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProp
         props.onClick && props.onClick(event)
     }
 
-    return React.createElement(tag, {
+    return React.createElement(tag as string, {
         href: to || '#',
         ...props,
         onClick,
