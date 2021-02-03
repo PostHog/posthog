@@ -120,11 +120,6 @@ if get_bool_from_env("IS_BEHIND_PROXY", False):
     USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-ASYNC_EVENT_ACTION_MAPPING = False
-
-if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
-    ASYNC_EVENT_ACTION_MAPPING = True
-
 
 # Clickhouse Settings
 CLICKHOUSE_TEST_DB = "posthog_test"
@@ -166,6 +161,13 @@ if PRIMARY_DB == RDBMS.CLICKHOUSE:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
 else:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
+
+
+ASYNC_EVENT_ACTION_MAPPING = get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False)
+
+# Enable if ingesting with the plugin server into postgres, as it's not able to calculate the mapping on the fly
+if PLUGIN_SERVER_INGESTION and PRIMARY_DB == RDBMS.POSTGRES:
+    ASYNC_EVENT_ACTION_MAPPING = True
 
 
 # IP block settings
