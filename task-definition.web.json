@@ -101,6 +101,14 @@
                 {
                     "name": "CLICKHOUSE_DENORMALIZED_PROPERTIES",
                     "value": "issampledevent,currentscreen,objectname"
+                },
+                {
+                    "name": "PLUGIN_SERVER_INGESTION",
+                    "value": "false"
+                },
+                {
+                    "name": "PLUGINS_CLOUD_WHITELISTED_ORG_IDS",
+                    "value": "4dc8564d-bd82-1065-2f40-97f7c50f67cf,2f3a6d88-4789-027b-6205-7b9a0e12217d"
                 }
             ],
             "secrets": [
