@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunSQL(
-            "CREATE INDEX CONCURRENTLY posthog_person_email ON posthog_person((properties->>'email'));",
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS posthog_person_email ON posthog_person((properties->>'email'));",
             reverse_sql='DROP INDEX "posthog_person_email";',
         )
     ]
