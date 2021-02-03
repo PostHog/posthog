@@ -9,6 +9,7 @@ import { isEmail } from 'lib/utils'
 import { bulkInviteLogic } from './bulkInviteLogic'
 
 const PLACEHOLDER_NAMES = ['Jane', 'John']
+const MAX_INVITES = 20
 
 function InviteRow({ index }: { index: number }): JSX.Element {
     const name = PLACEHOLDER_NAMES[index % 2]
@@ -37,7 +38,7 @@ function InviteRow({ index }: { index: number }): JSX.Element {
             <Col xs={12}>
                 <Input
                     placeholder={name}
-                    onBlur={(e) => {
+                    onChange={(e) => {
                         updateInviteAtIndex({ first_name: e.target.value }, index)
                     }}
                 />
@@ -92,7 +93,12 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
                     ))}
 
                     <div className="mt">
-                        <Button block className="btn-add" onClick={addMoreInvites}>
+                        <Button
+                            block
+                            className="btn-add"
+                            onClick={addMoreInvites}
+                            disabled={invites.length + 2 >= MAX_INVITES}
+                        >
                             <PlusOutlined /> Add more team members
                         </Button>
                     </div>

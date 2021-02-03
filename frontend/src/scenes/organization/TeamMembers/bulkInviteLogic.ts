@@ -62,12 +62,13 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<BulkInviteResponse, Invit
             {
                 inviteTeamMembers: async () => {
                     if (!values.canSubmit) {
-                        return []
+                        return { invites: [] }
                     }
-                    const payload: Record<
-                        'invites',
-                        Record<'target_email' | 'first_name', string | null | undefined>[]
-                    > = { invites: [] }
+
+                    const payload = {
+                        invites: [] as { target_email: string | null; first_name?: string | null }[],
+                    }
+
                     for (const invite of values.invites) {
                         if (!invite.email) {
                             continue
