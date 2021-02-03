@@ -1,7 +1,7 @@
 describe('Setup', () => {
     it('Setup loaded', () => {
-        cy.get('.navigation-inner').scrollTo(0, 1000)
-        cy.get('[data-attr=menu-item-projectSettings]').click()
+        cy.visit('/project/settings')
+        cy.get('[data-attr=menu-item-projectSettings]').should('exist') // TODO: Solve navigation bar scroll issue and get to page from menu
         cy.get('[data-attr=layout-content]').should('exist')
     })
 
@@ -17,8 +17,7 @@ describe('Setup', () => {
             })
         })
         cy.reload(true)
-        cy.get('.navigation-inner').scrollTo(0, 1000) // Go to the bottom of the navigation bar
-        cy.get('[data-attr=menu-item-projectSettings]').click()
+        cy.visit('/project/settings')
         cy.get('[data-attr=app-url-suggestion]').first().click()
         cy.get('[data-attr=app-url-item]').contains(/\hogflix/g)
 
