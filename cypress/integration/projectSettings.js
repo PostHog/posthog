@@ -1,5 +1,6 @@
 describe('Setup', () => {
     it('Setup loaded', () => {
+        cy.get('.navigation-inner').scrollTo(0, 1000)
         cy.get('[data-attr=menu-item-projectSettings]').click()
         cy.get('[data-attr=layout-content]').should('exist')
     })
@@ -16,6 +17,7 @@ describe('Setup', () => {
             })
         })
         cy.reload(true)
+        cy.get('.navigation-inner').scrollTo(0, 1000) // Go to the bottom of the navigation bar
         cy.get('[data-attr=menu-item-projectSettings]').click()
         cy.get('[data-attr=app-url-suggestion]').first().click()
         cy.get('[data-attr=app-url-item]').contains(/\hogflix/g)
