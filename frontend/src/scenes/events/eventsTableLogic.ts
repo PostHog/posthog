@@ -3,25 +3,44 @@ import { objectsEqual, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import moment from 'moment'
+import { eventsTableLogicType } from './eventsTableLogicType'
+import { EventType, PropertyFilter } from '~/types'
 
 const POLL_TIMEOUT = 5000
 
-const formatEvents = (events, newEvents, apiUrl) => {
-    let eventsFormatted = []
+interface FormattedEventType {
+    event: EventType
+}
+
+interface DateBreakRow {
+    date_break: string
+}
+
+interface NewEventsRow {
+    new_events: boolean
+}
+
+type EventRowType = FormattedEventType | DateBreakRow | NewEventsRow
+
+const formatEvents = (events: EventType[], newEvents: EventType[], apiUrl?: string): EventRowType[] => {
+    let eventsFormatted: EventRowType[] = []
     if (!apiUrl) {
         eventsFormatted = [...events.map((event) => ({ event }))]
     } else {
         eventsFormatted = [
             ...events.map((item) => ({
-                event: { ...item.event, actionName: item.action.name, actionId: item.action.id },
+                event: item,
             })),
         ]
     }
     eventsFormatted.forEach((event, index) => {
+        const prevItem = eventsFormatted[index - 1]
         if (
             index > 0 &&
-            eventsFormatted[index - 1].event &&
-            !moment(event.event.timestamp).isSame(eventsFormatted[index - 1].event.timestamp, 'day')
+            prevItem &&
+            'event' in prevItem &&
+            'event' in event &&
+            !moment(event.event.timestamp).isSame(prevItem.event.timestamp, 'day')
         ) {
             eventsFormatted.splice(index, 0, { date_break: moment(event.event.timestamp).format('LL') })
         }
@@ -29,13 +48,14 @@ const formatEvents = (events, newEvents, apiUrl) => {
     if (newEvents.length > 0) {
         eventsFormatted.splice(0, 0, { new_events: true })
     }
+
     return eventsFormatted
 }
 // props:
 // - fixedFilters
 // - apiUrl = 'api/event/'
 // - live = false
-export const eventsTableLogic = kea({
+export const eventsTableLogic = kea<eventsTableLogicType<PropertyFilter, EventType, EventRowType>>({
     // Set a unique key based on the fixed filters.
     // This way if we move back/forward between /events and /person/ID, the logic is reloaded.
     key: (props) =>
@@ -63,9 +83,12 @@ export const eventsTableLogic = kea({
     reducers: () => ({
         // save the pathname that was used when this logic was mounted
         // we use it to NOT update the filters when the user moves away from this path, yet the scene is still active
-        initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
+        initialPathname: [
+            (((state: Record<string, any>) => router.selectors.location(state).pathname) as unknown) as string,
+            { noop: (a) => a },
+        ],
         properties: [
-            [],
+            [] as PropertyFilter[],
             {
                 setProperties: (_, { properties }) => properties,
             },
@@ -79,7 +102,7 @@ export const eventsTableLogic = kea({
         isLoading: [
             false,
             {
-                fetchEvents: (state, { nextParams }) => (nextParams ? state : state || null),
+                fetchEvents: (state, { nextParams }) => (nextParams ? state : state || false),
                 setDelayedLoading: () => true,
                 fetchEventsSuccess: () => false,
             },
@@ -92,7 +115,7 @@ export const eventsTableLogic = kea({
             },
         ],
         events: [
-            [],
+            [] as EventType[],
             {
                 fetchEventsSuccess: (state, { events, isNext }) => (isNext ? [...state, ...events] : events),
                 prependNewEvents: (state, { events }) => [...events, ...state],
@@ -115,7 +138,7 @@ export const eventsTableLogic = kea({
             },
         ],
         newEvents: [
-            [],
+            [] as EventType[],
             {
                 pollEventsSuccess: (_, { events }) => events,
                 prependNewEvents: () => [],
@@ -126,8 +149,8 @@ export const eventsTableLogic = kea({
             {
                 pollEventsSuccess: () => ({}),
                 prependNewEvents: (_, { events }) => {
-                    const highlightEvents = {}
-                    events.forEach((event) => {
+                    const highlightEvents: Record<string, boolean> = {}
+                    events.forEach((event: EventType) => {
                         highlightEvents[event.id] = true
                     })
                     return highlightEvents
@@ -135,7 +158,7 @@ export const eventsTableLogic = kea({
             },
         ],
         pollTimeout: [
-            null,
+            null as NodeJS.Timeout | null,
             {
                 setPollTimeout: (_, { pollTimeout }) => pollTimeout,
             },
@@ -155,14 +178,14 @@ export const eventsTableLogic = kea({
         ],
         eventsFormatted: [
             () => [selectors.events, selectors.newEvents],
-            (events, newEvents) => formatEvents(events, newEvents, props.apiUrl),
+            (events, newEvents) => formatEvents(events, newEvents, props.apiUrl as string | undefined),
         ],
     }),
 
     events: ({ values }) => ({
         // No afterMount necessary because actionToUrl will call
         beforeUnmount: () => {
-            clearTimeout(values.pollTimeout)
+            values.pollTimeout && clearTimeout(values.pollTimeout)
         },
     }),
 
@@ -173,7 +196,7 @@ export const eventsTableLogic = kea({
     }),
 
     urlToAction: ({ actions, values }) => ({
-        '*': (_, searchParams) => {
+        '*': ({}, searchParams: Record<string, any>) => {
             try {
                 // if the url changed, but we are not anymore on the page we were at when the logic was mounted
                 if (router.values.location.pathname !== values.initialPathname) {
@@ -206,7 +229,7 @@ export const eventsTableLogic = kea({
             })
         },
         fetchEvents: [
-            async (_, breakpoint) => {
+            async ({}, breakpoint: (timeout: number) => void) => {
                 if (values.events.length > 0) {
                     await breakpoint(500)
                 }
@@ -214,12 +237,12 @@ export const eventsTableLogic = kea({
                     actions.setDelayedLoading()
                 }
             },
-            async ({ nextParams }, breakpoint) => {
-                clearTimeout(values.pollTimeout)
+            async ({ nextParams }: { nextParams: { before: string } }, breakpoint: () => void) => {
+                values.pollTimeout && clearTimeout(values.pollTimeout)
 
                 const urlParams = toParams({
                     properties: values.properties,
-                    ...(props.fixedFilters || {}),
+                    ...((props.fixedFilters as Record<string, any>) || {}),
                     ...(nextParams || {}),
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
@@ -238,9 +261,9 @@ export const eventsTableLogic = kea({
                 return
             }
 
-            let params = {
+            const params: Record<string, any> = {
                 properties: values.properties,
-                ...(props.fixedFilters || {}),
+                ...((props.fixedFilters as Record<string, any>) || {}),
                 ...(values.eventFilter ? { event: values.eventFilter } : {}),
                 orderBy: [values.orderBy],
             }
@@ -248,7 +271,7 @@ export const eventsTableLogic = kea({
             const event = values.events[0]
 
             if (event) {
-                params.after = event.timestamp || event.event.timestamp
+                params.after = event.timestamp
             }
 
             const events = await api.get(`${props.apiUrl || 'api/event/'}?${toParams(params)}`)

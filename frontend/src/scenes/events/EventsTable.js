@@ -12,7 +12,7 @@ import { EventName } from 'scenes/actions/EventName'
 import { eventToName, toParams } from 'lib/utils'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './EventsTable.scss'
-import { eventsTableLogic } from './eventsTableLogic'
+import { eventsTableLogic } from './eventsTableLogic.ts'
 import { hot } from 'react-hot-loader/root'
 
 export const EventsTable = hot(_EventsTable)
