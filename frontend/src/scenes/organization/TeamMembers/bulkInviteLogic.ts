@@ -42,18 +42,9 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<BulkInviteResponse, Invit
     selectors: {
         canSubmit: [
             (selectors) => [selectors.invites],
-            (invites: InviteType[]) => {
-                let atLeastOneValidEmail = false
-                for (const invite of invites) {
-                    if (!invite.isValid) {
-                        return false
-                    }
-                    if (invite.email && invite.isValid) {
-                        atLeastOneValidEmail = true
-                    }
-                }
-                return atLeastOneValidEmail
-            },
+            (invites: InviteType[]) =>
+                invites.filter(({ email }) => !!email).length > 0 &&
+                invites.filter(({ isValid }) => !isValid).length == 0,
         ],
     },
     loaders: ({ values }) => ({
