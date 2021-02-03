@@ -155,9 +155,10 @@ class OrganizationMembership(UUIDModel):
 
 class OrganizationInvite(UUIDModel):
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.CASCADE, related_name="invites", related_query_name="invite"
+        "posthog.Organization", on_delete=models.CASCADE, related_name="invites", related_query_name="invite",
     )
     target_email: models.EmailField = models.EmailField(null=True, db_index=True)
+    first_name: models.CharField = models.CharField(max_length=30, blank=True, default="")
     created_by: models.ForeignKey = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
@@ -180,7 +181,7 @@ class OrganizationInvite(UUIDModel):
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise ValueError("User already is a member of the organization.")
         if OrganizationMembership.objects.filter(
-            organization=self.organization, user__email=self.target_email
+            organization=self.organization, user__email=self.target_email,
         ).exists():
             raise ValueError("A user with this email address already belongs to the organization.")
 

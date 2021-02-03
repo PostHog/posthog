@@ -47,7 +47,14 @@ function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
 function pageUrl(d) {
     const incomingUrls = d.targetLinks
         .map((l) => l?.source?.name?.replace(/(^[0-9]+_)/, ''))
-        .filter((a) => a)
+        .filter((a) => {
+            try {
+                new URL(a)
+            } catch {
+                return false
+            }
+            return a
+        })
         .map((a) => new URL(a))
     const incomingDomains = [...new Set(incomingUrls.map((url) => url.origin))]
 

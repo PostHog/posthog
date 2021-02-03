@@ -26,6 +26,7 @@ import pytz
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models.query import QuerySet
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
@@ -347,7 +348,7 @@ def load_data_from_request(request):
                 data_res["body"] = {**json.loads(request.body)}
             except:
                 pass
-        elif request.content_type == "text/plain":
+        elif request.content_type == "text/plain" or request.content_type == "":
             data = request.body
         else:
             data = request.POST.get("data")
@@ -520,3 +521,15 @@ def get_daterange(
             time_range.append(start_date)
             start_date = (start_date.replace(day=1) + delta).replace(day=1)
     return time_range
+
+
+def get_safe_cache(cache_key: str):
+    try:
+        cached_result = cache.get(cache_key)  # cache.get is safe in most cases
+        return cached_result
+    except:  # if it errors out, the cache is probably corrupted
+        try:
+            cache.delete(cache_key)  # in that case, try to delete the cache
+        except:
+            pass
+    return None
