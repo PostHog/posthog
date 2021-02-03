@@ -110,7 +110,9 @@ export function _TopNavigation(): JSX.Element {
             </div>
             <div className="divider mb-05" />
             <div className="text-center">
-                <a onClick={logout}>Log out</a>
+                <a onClick={logout} data-attr="top-menu-item-logout">
+                    Log out
+                </a>
             </div>
         </div>
     )

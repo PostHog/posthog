@@ -1,23 +1,24 @@
 describe('Auth', () => {
     it('Logout', () => {
-        cy.get('[data-attr=user-options-dropdown]').trigger('mouseover')
-        cy.get('[data-attr=user-options-logout]').click()
+        cy.get('.whoami').click() // Top navigation dropdown
+        cy.get('[data-attr=top-menu-item-logout]').click()
+        cy.location('pathname').should('include', '/login')
     })
 
     it('Logout and login', () => {
-        cy.get('[data-attr=user-options-dropdown]').trigger('mouseover')
-        cy.get('[data-attr=user-options-logout]').click()
+        cy.get('.whoami').click() // Top navigation dropdown
+        cy.get('[data-attr=top-menu-item-logout]').click()
 
         cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
 
-        cy.get('#inputPassword').type('password').should('have.value', 'password')
+        cy.get('#inputPassword').type('12345678').should('have.value', '12345678')
 
         cy.get('.btn').click()
     })
 
     it('Try logging in improperly', () => {
-        cy.get('[data-attr=user-options-dropdown]').trigger('mouseover')
-        cy.get('[data-attr=user-options-logout]').click()
+        cy.get('.whoami').click() // Top navigation dropdown
+        cy.get('[data-attr=top-menu-item-logout]').click()
 
         cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
 
