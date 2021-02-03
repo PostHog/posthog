@@ -115,12 +115,12 @@ function _MainNavigation(): JSX.Element {
                 <>
                     {pinnedDashboards.length && (
                         <Menu.ItemGroup title="Pinned dashboards" key="pinned">
-                            {pinnedDashboards.map((item: DashboardType) => (
+                            {pinnedDashboards.map((item: DashboardType, index: number) => (
                                 <Menu.Item key={`pinned-${item.id}`} style={{ margin: 0 }}>
                                     <MenuItem
                                         title={item.name}
                                         icon={<PushpinFilled />}
-                                        identifier={`dashboard-${item.id}`}
+                                        identifier={`dashboard-${index}`}
                                         to={`/dashboard/${item.id}`}
                                         onClick={() => setPinnedDashboardsVisible(false)}
                                     />
