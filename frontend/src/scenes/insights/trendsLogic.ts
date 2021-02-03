@@ -6,24 +6,60 @@ import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 import {
-    STICKINESS,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_TABLE,
-    LIFECYCLE,
+    PAGEVIEW,
+    SCREEN,
+    EVENT_TYPE,
+    ACTION_TYPE,
+    ShownAsValue,
 } from 'lib/constants'
 import { ViewType, insightLogic } from './insightLogic'
 import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ActionType, EntityType, FilterType, PersonType, PropertyFilter } from '~/types'
+import { trendsLogicType } from './trendsLogicType'
+import { ToastId } from 'react-toastify'
 
-export const EntityTypes = {
+interface ActionFilter {
+    id: number | string
+    math?: string
+    math_property?: string
+    name: string
+    order: number
+    properties: PropertyFilter[]
+    type: EntityType
+}
+
+interface TrendPeople {
+    people: PersonType[]
+    breakdown_value?: string
+    count: number
+    day: string | number
+    next?: string
+    label: string
+    action: ActionFilter
+    loadingMore?: boolean
+}
+
+interface PeopleParamType {
+    action: ActionFilter
+    label: string
+    day?: string | number
+    breakdown_value?: string
+    target_date?: number
+    lifecycle_type?: string
+}
+
+export const EntityTypes: Record<string, string> = {
     ACTIONS: 'actions',
     EVENTS: 'events',
     NEW_ENTITY: 'new_entity',
 }
 
-export const disableMinuteFor = {
+export const disableMinuteFor: Record<string, boolean> = {
     dStart: false,
     '-1d': false,
     '-7d': true,
@@ -36,7 +72,7 @@ export const disableMinuteFor = {
     all: true,
 }
 
-export const disableHourFor = {
+export const disableHourFor: Record<string, boolean> = {
     dStart: false,
     '-1d': false,
     '-7d': false,
@@ -49,7 +85,7 @@ export const disableHourFor = {
     all: true,
 }
 
-function cleanFilters(filters) {
+function cleanFilters(filters: Partial<FilterType>): Record<string, any> {
     return {
         insight: ViewType.TRENDS,
         ...filters,
@@ -64,7 +100,7 @@ function cleanFilters(filters) {
     }
 }
 
-function filterClientSideParams(filters) {
+function filterClientSideParams(filters: Partial<FilterType>): Partial<FilterType> {
     const {
         people_day: _skip_this_one, // eslint-disable-line
         people_action: _skip_this_too, // eslint-disable-line
@@ -75,13 +111,13 @@ function filterClientSideParams(filters) {
     return newFilters
 }
 
-function autocorrectInterval({ date_from, interval }) {
+function autocorrectInterval({ date_from, interval }: Partial<FilterType>): string {
     if (!interval) {
         return 'day'
     } // undefined/uninitialized
 
-    const minute_disabled = disableMinuteFor[date_from] && interval === 'minute'
-    const hour_disabled = disableHourFor[date_from] && interval === 'hour'
+    const minute_disabled = date_from && disableMinuteFor[date_from] && interval === 'minute'
+    const hour_disabled = date_from && disableHourFor[date_from] && interval === 'hour'
 
     if (minute_disabled) {
         return 'hour'
@@ -92,7 +128,7 @@ function autocorrectInterval({ date_from, interval }) {
     }
 }
 
-function parsePeopleParams(peopleParams, filters) {
+function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
     const { action, day, breakdown_value, ...restParams } = peopleParams
     const params = filterClientSideParams({
         ...filters,
@@ -101,24 +137,29 @@ function parsePeopleParams(peopleParams, filters) {
         breakdown_value,
     })
 
-    if (filters.shown_as === STICKINESS) {
-        params.stickiness_days = day
+    // casting here is not the best
+    if (filters.shown_as === ShownAsValue.STICKINESS) {
+        params.stickiness_days = day as number
     } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
-        params.date_to = day
-    } else if (filters.shown_as === LIFECYCLE) {
+        params.date_to = day as string
+    } else if (filters.shown_as === ShownAsValue.LIFECYCLE) {
         params.date_from = filters.date_from
         params.date_to = filters.date_to
     } else {
-        params.date_from = day
-        params.date_to = day
+        params.date_from = day as string
+        params.date_to = day as string
     }
+
     // If breakdown type is cohort, we use breakdown_value
     // If breakdown type is event, we just set another filter
     if (breakdown_value && filters.breakdown_type != 'cohort' && filters.breakdown_type != 'person') {
-        params.properties = [...params.properties, { key: params.breakdown, value: breakdown_value, type: 'event' }]
+        params.properties = [
+            ...(params.properties || []),
+            { key: params.breakdown, value: breakdown_value, type: 'event' } as PropertyFilter,
+        ]
     }
     if (action.properties) {
-        params.properties = [...params.properties, ...action.properties]
+        params.properties = [...(params.properties || []), ...action.properties]
     }
 
     return toAPIParams({ ...params, ...restParams })
@@ -127,7 +168,7 @@ function parsePeopleParams(peopleParams, filters) {
 // props:
 // - dashboardItemId
 // - filters
-export const trendsLogic = kea({
+export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeople, PropertyFilter, ToastId>>({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
     },
@@ -162,10 +203,10 @@ export const trendsLogic = kea({
                         )
                     }
                 } catch (e) {
-                    insightLogic.actions.endQuery(values.filters.insight, e)
+                    insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, e)
                     return []
                 }
-                insightLogic.actions.endQuery(values.filters.insight)
+                insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS)
                 breakpoint()
                 return response
             },
@@ -191,11 +232,15 @@ export const trendsLogic = kea({
         }),
     }),
 
-    reducers: ({ actions, props }) => ({
+    reducers: ({ props }) => ({
         filters: [
-            props.filters ? props.filters : (state) => cleanFilters(router.selectors.searchParams(state)),
+            (props.filters
+                ? props.filters
+                : (state: Record<string, any>) => cleanFilters(router.selectors.searchParams(state))) as Partial<
+                FilterType
+            >,
             {
-                [actions.setFilters]: (state, { filters, mergeFilters }) => {
+                setFilters: (state, { filters, mergeFilters }) => {
                     return cleanFilters({
                         ...(mergeFilters ? state : {}),
                         ...filters,
@@ -204,30 +249,28 @@ export const trendsLogic = kea({
             },
         ],
         people: [
-            null,
+            {} as TrendPeople | null,
             {
-                [actions.setFilters]: () => null,
-                [actions.setPeople]: (_, people) => people,
-                [actions.setLoadingMorePeople]: (state, { status }) => ({ ...state, loadingMore: status }),
+                setFilters: () => null,
+                setPeople: (_, people) => people,
+            },
+        ],
+        loadingMorePeople: [
+            false,
+            {
+                setLoadingMorePeople: (_, { status }) => status,
             },
         ],
         showingPeople: [
             false,
             {
-                [actions.loadPeople]: () => true,
-                [actions.setShowingPeople]: (_, { isShowing }) => isShowing,
+                loadPeople: () => true,
+                setShowingPeople: ({}, { isShowing }) => isShowing,
             },
         ],
     }),
 
     selectors: ({ selectors }) => ({
-        peopleAction: [
-            () => [selectors.filters, selectors.actions],
-            (filters, actions) =>
-                filters.people_action ? actions.find((a) => a.id === parseInt(filters.people_action)) : null,
-        ],
-        peopleDay: [() => [selectors.filters], (filters) => filters.people_day],
-
         sessionsPageParams: [
             () => [selectors.filters, selectors.people],
             (filters, people) => {
@@ -236,9 +279,14 @@ export const trendsLogic = kea({
                 }
 
                 const { action, day, breakdown_value } = people
-                const properties = [...filters.properties]
-                if (filters.breakdown) {
-                    properties.push({ key: filters.breakdown, value: breakdown_value, type: filters.breakdown_type })
+                const properties = filters.properties || []
+                if (filters.breakdown && filters.breakdown_type && breakdown_value) {
+                    properties.push({
+                        key: filters.breakdown,
+                        value: breakdown_value,
+                        type: filters.breakdown_type,
+                        operator: null,
+                    })
                 }
 
                 const eventProperties = properties.filter(({ type }) => type === 'event')
@@ -248,7 +296,7 @@ export const trendsLogic = kea({
                     date: day,
                     filters: [
                         {
-                            type: action.type === 'actions' ? 'action_type' : 'event_type',
+                            type: action.type === 'actions' ? ACTION_TYPE : EVENT_TYPE,
                             key: 'id',
                             value: action.id,
                             properties: eventProperties,
@@ -273,19 +321,19 @@ export const trendsLogic = kea({
     }),
 
     listeners: ({ actions, values, props }) => ({
-        [actions.setDisplay]: async ({ display }) => {
+        setDisplay: async ({ display }) => {
             actions.setFilters({ display })
         },
-        [actions.loadPeople]: async ({ label, action, day, breakdown_value }, breakpoint) => {
+        loadPeople: async ({ label, action, day, breakdown_value }, breakpoint) => {
             let people = []
-            if (values.filters.shown_as === LIFECYCLE) {
+            if (values.filters.shown_as === ShownAsValue.LIFECYCLE) {
                 const filterParams = parsePeopleParams(
                     { label, action, target_date: day, lifecycle_type: breakdown_value },
                     values.filters
                 )
                 actions.setPeople(null, null, action, label, day, breakdown_value, null)
                 people = await api.get(`api/person/lifecycle/?${filterParams}`)
-            } else if (values.filters.shown_as === STICKINESS) {
+            } else if (values.filters.shown_as === ShownAsValue.STICKINESS) {
                 const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
                 actions.setPeople(null, null, action, label, day, breakdown_value, null)
                 people = await api.get(`api/person/stickiness/?${filterParams}`)
@@ -305,21 +353,23 @@ export const trendsLogic = kea({
                 people.next
             )
         },
-        [actions.loadMorePeople]: async (_, breakpoint) => {
-            const { people: currPeople, count, action, label, day, breakdown_value, next } = values.people
-            actions.setLoadingMorePeople(true)
-            const people = await api.get(next)
-            actions.setLoadingMorePeople(false)
-            breakpoint()
-            actions.setPeople(
-                [...currPeople, ...people.results[0]?.people],
-                count + people.results[0]?.count,
-                action,
-                label,
-                day,
-                breakdown_value,
-                people.next
-            )
+        loadMorePeople: async ({}, breakpoint) => {
+            if (values.people) {
+                const { people: currPeople, count, action, label, day, breakdown_value, next } = values.people
+                actions.setLoadingMorePeople(true)
+                const people = await api.get(next)
+                actions.setLoadingMorePeople(false)
+                breakpoint()
+                actions.setPeople(
+                    [...currPeople, ...people.results[0]?.people],
+                    count + people.results[0]?.count,
+                    action,
+                    label,
+                    day,
+                    breakdown_value,
+                    people.next
+                )
+            }
         },
         setFilters: async () => {
             insightLogic.actions.setAllFilters(values.filters)
@@ -341,8 +391,8 @@ export const trendsLogic = kea({
         },
     }),
 
-    actionToUrl: ({ actions, values, props }) => ({
-        [actions.setFilters]: () => {
+    actionToUrl: ({ values, props }) => ({
+        setFilters: () => {
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
@@ -351,7 +401,7 @@ export const trendsLogic = kea({
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        '/insights': (_, searchParams) => {
+        '/insights': ({}, searchParams: Partial<FilterType>) => {
             if (
                 !searchParams.insight ||
                 searchParams.insight === ViewType.TRENDS ||
@@ -374,10 +424,10 @@ export const trendsLogic = kea({
                     values.eventNames &&
                     values.eventNames[0]
                 ) {
-                    const event = values.eventNames.includes('$pageview')
-                        ? '$pageview'
-                        : values.eventNames.includes('$screen')
-                        ? '$screen'
+                    const event = values.eventNames.includes(PAGEVIEW)
+                        ? PAGEVIEW
+                        : values.eventNames.includes(SCREEN)
+                        ? SCREEN
                         : values.eventNames[0]
 
                     cleanSearchParams[EntityTypes.EVENTS] = [
@@ -391,10 +441,10 @@ export const trendsLogic = kea({
                 }
 
                 if (searchParams.insight === ViewType.STICKINESS) {
-                    cleanSearchParams['shown_as'] = 'Stickiness'
+                    cleanSearchParams['shown_as'] = ShownAsValue.STICKINESS
                 }
                 if (searchParams.insight === ViewType.LIFECYCLE) {
-                    cleanSearchParams['shown_as'] = 'Lifecycle'
+                    cleanSearchParams['shown_as'] = ShownAsValue.LIFECYCLE
                 }
 
                 if (searchParams.insight === ViewType.SESSIONS && !searchParams.session) {
@@ -414,8 +464,11 @@ export const trendsLogic = kea({
     }),
 })
 
-const handleLifecycleDefault = (params, callback) => {
-    if (params.shown_as === LIFECYCLE) {
+const handleLifecycleDefault = (
+    params: Partial<FilterType>,
+    callback: (filters: Partial<FilterType>) => void
+): void => {
+    if (params.shown_as === ShownAsValue.LIFECYCLE) {
         if (params.events?.length) {
             callback({
                 ...params,

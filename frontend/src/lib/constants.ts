@@ -41,3 +41,17 @@ export const annotationScopeToName = new Map<string, string>([
 ])
 
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
+
+export const PAGEVIEW = '$pageview'
+export const AUTOCAPTURE = '$autocapture'
+export const SCREEN = '$screen'
+export const CUSTOM_EVENT = 'custom_event'
+
+export const ACTION_TYPE = 'action_type'
+export const EVENT_TYPE = 'event_type'
+
+export enum ShownAsValue {
+    VOLUME,
+    STICKINESS,
+    LIFECYCLE,
+}
