@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
-import { Button, Dropdown } from 'antd'
+import { Dropdown } from 'antd'
 import {
     ProjectOutlined,
     DownOutlined,
@@ -23,6 +23,8 @@ import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationM
 import { hot } from 'react-hot-loader/root'
 import { isMobile, platformCommandControlKey } from 'lib/utils'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
+import { Link } from 'lib/components/Link'
+import { LinkButton } from 'lib/components/LinkButton'
 
 export const TopNavigation = hot(_TopNavigation)
 export function _TopNavigation(): JSX.Element {
@@ -50,21 +52,27 @@ export function _TopNavigation(): JSX.Element {
             </div>
             <div className="text-center">
                 <div>
-                    <Button className="mt" onClick={() => push('/organization/members')}>
+                    <LinkButton className="mt" to="/organization/members" data-attr="top-menu-item-licenses">
                         Org settings &amp; members
-                    </Button>
+                    </LinkButton>
                 </div>
                 {user?.is_multi_tenancy ? (
                     <div className="mt-05">
-                        <a onClick={() => push('/organization/billing')}>Billing</a>
+                        <Link to="/organization/billing" data-attr="top-menu-item-billing">
+                            Billing
+                        </Link>
                     </div>
                 ) : (
                     <div className="mt-05">
-                        <a onClick={() => push('/instance/licenses')}>Licenses</a>
+                        <Link to="/instance/licenses" data-attr="top-menu-item-licenses">
+                            Licenses
+                        </Link>
                     </div>
                 )}
                 <div className="mt-05">
-                    <a onClick={() => push('/me/settings')}>My account</a>
+                    <Link to="/me/settings" data-attr="top-menu-item-me">
+                        My account
+                    </Link>
                 </div>
             </div>
             <div className="divider mt-05" />
