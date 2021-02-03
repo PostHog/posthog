@@ -366,6 +366,17 @@ if settings.DEBUG:
 
     urlpatterns.append(path("debug/", debug))
 
+if settings.TEST:
+
+    @csrf_exempt
+    def delete_events(request):
+        from posthog.models import Event
+
+        Event.objects.all().delete()
+        return HttpResponse()
+
+    urlpatterns.append(path("delete_events/", delete_events))
+
 # Routes added individually to remove login requirement
 frontend_unauthenticated_routes = ["preflight", "signup"]
 for route in frontend_unauthenticated_routes:
