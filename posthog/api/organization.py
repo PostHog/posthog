@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import posthoganalytics
 from django.conf import settings
@@ -50,9 +50,9 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
 class OrganizationSerializer(serializers.ModelSerializer):
     membership_level = serializers.SerializerMethodField()
-    any_project_ingested_events = serializers.SerializerMethodField()
-    any_project_completed_snippet_onboarding = serializers.SerializerMethodField()
-    non_demo_team_id = serializers.SerializerMethodField()
+    setup = (
+        serializers.SerializerMethodField()
+    )  # Information related to the current state of the onboarding/setup process
 
     class Meta:
         model = Organization
@@ -63,9 +63,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "updated_at",
             "membership_level",
             "personalization",
-            "any_project_ingested_events",
-            "any_project_completed_snippet_onboarding",
-            "non_demo_team_id",
+            "setup",
         ]
         read_only_fields = [
             "id",
@@ -84,27 +82,49 @@ class OrganizationSerializer(serializers.ModelSerializer):
         ).first()
         return membership.level if membership is not None else None
 
-    def get_any_project_ingested_events(self, organization: Organization) -> bool:
-        return organization.teams.filter(is_demo=False, ingested_event=True).exists()
+    def get_setup(self, instance: Organization) -> Dict[str, Union[bool, int, str, None]]:
 
-    def get_any_project_completed_snippet_onboarding(self, organization: Organization) -> bool:
-        return organization.teams.filter(is_demo=False, completed_snippet_onboarding=True).exists()
+        if instance.setup_section_2_completed:
+            # As Section 2 is the last one of the setup process (as of today), if it's completed it means the setup process is done
+            return {"is_active": False, "current_section": None}
 
-    def get_non_demo_team_id(self, organization: Organization) -> Optional[int]:
-        return next((team.pk for team in organization.teams.filter(is_demo=False)), None)
+        non_demo_team_id = next((team.pk for team in instance.teams.filter(is_demo=False)), None)
+        any_project_ingested_events = instance.teams.filter(is_demo=False, ingested_event=True).exists()
+        any_project_completed_snippet_onboarding = instance.teams.filter(
+            is_demo=False, completed_snippet_onboarding=True,
+        ).exists()
+
+        current_section = 1
+        if non_demo_team_id and any_project_ingested_events and any_project_completed_snippet_onboarding:
+            # All steps from section 1 completed, move on to section 2
+            current_section = 2
+
+        return {
+            "is_active": True,
+            "current_section": current_section,
+            "any_project_ingested_events": any_project_ingested_events,
+            "any_project_completed_snippet_onboarding": any_project_completed_snippet_onboarding,
+            "non_demo_team_id": non_demo_team_id,
+        }
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):
     serializer_class = OrganizationSerializer
     permission_classes = [
         permissions.IsAuthenticated,
-        PremiumMultiorganizationPermissions,
         OrganizationMemberPermissions,
         OrganizationAdminWritePermissions,
     ]
     queryset = Organization.objects.none()
     lookup_field = "id"
     ordering = "-created_by"
+
+    def get_permissions(self) -> List[permissions.BasePermission]:
+        if self.request.method == "POST":
+            # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions` because they require an existing org,
+            # unneded anyways because permissions are organization-based
+            return [permission() for permission in [permissions.IsAuthenticated, PremiumMultiorganizationPermissions]]
+        return super().get_permissions()
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -149,10 +169,16 @@ class OrganizationSignupSerializer(serializers.Serializer):
         is_instance_first_user: bool = not User.objects.exists()
 
         company_name = validated_data.pop("company_name", validated_data["first_name"])
+
         self._organization, self._team, self._user = User.objects.bootstrap(
-            company_name=company_name, create_team=self.create_team, **validated_data
+            company_name=company_name, create_team=self.create_team, **validated_data,
         )
         user = self._user
+
+        # Temp (due to FF-release [`onboarding-2822`]): Activate the setup/onboarding process if applicable
+        if self.enable_new_onboarding(user):
+            self._organization.setup_section_2_completed = False
+            self._organization.save()
 
         login(
             self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",

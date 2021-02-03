@@ -117,6 +117,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.OnboardingSetup]: {
         hideDemoWarnings: true,
     },
+    [Scene.ProjectSettings]: {
+        hideDemoWarnings: true,
+    },
 }
 
 export const redirects: Record<string, string | ((params: Params) => any)> = {

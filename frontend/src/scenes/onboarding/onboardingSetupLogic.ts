@@ -10,12 +10,19 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
     actions: {
         switchToNonDemoProject: (dest) => ({ dest }),
         setProjectModalShown: (shown) => ({ shown }),
+        setInviteTeamModalShown: (shown) => ({ shown }),
     },
     reducers: {
         projectModalShown: [
             false,
             {
                 setProjectModalShown: (_, { shown }) => shown,
+            },
+        ],
+        inviteTeamModalShown: [
+            false,
+            {
+                setInviteTeamModalShown: (_, { shown }) => shown,
             },
         ],
     },
@@ -26,7 +33,9 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
             if (!user?.team?.is_demo) {
                 router.actions.push(dest)
             } else {
-                const teamId = organizationLogic.values.currentOrganization?.non_demo_team_id
+                const teamId =
+                    organizationLogic.values.currentOrganization?.setup.is_active &&
+                    organizationLogic.values.currentOrganization?.setup.non_demo_team_id
                 if (teamId) {
                     navigationLogic.actions.updateCurrentProject(teamId, dest)
                 }
@@ -44,12 +53,19 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
         ],
         stepInstallation: [
             () => [organizationLogic.selectors.currentOrganization],
-            (organization: OrganizationType) => organization.any_project_ingested_events,
+            (organization: OrganizationType) =>
+                organization.setup.is_active && organization.setup.any_project_ingested_events,
         ],
         stepVerification: [
             (selectors) => [organizationLogic.selectors.currentOrganization, selectors.stepInstallation],
             (organization: OrganizationType, stepInstallation: boolean) =>
-                stepInstallation && organization.any_project_completed_snippet_onboarding,
+                stepInstallation &&
+                organization.setup.is_active &&
+                organization.setup.any_project_completed_snippet_onboarding,
+        ],
+        currentSection: [
+            () => [organizationLogic.selectors.currentOrganization],
+            (organization: OrganizationType): number | null => organization.setup.current_section,
         ],
     },
 })
