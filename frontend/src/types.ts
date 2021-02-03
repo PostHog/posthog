@@ -486,3 +486,31 @@ interface DisabledSetupState {
 }
 
 export type SetupState = EnabledSetupState | DisabledSetupState
+
+export interface ActionFilter {
+    id: number | string
+    math?: string
+    math_property?: string
+    name: string
+    order: number
+    properties: PropertyFilter[]
+    type: EntityType
+}
+
+export interface TrendResult {
+    action: ActionFilter
+    count: number
+    data: number[]
+    days: string[]
+    label: string
+    labels: string[]
+}
+
+export interface ChartParams {
+    dashboardItemId: number | null
+    color: string
+    filters: FilterType
+    inSharedMode: boolean
+    cachedResults: TrendResult
+    view: ViewType
+}

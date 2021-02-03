@@ -5,7 +5,8 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { router } from 'kea-router'
 import { LineGraphEmptyState } from './EmptyStates'
-import { ACTIONS_BAR_CHART, LIFECYCLE } from 'lib/constants'
+import { ACTIONS_BAR_CHART, ShownAsValue } from 'lib/constants'
+import { ChartParams } from '~/types'
 
 export function ActionsLineGraph({
     dashboardItemId = null,
@@ -14,7 +15,7 @@ export function ActionsLineGraph({
     cachedResults,
     inSharedMode,
     view,
-}) {
+}: ChartParams): JSX.Element {
     const logic = trendsLogic({
         dashboardItemId,
         view: view || filtersParam.insight,
@@ -24,15 +25,17 @@ export function ActionsLineGraph({
     const { filters, results, resultsLoading } = useValues(logic)
     const { loadPeople } = useActions(logic)
 
-    const { people_action, people_day, ...otherFilters } = filters // eslint-disable-line
     const [{ fromItem }] = useState(router.values.hashParams)
 
     return results && !resultsLoading ? (
         results.reduce((total, item) => total + item.count, 0) !== 0 ? (
             <LineGraph
-                pageKey={'trends-annotations'}
                 data-attr="trend-line-graph"
-                type={filters.shown_as === LIFECYCLE || filters.display === ACTIONS_BAR_CHART ? 'bar' : 'line'}
+                type={
+                    filters.shown_as === ShownAsValue.LIFECYCLE || filters.display === ACTIONS_BAR_CHART
+                        ? 'bar'
+                        : 'line'
+                }
                 color={color}
                 datasets={results}
                 labels={(results[0] && results[0].labels) || []}

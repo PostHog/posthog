@@ -30,7 +30,7 @@ export function LineGraph({
     ['data-attr']: dataAttr,
     dashboardItemId,
     inSharedMode,
-    percentage,
+    percentage = false,
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()

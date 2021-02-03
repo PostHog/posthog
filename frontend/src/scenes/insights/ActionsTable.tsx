@@ -4,8 +4,14 @@ import { Table } from 'antd'
 import PropTypes from 'prop-types'
 import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/insights/trendsLogic'
+import { ChartParams } from '~/types'
 
-export function ActionsTable({ dashboardItemId = null, view, filters: filtersParam, cachedResults }) {
+export function ActionsTable({
+    dashboardItemId = null,
+    view,
+    filters: filtersParam,
+    cachedResults,
+}: ChartParams): JSX.Element {
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
     const { filters, results, resultsLoading } = useValues(logic)
 

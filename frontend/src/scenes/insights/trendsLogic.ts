@@ -19,7 +19,7 @@ import { ViewType, insightLogic } from './insightLogic'
 import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ActionType, EntityType, FilterType, PersonType, PropertyFilter } from '~/types'
+import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
 import { ToastId } from 'react-toastify'
 
@@ -180,7 +180,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
 
     loaders: ({ values, props }) => ({
         results: {
-            __default: [],
+            __default: [] as TrendResult[],
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh) {
                     return props.cachedResults
