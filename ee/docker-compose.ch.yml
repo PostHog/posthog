@@ -82,6 +82,7 @@ services:
             KAFKA_ENABLED: 'true'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
+            PLUGIN_SERVER_INGESTION: 'true'
         depends_on:
             - db
             - redis
