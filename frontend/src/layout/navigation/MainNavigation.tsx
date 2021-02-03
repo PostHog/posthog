@@ -187,7 +187,7 @@ function _MainNavigation(): JSX.Element {
                         </Link>
                     </div>
                     {/* TODO: Only if setup hasn't been completed  */}
-                    {featureFlags['onboarding-2822'] && (
+                    {featureFlags['new-onboarding-2822'] && (
                         <MenuItem title="Setup" icon={<SettingOutlined />} identifier="onboardingSetup" to="/setup" />
                     )}
                     <Popover

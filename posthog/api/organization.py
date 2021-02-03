@@ -175,7 +175,7 @@ class OrganizationSignupSerializer(serializers.Serializer):
         )
         user = self._user
 
-        # Temp (due to FF-release [`onboarding-2822`]): Activate the setup/onboarding process if applicable
+        # Temp (due to FF-release [`new-onboarding-2822`]): Activate the setup/onboarding process if applicable
         if self.enable_new_onboarding(user):
             self._organization.setup_section_2_completed = False
             self._organization.save()
@@ -209,7 +209,7 @@ class OrganizationSignupSerializer(serializers.Serializer):
     def enable_new_onboarding(self, user: Optional[User] = None) -> bool:
         if user is None:
             user = self._user
-        return posthoganalytics.feature_enabled("onboarding-2822", user.distinct_id) or settings.DEBUG
+        return posthoganalytics.feature_enabled("new-onboarding-2822", user.distinct_id) or settings.DEBUG
 
 
 class OrganizationSignupViewset(generics.CreateAPIView):

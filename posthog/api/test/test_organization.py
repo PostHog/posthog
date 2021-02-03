@@ -272,7 +272,7 @@ class TestSignup(APIBaseTest):
 
         user: User = User.objects.order_by("-pk").get()
 
-        mock_feature_enabled.assert_any_call("onboarding-2822", user.distinct_id)
+        mock_feature_enabled.assert_any_call("new-onboarding-2822", user.distinct_id)
         mock_feature_enabled.assert_any_call("1694-dashboards", user.distinct_id)
 
         self.assertEqual(
