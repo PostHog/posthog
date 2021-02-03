@@ -86,6 +86,7 @@
         "@babel/plugin-transform-runtime": "^7.10.4",
         "@babel/preset-env": "7.10.4",
         "@babel/preset-typescript": "^7.10.4",
+        "@cypress/react": "^4.16.4",
         "@hot-loader/react-dom": "^16.13.0",
         "@types/jest": "^26.0.15",
         "@types/react": "^16.14.2",

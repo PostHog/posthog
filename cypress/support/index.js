@@ -1,16 +1,25 @@
+import '@cypress/react/support'
+import 'given2/setup'
 import './commands'
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-require('cypress-terminal-report/src/installLogsCollector')()
+try{
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('cypress-terminal-report/src/installLogsCollector')()
+} catch {}
 
 beforeEach(() => {
-    cy.visit('/')
+    if (Cypress.spec.specType === 'component') {
+        // Freeze time to 2021.01.05
+        cy.clock(1609804800000, ['Date'])
+    } else {
+        cy.visit('/')
 
-    cy.url().then((url) => {
-        if (url.includes('login')) {
-            logIn()
-        }
-    })
+        cy.url().then((url) => {
+            if (url.includes('login')) {
+                logIn()
+            }
+        })
+    }
 })
 
 const logIn = () => {
