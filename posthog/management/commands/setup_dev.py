@@ -10,9 +10,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--no-data",
-            action="store_true",
-            help="Create demo account without data",
+            "--no-data", action="store_true", help="Create demo account without data",
         )
 
     def handle(self, *args, **options):

@@ -122,11 +122,7 @@ class WebDataGenerator(DataGenerator):
             self.add_event(
                 event="$pageview",
                 distinct_id=distinct_id,
-                properties={
-                    "$current_url": "http://hogflix.com/2",
-                    "$browser": browser,
-                    "$lib": "web",
-                },
+                properties={"$current_url": "http://hogflix.com/2", "$browser": browser, "$lib": "web",},
                 timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=30),
             )
             if index % 5 == 0:
@@ -157,11 +153,7 @@ class WebDataGenerator(DataGenerator):
                 self.add_event(
                     event="$pageview",
                     distinct_id=distinct_id,
-                    properties={
-                        "$current_url": "http://hogflix.com/3",
-                        "$browser": browser,
-                        "$lib": "web",
-                    },
+                    properties={"$current_url": "http://hogflix.com/3", "$browser": browser, "$lib": "web",},
                     timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=60),
                 )
 
