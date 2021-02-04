@@ -249,7 +249,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
             },
         ],
         people: [
-            {} as TrendPeople | null,
+            null as TrendPeople | null,
             {
                 setFilters: () => null,
                 setPeople: (_, people) => people,

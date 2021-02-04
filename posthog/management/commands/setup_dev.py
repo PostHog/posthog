@@ -1,6 +1,3 @@
-import os
-
-from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
@@ -21,7 +18,7 @@ class Command(BaseCommand):
             organization, team, user = User.objects.bootstrap(
                 company_name=ORGANIZATION_NAME,
                 email="test@posthog.com",
-                password="pass",
+                password="12345678",
                 first_name="Jane Doe",
                 is_staff=True,
                 team_fields={
@@ -33,10 +30,7 @@ class Command(BaseCommand):
                     "event_properties": ["$current_url", "$browser", "$os"],
                 },
             )
+
             PersonalAPIKey.objects.create(user=user, label="e2e_demo_api_key key", value="e2e_demo_api_key")
-            heroku_app_name = os.getenv("HEROKU_APP_NAME")
-            base_url = (
-                f"https://{heroku_app_name}.herokuapp.com/demo/" if heroku_app_name else f"{settings.SITE_URL}/demo/"
-            )
             if not options["no_data"]:
                 create_demo_data(team)

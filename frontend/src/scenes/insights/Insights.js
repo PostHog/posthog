@@ -112,6 +112,7 @@ function _Insights() {
     const { setActiveView } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
     return (
         user?.team && (
             <div className="actions-graph">
@@ -231,13 +232,7 @@ function _Insights() {
                                                 />
                                             )}
 
-                                            {showDateFilter[activeView] && (
-                                                <DateFilter
-                                                    disabled={
-                                                        activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
-                                                    }
-                                                />
-                                            )}
+                                            {showDateFilter[activeView] && <DateFilter disabled={dateFilterDisabled} />}
 
                                             {showComparePrevious[activeView] && <CompareFilter />}
                                             <SaveToDashboard
