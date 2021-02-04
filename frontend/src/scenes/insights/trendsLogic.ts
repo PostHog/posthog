@@ -450,6 +450,11 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                 if (searchParams.insight === ViewType.SESSIONS && !searchParams.session) {
                     cleanSearchParams['session'] = 'avg'
                 }
+
+                if (searchParams.date_from === 'all' || searchParams.shown_as === ShownAsValue.LIFECYCLE) {
+                    cleanSearchParams['compare'] = false
+                }
+
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)
                 } else {

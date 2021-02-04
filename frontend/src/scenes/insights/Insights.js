@@ -25,6 +25,7 @@ import {
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
     BAR_CHART_LABEL,
+    LIFECYCLE,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
@@ -226,6 +227,7 @@ function _Insights() {
                                                     }}
                                                     displayMap={displayMap}
                                                     filters={allFilters}
+                                                    disabled={allFilters.shown_as === LIFECYCLE}
                                                 />
                                             )}
 
@@ -237,7 +239,7 @@ function _Insights() {
                                                 />
                                             )}
 
-                                            {showComparePrevious[activeView] && <CompareFilter filters={allFilters} />}
+                                            {showComparePrevious[activeView] && <CompareFilter />}
                                             <SaveToDashboard
                                                 item={{
                                                     entity: {
