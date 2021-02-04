@@ -143,7 +143,7 @@ class TestDecide(BaseTest):
         Person.objects.create(team=self.team, distinct_ids=["example_id"])
 
         response = self._post_decide({"distinct_id": "example_id", "api_key": key.value})
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 401)
         self.assertEqual(
             response.json()["message"],
             "Project API key invalid. You can find your project API key in PostHog project settings.",
