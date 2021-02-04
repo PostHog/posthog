@@ -274,7 +274,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
         sessionsPageParams: [
             () => [selectors.filters, selectors.people],
             (filters, people) => {
-                if (!people) {
+                if (!people || !people.action) {
                     return {}
                 }
 
