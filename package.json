@@ -41,7 +41,7 @@
         "@papercups-io/chat-widget": "^1.1.5",
         "@posthog/plugin-scaffold": "0.2.6",
         "@posthog/simmerjs": "0.7.2-posthog.2",
-        "@sentry/browser": "^5.27.2",
+        "@sentry/browser": "^6.0.4",
         "antd": "^4.11.2",
         "babel-preset-nano-react-app": "^0.1.0",
         "chart.js": "^2.9.3",
