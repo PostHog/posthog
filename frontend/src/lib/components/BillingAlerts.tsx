@@ -4,7 +4,7 @@ import { userLogic } from 'scenes/userLogic'
 import { WarningOutlined, ToolFilled } from '@ant-design/icons'
 import { Button, Card } from 'antd'
 
-export function BillingToolbar(): JSX.Element {
+export function BillingAlerts(): JSX.Element {
     const { user } = useValues(userLogic)
 
     return (

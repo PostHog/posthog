@@ -8,7 +8,7 @@ import { ToastContainer, Slide } from 'react-toastify'
 import { Sidebar } from '~/layout/Sidebar'
 import { MainNavigation, TopNavigation } from '~/layout/navigation'
 import { TopContent } from '~/layout/TopContent'
-import { BillingToolbar } from 'lib/components/BillingToolbar'
+import { BillingAlerts } from 'lib/components/BillingAlerts'
 
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic, Scene } from 'scenes/sceneLogic'
@@ -139,7 +139,7 @@ function _App(): JSX.Element | null {
                     <Layout.Content className="main-app-content" data-attr="layout-content">
                         {!sceneConfig.hideDemoWarnings && <DemoWarning />}
 
-                        <BillingToolbar />
+                        <BillingAlerts />
                         {featureFlags['navigation-1775'] ? <BackTo /> : null}
                         {currentTeam && !sceneConfig.hideDemoWarnings && !currentTeam.ingested_event && (
                             <Alert
