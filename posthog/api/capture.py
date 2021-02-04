@@ -18,7 +18,7 @@ from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
     from ee.clickhouse.process_event import log_event, process_event_ee
-    from ee.kafka_client.topics import KAFKA_EVENTS_INGESTION_HANDOFF, KAFKA_EVENTS_WAL
+    from ee.kafka_client.topics import KAFKA_EVENTS_INGESTION, KAFKA_EVENTS_WAL
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -210,10 +210,8 @@ def get_event(request):
             if settings.PLUGIN_SERVER_INGESTION and team.organization_id in getattr(
                 settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", []
             ):
-                log_topics.append(KAFKA_EVENTS_INGESTION_HANDOFF)
-                statsd.Counter(
-                    "%s_posthog_cloud_plugin_server_ingestion_handoff" % (settings.STATSD_PREFIX,)
-                ).increment()
+                log_topics.append(KAFKA_EVENTS_INGESTION)
+                statsd.Counter("%s_posthog_cloud_plugin_server_ingestion" % (settings.STATSD_PREFIX,)).increment()
             else:
                 process_event_ee(
                     distinct_id=distinct_id,
