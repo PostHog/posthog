@@ -332,6 +332,7 @@ export interface PlanInterface {
     custom_setup_billing_message: string
     image_url: string
     self_serve: boolean
+    is_metered_billing: boolean
     allowance: { value: number; formatted: string } | null
 }
 

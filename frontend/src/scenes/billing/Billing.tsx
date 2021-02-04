@@ -2,7 +2,7 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { billingLogic } from './billingLogic'
-import { Card, Progress, Row, Col, Button, Popconfirm, Spin } from 'antd'
+import { Card, Progress, Row, Col, Button, Popconfirm, Spin, Tooltip } from 'antd'
 import defaultImg from 'public/plan-default.svg'
 import { PlanInterface } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -32,6 +32,7 @@ export function Billing(): JSX.Element {
     const { plans, billingSubscriptionLoading, percentage, strokeColor } = useValues(billingLogic)
     const { subscribe } = useActions(billingLogic)
     const { user } = useValues(userLogic)
+    const plan = user?.billing?.plan
 
     const handleBillingSubscribe = (plan: PlanInterface): void => {
         subscribe(plan.key)
@@ -39,25 +40,23 @@ export function Billing(): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                title={
-                    <>
-                        Billing &amp; usage information <span style={{ fontSize: 12, color: '#F7A501' }}>BETA</span>
-                    </>
-                }
-            />
+            <PageHeader title="Billing &amp; usage information" />
             <div className="space-top" />
-            <Card title="Current usage">
+            <Card title="Current monthly usage">
                 {user?.billing?.current_usage && (
                     <>
-                        Your organization has used <b>{user.billing.current_usage.formatted}</b> events this month.{' '}
-                        {user?.billing.plan?.allowance && (
+                        Your organization has used{' '}
+                        <Tooltip title={`${user.billing.current_usage.value.toLocaleString()} events`}>
+                            <b>{user.billing.current_usage.formatted}</b>
+                        </Tooltip>{' '}
+                        events this month.{' '}
+                        {plan?.allowance && (
                             <>
-                                Your current plan has an allowance of up to{' '}
-                                <b>{user?.billing.plan.allowance.formatted}</b> events per month.
+                                Your current plan has an allowance of up to <b>{plan.allowance.formatted}</b> events per
+                                month.
                             </>
                         )}
-                        {user?.billing.plan && !user?.billing.plan.allowance && (
+                        {plan && !plan.allowance && !plan.is_metered_billing && (
                             <>Your current plan has an unlimited event allowance.</>
                         )}
                         <Progress
@@ -66,6 +65,13 @@ export function Billing(): JSX.Element {
                             strokeColor={strokeColor}
                             status={percentage !== null ? 'normal' : 'success'}
                         />
+                        {plan?.is_metered_billing && (
+                            <div className="mt text-muted">
+                                This is the number of events that your organization has ingested across all your
+                                projects for the <b>current month</b> and that <b>will be billed</b> a few days after
+                                the end of the month.
+                            </div>
+                        )}
                     </>
                 )}
                 {!user?.billing?.current_usage && (
@@ -96,17 +102,11 @@ export function Billing(): JSX.Element {
                         <a href={user?.billing.subscription_url}>set them up now</a> or change your plan.{' '}
                     </>
                 )}
-                {!user?.billing?.plan && <>Your organization does not have a billing plan set up yet.</>}
+                {!plan && <>Your organization does not have a billing plan set up yet.</>}
                 {plans?.length > 0 && (
                     <>
+                        {' '}
                         Choose a plan from the list below to initiate a subscription.{' '}
-                        <b>
-                            For more information on our plans, check out our{' '}
-                            <a href="https://posthog.com/pricing" target="_blank">
-                                pricing page
-                            </a>
-                            .
-                        </b>
                         <Row gutter={16} className="space-top">
                             {plans.map((plan: PlanInterface) => (
                                 <Col sm={24 / plans.length} key={plan.key} className="text-center">
