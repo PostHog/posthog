@@ -28,7 +28,7 @@ test('getPluginAttachmentRows', async () => {
             team_id: 2,
         },
     ])
-    server.db.query("update posthog_team set plugins_opt_in='f'")
+    server.db.postgresQuery("update posthog_team set plugins_opt_in='f'")
     const rows2 = await getPluginAttachmentRows(server)
     expect(rows2).toEqual([])
 })
@@ -49,7 +49,7 @@ test('getPluginConfigRows', async () => {
             team_id: 2,
         },
     ])
-    server.db.query("update posthog_team set plugins_opt_in='f'")
+    server.db.postgresQuery("update posthog_team set plugins_opt_in='f'")
     const rows2 = await getPluginConfigRows(server)
     expect(rows2).toEqual([])
 })
@@ -94,7 +94,7 @@ test('getPluginRows', async () => {
             url: 'https://www.npmjs.com/package/posthog-maxmind-plugin',
         },
     ])
-    server.db.query("update posthog_team set plugins_opt_in='f'")
+    server.db.postgresQuery("update posthog_team set plugins_opt_in='f'")
     const rows2 = await getPluginRows(server)
     expect(rows2).toEqual([])
 })
@@ -109,17 +109,17 @@ test('setError', async () => {
         config: {},
         error: undefined,
     }
-    server.db.query = jest.fn() as any
+    server.db.postgresQuery = jest.fn() as any
 
     await setError(server, null, pluginConfig39)
-    expect(server.db.query).toHaveBeenCalledWith('UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2', [
+    expect(server.db.postgresQuery).toHaveBeenCalledWith('UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2', [
         null,
         pluginConfig39.id,
     ])
 
     const pluginError: PluginError = { message: 'error happened', time: 'now' }
     await setError(server, pluginError, pluginConfig39)
-    expect(server.db.query).toHaveBeenCalledWith('UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2', [
+    expect(server.db.postgresQuery).toHaveBeenCalledWith('UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2', [
         pluginError,
         pluginConfig39.id,
     ])

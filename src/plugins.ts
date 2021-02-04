@@ -264,7 +264,7 @@ export async function runPluginsOnBatch(server: PluginsServer, batch: PluginEven
         allReturnedEvents = allReturnedEvents.concat(returnedEvents)
     }
 
-    return allReturnedEvents
+    return allReturnedEvents.filter(Boolean)
 }
 
 export async function runPluginTask(server: PluginsServer, taskName: string, pluginConfigId: number): Promise<any> {

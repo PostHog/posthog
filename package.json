@@ -5,21 +5,29 @@
     "types": "dist/src/index.d.ts",
     "main": "dist/src/index.js",
     "scripts": {
-        "test": "jest --runInBand tests/*.test.ts",
-        "test:postgres": "yarn test --testPathIgnorePatterns '.*/clickhouse'",
-        "test:clickhouse": "yarn test --testPathIgnorePatterns '.*/postgres'",
+        "test": "jest --runInBand tests/**/*.test.ts",
+        "test:postgres": "jest --runInBand tests/postgres/*.test.ts tests/*.test.ts",
+        "test:clickhouse": "jest --runInBand tests/clickhouse/*.test.ts",
         "benchmark": "node --expose-gc node_modules/.bin/jest --runInBand benchmarks/",
         "start": "yarn start:dev",
         "start:dist": "node dist/src/index.js --base-dir ../posthog",
         "start:dev": "ts-node-dev --exit-child src/index.ts --base-dir ../posthog",
+        "start:dev:ee": "KAFKA_ENABLED=true KAFKA_HOSTS=localhost:9092 yarn start:dev",
         "build": "yarn clean && yarn compile",
         "clean": "rimraf dist/*",
-        "compile": "tsc -p .",
+        "compile:protobuf": "cd src/idl/ && rimraf protos.* && pbjs -t static-module -w commonjs -o protos.js *.proto && pbts -o protos.d.ts protos.js && eslint --fix . && prettier --write .",
+        "compile:typescript": "tsc",
+        "compile": "yarn compile:protobuf && yarn compile:typescript",
         "lint": "eslint .",
         "lint:fix": "eslint --fix .",
         "prettier": "prettier --write .",
         "prettier:check": "prettier --check .",
-        "prepublishOnly": "yarn build"
+        "prepare": "yarn compile:protobuf",
+        "prepublishOnly": "yarn build",
+        "setup:dev:clickhouse": "cd ../posthog && export DEBUG=1 PRIMARY_DB=clickhouse && source env/bin/activate && python manage.py migrate_clickhouse",
+        "setup:test:ee": "yarn setup:test:postgres && yarn setup:test:clickhouse",
+        "setup:test:postgres": "cd ../posthog && (dropdb test_posthog || echo 'no db to drop') && createdb test_posthog && source env/bin/activate && DATABASE_URL=postgres://localhost:5432/test_posthog DEBUG=1 python manage.py migrate",
+        "setup:test:clickhouse": "cd ../posthog && export TEST=1 PRIMARY_DB=clickhouse CLICKHOUSE_DATABASE=posthog_test && source env/bin/activate && python manage.py migrate_clickhouse"
     },
     "bin": {
         "posthog-plugin-server": "bin/posthog-plugin-server"
@@ -29,9 +37,9 @@
     "license": "MIT",
     "dependencies": {
         "@google-cloud/bigquery": "^5.5.0",
+        "@posthog/clickhouse": "^1.7.0",
         "@sentry/node": "^5.29.0",
         "@sentry/tracing": "^5.29.0",
-        "@types/luxon": "^1.25.0",
         "adm-zip": "^0.4.16",
         "fastify": "^3.8.0",
         "hot-shots": "^8.2.1",
@@ -42,6 +50,8 @@
         "node-schedule": "^1.3.2",
         "pg": "^8.4.2",
         "piscina": "^2.1.0",
+        "posthog-js-lite": "^0.0.5",
+        "protobufjs": "^6.10.2",
         "redlock": "^4.2.0",
         "tar-stream": "^2.1.4",
         "uuid": "^8.3.1",
@@ -53,10 +63,11 @@
         "@babel/core": "^7.0.0",
         "@babel/preset-env": "^7.0.0",
         "@babel/preset-typescript": "^7.8.3",
-        "@posthog/plugin-scaffold": "0.2.6",
+        "@posthog/plugin-scaffold": "0.2.8",
         "@types/adm-zip": "^0.4.33",
         "@types/ioredis": "^4.17.7",
         "@types/jest": "^26.0.15",
+        "@types/luxon": "^1.25.0",
         "@types/node": "^14.14.6",
         "@types/node-fetch": "^2.5.7",
         "@types/node-schedule": "^1.3.1",
@@ -95,6 +106,6 @@
     },
     "lint-staged": {
         "*.{js,ts}": "eslint --fix",
-        "*.{js,ts,css,scss,json,yml}": "prettier --write"
+        "*.{js,ts,css,scss,json,yml,md}": "prettier --write"
     }
 }

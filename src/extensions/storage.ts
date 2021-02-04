@@ -3,7 +3,7 @@ import { StorageExtension } from '@posthog/plugin-scaffold'
 
 export function createStorage(server: PluginsServer, pluginConfig: PluginConfig): StorageExtension {
     const get = async function (key: string, defaultValue: unknown): Promise<unknown> {
-        const result = await server.db.query(
+        const result = await server.db.postgresQuery(
             'SELECT * FROM posthog_pluginstorage WHERE "plugin_config_id"=$1 AND "key"=$2 LIMIT 1',
             [pluginConfig.id, key]
         )
@@ -11,16 +11,16 @@ export function createStorage(server: PluginsServer, pluginConfig: PluginConfig)
     }
     const set = async function (key: string, value: unknown): Promise<void> {
         if (typeof value === 'undefined') {
-            await server.db.query('DELETE FROM posthog_pluginstorage WHERE "plugin_config_id"=$1 AND "key"=$2', [
-                pluginConfig.id,
-                key,
-            ])
+            await server.db.postgresQuery(
+                'DELETE FROM posthog_pluginstorage WHERE "plugin_config_id"=$1 AND "key"=$2',
+                [pluginConfig.id, key]
+            )
         } else {
-            await server.db.query(
+            await server.db.postgresQuery(
                 `
-                    INSERT INTO posthog_pluginstorage ("plugin_config_id", "key", "value") 
+                    INSERT INTO posthog_pluginstorage ("plugin_config_id", "key", "value")
                     VALUES ($1, $2, $3)
-                    ON CONFLICT ("plugin_config_id", "key") 
+                    ON CONFLICT ("plugin_config_id", "key")
                     DO UPDATE SET value = $3
                 `,
                 [pluginConfig.id, key, JSON.stringify(value)]

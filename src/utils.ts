@@ -2,9 +2,22 @@ import { Readable } from 'stream'
 import * as tar from 'tar-stream'
 import AdmZip from 'adm-zip'
 import * as zlib from 'zlib'
-import { LogLevel } from './types'
+import { LogLevel, TimestampFormat } from './types'
 import { randomBytes } from 'crypto'
 import { DateTime } from 'luxon'
+import { status } from './status'
+
+/** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
+const GRACEFUL_EXIT_PERIOD_SECONDS = 5
+
+export function killGracefully(): void {
+    status.error('⏲', 'Shutting plugin server down gracefully with SIGTERM...')
+    process.kill(process.pid, 'SIGTERM')
+    setTimeout(() => {
+        status.error('⏲', `Plugin server still running after ${GRACEFUL_EXIT_PERIOD_SECONDS} s, killing it forcefully!`)
+        process.exit(1)
+    }, GRACEFUL_EXIT_PERIOD_SECONDS * 1000)
+}
 
 /**
  * @param binary Buffer
@@ -134,12 +147,24 @@ for (let i = 0; i < 256; i++) {
 }
 
 export class UUID {
-    static validateString(candidate: string): void {
-        if (!candidate.match(/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i)) {
+    /**
+     * Check whether str
+     *
+     * This does not care about RFC4122, since neither does UUIDT above.
+     * https://stackoverflow.com/questions/7905929/how-to-test-valid-uuid-guid
+     */
+    static validateString(candidate: any, throwOnInvalid = true): boolean {
+        const isValid = Boolean(
+            candidate &&
+                typeof candidate === 'string' &&
+                candidate.match(/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i)
+        )
+        if (!isValid && throwOnInvalid) {
             throw new Error(
                 'String does not match format XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX (where each X is a hexadecimal character)!'
             )
         }
+        return isValid
     }
 
     array: Uint8Array
@@ -266,8 +291,44 @@ export class UUIDT extends UUID {
     }
 }
 
+/** Format timestamp for ClickHouse. */
+export function castTimestampOrNow(
+    timestamp?: DateTime | string | null,
+    timestampFormat: TimestampFormat = TimestampFormat.ISO
+): string {
+    if (!timestamp) {
+        timestamp = DateTime.utc()
+    } else if (typeof timestamp === 'string') {
+        timestamp = DateTime.fromISO(timestamp)
+    }
+    timestamp = timestamp.toUTC()
+    if (timestampFormat === TimestampFormat.ClickHouse) {
+        return timestamp.toFormat('yyyy-MM-dd HH:mm:ss.u')
+    } else if (timestampFormat === TimestampFormat.ISO) {
+        return timestamp.toUTC().toISO()
+    } else {
+        throw new Error(`Unrecognized timestamp format ${timestampFormat}!`)
+    }
+}
+
+export function clickHouseTimestampToISO(timestamp: string): string {
+    return DateTime.fromFormat(timestamp, 'yyyy-MM-dd HH:mm:ss.u', { zone: 'UTC' }).toISO()
+}
+
 export function delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
         setTimeout(resolve, ms)
     })
+}
+
+/** Remove all quotes from the provided identifier to prevent SQL injection. */
+export function sanitizeSqlIdentifier(unquotedIdentifier: string): string {
+    return unquotedIdentifier.replace(/[^\w\d_]+/g, '')
+}
+
+/** Escape single quotes and slashes */
+export function escapeClickHouseString(string: string): string {
+    // In string literals, you need to escape at least `'` and `\`.
+    // https://clickhouse.tech/docs/en/sql-reference/syntax/
+    return string.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 }

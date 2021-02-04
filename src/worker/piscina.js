@@ -9,7 +9,7 @@ if (isMainThread) {
             const piscina = new Piscina(createConfig(serverConfig, __filename))
             piscina.on('error', (error) => {
                 Sentry.captureException(error)
-                console.error('⚠️ Piscina worker thread error:\n', error)
+                console.error('⚠️', 'Piscina worker thread error:\n', error)
             })
             return piscina
         },

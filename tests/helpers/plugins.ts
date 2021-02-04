@@ -4,6 +4,8 @@ import path from 'path'
 import os from 'os'
 import AdmZip from 'adm-zip'
 
+export const commonUserId = 1001
+export const commonOrganizationMembershipId = '0177364a-fc7b-0000-511c-137090b9e4e1'
 export const commonOrganizationId = 'ca30f2ec-e9a4-4001-bf27-3ef194086068'
 
 export const plugin60: Plugin = {

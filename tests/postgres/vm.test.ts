@@ -1,14 +1,14 @@
-import { createPluginConfigVM } from '../src/vm'
-import { PluginConfig, PluginsServer, Plugin } from '../src/types'
+import { createPluginConfigVM } from '../../src/vm'
+import { PluginsServer } from '../../src/types'
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { createServer } from '../src/server'
+import { createServer } from '../../src/server'
 import * as fetch from 'node-fetch'
-import { delay } from '../src/utils'
-import Client from '../src/celery/client'
-import { resetTestDatabase } from './helpers/sql'
-import { pluginConfig39 } from './helpers/plugins'
+import { delay } from '../../src/utils'
+import Client from '../../src/celery/client'
+import { resetTestDatabase } from '../helpers/sql'
+import { pluginConfig39 } from '../helpers/plugins'
 
-jest.mock('../src/celery/client')
+jest.mock('../../src/celery/client')
 
 const defaultEvent = {
     distinct_id: 'my_id',
@@ -28,7 +28,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
     mockServer.redis.disconnect()
-    await mockServer.db.end()
+    await mockServer.postgres.end()
     jest.clearAllMocks()
 })
 
@@ -712,10 +712,11 @@ test('posthog in runEvery', async () => {
     const response = await vm.tasks.runEveryMinute.exec()
     expect(response).toBe('haha')
 
-    expect(Client).toHaveBeenCalledTimes(1)
-    expect((Client as any).mock.calls[0][1]).toEqual(mockServer.PLUGINS_CELERY_QUEUE)
+    expect(Client).toHaveBeenCalledTimes(2)
+    expect((Client as any).mock.calls[0][1]).toEqual(mockServer.CELERY_DEFAULT_QUEUE) // webhook to celery queue
+    expect((Client as any).mock.calls[1][1]).toEqual(mockServer.PLUGINS_CELERY_QUEUE) // events out to start of plugin queue
 
-    const mockClientInstance = (Client as any).mock.instances[0]
+    const mockClientInstance = (Client as any).mock.instances[1]
     const mockSendTask = mockClientInstance.sendTask
 
     expect(mockSendTask.mock.calls[0][0]).toEqual('posthog.tasks.process_event.process_event_with_plugins')
@@ -750,10 +751,11 @@ test('posthog in runEvery with timestamp', async () => {
     const response = await vm.tasks.runEveryMinute.exec()
     expect(response).toBe('haha')
 
-    expect(Client).toHaveBeenCalledTimes(1)
-    expect((Client as any).mock.calls[0][1]).toEqual(mockServer.PLUGINS_CELERY_QUEUE)
+    expect(Client).toHaveBeenCalledTimes(2)
+    expect((Client as any).mock.calls[0][1]).toEqual(mockServer.CELERY_DEFAULT_QUEUE) // webhook to celery queue
+    expect((Client as any).mock.calls[1][1]).toEqual(mockServer.PLUGINS_CELERY_QUEUE) // events out to start of plugin queue
 
-    const mockClientInstance = (Client as any).mock.instances[0]
+    const mockClientInstance = (Client as any).mock.instances[1]
     const mockSendTask = mockClientInstance.sendTask
 
     expect(mockSendTask.mock.calls[0][0]).toEqual('posthog.tasks.process_event.process_event_with_plugins')

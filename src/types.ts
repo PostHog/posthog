@@ -1,12 +1,13 @@
 import { Pool } from 'pg'
 import { Redis } from 'ioredis'
-import { Kafka } from 'kafkajs'
-import { PluginEvent, PluginAttachment, PluginConfigSchema } from '@posthog/plugin-scaffold'
+import { Kafka, Producer } from 'kafkajs'
+import { PluginEvent, PluginAttachment, PluginConfigSchema, Properties } from '@posthog/plugin-scaffold'
 import { VM } from 'vm2'
 import { DateTime } from 'luxon'
 import { StatsD } from 'hot-shots'
 import { EventsProcessor } from 'ingestion/process-event'
-import { UUID } from './utils'
+import ClickHouse from '@posthog/clickhouse'
+import { DB } from './db'
 
 export enum LogLevel {
     Debug = 'debug',
@@ -22,11 +23,18 @@ export interface PluginsServerConfig extends Record<string, any> {
     TASKS_PER_WORKER: number
     CELERY_DEFAULT_QUEUE: string
     DATABASE_URL: string
+    CLICKHOUSE_HOST: string
+    CLICKHOUSE_DATABASE: string
+    CLICKHOUSE_USER: string
+    CLICKHOUSE_PASSWORD: string | null
+    CLICKHOUSE_CA: string | null
+    CLICKHOUSE_SECURE: boolean
     KAFKA_ENABLED: boolean
     KAFKA_HOSTS: string | null
     KAFKA_CLIENT_CERT_B64: string | null
     KAFKA_CLIENT_CERT_KEY_B64: string | null
     KAFKA_TRUSTED_CERT_B64: string | null
+    KAFKA_CONSUMPTION_TOPIC: string | null
     PLUGINS_CELERY_QUEUE: string
     REDIS_URL: string
     BASE_DIR: string
@@ -35,6 +43,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     WEB_PORT: number
     WEB_HOSTNAME: string
     LOG_LEVEL: LogLevel
+    PLUGIN_SERVER_INGESTION: boolean
     SENTRY_DSN: string | null
     STATSD_HOST: string | null
     STATSD_PORT: number
@@ -43,11 +52,14 @@ export interface PluginsServerConfig extends Record<string, any> {
 }
 
 export interface PluginsServer extends PluginsServerConfig {
-    // active connections to Postgres, Redis, Kafka, StatsD
-    db: Pool
+    // active connections to Postgres, Redis, ClickHouse, Kafka, StatsD
+    db: DB
+    postgres: Pool
     redis: Redis
-    kafka: Kafka | undefined
-    statsd: StatsD | undefined
+    clickhouse?: ClickHouse
+    kafka?: Kafka
+    kafkaProducer?: Producer
+    statsd?: StatsD
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
     pluginConfigs: Map<PluginConfigId, PluginConfig>
@@ -66,6 +78,10 @@ export interface Pausable {
 
 export interface Queue extends Pausable {
     start: () => void
+    stop: () => void
+}
+
+export interface Queue {
     stop: () => void
 }
 
@@ -145,26 +161,188 @@ export interface PluginConfigVMReponse {
     tasks: Record<string, PluginTask>
 }
 
-// received via Kafka
-interface EventMessage {
+export interface EventUsage {
+    event: string
+    usage_count: number | null
+    volume: number | null
+}
+
+export interface PropertyUsage {
+    key: string
+    usage_count: number | null
+    volume: number | null
+}
+
+/** Properties shared by RawEventMessage and EventMessage. */
+export interface BaseEventMessage {
     distinct_id: string
     ip: string
     site_url: string
     team_id: number
-}
-
-export interface RawEventMessage extends EventMessage {
-    data: string
-    now: string
-    sent_at: string // may be an empty string
     uuid: string
 }
 
-export interface ParsedEventMessage extends EventMessage {
+/** Raw event message as received via Kafka. */
+export interface RawEventMessage extends BaseEventMessage {
+    /** JSON-encoded object. */
+    data: string
+    /** ISO-formatted datetime. */
+    now: string
+    /** ISO-formatted datetime. May be empty! */
+    sent_at: string
+    /** JSON-encoded number. */
+    kafka_offset: string
+}
+
+/** Usable event message. */
+export interface EventMessage extends BaseEventMessage {
     data: PluginEvent
     now: DateTime
     sent_at: DateTime | null
-    uuid: UUID
 }
 
-export type Properties = Record<string, any>
+/** Raw Organization row from database. */
+export interface RawOrganization {
+    id: string
+    name: string
+    created_at: string
+    updated_at: string
+}
+
+/** Usable Team model. */
+export interface Team {
+    id: number
+    uuid: string
+    organization_id: string
+    name: string
+    anonymize_ips: boolean
+    api_token: string
+    app_urls: string[]
+    completed_snippet_onboarding: boolean
+    event_names: string[]
+    event_properties: string[]
+    event_properties_numerical: string[]
+    event_names_with_usage: EventUsage[]
+    event_properties_with_usage: PropertyUsage[]
+    opt_out_capture: boolean
+    slack_incoming_webhook: string
+    session_recording_opt_in: boolean
+    plugins_opt_in: boolean
+    ingested_event: boolean
+}
+
+/** Usable Element model. */
+export interface Element {
+    text?: string
+    tag_name?: string
+    href?: string
+    attr_id?: string
+    attr_class?: string[]
+    nth_child?: number
+    nth_of_type?: number
+    attributes?: Record<string, any>
+    event_id?: number
+    order?: number
+    group_id?: number
+}
+
+export interface ElementGroup {
+    id: number
+    hash: string
+    team_id: number
+}
+
+/** Usable Event model. */
+export interface Event {
+    id: number
+    event?: string
+    properties: Record<string, any>
+    elements?: Element[]
+    timestamp: string
+    team_id: number
+    distinct_id: string
+    elements_hash: string
+    created_at: string
+}
+
+export interface ClickHouseEvent extends Omit<Event, 'id' | 'elements' | 'elements_hash'> {
+    uuid: string
+    elements_chain: string
+}
+
+/** Properties shared by RawPerson and Person. */
+export interface BasePerson {
+    id: number
+    team_id: number
+    properties: Properties
+    is_user_id: number
+    is_identified: boolean
+    uuid: string
+}
+
+/** Raw Person row from database. */
+export interface RawPerson extends BasePerson {
+    created_at: string
+}
+
+/** Usable Person model. */
+export interface Person extends BasePerson {
+    created_at: DateTime
+}
+
+/** Clickhouse Person model. */
+export interface ClickHousePerson {
+    id: string
+    created_at: string
+    team_id: number
+    properties: string
+    is_identified: number
+    timestamp: string
+}
+
+/** Usable PersonDistinctId model. */
+export interface PersonDistinctId {
+    id: number
+    team_id: number
+    person_id: number
+    distinct_id: string
+}
+
+/** ClickHouse PersonDistinctId model. */
+export interface ClickHousePersonDistinctId {
+    id: number
+    team_id: number
+    person_id: string
+    distinct_id: string
+}
+
+/** Usable CohortPeople model. */
+export interface CohortPeople {
+    id: number
+    cohort_id: number
+    person_id: number
+}
+
+export interface SessionRecordingEvent {
+    uuid: string
+    timestamp: string
+    team_id: number
+    distinct_id: string
+    session_id: string
+    snapshot_data: string
+    created_at: string
+}
+
+export interface PostgresSessionRecordingEvent extends Omit<SessionRecordingEvent, 'uuid'> {
+    id: string
+}
+
+export enum TimestampFormat {
+    ClickHouse = 'clickhouse',
+    ISO = 'iso',
+}
+
+export enum Database {
+    ClickHouse = 'clickhouse',
+    Postgres = 'postgres',
+}

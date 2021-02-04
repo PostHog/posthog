@@ -5,3 +5,4 @@ yarn-error.log
 dist/
 .yalc/
 yalc.lock
+src/idl/protos.*
