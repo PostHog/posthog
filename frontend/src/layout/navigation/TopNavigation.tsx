@@ -211,7 +211,7 @@ export function _TopNavigation(): JSX.Element {
                 </div>
                 <div>
                     <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
-                        <div className="whoami cursor-pointer">
+                        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
                             <div className="pp">{user?.name[0]?.toUpperCase()}</div>
                             <div className="details hide-lte-lg">
                                 <span>{user?.name}</span>
