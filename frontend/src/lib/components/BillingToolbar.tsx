@@ -14,8 +14,9 @@ export function BillingToolbar(): JSX.Element {
                     <div style={{ display: 'flex' }}>
                         <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
                             <WarningOutlined className="text-warning" style={{ paddingRight: 8 }} />
+                            <b>Action needed!&nbsp;</b>
                             {user?.billing?.plan?.custom_setup_billing_message ||
-                                'Please set up your billing information'}
+                                'Please finish setting up your billing information.'}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center' }}>
                             <Button type="primary" href={user.billing.subscription_url} icon={<ToolFilled />}>

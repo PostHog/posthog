@@ -4,6 +4,8 @@ import { userLogic } from 'scenes/userLogic'
 import { billingLogicType } from './billingLogicType'
 import { BillingSubscription, PlanInterface, UserType } from '~/types'
 
+export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
+
 export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscription, UserType>>({
     loaders: () => ({
         plans: [

@@ -139,7 +139,7 @@ function _App(): JSX.Element | null {
                     <Layout.Content className="main-app-content" data-attr="layout-content">
                         {!sceneConfig.hideDemoWarnings && <DemoWarning />}
 
-                        {!featureFlags['hide-billing-toolbar'] && <BillingToolbar />}
+                        <BillingToolbar />
                         {featureFlags['navigation-1775'] ? <BackTo /> : null}
                         {currentTeam && !sceneConfig.hideDemoWarnings && !currentTeam.ingested_event && (
                             <Alert

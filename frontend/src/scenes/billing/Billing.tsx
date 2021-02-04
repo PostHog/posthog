@@ -2,14 +2,10 @@ import React from 'react'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { billingLogic } from './billingLogic'
-import { Card, Progress, Button, Tooltip } from 'antd'
-import defaultImg from 'public/plan-default.svg'
-import { PageHeader } from 'lib/components/PageHeader'
-import { Link } from 'lib/components/Link'
-import { IconExternalLink } from 'lib/components/icons'
-import { ToolOutlined } from '@ant-design/icons'
+import { Card, Progress, Tooltip } from 'antd'
 
-const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
+import { PageHeader } from 'lib/components/PageHeader'
+import { CurrentPlan } from './CurrentPlan'
 
 export function Billing(): JSX.Element {
     const { percentage, strokeColor } = useValues(billingLogic)
@@ -63,35 +59,8 @@ export function Billing(): JSX.Element {
                     </div>
                 )}
             </Card>
-            <div className="space-top" />
-            {plan && !user?.billing?.should_setup_billing && (
-                <Card title="Organization billing plan">
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <div>
-                            <img src={plan.image_url || defaultImg} alt="" height={100} width={100} />
-                        </div>
-                        <div style={{ flexGrow: 1, paddingLeft: 16 }}>
-                            <h3 className="l3" style={{ marginBottom: 8 }}>
-                                {plan.name}
-                            </h3>
-                            <Link target="_blank" to={`https://posthog.com/pricing#plan-${plan.key}?${UTM_TAGS}`}>
-                                More plan details <IconExternalLink />
-                            </Link>
-                            <div style={{ marginTop: 4 }}>
-                                $0.000225/event per month - First 10,000 events every month for free
-                            </div>
-                            <div className="text-muted mt">
-                                To change or cancel your billing agreement click on <b>manage subscription</b>.
-                            </div>
-                        </div>
-                        <div>
-                            <Button type="primary" href="/billing/manage" icon={<ToolOutlined />}>
-                                Manage subscription
-                            </Button>
-                        </div>
-                    </div>
-                </Card>
-            )}
+            <CurrentPlan />
+
             <div style={{ marginBottom: 128 }} />
         </>
     )
