@@ -1,42 +1,20 @@
 import React from 'react'
-import { useValues, useActions } from 'kea'
+import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { billingLogic } from './billingLogic'
-import { Card, Progress, Row, Col, Button, Popconfirm, Spin, Tooltip } from 'antd'
+import { Card, Progress, Button, Tooltip } from 'antd'
 import defaultImg from 'public/plan-default.svg'
-import { PlanInterface } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
+import { Link } from 'lib/components/Link'
+import { IconExternalLink } from 'lib/components/icons'
+import { ToolOutlined } from '@ant-design/icons'
 
-function Plan({ plan, onUpgrade }: { plan: PlanInterface; onUpgrade: (plan: PlanInterface) => void }): JSX.Element {
-    return (
-        <Card>
-            <img src={plan.image_url || defaultImg} alt="" height={100} width={100} />
-            <h3 style={{ fontSize: 22 }}>{plan.name}</h3>
-            <div>
-                <Popconfirm
-                    title={`Sign up for the ${plan.name} now? You will need a bank card.`}
-                    onConfirm={() => onUpgrade(plan)}
-                    okText="Yes"
-                    cancelText="No"
-                >
-                    <Button data-attr="btn-upgrade-now" data-plan={plan.key}>
-                        Upgrade now
-                    </Button>
-                </Popconfirm>
-            </div>
-        </Card>
-    )
-}
+const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 
 export function Billing(): JSX.Element {
-    const { plans, billingSubscriptionLoading, percentage, strokeColor } = useValues(billingLogic)
-    const { subscribe } = useActions(billingLogic)
+    const { percentage, strokeColor } = useValues(billingLogic)
     const { user } = useValues(userLogic)
     const plan = user?.billing?.plan
-
-    const handleBillingSubscribe = (plan: PlanInterface): void => {
-        subscribe(plan.key)
-    }
 
     return (
         <>
@@ -86,44 +64,34 @@ export function Billing(): JSX.Element {
                 )}
             </Card>
             <div className="space-top" />
-            <Card title="Billing plan">
-                {user?.billing?.plan && !user?.billing.should_setup_billing && (
-                    <>
-                        Your organization is currently on the <b>{user.billing.plan.name}</b>. We're working on allowing
-                        self-serve billing management, in the meantime, please{' '}
-                        <a href="mailto:hey@posthog.com?subject=Billing%20management">contact us</a> if you wish to
-                        change or cancel your subscription.
-                    </>
-                )}
-                {user?.billing?.plan && user?.billing?.should_setup_billing && (
-                    <>
-                        Your organization is currently enrolled in the <b>{user?.billing.plan.name}</b>, but billing
-                        details have not been set up. Please{' '}
-                        <a href={user?.billing.subscription_url}>set them up now</a> or change your plan.{' '}
-                    </>
-                )}
-                {!plan && <>Your organization does not have a billing plan set up yet.</>}
-                {plans?.length > 0 && (
-                    <>
-                        {' '}
-                        Choose a plan from the list below to initiate a subscription.{' '}
-                        <Row gutter={16} className="space-top">
-                            {plans.map((plan: PlanInterface) => (
-                                <Col sm={24 / plans.length} key={plan.key} className="text-center">
-                                    {billingSubscriptionLoading && (
-                                        <Spin>
-                                            <Plan plan={plan} onUpgrade={handleBillingSubscribe} />
-                                        </Spin>
-                                    )}
-                                    {!billingSubscriptionLoading && (
-                                        <Plan plan={plan} onUpgrade={handleBillingSubscribe} />
-                                    )}
-                                </Col>
-                            ))}
-                        </Row>
-                    </>
-                )}
-            </Card>
+            {plan && !user?.billing?.should_setup_billing && (
+                <Card title="Organization billing plan">
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <div>
+                            <img src={plan.image_url || defaultImg} alt="" height={100} width={100} />
+                        </div>
+                        <div style={{ flexGrow: 1, paddingLeft: 16 }}>
+                            <h3 className="l3" style={{ marginBottom: 8 }}>
+                                {plan.name}
+                            </h3>
+                            <Link target="_blank" to={`https://posthog.com/pricing#plan-${plan.key}?${UTM_TAGS}`}>
+                                More plan details <IconExternalLink />
+                            </Link>
+                            <div style={{ marginTop: 4 }}>
+                                $0.000225/event per month - First 10,000 events every month for free
+                            </div>
+                            <div className="text-muted mt">
+                                To change or cancel your billing agreement click on <b>manage subscription</b>.
+                            </div>
+                        </div>
+                        <div>
+                            <Button type="primary" href="/billing/manage" icon={<ToolOutlined />}>
+                                Manage subscription
+                            </Button>
+                        </div>
+                    </div>
+                </Card>
+            )}
             <div style={{ marginBottom: 128 }} />
         </>
     )
