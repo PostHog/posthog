@@ -1,10 +1,11 @@
-import { Pool } from 'pg'
+import { Pool, types as pgTypes } from 'pg'
 import * as schedule from 'node-schedule'
 import Redis from 'ioredis'
-import { Kafka, logLevel } from 'kafkajs'
+import { Kafka, logLevel, Producer } from 'kafkajs'
 import { FastifyInstance } from 'fastify'
 import { PluginsServer, PluginsServerConfig, Queue } from './types'
 import { startQueue } from './worker/queue'
+import ClickHouse from '@posthog/clickhouse'
 import { startFastifyInstance, stopFastifyInstance } from './web/server'
 import { version } from '../package.json'
 import { PluginEvent } from '@posthog/plugin-scaffold'
@@ -17,6 +18,10 @@ import { EventsProcessor } from './ingestion/process-event'
 import { status } from './status'
 import { startSchedule } from './services/schedule'
 import { ConnectionOptions } from 'tls'
+import { DB } from './db'
+import { DateTime } from 'luxon'
+import * as fs from 'fs'
+import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_WAL } from './ingestion/topics'
 
 export async function createServer(
     config: Partial<PluginsServerConfig> = {},
@@ -40,15 +45,6 @@ export async function createServer(
         })
     await redis.info()
 
-    const db = new Pool({
-        connectionString: serverConfig.DATABASE_URL,
-        ssl: process.env.DEPLOYMENT?.startsWith('Heroku')
-            ? {
-                  rejectUnauthorized: false,
-              }
-            : undefined,
-    })
-
     let kafkaSsl: ConnectionOptions | undefined
     if (
         serverConfig.KAFKA_CLIENT_CERT_B64 &&
@@ -68,18 +64,67 @@ export async function createServer(
         }
     }
 
+    let clickhouse: ClickHouse | undefined
     let kafka: Kafka | undefined
+    let kafkaProducer: Producer | undefined
     if (serverConfig.KAFKA_ENABLED) {
         if (!serverConfig.KAFKA_HOSTS) {
             throw new Error('You must set KAFKA_HOSTS to process events from Kafka!')
         }
+        clickhouse = new ClickHouse({
+            host: serverConfig.CLICKHOUSE_HOST,
+            port: serverConfig.CLICKHOUSE_SECURE ? 8443 : 8123,
+            protocol: serverConfig.CLICKHOUSE_SECURE ? 'https:' : 'http:',
+            user: serverConfig.CLICKHOUSE_USER,
+            password: serverConfig.CLICKHOUSE_PASSWORD || undefined,
+            dataObjects: true,
+            queryOptions: {
+                database: serverConfig.CLICKHOUSE_DATABASE,
+                output_format_json_quote_64bit_integers: false,
+            },
+            ca: serverConfig.CLICKHOUSE_CA ? fs.readFileSync(serverConfig.CLICKHOUSE_CA).toString() : undefined,
+        })
+        await clickhouse.querying('SELECT 1') // test that the connection works
+
+        if (!serverConfig.KAFKA_CONSUMPTION_TOPIC) {
+            // When ingesting events, listen to the "INGESTION" topic, otherwise listen to the "WAL" and discard
+            serverConfig.KAFKA_CONSUMPTION_TOPIC = serverConfig.PLUGIN_SERVER_INGESTION
+                ? KAFKA_EVENTS_PLUGIN_INGESTION
+                : KAFKA_EVENTS_WAL
+        }
+
         kafka = new Kafka({
             clientId: `plugin-server-v${version}-${new UUIDT()}`,
             brokers: serverConfig.KAFKA_HOSTS.split(','),
-            logLevel: logLevel.NOTHING,
+            logLevel: logLevel.WARN,
             ssl: kafkaSsl,
         })
+        kafkaProducer = kafka.producer()
+        await kafkaProducer?.connect()
     }
+
+    // `node-postgres` will return dates as plain JS Date objects, which will use the local timezone.
+    // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
+    // Unfortunately this must be done on a global object before initializing the `Pool`
+    pgTypes.setTypeParser(1083 /* types.TypeId.TIME */, (timeStr) =>
+        timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
+    )
+    pgTypes.setTypeParser(1114 /* types.TypeId.TIMESTAMP */, (timeStr) =>
+        timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
+    )
+    pgTypes.setTypeParser(1184 /* types.TypeId.TIMESTAMPTZ */, (timeStr) =>
+        timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
+    )
+
+    const postgres = new Pool({
+        connectionString: serverConfig.DATABASE_URL,
+        ssl: process.env.DEPLOYMENT?.startsWith('Heroku')
+            ? {
+                  rejectUnauthorized: false,
+              }
+            : undefined,
+    })
+    const db = new DB(postgres, kafkaProducer, clickhouse)
 
     let statsd: StatsD | undefined
     if (serverConfig.STATSD_HOST) {
@@ -100,8 +145,11 @@ export async function createServer(
     const server: Omit<PluginsServer, 'eventsProcessor'> = {
         ...serverConfig,
         db,
+        postgres,
         redis,
+        clickhouse,
         kafka,
+        kafkaProducer,
         statsd,
         plugins: new Map(),
         pluginConfigs: new Map(),
@@ -115,8 +163,9 @@ export async function createServer(
     server.eventsProcessor = new EventsProcessor(server as PluginsServer)
 
     const closeServer = async () => {
+        await kafkaProducer?.disconnect()
         await server.redis.quit()
-        await server.db.end()
+        await server.postgres.end()
     }
 
     return [server as PluginsServer, closeServer]
@@ -165,7 +214,7 @@ export async function startPluginsServer(
             await stopFastifyInstance(fastifyInstance!)
         }
         await queue?.stop()
-        pubSub?.disconnect()
+        await pubSub?.quit()
         pingJob && schedule.cancelJob(pingJob)
         statsJob && schedule.cancelJob(statsJob)
         await stopSchedule?.()
@@ -207,6 +256,7 @@ export async function startPluginsServer(
             fastifyInstance = await startFastifyInstance(server)
         }
 
+        stopSchedule = await startSchedule(server, piscina)
         queue = await startQueue(server, processEvent, processEventBatch)
         piscina.on('drain', () => {
             queue?.resume()
@@ -242,8 +292,6 @@ export async function startPluginsServer(
                 server!.statsd?.gauge(`piscina.queue_size`, piscina?.queueSize)
             }
         })
-
-        stopSchedule = await startSchedule(server, piscina)
 
         status.info('🚀', 'All systems go.')
     } catch (error) {

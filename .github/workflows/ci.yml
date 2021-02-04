@@ -73,8 +73,15 @@ jobs:
               with:
                   node-version: 14
 
+            - uses: actions/cache@v2
+              with:
+                  path: ${{ env.pythonLocation }}
+                  key: ${{ env.pythonLocation }}-${{ hashFiles('posthog/requirements.txt') }}
+
             - name: Install requirements.txt dependencies with pip
-              run: python -m pip install --upgrade pip && python -m pip install -r posthog/requirements.txt
+              run: |
+                  pip install --upgrade pip
+                  pip install --upgrade --upgrade-strategy eager -r posthog/requirements.txt
 
             - name: Set up databases
               env:
@@ -92,6 +99,97 @@ jobs:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
               run: cd plugin-server && yarn test:postgres
+
+    tests-clickhouse:
+        name: Tests / ClickHouse + Kafka
+        runs-on: ubuntu-20.04
+
+        services:
+            postgres:
+                image: postgres:12
+                env:
+                    POSTGRES_USER: postgres
+                    POSTGRES_PASSWORD: postgres
+                    POSTGRES_DB: test_posthog
+                ports: ['5432:5432']
+                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+            redis:
+                image: redis
+                ports:
+                    - '6379:6379'
+                options: >-
+                    --health-cmd "redis-cli ping"
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+
+        env:
+            REDIS_URL: 'redis://localhost'
+            CLICKHOUSE_HOST: 'localhost'
+            CLICKHOUSE_DATABASE: 'posthog_test'
+            KAFKA_ENABLED: 'true'
+            KAFKA_HOSTS: 'kafka:9092'
+
+        steps:
+            - name: Check out Django server for database setup
+              uses: actions/checkout@v2
+              with:
+                  repository: 'PostHog/posthog'
+                  path: 'posthog/'
+
+            - name: Check out plugin server
+              uses: actions/checkout@v2
+              with:
+                  path: 'plugin-server'
+
+            - name: Fix Kafka Hostname
+              run: |
+                  sudo bash -c 'echo "127.0.0.1 kafka zookeeper" >> /etc/hosts'
+                  ping -c 1 kafka
+                  ping -c 1 zookeeper
+
+            - name: Start Kafka, Clickhouse, Zookeeper
+              run: |
+                  cd posthog/ee
+                  docker-compose -f docker-compose.ch.yml up -d zookeeper kafka clickhouse
+
+            - name: Set up Python
+              uses: actions/setup-python@v2
+              with:
+                  python-version: 3.8
+
+            - name: Set up Node 14
+              uses: actions/setup-node@v2
+              with:
+                  node-version: 14
+
+            - uses: actions/cache@v2
+              with:
+                  path: ${{ env.pythonLocation }}
+                  key: ${{ env.pythonLocation }}-${{ hashFiles('posthog/requirements.txt') }}
+
+            - name: Install requirements.txt dependencies with pip
+              run: |
+                  pip install --upgrade pip
+                  pip install --upgrade --upgrade-strategy eager -r posthog/requirements.txt
+
+            - name: Set up databases
+              env:
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
+                  PRIMARY_DB: 'clickhouse'
+                  TEST: 'true'
+              run: python posthog/manage.py setup_test_environment
+
+            - name: Install package.json dependencies with Yarn
+              run: cd plugin-server && yarn
+
+            - name: Test with Jest
+              env:
+                  # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/test_posthog'
+                  REDIS_URL: 'redis://localhost'
+              run: cd plugin-server && yarn test:clickhouse
 
     benchmarks-postgres:
         name: Benchmarks / Postgres + Redis
@@ -141,8 +239,15 @@ jobs:
               with:
                   node-version: 14
 
+            - uses: actions/cache@v2
+              with:
+                  path: ${{ env.pythonLocation }}
+                  key: ${{ env.pythonLocation }}-${{ hashFiles('posthog/requirements.txt') }}
+
             - name: Install requirements.txt dependencies with pip
-              run: python -m pip install --upgrade pip && python -m pip install -r posthog/requirements.txt
+              run: |
+                  pip install --upgrade pip
+                  pip install --upgrade --upgrade-strategy eager -r posthog/requirements.txt
 
             - name: Set up databases
               env:

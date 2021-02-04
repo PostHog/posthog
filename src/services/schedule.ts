@@ -13,7 +13,7 @@ export async function startSchedule(
     piscina: Piscina,
     onLock?: () => void
 ): Promise<() => Promise<void>> {
-    status.info('⏰', 'Starting scheduling service')
+    status.info('⏰', 'Starting scheduling service...')
 
     let stopped = false
     let weHaveTheLock = false

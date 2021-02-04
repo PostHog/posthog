@@ -4,8 +4,9 @@ import { DateTime } from 'luxon'
 import Worker from '../celery/worker'
 import Client from '../celery/client'
 import { PluginsServer, Queue } from '../types'
-import { status } from '../status'
 import { KafkaQueue } from '../ingestion/kafka-queue'
+import { status } from '../status'
+import { UUIDT } from '../utils'
 
 export async function startQueue(
     server: PluginsServer,
@@ -45,15 +46,29 @@ async function startQueueRedis(
                 const processedEvent = await processEvent(event)
                 if (processedEvent) {
                     const { distinct_id, ip, site_url, team_id, now, sent_at, ...data } = processedEvent
-                    client.sendTask('posthog.tasks.process_event.process_event', [], {
-                        distinct_id,
-                        ip,
-                        site_url,
-                        data,
-                        team_id,
-                        now,
-                        sent_at,
-                    })
+
+                    if (server.PLUGIN_SERVER_INGESTION) {
+                        await server.eventsProcessor.processEvent(
+                            distinct_id,
+                            ip,
+                            site_url,
+                            processedEvent,
+                            team_id,
+                            DateTime.fromISO(now),
+                            sent_at ? DateTime.fromISO(sent_at) : null,
+                            new UUIDT().toString()
+                        )
+                    } else {
+                        client.sendTask('posthog.tasks.process_event.process_event', [], {
+                            distinct_id,
+                            ip,
+                            site_url,
+                            data,
+                            team_id,
+                            now,
+                            sent_at,
+                        })
+                    }
                 }
             } catch (e) {
                 Sentry.captureException(e)
@@ -72,16 +87,23 @@ async function startQueueKafka(
     processEventBatch: (event: PluginEvent[]) => Promise<(PluginEvent | null)[]>
 ): Promise<Queue> {
     const kafkaQueue = new KafkaQueue(server, processEventBatch, async (event: PluginEvent) => {
-        const { distinct_id, ip, site_url, team_id, now, sent_at } = event
-        await server.eventsProcessor.process_event_ee(
-            distinct_id,
-            ip,
-            site_url,
-            event,
-            team_id,
-            DateTime.fromISO(now),
-            sent_at ? DateTime.fromISO(sent_at) : null
-        )
+        const { distinct_id, ip, site_url, team_id, now, sent_at, uuid } = event
+        if (!uuid) {
+            status.error('❓', 'UUID missing in event received from Kafka!')
+            return
+        }
+        if (server.PLUGIN_SERVER_INGESTION) {
+            await server.eventsProcessor.processEvent(
+                distinct_id,
+                ip,
+                site_url,
+                event,
+                team_id,
+                DateTime.fromISO(now),
+                sent_at ? DateTime.fromISO(sent_at) : null,
+                uuid
+            )
+        }
     })
 
     await kafkaQueue.start()

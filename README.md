@@ -27,30 +27,38 @@ Let's get you developing the plugin server in no time:
 
 There's a multitude of settings you can use to control the plugin server. Use them as environment variables.
 
-| Name                          | Description                                                | Default value                         |
-| ----------------------------- | ---------------------------------------------------------- | ------------------------------------- |
-| DATABASE_URL                  | Postgres database URL                                      | `'postgres://localhost:5432/posthog'` |
-| REDIS_URL                     | Redis store URL                                            | `'redis://localhost'`                 |
-| BASE_DIR                      | base path for resolving local plugins                      | `'.'`                                 |
-| WORKER_CONCURRENCY            | number of concurrent worker threads                        | `0` – all cores                       |
-| TASKS_PER_WORKER              | number of parallel tasks per worker thread                 | `10`                                  |
-| SCHEDULE_LOCK_TTL             | How many seconds to hold the lock for the schedule         | `60`                                  |
-| CELERY_DEFAULT_QUEUE          | Celery outgoing queue                                      | `'celery'`                            |
-| PLUGINS_CELERY_QUEUE          | Celery incoming queue                                      | `'posthog-plugins'`                   |
-| PLUGINS_RELOAD_PUBSUB_CHANNEL | Redis channel for reload events                            | `'reload-plugins'`                    |
-| KAFKA_ENABLED                 | use Kafka instead of Celery to ingest events               | `false`                               |
-| KAFKA_HOSTS                   | comma-delimited Kafka hosts                                | `null`                                |
-| KAFKA_CLIENT_CERT_B64         | Kafka certificate in Base64                                | `null`                                |
-| KAFKA_CLIENT_CERT_KEY_B64     | Kafka certificate key in Base64                            | `null`                                |
-| KAFKA_TRUSTED_CERT_B64        | Kafka trusted CA in Base64                                 | `null`                                |
-| DISABLE_WEB                   | whether to disable web server                              | `true`                                |
-| WEB_PORT                      | port for web server to listen on                           | `3008`                                |
-| WEB_HOSTNAME                  | hostname for web server to listen on                       | `'0.0.0.0'`                           |
-| LOG_LEVEL                     | minimum log level                                          | `LogLevel.Info`                       |
-| SENTRY_DSN                    | Sentry ingestion URL                                       | `null`                                |
-| STATSD_HOST                   | StatsD host - integration disabled if this is not provided | `null`                                |
-| STATSD_PORT                   | StatsD port                                                | `8125`                                |
-| STATSD_PREFIX                 | StatsD prefix                                              | `'plugin-server.'`                    |
+| Name                          | Description                                                         | Default value                         |
+| ----------------------------- | ------------------------------------------------------------------- | ------------------------------------- |
+| DATABASE_URL                  | Postgres database URL                                               | `'postgres://localhost:5432/posthog'` |
+| REDIS_URL                     | Redis store URL                                                     | `'redis://localhost'`                 |
+| BASE_DIR                      | base path for resolving local plugins                               | `'.'`                                 |
+| WORKER_CONCURRENCY            | number of concurrent worker threads                                 | `0` – all cores                       |
+| TASKS_PER_WORKER              | number of parallel tasks per worker thread                          | `10`                                  |
+| SCHEDULE_LOCK_TTL             | How many seconds to hold the lock for the schedule                  | `60`                                  |
+| CELERY_DEFAULT_QUEUE          | Celery outgoing queue                                               | `'celery'`                            |
+| PLUGINS_CELERY_QUEUE          | Celery incoming queue                                               | `'posthog-plugins'`                   |
+| PLUGINS_RELOAD_PUBSUB_CHANNEL | Redis channel for reload events                                     | `'reload-plugins'`                    |
+| PLUGIN_SERVER_INGESTION       | Whether the plugin server should put events right into the database | `false`                               |
+| CLICKHOUSE_HOST               | ClickHouse host                                                     | `'localhost'`                         |
+| CLICKHOUSE_DATABASE           | ClickHouse database                                                 | `'default'`                           |
+| CLICKHOUSE_USER               | ClickHouse username                                                 | `'default'`                           |
+| CLICKHOUSE_PASSWORD           | ClickHouse password                                                 | `null`                                |
+| CLICKHOUSE_CA                 | ClickHouse CA certs                                                 | `null`                                |
+| CLICKHOUSE_SECURE             | Secure ClickHouse connection                                        | `false`                               |
+| KAFKA_ENABLED                 | use Kafka instead of Celery to ingest events                        | `false`                               |
+| KAFKA_HOSTS                   | comma-delimited Kafka hosts                                         | `null`                                |
+| KAFKA_CONSUMPTION_TOPIC       | Kafka consumption topic override                                    | `null` (automatic)                    |
+| KAFKA_CLIENT_CERT_B64         | Kafka certificate in Base64                                         | `null`                                |
+| KAFKA_CLIENT_CERT_KEY_B64     | Kafka certificate key in Base64                                     | `null`                                |
+| KAFKA_TRUSTED_CERT_B64        | Kafka trusted CA in Base64                                          | `null`                                |
+| DISABLE_WEB                   | whether to disable web server                                       | `true`                                |
+| WEB_PORT                      | port for web server to listen on                                    | `3008`                                |
+| WEB_HOSTNAME                  | hostname for web server to listen on                                | `'0.0.0.0'`                           |
+| LOG_LEVEL                     | minimum log level                                                   | `LogLevel.Info`                       |
+| SENTRY_DSN                    | Sentry ingestion URL                                                | `null`                                |
+| STATSD_HOST                   | StatsD host - integration disabled if this is not provided          | `null`                                |
+| STATSD_PORT                   | StatsD port                                                         | `8125`                                |
+| STATSD_PREFIX                 | StatsD prefix                                                       | `'plugin-server.'`                    |
 
 ## Questions?
 

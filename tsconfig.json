@@ -12,7 +12,7 @@
         "sourceMap": true,
         "baseUrl": "./src",
         "outDir": "./dist",
-        "types": ["node", "jest"],
+        "types": ["node", "jest", "long"],
         "resolveJsonModule": true,
         "strict": true
     },

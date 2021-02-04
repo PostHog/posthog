@@ -7,6 +7,8 @@ import {
     cloneObject,
     UUID,
     UUIDT,
+    sanitizeSqlIdentifier,
+    escapeClickHouseString,
 } from '../src/utils'
 import { randomBytes } from 'crypto'
 import { LogLevel } from '../src/types'
@@ -293,5 +295,25 @@ describe('UUIDT', () => {
         expect(uuidtString.slice(0, 8)).toEqual(Date.now().toString(16).padStart(12, '0').slice(0, 8))
         // series matching
         expect(uuidtString.slice(14, 18)).toEqual('0000')
+    })
+})
+
+describe('sanitizeSqlIdentifier', () => {
+    it('removes all characters that are neither letter, digit or underscore and adds quotes around identifier', () => {
+        const rawIdentifier = 'some_field"; DROP TABLE actually_an_injection-9;'
+
+        const sanitizedIdentifier = sanitizeSqlIdentifier(rawIdentifier)
+
+        expect(sanitizedIdentifier).toStrictEqual('some_fieldDROPTABLEactually_an_injection9')
+    })
+})
+
+describe('escapeClickHouseString', () => {
+    it('escapes single quotes and slashes', () => {
+        const rawString = "insert'escape \\"
+
+        const sanitizedString = escapeClickHouseString(rawString)
+
+        expect(sanitizedString).toStrictEqual("insert\\'escape \\\\")
     })
 })

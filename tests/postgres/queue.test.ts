@@ -1,9 +1,9 @@
-import { redisFactory } from './helpers/redis'
-import { startQueue } from '../src/worker/queue'
-import { createServer } from '../src/server'
-import { LogLevel, PluginsServer } from '../src/types'
-import Client from '../src/celery/client'
-import { runPlugins } from '../src/plugins'
+import { redisFactory } from '../helpers/redis'
+import { startQueue } from '../../src/worker/queue'
+import { createServer } from '../../src/server'
+import { LogLevel, PluginsServer } from '../../src/types'
+import Client from '../../src/celery/client'
+import { runPlugins } from '../../src/plugins'
 
 jest.mock('ioredis', () => redisFactory())
 

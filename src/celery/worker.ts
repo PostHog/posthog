@@ -171,14 +171,14 @@ export class Worker extends Base implements Queue {
                 throw new Error(`Missing process handler for task ${taskName}`)
             }
 
-            console.info(
+            console.debug(
                 `celery.node Received task: ${taskName}[${taskId}], args: ${args}, kwargs: ${JSON.stringify(kwargs)}`
             )
 
             const timeStart = process.hrtime()
             const taskPromise = handler(...args, kwargs).then((result) => {
                 const diff = process.hrtime(timeStart)
-                console.info(
+                console.debug(
                     `celery.node Task ${taskName}[${taskId}] succeeded in ${diff[0] + diff[1] / 1e9}s: ${result}`
                 )
                 this.activeTasks.delete(taskPromise)
