@@ -9,7 +9,7 @@ from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.demo.data_generator import DataGenerator
-from posthog.models import Action, ActionStep, Dashboard, DashboardItem, Element, Person
+from posthog.models import Action, ActionStep, Dashboard, DashboardItem, Person
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import UUIDT
 
@@ -122,7 +122,11 @@ class WebDataGenerator(DataGenerator):
             self.add_event(
                 event="$pageview",
                 distinct_id=distinct_id,
-                properties={"$current_url": "http://hogflix.com/2", "$browser": browser, "$lib": "web",},
+                properties={
+                    "$current_url": "http://hogflix.com/2",
+                    "$browser": browser,
+                    "$lib": "web",
+                },
                 timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=30),
             )
             if index % 5 == 0:
@@ -153,7 +157,11 @@ class WebDataGenerator(DataGenerator):
                 self.add_event(
                     event="$pageview",
                     distinct_id=distinct_id,
-                    properties={"$current_url": "http://hogflix.com/3", "$browser": browser, "$lib": "web",},
+                    properties={
+                        "$current_url": "http://hogflix.com/3",
+                        "$browser": browser,
+                        "$lib": "web",
+                    },
                     timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=60),
                 )
 

@@ -109,7 +109,7 @@ describe('Trends actions & events', () => {
 
     it('Apply all users cohort breakdown', () => {
         cy.get('[data-attr=add-breakdown-button]').click()
-        cy.contains('Cohort').click()
+        cy.get('[data-attr=breakdown-filter-content]').contains('Cohort').click()
         cy.get('[data-attr=cohort-breakdown-select]').click()
         cy.get('[data-attr=cohort-breakdown-all-users]').click()
 

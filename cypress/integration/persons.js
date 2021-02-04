@@ -1,7 +1,6 @@
 describe('Persons', () => {
     beforeEach(() => {
-        // TODO: Remove when releasing navigation-1775
-        cy.get('[data-attr=menu-item-people]').click()
+        cy.get('[data-attr=menu-item-persons]').click()
     })
 
     it('People loaded', () => {
@@ -17,13 +16,5 @@ describe('Persons', () => {
         cy.get('.ant-tabs-nav-list > :nth-child(3)').click()
         cy.wait(200)
         cy.get('.ant-empty-img-simple').should('exist')
-    })
-
-    it('Person & cohorts routes works', () => {
-        cy.get('[data-attr=menu-item-cohorts]').click()
-        cy.get('h1').should('contain', 'Cohorts')
-
-        cy.get('[data-attr=menu-item-persons]').click()
-        cy.get('h1').should('contain', 'Persons')
     })
 })
