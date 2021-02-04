@@ -22,7 +22,6 @@ import { DB } from './db'
 import { DateTime } from 'luxon'
 import * as fs from 'fs'
 import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_WAL } from './ingestion/topics'
-import * as path from 'path'
 
 export async function createServer(
     config: Partial<PluginsServerConfig> = {},
@@ -86,6 +85,7 @@ export async function createServer(
             ca: serverConfig.CLICKHOUSE_CA
                 ? fs.readFileSync(path.join(serverConfig.BASE_DIR, serverConfig.CLICKHOUSE_CA)).toString()
                 : undefined,
+            rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
         })
         await clickhouse.querying('SELECT 1') // test that the connection works
 
@@ -107,7 +107,7 @@ export async function createServer(
     }
 
     // `node-postgres` will return dates as plain JS Date objects, which will use the local timezone.
-    // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
+    // This converts all date fields to a proper luxon UTC DateTime
     // Unfortunately this must be done on a global object before initializing the `Pool`
     pgTypes.setTypeParser(1083 /* types.TypeId.TIME */, (timeStr) =>
         timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
