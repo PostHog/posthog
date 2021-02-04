@@ -340,6 +340,29 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             second_result = self.client.get(result["next"]).json()
             self.assertEqual(len(second_result["results"][0]["people"]), 50)
 
+        def test_stickiness_compared(self):
+            self._create_multiple_people()
+
+            filter = StickinessFilter(
+                data={
+                    "shown_as": "Stickiness",
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-08",
+                    "compare": "true",
+                    "display": "ActionsLineGraph",
+                    "events": '[{"id":"watched movie","math":"dau","name":"watched movie","type":"events","order":null,"properties":[],"math_property":null}]',
+                    "insight": "TRENDS",
+                    "interval": "day",
+                    "properties": "[]",
+                    "shown_as": "Stickiness",
+                },
+                team=self.team,
+                get_earliest_timestamp=get_earliest_timestamp,
+            )
+            response = stickiness().run(filter, self.team)
+            self.assertEqual(response[0]["data"], [2, 1, 1, 0, 0, 0, 0, 0])
+            self.assertEqual(response[1]["data"], [3, 0, 0, 0, 0, 0, 0, 0])
+
     return TestStickiness
 
 
