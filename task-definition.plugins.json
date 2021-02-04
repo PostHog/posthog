@@ -17,6 +17,18 @@
             "essential": true,
             "environment": [
                 {
+                    "name": "CLICKHOUSE_DATABASE",
+                    "value": "posthog"
+                },
+                {
+                    "name": "CLICKHOUSE_SECURE",
+                    "value": "True"
+                },
+                {
+                    "name": "CLICKHOUSE_VERIFY",
+                    "value": "True"
+                },
+                {
                     "name": "KAFKA_ENABLED",
                     "value": "True"
                 },
@@ -26,6 +38,18 @@
                 }
             ],
             "secrets": [
+                {
+                    "name": "CLICKHOUSE_CA",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_CA::"
+                },
+                {
+                    "name": "CLICKHOUSE_HOST",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_HOST::"
+                },
+                {
+                    "name": "CLICKHOUSE_PASSWORD",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_PASSWORD::"
+                },
                 {
                     "name": "DATABASE_URL",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:DATABASE_URL::"
