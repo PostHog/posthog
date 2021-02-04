@@ -112,7 +112,6 @@ function _Insights() {
     const { setActiveView } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const compareDisabled = allFilters?.shown_as === LIFECYCLE || allFilters?.date_from === 'all'
     const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
     return (
         user?.team && (
@@ -229,14 +228,13 @@ function _Insights() {
                                                     }}
                                                     displayMap={displayMap}
                                                     filters={allFilters}
+                                                    disabled={allFilters.shown_as === LIFECYCLE}
                                                 />
                                             )}
 
                                             {showDateFilter[activeView] && <DateFilter disabled={dateFilterDisabled} />}
 
-                                            {showComparePrevious[activeView] && (
-                                                <CompareFilter disabled={compareDisabled} />
-                                            )}
+                                            {showComparePrevious[activeView] && <CompareFilter />}
                                             <SaveToDashboard
                                                 item={{
                                                     entity: {

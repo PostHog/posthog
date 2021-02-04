@@ -51,7 +51,7 @@ export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
 
 export enum ShownAsValue {
-    VOLUME,
-    STICKINESS,
-    LIFECYCLE,
+    VOLUME = 'Volume',
+    STICKINESS = 'Stickiness',
+    LIFECYCLE = 'Lifecycle',
 }
