@@ -22,6 +22,7 @@ import { DB } from './db'
 import { DateTime } from 'luxon'
 import * as fs from 'fs'
 import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_WAL } from './ingestion/topics'
+import * as path from 'path'
 
 export async function createServer(
     config: Partial<PluginsServerConfig> = {},
@@ -82,7 +83,9 @@ export async function createServer(
                 database: serverConfig.CLICKHOUSE_DATABASE,
                 output_format_json_quote_64bit_integers: false,
             },
-            ca: serverConfig.CLICKHOUSE_CA ? fs.readFileSync(serverConfig.CLICKHOUSE_CA).toString() : undefined,
+            ca: serverConfig.CLICKHOUSE_CA
+                ? fs.readFileSync(path.join(serverConfig.BASE_DIR, serverConfig.CLICKHOUSE_CA)).toString()
+                : undefined,
         })
         await clickhouse.querying('SELECT 1') // test that the connection works
 
