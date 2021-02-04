@@ -48,9 +48,7 @@ export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
                             <Link target="_blank" to={`https://posthog.com/pricing#plan-${plan.key}?${UTM_TAGS}`}>
                                 More plan details <IconExternalLink />
                             </Link>
-                            <div style={{ marginTop: 4 }}>
-                                $0.000225/event per month - First 10,000 events every month for free
-                            </div>
+                            <div style={{ marginTop: 4 }}>{plan.price_string}</div>
                             <div className="text-muted mt">
                                 To cancel your billing agreement, <b>update your card</b> or other billing information,
                                 click on <b>manage subscription</b>.

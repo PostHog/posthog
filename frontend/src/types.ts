@@ -340,6 +340,8 @@ export interface PlanInterface {
     self_serve: boolean
     is_metered_billing: boolean
     allowance: FormattedNumber | null
+    price_string: string
+    description: string
 }
 
 export interface BillingSubscription {
