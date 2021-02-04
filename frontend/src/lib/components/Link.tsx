@@ -32,6 +32,6 @@ export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProp
     if (typeof tag === 'string') {
         return React.createElement(tag, elProps)
     } else {
-        return React.cloneElement(tag, props)
+        return React.cloneElement(tag, elProps)
     }
 }
