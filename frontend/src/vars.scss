@@ -62,5 +62,7 @@ $radius: 2px;
 $top_nav_height: 50px;
 
 // Z-indexes
+$z_top_navigation: 1000;
 $z_mobile_nav_overlay: 1031;
+$z_main_nav: 1048;
 $z_pinned_dashboards_popup: 1062;
