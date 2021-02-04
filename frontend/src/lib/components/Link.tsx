@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 export interface LinkProps extends React.HTMLProps<HTMLAnchorElement> {
     to: string
     preventClick?: boolean
-    tag?: string | React.ReactNode
+    tag?: string | React.FunctionComponentElement<any>
 }
 
 export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProps): JSX.Element {
@@ -23,9 +23,15 @@ export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProp
         props.onClick && props.onClick(event)
     }
 
-    return React.createElement(tag as string, {
+    const elProps = {
         href: to || '#',
         ...props,
         onClick,
-    })
+    }
+
+    if (typeof tag === 'string') {
+        return React.createElement(tag, elProps)
+    } else {
+        return React.cloneElement(tag, props)
+    }
 }

@@ -3,5 +3,5 @@ import { Button } from 'antd'
 import { Link, LinkProps } from 'lib/components/Link'
 
 export function LinkButton(props: LinkProps): JSX.Element {
-    return <Link {...props} tag={Button} />
+    return <Link {...props} tag={<Button />} />
 }
