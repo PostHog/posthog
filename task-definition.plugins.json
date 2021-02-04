@@ -35,6 +35,10 @@
                 {
                     "name": "SITE_URL",
                     "value": "https://app.posthog.com"
+                },
+                {
+                    "name": "PLUGIN_SERVER_INGESTION",
+                    "value": "true"
                 }
             ],
             "secrets": [
