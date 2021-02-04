@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 import { billingLogicType } from './billingLogicType'
-import { BillingSubscription, PlanInterface, UserType } from '~/types'
+import { BillingSubscription, PlanInterface, UserType, FormattedNumber } from '~/types'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 
@@ -27,13 +27,19 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
         ],
     }),
     selectors: () => ({
-        percentage: [
+        allowance: [
             () => [userLogic.selectors.user],
-            (user) => {
-                if (!user?.billing?.current_usage || !user?.billing.plan || !user?.billing.plan.allowance) {
+            (user: UserType) => {
+                return user.billing?.plan ? user.billing?.plan.allowance : user?.billing?.no_plan_event_allocation
+            },
+        ],
+        percentage: [
+            (s) => [s.allowance, userLogic.selectors.user],
+            (allowance: FormattedNumber | null | undefined, user: UserType) => {
+                if (!allowance || !user.billing?.current_usage) {
                     return null
                 }
-                return Math.round((user.billing.current_usage.value / user.billing.plan.allowance.value) * 100) / 100
+                return Math.round((user.billing.current_usage.value / allowance.value) * 100) / 100
             },
         ],
         strokeColor: [
