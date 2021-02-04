@@ -282,6 +282,7 @@ export const sceneLogic = kea<sceneLogicType>({
                             // We were on another page (not the first loaded scene)
                             console.error('App assets regenerated. Reloading this page.')
                             window.location.reload()
+                            return
                         } else {
                             // First scene, show an error page
                             console.error('App assets regenerated. Showing error page.')

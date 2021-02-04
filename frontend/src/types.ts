@@ -1,4 +1,13 @@
-import { OrganizationMembershipLevel } from 'lib/constants'
+import {
+    ACTION_TYPE,
+    AUTOCAPTURE,
+    CUSTOM_EVENT,
+    EVENT_TYPE,
+    OrganizationMembershipLevel,
+    PAGEVIEW,
+    SCREEN,
+    ShownAsValue,
+} from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { ViewType } from 'scenes/insights/insightLogic'
@@ -220,12 +229,12 @@ interface RecordingNotViewedFilter extends BasePropertyFilter {
 export type RecordingPropertyFilter = RecordingDurationFilter | RecordingNotViewedFilter
 
 interface ActionTypePropertyFilter extends BasePropertyFilter {
-    type: 'action_type'
+    type: typeof ACTION_TYPE
     properties?: Array<EventPropertyFilter>
 }
 
 export interface EventTypePropertyFilter extends BasePropertyFilter {
-    type: 'event_type'
+    type: typeof EVENT_TYPE
     properties?: Array<EventPropertyFilter>
 }
 
@@ -236,11 +245,13 @@ export type SessionsPropertyFilter =
     | ActionTypePropertyFilter
     | EventTypePropertyFilter
 
+export type EntityType = 'actions' | 'events'
+
 export interface Entity {
     id: string | number
     name: string
     order: number
-    type: 'actions' | 'events'
+    type: EntityType
 }
 
 export interface EntityWithProperties extends Entity {
@@ -413,31 +424,45 @@ export interface AnnotationType {
     creation_type?: string
 }
 
+export type DisplayType =
+    | 'ActionsLineGraph'
+    | 'ActionsLineGraphCumulative'
+    | 'ActionsTable'
+    | 'ActionsPie'
+    | 'ActionsBar'
+    | 'PathsViz'
+    | 'FunnelViz'
+export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
+export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
+export type BreakdownType = 'cohort' | 'person' | 'event'
+export type PathType = typeof PAGEVIEW | typeof AUTOCAPTURE | typeof SCREEN | typeof CUSTOM_EVENT
+export type RetentionType = 'retention_recurring' | 'retention_first_time'
+
 export interface FilterType {
-    insight: 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
-    display?:
-        | 'ActionsLineGraph'
-        | 'ActionsLineGraphCumulative'
-        | 'ActionsTable'
-        | 'ActionsPie'
-        | 'ActionsBar'
-        | 'PathsViz'
-        | 'FunnelViz'
+    insight: InsightType
+    display?: DisplayType
     interval?: string
     date_from?: string
     date_to?: string
     properties?: PropertyFilter[]
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
-    breakdown_type?: 'cohort' | 'person' | 'event'
-    shown_as?: 'Volume' | 'Stickiness' | 'Lifecycle' // DEPRECATED: Remove when releasing `remove-shownas`
+    breakdown_type?: BreakdownType
+    breakdown?: string
+    breakdown_value?: string
+    shown_as?: ShownAsType
     session?: string
     period?: string
-    retentionType?: 'retention_recurring' | 'retention_first_time'
+    retentionType?: RetentionType
     returningEntity?: Record<string, any>
     startEntity?: Record<string, any>
-    path_type?: '$pageview' | '$screen' | '$autocapture' | 'custom_event'
+    path_type?: PathType
     start_point?: string | number
+    stickiness_days?: number
+    entityId?: string | number
+    type?: EntityType
+    people_day?: any
+    people_action?: any
 }
 
 export interface SystemStatus {
