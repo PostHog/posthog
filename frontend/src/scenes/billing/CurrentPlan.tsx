@@ -8,14 +8,10 @@ import { IconExternalLink } from 'lib/components/icons'
 import { ToolOutlined, WarningOutlined } from '@ant-design/icons'
 import { LinkButton } from 'lib/components/LinkButton'
 import { UTM_TAGS } from './billingLogic'
+import { PlanInterface } from '~/types'
 
-export function CurrentPlan(): JSX.Element {
+export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
     const { user } = useValues(userLogic)
-    const plan = user?.billing?.plan
-
-    if (!plan) {
-        return <></>
-    }
 
     return (
         <>
@@ -30,9 +26,11 @@ export function CurrentPlan(): JSX.Element {
                         </>
                     }
                     action={
-                        <LinkButton to={user?.billing.subscription_url}>
-                            <ToolOutlined /> Finish setup
-                        </LinkButton>
+                        user.billing.subscription_url && (
+                            <LinkButton to={user.billing.subscription_url}>
+                                <ToolOutlined /> Finish setup
+                            </LinkButton>
+                        )
                     }
                     showIcon
                     icon={<WarningOutlined />}

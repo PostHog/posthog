@@ -329,7 +329,7 @@ export interface OrganizationBilling {
     should_setup_billing?: boolean
     stripe_checkout_session?: string
     subscription_url?: string
-    no_plan_event_allocation: FormattedNumber | null
+    event_allocation: FormattedNumber | null
 }
 
 export interface PlanInterface {

@@ -5,7 +5,7 @@ import { userLogic } from 'scenes/userLogic'
 import { billingLogic } from './billingLogic'
 
 export function CurrentUsage(): JSX.Element {
-    const { allowance, percentage, strokeColor } = useValues(billingLogic)
+    const { eventAllocation, percentage, strokeColor } = useValues(billingLogic)
     const { user } = useValues(userLogic)
     const plan = user?.billing?.plan
 
@@ -20,13 +20,13 @@ export function CurrentUsage(): JSX.Element {
                             <b>{user.billing.current_usage.formatted}</b>
                         </Tooltip>{' '}
                         events this month.{' '}
-                        {allowance?.value && (
+                        {eventAllocation?.value && (
                             <>
-                                You can use up to <b>{allowance.formatted}</b> events per month.
+                                You can use up to <b>{eventAllocation.formatted}</b> events per month.
                             </>
                         )}
                         {plan && !plan.allowance && !plan.is_metered_billing && (
-                            <>Your current plan has an unlimited event allowance.</>
+                            <>Your current plan has an unlimited event allocation.</>
                         )}
                         <Progress
                             type="line"

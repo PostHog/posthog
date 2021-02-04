@@ -16,6 +16,7 @@ export function BillingAlerts(): JSX.Element {
 
     return (
         <>
+            <div style={{ marginTop: 32 }} />
             {alertToShow === 'setup_billing' && (
                 <Card>
                     <div style={{ display: 'flex' }}>

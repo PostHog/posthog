@@ -5,7 +5,7 @@ import { billingLogicType } from './billingLogicType'
 import { BillingSubscription, PlanInterface, UserType, FormattedNumber } from '~/types'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
-export const ALLOWANCE_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
+export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 
 export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscription, UserType>>({
     actions: {
@@ -39,18 +39,14 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
         ],
     },
     selectors: {
-        allowance: [
-            () => [userLogic.selectors.user],
-            (user: UserType) =>
-                user.billing?.plan ? user.billing?.plan.allowance : user?.billing?.no_plan_event_allocation,
-        ],
+        eventAllocation: [() => [userLogic.selectors.user], (user: UserType) => user.billing?.event_allocation],
         percentage: [
-            (s) => [s.allowance, userLogic.selectors.user],
-            (allowance: FormattedNumber | null | undefined, user: UserType) => {
-                if (!allowance || !user.billing?.current_usage) {
+            (s) => [s.eventAllocation, userLogic.selectors.user],
+            (eventAllocation: FormattedNumber | null | undefined, user: UserType) => {
+                if (!eventAllocation || !user.billing?.current_usage) {
                     return null
                 }
-                return Math.min(Math.round((user.billing.current_usage.value / allowance.value) * 100) / 100, 1)
+                return Math.min(Math.round((user.billing.current_usage.value / eventAllocation.value) * 100) / 100, 1)
             },
         ],
         strokeColor: [
@@ -75,9 +71,9 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
             },
         ],
         alertToShow: [
-            (s) => [s.allowance, userLogic.selectors.user, s.urlPath],
+            (s) => [s.eventAllocation, userLogic.selectors.user, s.urlPath],
             (
-                allowance: FormattedNumber | null | undefined,
+                eventAllocation: FormattedNumber | null | undefined,
                 user: UserType,
                 urlPath: string
             ): 'setup_billing' | 'usage_near_limit' | undefined => {
@@ -91,9 +87,9 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
                 // Priority 2: Event allowance near limit
                 if (
                     urlPath !== '/organization/billing' &&
-                    allowance &&
+                    eventAllocation &&
                     user.billing?.current_usage &&
-                    user.billing.current_usage.value / allowance.value >= ALLOWANCE_THRESHOLD_ALERT
+                    user.billing.current_usage.value / eventAllocation.value >= ALLOCATION_THRESHOLD_ALERT
                 ) {
                     return 'usage_near_limit'
                 }
@@ -103,7 +99,7 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
     events: ({ actions }) => ({
         afterMount: () => {
             const user = userLogic.values.user
-            if (!user?.billing?.plan || user?.billing?.should_setup_billing) {
+            if (!user?.billing?.plan) {
                 actions.loadPlans()
             }
         },
