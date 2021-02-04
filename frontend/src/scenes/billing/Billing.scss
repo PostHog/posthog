@@ -1,0 +1,29 @@
+@import '~/vars';
+
+.billing-page {
+    .plan-description {
+        ol,
+        ul {
+            margin-top: $default_spacing;
+            padding-left: 0;
+            list-style: none;
+            text-align: center;
+            li {
+                line-height: 1.2rem;
+                margin-bottom: $default_spacing;
+            }
+            .disclaimer {
+                font-size: 10px;
+                font-weight: bold;
+                vertical-align: top;
+                padding-left: 1px;
+            }
+        }
+
+        .disclaimer-details {
+            font-size: 0.75rem;
+            color: $text_muted;
+            margin-top: $default_spacing;
+        }
+    }
+}

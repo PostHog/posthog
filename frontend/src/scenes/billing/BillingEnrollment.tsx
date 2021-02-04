@@ -8,8 +8,10 @@ import defaultImg from 'public/plan-default.svg'
 function Plan({ plan, onSubscribe }: { plan: PlanInterface; onSubscribe: (plan: PlanInterface) => void }): JSX.Element {
     return (
         <Card>
-            <img src={plan.image_url || defaultImg} alt="" height={100} width={100} />
-            <h3 style={{ fontSize: 22 }}>{plan.name}</h3>
+            <div className="cursor-pointer" onClick={() => onSubscribe(plan)}>
+                <img src={plan.image_url || defaultImg} alt="" height={100} width={100} />
+                <h3 style={{ fontSize: 22 }}>{plan.name}</h3>
+            </div>
             <div>
                 <Button
                     data-attr="btn-subscribe-now"
@@ -20,6 +22,7 @@ function Plan({ plan, onSubscribe }: { plan: PlanInterface; onSubscribe: (plan: 
                     Subscribe now
                 </Button>
             </div>
+            <div className="plan-description" dangerouslySetInnerHTML={{ __html: plan.description }} />
         </Card>
     )
 }
