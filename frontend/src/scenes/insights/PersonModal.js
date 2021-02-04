@@ -9,7 +9,9 @@ import { ArrowRightOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function PersonModal({ visible, view }) {
-    const { people, filters, peopleModalURL } = useValues(trendsLogic({ dashboardItemId: null, view }))
+    const { people, filters, peopleModalURL, loadingMorePeople } = useValues(
+        trendsLogic({ dashboardItemId: null, view })
+    )
     const { setShowingPeople, loadMorePeople } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -60,7 +62,7 @@ export function PersonModal({ visible, view }) {
             >
                 {people?.next && (
                     <Button type="primary" onClick={loadMorePeople}>
-                        {people?.loadingMore ? <Spin /> : 'Load more people'}
+                        {loadingMorePeople ? <Spin /> : 'Load more people'}
                     </Button>
                 )}
             </div>
