@@ -8,6 +8,13 @@ describe('Dashboards', () => {
         cy.get('h1').should('contain', 'Dashboards')
     })
 
+    it('Pinned dashboards on menu', () => {
+        cy.get('[data-attr=menu-item-events]').click() // to make sure the dashboards menu item is not the active one
+        cy.get('[data-attr=menu-item-dashboards]').trigger('mouseover') // hover over dashboards menu item
+        cy.get('.pinned-dashboards').should('be.visible')
+        cy.get('[data-attr=menu-item-dashboard-0]').should('be.visible')
+    })
+
     it('Share dashboard', () => {
         cy.get('[data-attr=dashboard-name]').contains('Default').click()
         cy.get('[data-attr=dashboard-item-0]').should('exist')

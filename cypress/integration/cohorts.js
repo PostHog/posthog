@@ -1,6 +1,5 @@
 describe('Cohorts', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-people]').click() // TODO: Remove when releasing navigation-1775
         cy.get('[data-attr=menu-item-cohorts]').click()
     })
     it('Cohorts new and list', () => {
