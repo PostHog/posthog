@@ -5,9 +5,21 @@ import { billingLogicType } from './billingLogicType'
 import { BillingSubscription, PlanInterface, UserType, FormattedNumber } from '~/types'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
+export const ALLOWANCE_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 
 export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscription, UserType>>({
-    loaders: () => ({
+    actions: {
+        setUrlPath: (urlPath) => ({ urlPath }),
+    },
+    reducers: {
+        urlPath: [
+            '',
+            {
+                setUrlPath: (_, { urlPath }) => urlPath,
+            },
+        ],
+    },
+    loaders: {
         plans: [
             [] as PlanInterface[],
             {
@@ -25,13 +37,12 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
                 },
             },
         ],
-    }),
-    selectors: () => ({
+    },
+    selectors: {
         allowance: [
             () => [userLogic.selectors.user],
-            (user: UserType) => {
-                return user.billing?.plan ? user.billing?.plan.allowance : user?.billing?.no_plan_event_allocation
-            },
+            (user: UserType) =>
+                user.billing?.plan ? user.billing?.plan.allowance : user?.billing?.no_plan_event_allocation,
         ],
         percentage: [
             (s) => [s.allowance, userLogic.selectors.user],
@@ -39,7 +50,7 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
                 if (!allowance || !user.billing?.current_usage) {
                     return null
                 }
-                return Math.round((user.billing.current_usage.value / allowance.value) * 100) / 100
+                return Math.min(Math.round((user.billing.current_usage.value / allowance.value) * 100) / 100, 1)
             },
         ],
         strokeColor: [
@@ -63,7 +74,32 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
                 return color
             },
         ],
-    }),
+        alertToShow: [
+            (s) => [s.allowance, userLogic.selectors.user, s.urlPath],
+            (
+                allowance: FormattedNumber | null | undefined,
+                user: UserType,
+                urlPath: string
+            ): 'setup_billing' | 'usage_near_limit' | undefined => {
+                // Determines which billing alert/warning to show to the user (if any)
+
+                // Priority 1: In-progress incomplete billing setup
+                if (user?.billing?.should_setup_billing && user?.billing.subscription_url) {
+                    return 'setup_billing'
+                }
+
+                // Priority 2: Event allowance near limit
+                if (
+                    urlPath !== '/organization/billing' &&
+                    allowance &&
+                    user.billing?.current_usage &&
+                    user.billing.current_usage.value / allowance.value >= ALLOWANCE_THRESHOLD_ALERT
+                ) {
+                    return 'usage_near_limit'
+                }
+            },
+        ],
+    },
     events: ({ actions }) => ({
         afterMount: () => {
             const user = userLogic.values.user
@@ -77,6 +113,11 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
             if (billingSubscription?.subscription_url) {
                 window.location.href = billingSubscription.subscription_url
             }
+        },
+    }),
+    urlToAction: ({ actions }) => ({
+        '*': ({ _: urlPath }: { _: string }) => {
+            actions.setUrlPath(urlPath)
         },
     }),
 })
