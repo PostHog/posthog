@@ -69,6 +69,12 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             events = filter_events(filter, self.team)
             self.assertEqual(len(events), 1)
 
+        def test_incomplete_data(self):
+            filter = Filter(
+                data={"properties": [{"key": "$current_url", "operator": "not_icontains", "type": "event"}]}
+            )
+            self.assertListEqual(filter.properties, [])
+
         def test_numerical(self):
             event1 = event_factory(team=self.team, distinct_id="test", event="$pageview", properties={"$a_number": 5})
             event2 = event_factory(team=self.team, event="$pageview", distinct_id="test", properties={"$a_number": 6},)
