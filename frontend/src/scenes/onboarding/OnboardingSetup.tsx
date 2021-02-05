@@ -11,6 +11,7 @@ import {
     SlackOutlined,
     UsergroupAddOutlined,
     PlusOutlined,
+    ArrowRightOutlined,
 } from '@ant-design/icons'
 import './OnboardingSetup.scss'
 import { useActions, useValues } from 'kea'
@@ -20,6 +21,7 @@ import { Link } from 'lib/components/Link'
 import { IconExternalLink } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
 import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
+import { LinkButton } from 'lib/components/LinkButton'
 
 const { Panel } = Collapse
 
@@ -107,7 +109,9 @@ function _OnboardingSetup(): JSX.Element {
         currentSection,
         inviteTeamModalShown,
     } = useValues(onboardingSetupLogic)
-    const { switchToNonDemoProject, setProjectModalShown, setInviteTeamModalShown } = useActions(onboardingSetupLogic)
+    const { switchToNonDemoProject, setProjectModalShown, setInviteTeamModalShown, completeOnboarding } = useActions(
+        onboardingSetupLogic
+    )
 
     const { user, userUpdateLoading } = useValues(userLogic)
     const { userUpdateRequest } = useActions(userLogic)
@@ -241,7 +245,9 @@ function _OnboardingSetup(): JSX.Element {
                                 />
                             </div>
                             <div className="text-center" style={{ marginTop: 32 }}>
-                                <Button type="default">Finish setup</Button>
+                                <Button type="default" onClick={completeOnboarding}>
+                                    Finish setup
+                                </Button>
                             </div>
                         </Panel>
                     </Collapse>
@@ -272,12 +278,22 @@ function _OnboardingSetup(): JSX.Element {
                 </>
             ) : (
                 <div className="already-completed">
-                    <CheckCircleOutlined /> <h2 className="">Your organization is already set up!</h2>
+                    <CheckCircleOutlined className="completed-icon" />{' '}
+                    <h2 className="">Your organization is set up!</h2>
                     <div className="text-muted">
-                        Looks like your organization is already good to go. If you still need some help, check out{' '}
-                        <Link to={`https://posthog.com/docs?${UTM_TAGS}`} target="_blank" rel="noopener">
+                        Looks like your organization is good to go. If you still need some help, check out{' '}
+                        <Link
+                            to={`https://posthog.com/docs?${UTM_TAGS}&utm_message=onboarding-completed`}
+                            target="_blank"
+                            rel="noopener"
+                        >
                             our docs <IconExternalLink />
                         </Link>
+                    </div>
+                    <div style={{ marginTop: 32 }}>
+                        <LinkButton to="/insights" data-attr="onbording-completed-insights">
+                            Go to insights <ArrowRightOutlined />
+                        </LinkButton>
                     </div>
                 </div>
             )}
