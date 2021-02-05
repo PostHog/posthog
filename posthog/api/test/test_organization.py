@@ -78,6 +78,16 @@ class TestOrganizationAPI(APIBaseTest):
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "ASDFG"})
         self.assertEqual(response.status_code, 403)
 
+    def test_can_complete_onboarding_setup(self):
+        self.organization.setup_section_2_completed = False
+        self.organization.save()
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}", {"setup_section_2_completed": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["setup"], {"is_active": False, "current_section": None})
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.setup_section_2_completed, True)
+
 
 class TestSignup(APIBaseTest):
     CONFIG_USER_EMAIL = None

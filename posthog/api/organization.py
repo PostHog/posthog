@@ -64,12 +64,14 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "membership_level",
             "personalization",
             "setup",
+            "setup_section_2_completed",
         ]
         read_only_fields = [
             "id",
             "created_at",
             "updated_at",
         ]
+        extra_kwargs = {"setup_section_2_completed": {"write_only": True}}  # `setup` is used for reading this attribute
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
