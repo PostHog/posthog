@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space, Tooltip, Drawer } from 'antd'
+import { Table, Button, Spin, Space, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -27,6 +27,7 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
 import { EditFiltersPanel } from 'scenes/sessions/filters/EditFiltersPanel'
 import { SearchAllBox } from 'scenes/sessions/filters/SearchAllBox'
+import { Drawer } from 'lib/components/Drawer'
 
 interface SessionsTableProps {
     personIds?: string[]
