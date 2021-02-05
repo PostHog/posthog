@@ -16,14 +16,14 @@ class PropertyMixin(BaseParamMixin):
 
     def _parse_properties(self, properties: Optional[Any]) -> List[Property]:
         if isinstance(properties, list):
-            properties = []
+            _properties = []
             for prop_params in properties:
                 try:
                     new_prop = Property(**prop_params)
-                    properties.append(new_prop)
+                    _properties.append(new_prop)
                 except:
                     continue
-            return properties
+            return _properties
         if not properties:
             return []
 
