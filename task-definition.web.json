@@ -104,7 +104,7 @@
                 },
                 {
                     "name": "PLUGIN_SERVER_INGESTION",
-                    "value": "false"
+                    "value": "true"
                 }
             ],
             "secrets": [

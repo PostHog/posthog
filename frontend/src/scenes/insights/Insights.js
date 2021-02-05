@@ -17,14 +17,10 @@ import { Tabs, Row, Col, Card, Button } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
-    LINEAR_CHART_LABEL,
-    CUMULATIVE_CHART_LABEL,
-    TABLE_LABEL,
-    PIE_CHART_LABEL,
     ACTIONS_TABLE,
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
-    BAR_CHART_LABEL,
+    FUNNEL_VIZ,
     LIFECYCLE,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
@@ -53,32 +49,38 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const { TabPane } = Tabs
 
-const displayMap = {
-    [`${ACTIONS_LINE_GRAPH_LINEAR}`]: LINEAR_CHART_LABEL,
-    [`${ACTIONS_LINE_GRAPH_CUMULATIVE}`]: CUMULATIVE_CHART_LABEL,
-    [`${ACTIONS_TABLE}`]: TABLE_LABEL,
-    [`${ACTIONS_PIE_CHART}`]: PIE_CHART_LABEL,
-    [`${ACTIONS_BAR_CHART}`]: BAR_CHART_LABEL,
+const showIntervalFilter = function (activeView, filter) {
+    switch (activeView) {
+        case ViewType.TRENDS:
+        case ViewType.STICKINESS:
+        case ViewType.LIFECYCLE:
+        case ViewType.SESSIONS:
+            return true
+        case ViewType.FUNNELS:
+            return filter.display === ACTIONS_LINE_GRAPH_LINEAR
+        case ViewType.RETENTION:
+        case ViewType.PATHS:
+            return false
+        default:
+            return true // sometimes insights aren't set for trends
+    }
 }
 
-const showIntervalFilter = {
-    [`${ViewType.TRENDS}`]: true,
-    [`${ViewType.STICKINESS}`]: true,
-    [`${ViewType.LIFECYCLE}`]: true,
-    [`${ViewType.SESSIONS}`]: true,
-    [`${ViewType.FUNNELS}`]: false,
-    [`${ViewType.RETENTION}`]: false,
-    [`${ViewType.PATHS}`]: false,
-}
-
-const showChartFilter = {
-    [`${ViewType.TRENDS}`]: true,
-    [`${ViewType.STICKINESS}`]: true,
-    [`${ViewType.LIFECYCLE}`]: false,
-    [`${ViewType.SESSIONS}`]: true,
-    [`${ViewType.FUNNELS}`]: false,
-    [`${ViewType.RETENTION}`]: true,
-    [`${ViewType.PATHS}`]: false,
+const showChartFilter = function (activeView, featureFlags) {
+    switch (activeView) {
+        case ViewType.TRENDS:
+        case ViewType.STICKINESS:
+        case ViewType.SESSIONS:
+        case ViewType.RETENTION:
+            return true
+        case ViewType.FUNNELS:
+            return featureFlags['funnel-trends-1269']
+        case ViewType.LIFECYCLE:
+        case ViewType.PATHS:
+            return false
+        default:
+            return true // sometimes insights aren't set for trends
+    }
 }
 
 const showDateFilter = {
@@ -112,7 +114,6 @@ function _Insights() {
     const { setActiveView } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const compareDisabled = allFilters?.shown_as === LIFECYCLE || allFilters?.date_from === 'all'
     const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
     return (
         user?.team && (
@@ -214,10 +215,10 @@ function _Insights() {
                                 <Card
                                     title={
                                         <div className="float-right">
-                                            {showIntervalFilter[activeView] && (
+                                            {showIntervalFilter(activeView, allFilters) && (
                                                 <IntervalFilter filters={allFilters} view={activeView} />
                                             )}
-                                            {showChartFilter[activeView] && (
+                                            {showChartFilter(activeView, featureFlags) && (
                                                 <ChartFilter
                                                     onChange={(display) => {
                                                         if (
@@ -227,16 +228,14 @@ function _Insights() {
                                                             clearAnnotationsToCreate()
                                                         }
                                                     }}
-                                                    displayMap={displayMap}
                                                     filters={allFilters}
+                                                    disabled={allFilters.shown_as === LIFECYCLE}
                                                 />
                                             )}
 
                                             {showDateFilter[activeView] && <DateFilter disabled={dateFilterDisabled} />}
 
-                                            {showComparePrevious[activeView] && (
-                                                <CompareFilter disabled={compareDisabled} />
-                                            )}
+                                            {showComparePrevious[activeView] && <CompareFilter />}
                                             <SaveToDashboard
                                                 item={{
                                                     entity: {
@@ -273,11 +272,14 @@ function _Insights() {
                                         }[activeView]
                                     )}
                                 </Card>
-                                {!showErrorMessage && !showTimeoutMessage && activeView === ViewType.FUNNELS && (
-                                    <Card>
-                                        <FunnelPeople />
-                                    </Card>
-                                )}
+                                {!showErrorMessage &&
+                                    !showTimeoutMessage &&
+                                    activeView === ViewType.FUNNELS &&
+                                    allFilters.display === FUNNEL_VIZ && (
+                                        <Card>
+                                            <FunnelPeople />
+                                        </Card>
+                                    )}
                             </Col>
                         </>
                     )}

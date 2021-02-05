@@ -131,7 +131,7 @@ def get_event(request):
                     "code": "validation",
                     "message": "API key not provided. You can find your project API key in PostHog project settings.",
                 },
-                status=400,
+                status=401,
             ),
         )
     team = Team.objects.get_team_from_token(token)
@@ -151,13 +151,13 @@ def get_event(request):
                         "code": "validation",
                         "message": "Project API key invalid. You can find your project API key in PostHog project settings.",
                     },
-                    status=400,
+                    status=401,
                 ),
             )
         user = User.objects.get_from_personal_api_key(token)
         if user is None:
             return cors_response(
-                request, JsonResponse({"code": "validation", "message": "Personal API key invalid.",}, status=400,),
+                request, JsonResponse({"code": "validation", "message": "Personal API key invalid.",}, status=401,),
             )
         team = user.teams.get(id=project_id)
 
@@ -207,7 +207,7 @@ def get_event(request):
         if is_ee_enabled():
             log_topics = [KAFKA_EVENTS_WAL]
             # TODO: remove team.organization_id in ... for full rollout of Plugins on EE/Cloud
-            if settings.PLUGIN_SERVER_INGESTION and team.organization_id in getattr(
+            if settings.PLUGIN_SERVER_INGESTION and str(team.organization_id) in getattr(
                 settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", []
             ):
                 log_topics.append(KAFKA_EVENTS_PLUGIN_INGESTION)

@@ -48,7 +48,15 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
         editProperty: async ({ key, newValue }) => {
             const person = values.person
             if (person) {
-                person.properties[key] = newValue
+                let parsedValue = newValue
+
+                // If the property is a number, store it as a number
+                const attemptedParsedNumber = Number(newValue)
+                if (!Number.isNaN(attemptedParsedNumber)) {
+                    parsedValue = attemptedParsedNumber
+                }
+
+                person.properties[key] = parsedValue
                 actions.setPerson(person) // To update the UI immediately while the request is being processed
                 const response = await api.update(`api/person/${person.id}`, person)
                 actions.setPerson(response)
