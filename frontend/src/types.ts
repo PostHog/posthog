@@ -457,6 +457,7 @@ export interface FilterType {
     returningEntity?: Record<string, any>
     startEntity?: Record<string, any>
     path_type?: PathType
+    start_point?: string | number
     stickiness_days?: number
     entityId?: string | number
     type?: EntityType
