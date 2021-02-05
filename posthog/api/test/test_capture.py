@@ -355,7 +355,7 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 401)
         self.assertEqual(
             response.json()["message"],
             "Project API key invalid. You can find your project API key in PostHog project settings.",
@@ -368,7 +368,7 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 401)
         self.assertEqual(
             response.json()["message"],
             "API key not provided. You can find your project API key in PostHog project settings.",
