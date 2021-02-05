@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { OrganizationType } from '~/types'
+import { OrganizationType, UserType } from '~/types'
 import { onboardingSetupLogicType } from './onboardingSetupLogicType'
 
 export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
@@ -70,6 +70,10 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
         currentSection: [
             () => [organizationLogic.selectors.currentOrganization],
             (organization: OrganizationType): number | null => organization.setup.current_section,
+        ],
+        teamInviteAvailable: [
+            () => [userLogic.selectors.user],
+            (user: UserType): boolean => user.email_service_available,
         ],
     },
 })

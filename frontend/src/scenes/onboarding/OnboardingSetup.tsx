@@ -109,6 +109,7 @@ function _OnboardingSetup(): JSX.Element {
         stepVerification,
         currentSection,
         inviteTeamModalShown,
+        teamInviteAvailable,
     } = useValues(onboardingSetupLogic)
     const { switchToNonDemoProject, setProjectModalShown, setInviteTeamModalShown, completeOnboarding } = useActions(
         onboardingSetupLogic
@@ -233,18 +234,20 @@ function _OnboardingSetup(): JSX.Element {
                                         </Button>
                                     }
                                 />
-                                <OnboardingStep
-                                    title="Invite your team members"
-                                    icon={<UsergroupAddOutlined />}
-                                    identifier="invite-team"
-                                    handleClick={() => setInviteTeamModalShown(true)}
-                                    caption="Spread the knowledge, share insights with everyone in your team."
-                                    customActionElement={
-                                        <Button type="primary" icon={<PlusOutlined />}>
-                                            Invite my team
-                                        </Button>
-                                    }
-                                />
+                                {teamInviteAvailable && (
+                                    <OnboardingStep
+                                        title="Invite your team members"
+                                        icon={<UsergroupAddOutlined />}
+                                        identifier="invite-team"
+                                        handleClick={() => setInviteTeamModalShown(true)}
+                                        caption="Spread the knowledge, share insights with everyone in your team."
+                                        customActionElement={
+                                            <Button type="primary" icon={<PlusOutlined />}>
+                                                Invite my team
+                                            </Button>
+                                        }
+                                    />
+                                )}
                             </div>
                             <div className="text-center" style={{ marginTop: 32 }}>
                                 <Button
