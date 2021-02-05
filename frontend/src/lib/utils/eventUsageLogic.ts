@@ -12,7 +12,7 @@ const keyMappingKeys = Object.keys(keyMapping.event)
 export const eventUsageLogic = kea<eventUsageLogicType<PersonType>>({
     actions: {
         reportAnnotationViewed: (annotations) => ({ annotations }),
-        reportPersonDetailViewed: (person: PersonType | null) => ({ person }),
+        reportPersonDetailViewed: (person: PersonType) => ({ person }),
         reportInsightViewed: (filters, isFirstLoad) => ({ filters, isFirstLoad }),
         reportDashboardViewed: (dashboard, hasShareToken) => ({ dashboard, hasShareToken }),
         reportBookmarkletDragged: () => true,
