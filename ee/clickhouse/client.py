@@ -115,11 +115,11 @@ else:
             result = ch_client.execute(query, args, settings=settings)
         finally:
             execution_time = time() - start_time
+            g = statsd.Gauge("%s_clickhouse_sync_execution_time" % (settings.STATSD_PREFIX,))
+            g.send("clickhouse_sync_query_time", execution_time)
             if app_settings.SHELL_PLUS_PRINT_SQL:
                 print(format_sql(query, args))
                 print("Execution time: %.6fs" % (execution_time,))
-                g = statsd.Gauge("%s_clickhouse_sync_execution_time" % (settings.STATSD_PREFIX,))
-                g.send("clickhouse_sync_query_time", execution_time)
             if _save_query_user_id:
                 save_query(query, args, execution_time)
         return result
