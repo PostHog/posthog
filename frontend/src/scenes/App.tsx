@@ -2,10 +2,10 @@ import { hot } from 'react-hot-loader/root'
 
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { Alert, Layout } from 'antd'
+import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
-import { MainNavigation, TopNavigation } from '~/layout/navigation'
+import { MainNavigation, TopNavigation, DemoWarnings } from '~/layout/navigation'
 import { BillingToolbar } from 'lib/components/BillingToolbar'
 
 import { userLogic } from 'scenes/userLogic'
@@ -18,10 +18,8 @@ import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/logic'
-import { Link } from 'lib/components/Link'
 import { BackTo } from 'lib/components/BackTo'
 import { Papercups } from 'lib/components/Papercups'
-import { DemoWarning } from '~/layout/navigation/DemoWarning'
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
@@ -120,22 +118,10 @@ function _App(): JSX.Element | null {
                 <Layout className={`${sceneConfig.dark ? 'bg-mid' : ''}`} style={{ minHeight: '100vh' }}>
                     {!sceneConfig.hideTopNav && <TopNavigation />}
                     <Layout.Content className="main-app-content" data-attr="layout-content">
-                        {!sceneConfig.hideDemoWarnings && <DemoWarning />}
+                        {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
 
                         {!featureFlags['hide-billing-toolbar'] && <BillingToolbar />}
                         <BackTo />
-                        {currentTeam && !sceneConfig.hideDemoWarnings && !currentTeam.ingested_event && (
-                            <Alert
-                                type="warning"
-                                style={{ marginTop: '1rem' }}
-                                message={
-                                    <>
-                                        You haven't sent any events to this project yet. Grab{' '}
-                                        <Link to="/project/settings">a snippet or library</Link> to get started!
-                                    </>
-                                }
-                            />
-                        )}
                         <SceneComponent user={user} {...params} />
                     </Layout.Content>
                 </Layout>

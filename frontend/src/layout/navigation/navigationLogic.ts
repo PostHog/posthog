@@ -3,7 +3,15 @@ import api from 'lib/api'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogicType } from './navigationLogicType'
-import { SystemStatus, UserType } from '~/types'
+import { OrganizationType, SystemStatus, UserType } from '~/types'
+import { organizationLogic } from 'scenes/organizationLogic'
+
+export const AVAILABLE_WARNINGS = [
+    'incomplete_setup_on_demo_project',
+    'incomplete_setup_on_real_project',
+    'demo_project',
+    'real_project_with_no_events',
+] as const
 
 export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus>>({
     actions: {
@@ -73,6 +81,21 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus>>(
             () => [userLogic.selectors.user],
             (user) => {
                 return user?.team?.id
+            },
+        ],
+        demoWarning: [
+            () => [userLogic.selectors.user, organizationLogic.selectors.currentOrganization],
+            (user: UserType, organization: OrganizationType): typeof AVAILABLE_WARNINGS[number] | null => {
+                if (organization.setup.is_active && user.team?.is_demo) {
+                    return 'incomplete_setup_on_demo_project'
+                } else if (organization.setup.is_active) {
+                    return 'incomplete_setup_on_real_project'
+                } else if (user.team?.is_demo) {
+                    return 'demo_project'
+                } else if (user.team && !user.team.ingested_event) {
+                    return 'real_project_with_no_events'
+                }
+                return null
             },
         ],
     },
