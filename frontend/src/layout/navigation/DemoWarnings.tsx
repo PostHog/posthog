@@ -36,7 +36,7 @@ export function DemoWarnings(): JSX.Element | null {
                 </span>
             ),
             action: (
-                <LinkButton to="/setup">
+                <LinkButton to="/setup" data-attr="demo-warning-cta" data-message="welcome-setup">
                     <SettingOutlined /> Go to setup
                 </LinkButton>
             ),
@@ -51,7 +51,11 @@ export function DemoWarnings(): JSX.Element | null {
                 </span>
             ),
             action: (
-                <LinkButton to="/setup">
+                <LinkButton
+                    to="/setup"
+                    data-attr="demo-warning-cta"
+                    data-message="incomplete_setup_on_demo_project-setup"
+                >
                     <SettingOutlined /> Go to setup
                 </LinkButton>
             ),
@@ -64,7 +68,11 @@ export function DemoWarnings(): JSX.Element | null {
                 </span>
             ),
             action: (
-                <LinkButton to="/setup">
+                <LinkButton
+                    to="/setup"
+                    data-attr="demo-warning-cta"
+                    data-message="incomplete_setup_on_real_project-setup"
+                >
                     <SettingOutlined /> Go to setup
                 </LinkButton>
             ),
@@ -78,12 +86,22 @@ export function DemoWarnings(): JSX.Element | null {
             description: (
                 <>
                     We haven't received any events on this project. Go to the{' '}
-                    <Link to="/ingestion">ingestion wizard</Link> or grab your snippet or API key directly on{' '}
-                    <Link to="/project/settings">settings</Link> to get things moving.
+                    <Link to="/ingestion" data-attr="real_project_with_no_events-ingestion_link">
+                        ingestion wizard
+                    </Link>{' '}
+                    or grab your snippet or API key directly on{' '}
+                    <Link to="/project/settings" data-attr="real_project_with_no_events-settings">
+                        settings
+                    </Link>{' '}
+                    to get things moving.
                 </>
             ),
             action: (
-                <LinkButton to="/ingestion">
+                <LinkButton
+                    to="/ingestion"
+                    data-attr="demo-warning-cta"
+                    data-message="real_project_with_no_events-ingestion"
+                >
                     <SettingOutlined /> Go to wizard
                 </LinkButton>
             ),
