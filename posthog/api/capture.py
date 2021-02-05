@@ -18,7 +18,7 @@ from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
     from ee.clickhouse.process_event import log_event, process_event_ee
-    from ee.kafka_client.topics import KAFKA_EVENTS_INGESTION_HANDOFF, KAFKA_EVENTS_WAL
+    from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_WAL
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -131,7 +131,7 @@ def get_event(request):
                     "code": "validation",
                     "message": "API key not provided. You can find your project API key in PostHog project settings.",
                 },
-                status=400,
+                status=401,
             ),
         )
     team = Team.objects.get_team_from_token(token)
@@ -151,13 +151,13 @@ def get_event(request):
                         "code": "validation",
                         "message": "Project API key invalid. You can find your project API key in PostHog project settings.",
                     },
-                    status=400,
+                    status=401,
                 ),
             )
         user = User.objects.get_from_personal_api_key(token)
         if user is None:
             return cors_response(
-                request, JsonResponse({"code": "validation", "message": "Personal API key invalid.",}, status=400,),
+                request, JsonResponse({"code": "validation", "message": "Personal API key invalid.",}, status=401,),
             )
         team = user.teams.get(id=project_id)
 
@@ -206,10 +206,12 @@ def get_event(request):
 
         if is_ee_enabled():
             log_topics = [KAFKA_EVENTS_WAL]
-            if settings.PLUGIN_SERVER_INGESTION_HANDOFF and team.organization_id in getattr(
+            # TODO: remove team.organization_id in ... for full rollout of Plugins on EE/Cloud
+            if settings.PLUGIN_SERVER_INGESTION and str(team.organization_id) in getattr(
                 settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", []
             ):
-                log_topics.append(KAFKA_EVENTS_INGESTION_HANDOFF)
+                log_topics.append(KAFKA_EVENTS_PLUGIN_INGESTION)
+                statsd.Counter("%s_posthog_cloud_plugin_server_ingestion" % (settings.STATSD_PREFIX,)).increment()
             else:
                 process_event_ee(
                     distinct_id=distinct_id,
@@ -234,7 +236,7 @@ def get_event(request):
             )
         else:
             task_name = "posthog.tasks.process_event.process_event"
-            if settings.PLUGIN_SERVER_INGESTION_HANDOFF or team.plugins_opt_in:
+            if settings.PLUGIN_SERVER_INGESTION or team.plugins_opt_in:
                 task_name += "_with_plugins"
                 celery_queue = settings.PLUGINS_CELERY_QUEUE
             else:

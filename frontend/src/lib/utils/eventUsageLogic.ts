@@ -156,11 +156,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             posthog.capture('viewed dashboard', properties)
         },
         reportBookmarkletDragged: async (_, breakpoint) => {
-            breakpoint(500)
+            await breakpoint(500)
             posthog.capture('bookmarklet drag start')
         },
         reportIngestionBookmarkletCollapsible: async ({ activePanels }: { activePanels: string[] }, breakpoint) => {
-            breakpoint(500)
+            await breakpoint(500)
             const action = activePanels.includes('bookmarklet') ? 'shown' : 'hidden'
             posthog.capture(`ingestion bookmarklet panel ${action}`)
         },
