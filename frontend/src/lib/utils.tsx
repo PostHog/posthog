@@ -698,6 +698,6 @@ export function autocorrectInterval(filters: Partial<FilterType>): string {
     } else if (hour_disabled) {
         return 'day'
     } else {
-        return interval
+        return filters.interval
     }
 }
