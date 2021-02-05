@@ -11,8 +11,8 @@ export function initKea(): void {
             windowValuesPlugin({ window: window }),
             routerPlugin,
             loadersPlugin({
-                onFailure({ error }) {
-                    window['Sentry'] ? window['Sentry'].captureException(error) : console.error(error)
+                onFailure({ error }: { error: any }) {
+                    ;(window as any).Sentry ? (window as any).Sentry.captureException(error) : console.error(error)
                 },
             }),
         ],
