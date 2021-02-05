@@ -1,7 +1,7 @@
 import { PageHeader } from 'lib/components/PageHeader'
-import React, { useState } from 'react'
+import React from 'react'
 import { hot } from 'react-hot-loader/root'
-import { Button, Collapse, Switch } from 'antd'
+import { Button, Col, Collapse, Progress, Row, Switch } from 'antd'
 import {
     ProjectOutlined,
     CodeOutlined,
@@ -101,7 +101,6 @@ function OnboardingStep({
 
 export const OnboardingSetup = hot(_OnboardingSetup)
 function _OnboardingSetup(): JSX.Element {
-    const [slackClicked, setslackClicked] = useState(false)
     const {
         stepProjectSetup,
         stepInstallation,
@@ -110,10 +109,16 @@ function _OnboardingSetup(): JSX.Element {
         currentSection,
         inviteTeamModalShown,
         teamInviteAvailable,
+        progressPercentage,
+        slackCalled,
     } = useValues(onboardingSetupLogic)
-    const { switchToNonDemoProject, setProjectModalShown, setInviteTeamModalShown, completeOnboarding } = useActions(
-        onboardingSetupLogic
-    )
+    const {
+        switchToNonDemoProject,
+        setProjectModalShown,
+        setInviteTeamModalShown,
+        completeOnboarding,
+        callSlack,
+    } = useActions(onboardingSetupLogic)
 
     const { user, userUpdateLoading } = useValues(userLogic)
     const { userUpdateRequest } = useActions(userLogic)
@@ -125,10 +130,17 @@ function _OnboardingSetup(): JSX.Element {
         <div className="onboarding-setup">
             {currentSection ? (
                 <>
-                    <PageHeader
-                        title="Setup"
-                        caption="Get your PostHog instance up and running with all the bells and whistles"
-                    />
+                    <Row gutter={16}>
+                        <Col span={18}>
+                            <PageHeader
+                                title="Setup"
+                                caption="Get your PostHog instance up and running with all the bells and whistles"
+                            />
+                        </Col>
+                        <Col span={6} style={{ display: 'flex', alignItems: 'center' }}>
+                            <Progress percent={progressPercentage} strokeColor="var(--purple)" strokeWidth={16} />
+                        </Col>
+                    </Row>
 
                     <Collapse defaultActiveKey={currentSection} expandIconPosition="right" accordion>
                         <Panel
@@ -224,12 +236,12 @@ function _OnboardingSetup(): JSX.Element {
                                     icon={<SlackOutlined />}
                                     identifier="slack"
                                     handleClick={() => {
-                                        setslackClicked(true)
+                                        callSlack()
                                         window.open(`https://posthog.com/slack?s=app&${UTM_TAGS}`, '_blank')
                                     }}
                                     caption="Fastest way to reach the PostHog team and the community."
                                     customActionElement={
-                                        <Button type={slackClicked ? 'default' : 'primary'} icon={<SlackOutlined />}>
+                                        <Button type={slackCalled ? 'default' : 'primary'} icon={<SlackOutlined />}>
                                             Join us
                                         </Button>
                                     }

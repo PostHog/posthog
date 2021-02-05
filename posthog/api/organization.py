@@ -108,6 +108,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "any_project_ingested_events": any_project_ingested_events,
             "any_project_completed_snippet_onboarding": any_project_completed_snippet_onboarding,
             "non_demo_team_id": non_demo_team_id,
+            "has_invited_team_members": instance.invites.exists() or instance.members.count() > 1,
         }
 
 

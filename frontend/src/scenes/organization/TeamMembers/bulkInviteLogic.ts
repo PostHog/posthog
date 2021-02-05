@@ -3,6 +3,7 @@ import { bulkInviteLogicType } from './bulkInviteLogicType'
 import { OrganizationInviteType } from '~/types'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 interface InviteType {
     email: string
@@ -74,6 +75,7 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<BulkInviteResponse, Invit
     listeners: ({ values }) => ({
         inviteTeamMembersSuccess: (): void => {
             toast.success(`Invites sent to ${values.invitedTeamMembers.invites.length} new team members.`)
+            organizationLogic.actions.loadCurrentOrganization()
         },
     }),
 })

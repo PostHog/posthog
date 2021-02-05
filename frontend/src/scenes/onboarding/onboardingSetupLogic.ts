@@ -12,6 +12,7 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
         setProjectModalShown: (shown) => ({ shown }),
         setInviteTeamModalShown: (shown) => ({ shown }),
         completeOnboarding: () => true,
+        callSlack: () => true,
     },
     reducers: {
         projectModalShown: [
@@ -24,6 +25,12 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
             false,
             {
                 setInviteTeamModalShown: (_, { shown }) => shown,
+            },
+        ],
+        slackCalled: [
+            false,
+            {
+                callSlack: () => true,
             },
         ],
     },
@@ -74,6 +81,40 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
         teamInviteAvailable: [
             () => [userLogic.selectors.user],
             (user: UserType): boolean => user.email_service_available,
+        ],
+        progressPercentage: [
+            (s) => [
+                s.stepProjectSetup,
+                s.stepInstallation,
+                s.stepVerification,
+                s.slackCalled,
+                s.teamInviteAvailable,
+                userLogic.selectors.user,
+                organizationLogic.selectors.currentOrganization,
+            ],
+            (
+                stepProjectSetup: boolean,
+                stepInstallation: boolean,
+                stepVerification: boolean,
+                slackCalled: boolean,
+                teamInviteAvailable: boolean,
+                user: UserType,
+                currentOrganization: OrganizationType
+            ): number => {
+                const total_steps = (teamInviteAvailable ? 1 : 0) + 5
+                const completed_steps =
+                    (stepProjectSetup ? 1 : 0) +
+                    (stepInstallation ? 1 : 0) +
+                    (stepVerification ? 1 : 0) +
+                    (user.team?.session_recording_opt_in ? 1 : 0) +
+                    (slackCalled ? 1 : 0) +
+                    (teamInviteAvailable &&
+                    currentOrganization.setup.is_active &&
+                    currentOrganization.setup.has_invited_team_members
+                        ? 1
+                        : 0)
+                return Math.round((completed_steps / total_steps) * 100)
+            },
         ],
     },
 })
