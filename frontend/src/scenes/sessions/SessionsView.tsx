@@ -197,12 +197,11 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                     <span>
                         <LinkButton
                             to={firstRecordingId ? sessionPlayerUrl(firstRecordingId) : '#'}
-                            icon={<PlaySquareOutlined />}
                             type="primary"
                             data-attr="play-all-recordings"
                             disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled
                         >
-                            Play all
+                            <PlaySquareOutlined /> Play all
                         </LinkButton>
                     </span>
                 </Tooltip>
