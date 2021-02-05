@@ -54,7 +54,7 @@ class ClickhouseEventsViewSet(EventViewSet):
         if request.GET.get("action_id"):
             try:
                 action = Action.objects.get(pk=request.GET["action_id"], team_id=team.pk)
-            except:
+            except Action.DoesNotExist:
                 return []
             if action.steps.count() == 0:
                 return []
