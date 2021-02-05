@@ -52,7 +52,10 @@ class ClickhouseEventsViewSet(EventViewSet):
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
 
         if request.GET.get("action_id"):
-            action = Action.objects.get(pk=request.GET["action_id"])
+            try:
+                action = Action.objects.get(pk=request.GET["action_id"])
+            except:
+                return []
             if action.steps.count() == 0:
                 return []
             action_query, params = format_action_filter(action)
