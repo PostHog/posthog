@@ -147,7 +147,6 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
                     links: paths,
                     error,
                 }
-                console.log(results)
                 return response
             },
         ],

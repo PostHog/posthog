@@ -3,7 +3,7 @@ import api from './api'
 import { toast } from 'react-toastify'
 import { Spin } from 'antd'
 import moment from 'moment'
-import { EventType } from '~/types'
+import { EventType, FilterType } from '~/types'
 import { lightColors } from 'lib/colors'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
@@ -655,4 +655,49 @@ export function midEllipsis(input: string, maxLength: number): string {
     const middle = Math.ceil(input.length / 2)
     const excess = Math.ceil((input.length - maxLength) / 2)
     return `${input.substring(0, middle - excess)}...${input.substring(middle + excess)}`
+}
+
+export const disableMinuteFor: Record<string, boolean> = {
+    dStart: false,
+    '-1d': false,
+    '-7d': true,
+    '-14d': true,
+    '-30d': true,
+    '-90d': true,
+    mStart: true,
+    '-1mStart': true,
+    yStart: true,
+    all: true,
+    other: false,
+}
+
+export const disableHourFor: Record<string, boolean> = {
+    dStart: false,
+    '-1d': false,
+    '-7d': false,
+    '-14d': false,
+    '-30d': false,
+    '-90d': true,
+    mStart: false,
+    '-1mStart': false,
+    yStart: true,
+    all: true,
+    other: false,
+}
+
+export function autocorrectInterval(filters: Partial<FilterType>): string {
+    if (!filters.interval) {
+        return 'day'
+    } // undefined/uninitialized
+
+    const minute_disabled = disableMinuteFor[filters.date_from || 'other'] && filters.interval === 'minute'
+    const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
+
+    if (minute_disabled) {
+        return 'hour'
+    } else if (hour_disabled) {
+        return 'day'
+    } else {
+        return filters.interval
+    }
 }

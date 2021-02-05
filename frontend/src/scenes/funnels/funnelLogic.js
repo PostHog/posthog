@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
-import { objectsEqual, toParams } from 'lib/utils'
+import { autocorrectInterval, objectsEqual, toParams } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '../../models/funnelsModel'
 
@@ -34,7 +34,10 @@ export const cleanFunnelParams = (filters) => {
         ...(filters.date_to ? { date_to: filters.date_to } : {}),
         ...(filters.actions ? { actions: filters.actions } : {}),
         ...(filters.events ? { events: filters.events } : {}),
+        ...(filters.display ? { display: filters.display } : {}),
+        ...(filters.interval ? { interval: filters.interval } : {}),
         ...(filters.properties ? { properties: filters.properties } : {}),
+        interval: autocorrectInterval(filters),
         insight: ViewType.FUNNELS,
     }
 }
@@ -69,9 +72,9 @@ export const funnelLogic = kea({
         },
     }),
 
-    reducers: () => ({
+    reducers: ({ props }) => ({
         filters: [
-            {},
+            props.filters || {},
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
                 clearFunnel: (state) => ({ new_entity: state.new_entity }),
@@ -82,6 +85,7 @@ export const funnelLogic = kea({
             {
                 clearFunnel: () => [],
                 setSteps: (_, { steps }) => steps,
+                setFilters: () => [],
             },
         ],
         stepsWithCountLoading: [
@@ -104,7 +108,7 @@ export const funnelLogic = kea({
                     return null
                 }
                 const score = (person) => {
-                    return steps.reduce((val, step) => (step.people.indexOf(person.uuid) > -1 ? val + 1 : val), 0)
+                    return steps.reduce((val, step) => (step.people?.indexOf(person.uuid) > -1 ? val + 1 : val), 0)
                 }
                 return people.sort((a, b) => score(b) - score(a))
             },
@@ -129,7 +133,7 @@ export const funnelLogic = kea({
 
     listeners: ({ actions, values, props }) => ({
         setSteps: async () => {
-            if (values.stepsWithCount[0]?.people.length > 0) {
+            if (values.stepsWithCount[0]?.people?.length > 0) {
                 actions.loadPeople(values.stepsWithCount)
             }
         },
@@ -183,6 +187,8 @@ export const funnelLogic = kea({
                     date_to: searchParams.date_to,
                     actions: searchParams.actions,
                     events: searchParams.events,
+                    display: searchParams.display,
+                    interval: searchParams.interval,
                     properties: searchParams.properties,
                 }
                 const _filters = {
@@ -190,6 +196,7 @@ export const funnelLogic = kea({
                     date_to: values.filters.date_to,
                     actions: values.filters.actions,
                     events: values.filters.events,
+                    interval: values.filters.interval,
                     properties: values.filters.properties,
                 }
 
