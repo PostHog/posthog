@@ -60,6 +60,15 @@ class TestDashboard(TransactionBaseTest):
         dashboard = Dashboard.objects.get(pk=dashboard.pk)
         self.assertIsNotNone(dashboard.share_token)
 
+    def test_no_team_dashboards_list(self):
+        self.team.delete()
+
+        response = self.client.get("/api/dashboard/")
+        self.assertDictEqual(
+            response.json(), {"attr": None, "code": "not_found", "detail": "Not found.", "type": "invalid_request",},
+        )
+        self.assertEqual(response.status_code, 404)
+
     def test_return_cached_results(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
         filter_dict = {
