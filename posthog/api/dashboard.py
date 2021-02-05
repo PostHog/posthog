@@ -208,6 +208,8 @@ class DashboardItemSerializer(serializers.ModelSerializer):
     def get_last_refresh(self, dashboard_item: DashboardItem):
         if self.get_result(dashboard_item):
             return dashboard_item.last_refresh
+        dashboard_item.last_refresh = None
+        dashboard_item.save()
         return None
 
 
