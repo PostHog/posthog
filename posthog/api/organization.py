@@ -16,6 +16,7 @@ from rest_framework import (
     viewsets,
 )
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.demo import create_demo_team
 from posthog.models import Organization, Team, User
@@ -86,7 +87,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def get_setup(self, instance: Organization) -> Dict[str, Union[bool, int, str, None]]:
 
-        if instance.setup_section_2_completed:
+        if not instance.is_onboarding_active:
             # As Section 2 is the last one of the setup process (as of today), if it's completed it means the setup process is done
             return {"is_active": False, "current_section": None}
 
@@ -217,3 +218,29 @@ class OrganizationSignupSerializer(serializers.Serializer):
 class OrganizationSignupViewset(generics.CreateAPIView):
     serializer_class = OrganizationSignupSerializer
     permission_classes = [UninitiatedOrCloudOnly]
+
+
+class OrganizationOnboardingViewset(StructuredViewSetMixin, viewsets.GenericViewSet):
+
+    serializer_class = OrganizationSerializer
+    permission_classes = [
+        permissions.IsAuthenticated,
+        OrganizationMemberPermissions,
+    ]
+
+    def create(self, request, *args, **kwargs):
+        # Complete onboarding
+        instance: Organization = self.organization
+        self.check_object_permissions(request, instance)
+
+        if not instance.is_onboarding_active:
+            raise exceptions.ValidationError("Onboarding already completed.")
+
+        instance.complete_onboarding()
+
+        posthoganalytics.capture(
+            request.user.distinct_id, "onboarding completed", {"team_members_count": instance.members.count()},
+        )
+
+        serializer = self.get_serializer(instance=instance)
+        return response.Response(serializer.data)

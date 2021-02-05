@@ -3,17 +3,13 @@ import api from 'lib/api'
 import { organizationLogicType } from './organizationLogicType'
 import { OrganizationType, PersonalizationData } from '~/types'
 
-export interface OrganizationUpdatePayload {
+interface OrganizationUpdatePayload {
     name?: string
     personalization?: PersonalizationData
-    setup_section_2_completed?: boolean
 }
 
 export const organizationLogic = kea<organizationLogicType<OrganizationType, PersonalizationData>>({
-    actions: {
-        updateCompleted: (payload) => ({ payload }), // Triggered after an organization update is completed;
-    },
-    loaders: ({ actions }) => ({
+    loaders: {
         currentOrganization: [
             null as OrganizationType | null,
             {
@@ -25,14 +21,11 @@ export const organizationLogic = kea<organizationLogicType<OrganizationType, Per
                     }
                 },
                 createOrganization: async (name: string) => await api.create('api/organizations/', { name }),
-                updateOrganization: async (payload: OrganizationUpdatePayload) => {
-                    const response = await api.update('api/organizations/@current', payload)
-                    actions.updateCompleted({ payload, response })
-                    return response
-                },
+                updateOrganization: async (payload: OrganizationUpdatePayload) =>
+                    await api.update('api/organizations/@current', payload),
             },
         ],
-    }),
+    },
     listeners: {
         createOrganizationSuccess: () => {
             window.location.href = '/organization/members'

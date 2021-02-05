@@ -4,6 +4,7 @@ from unittest.mock import patch
 from django.test import tag
 from rest_framework import status
 
+from posthog.api import organization
 from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User
 from posthog.test.base import APIBaseTest
 
@@ -78,15 +79,64 @@ class TestOrganizationAPI(APIBaseTest):
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "ASDFG"})
         self.assertEqual(response.status_code, 403)
 
-    def test_can_complete_onboarding_setup(self):
+    @patch("posthoganalytics.capture")
+    def test_member_can_complete_onboarding_setup(self, mock_capture):
+        non_admin = User.objects.create(email="non_admin@posthog.com")
+        non_admin.join(organization=self.organization)
+
+        for user in [self.user, non_admin]:
+            # Any user should be able to complete the onboarding
+            self.client.force_login(user)
+
+            self.organization.setup_section_2_completed = False
+            self.organization.save()
+
+            response = self.client.post(f"/api/organizations/@current/onboarding")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["setup"], {"is_active": False, "current_section": None})
+            self.organization.refresh_from_db()
+            self.assertEqual(self.organization.setup_section_2_completed, True)
+
+            # Assert the event was reported
+            mock_capture.assert_called_with(user.distinct_id, "onboarding completed", {"team_members_count": 2})
+
+    def test_cannot_complete_onboarding_for_another_org(self):
+        _, _, user = User.objects.bootstrap(
+            company_name="Evil, Inc", email="another_one@posthog.com", password="12345678",
+        )
+
+        self.client.force_login(user)
+
         self.organization.setup_section_2_completed = False
         self.organization.save()
 
-        response = self.client.patch(f"/api/organizations/{self.organization.id}", {"setup_section_2_completed": True})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["setup"], {"is_active": False, "current_section": None})
+        response = self.client.post(f"/api/organizations/{self.organization.id}/onboarding")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
+
+        # Object did not change
         self.organization.refresh_from_db()
-        self.assertEqual(self.organization.setup_section_2_completed, True)
+        self.assertEqual(self.organization.setup_section_2_completed, False)
+
+    @patch("posthoganalytics.capture")
+    def test_cannot_complete_already_completed_onboarding(self, mock_capture):
+        self.organization.setup_section_2_completed = True
+        self.organization.save()
+
+        response = self.client.post(f"/api/organizations/@current/onboarding")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Onboarding already completed.",
+                "attr": None,
+            },
+        )
+
+        # Assert nothing was reported
+        mock_capture.assert_not_called()
 
 
 class TestSignup(APIBaseTest):
