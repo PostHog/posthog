@@ -10,13 +10,6 @@ export const VOLUME = 'Volume'
 export const STICKINESS = 'Stickiness'
 export const LIFECYCLE = 'Lifecycle'
 
-export const LINEAR_CHART_LABEL = 'Linear'
-export const CUMULATIVE_CHART_LABEL = 'Cumulative'
-export const TABLE_LABEL = 'Table'
-export const PIE_CHART_LABEL = 'Pie'
-export const BAR_CHART_LABEL = 'Bar'
-export const FUNNEL_LABEL = 'Funnel'
-
 export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,

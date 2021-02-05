@@ -8,6 +8,7 @@ import { funnelLogic } from './funnelLogic'
 import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { LineGraph } from 'scenes/insights/LineGraph'
 import { router } from 'kea-router'
+import { IllustrationDanger } from 'lib/components/icons'
 
 export function FunnelViz({
     steps: stepsParam,
@@ -84,19 +85,34 @@ export function FunnelViz({
     }, [stepsResult, funnelLoading])
 
     if (filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
+        if (filters.events?.length + filters.actions?.length == 1) {
+            return (
+                <div className="insight-empty-state error-message">
+                    <div className="illustration-main">
+                        <IllustrationDanger />
+                    </div>
+                    <h3 className="l3">You can only use funnel trends with more than one funnel step.</h3>
+                </div>
+            )
+        }
         return steps && steps.length > 0 ? (
-            <LineGraph
-                pageKey="trends-annotations"
-                data-attr="trend-line-graph-funnel"
-                type="line"
-                color={color}
-                datasets={steps}
-                labels={steps[0].labels}
-                isInProgress={!filters.date_to}
-                dashboardItemId={dashboardItemId || fromItem}
-                inSharedMode={inSharedMode}
-                percentage={true}
-            />
+            <>
+                <div style={{ position: 'absolute', right: 24, marginTop: -20 }}>
+                    % of users converted between first and last step
+                </div>
+                <LineGraph
+                    pageKey="trends-annotations"
+                    data-attr="trend-line-graph-funnel"
+                    type="line"
+                    color={color}
+                    datasets={steps}
+                    labels={steps[0].labels}
+                    isInProgress={!filters.date_to}
+                    dashboardItemId={dashboardItemId || fromItem}
+                    inSharedMode={inSharedMode}
+                    percentage={true}
+                />
+            </>
         ) : null
     }
 

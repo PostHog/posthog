@@ -17,15 +17,10 @@ import { Tabs, Row, Col, Card, Button } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
-    LINEAR_CHART_LABEL,
-    CUMULATIVE_CHART_LABEL,
-    TABLE_LABEL,
-    PIE_CHART_LABEL,
     ACTIONS_TABLE,
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
     FUNNEL_VIZ,
-    FUNNEL_LABEL,
     LIFECYCLE,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
@@ -54,16 +49,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const { TabPane } = Tabs
 
-const displayMap = {
-    [`${ACTIONS_LINE_GRAPH_LINEAR}`]: LINEAR_CHART_LABEL,
-    [`${ACTIONS_LINE_GRAPH_CUMULATIVE}`]: CUMULATIVE_CHART_LABEL,
-    [`${ACTIONS_TABLE}`]: TABLE_LABEL,
-    [`${ACTIONS_PIE_CHART}`]: PIE_CHART_LABEL,
-    [`${FUNNEL_VIZ}`]: FUNNEL_LABEL,
-}
-
-const showIntervalFilter = function (filter) {
-    switch (filter.insight) {
+const showIntervalFilter = function (activeView, filter) {
+    switch (activeView) {
         case ViewType.TRENDS:
         case ViewType.STICKINESS:
         case ViewType.LIFECYCLE:
@@ -79,8 +66,8 @@ const showIntervalFilter = function (filter) {
     }
 }
 
-const showChartFilter = function (filter, featureFlags) {
-    switch (filter.insight) {
+const showChartFilter = function (activeView, featureFlags) {
+    switch (activeView) {
         case ViewType.TRENDS:
         case ViewType.STICKINESS:
         case ViewType.SESSIONS:
@@ -228,10 +215,10 @@ function _Insights() {
                                 <Card
                                     title={
                                         <div className="float-right">
-                                            {showIntervalFilter(allFilters) && (
+                                            {showIntervalFilter(activeView, allFilters) && (
                                                 <IntervalFilter filters={allFilters} view={activeView} />
                                             )}
-                                            {showChartFilter(allFilters, featureFlags) && (
+                                            {showChartFilter(activeView, featureFlags) && (
                                                 <ChartFilter
                                                     onChange={(display) => {
                                                         if (
@@ -241,7 +228,6 @@ function _Insights() {
                                                             clearAnnotationsToCreate()
                                                         }
                                                     }}
-                                                    displayMap={displayMap}
                                                     filters={allFilters}
                                                     disabled={allFilters.shown_as === LIFECYCLE}
                                                 />
