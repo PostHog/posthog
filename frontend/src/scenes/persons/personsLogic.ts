@@ -83,7 +83,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                         router.actions.push('/404')
                     }
                     const person = response.results[0]
-                    actions.reportPersonDetailViewed(person)
+                    person && actions.reportPersonDetailViewed(person)
                     return person
                 },
                 setPerson: (person: PersonType): PersonType => {
