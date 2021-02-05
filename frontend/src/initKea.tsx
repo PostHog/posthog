@@ -12,7 +12,8 @@ export function initKea(): void {
             routerPlugin,
             loadersPlugin({
                 onFailure({ error }: { error: any }) {
-                    ;(window as any).Sentry ? (window as any).Sentry.captureException(error) : console.error(error)
+
+                    (window as any).Sentry ? (window as any).Sentry.captureException(error) : console.error(error)
                 },
             }),
         ],
