@@ -15,7 +15,7 @@ from django.core.cache import cache
 from django.utils.timezone import now
 from sentry_sdk.api import capture_exception
 
-from posthog import redis, settings
+from posthog import redis
 from posthog.constants import RDBMS
 from posthog.settings import (
     CLICKHOUSE_ASYNC,
@@ -27,12 +27,15 @@ from posthog.settings import (
     CLICKHOUSE_USER,
     CLICKHOUSE_VERIFY,
     PRIMARY_DB,
+    STATSD_HOST,
+    STATSD_PORT,
+    STATSD_PREFIX,
     TEST,
 )
 from posthog.utils import get_safe_cache
 
-if settings.STATSD_HOST is not None:
-    statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
+if STATSD_HOST is not None:
+    statsd.Connection.set_defaults(host=STATSD_HOST, port=STATSD_PORT)
 
 CACHE_TTL = 60  # seconds
 
@@ -115,7 +118,7 @@ else:
             result = ch_client.execute(query, args, settings=settings)
         finally:
             execution_time = time() - start_time
-            g = statsd.Gauge("%s_clickhouse_sync_execution_time" % (settings.STATSD_PREFIX,))
+            g = statsd.Gauge("%s_clickhouse_sync_execution_time" % (STATSD_PREFIX,))
             g.send("clickhouse_sync_query_time", execution_time)
             if app_settings.SHELL_PLUS_PRINT_SQL:
                 print(format_sql(query, args))
