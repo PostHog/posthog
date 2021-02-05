@@ -3,7 +3,7 @@ import api from './api'
 import { toast } from 'react-toastify'
 import { Spin } from 'antd'
 import moment from 'moment'
-import { EventType } from '~/types'
+import { EventType, FilterType } from '~/types'
 import { lightColors } from 'lib/colors'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
@@ -668,6 +668,7 @@ export const disableMinuteFor: Record<string, boolean> = {
     '-1mStart': true,
     yStart: true,
     all: true,
+    other: false,
 }
 
 export const disableHourFor: Record<string, boolean> = {
@@ -681,15 +682,16 @@ export const disableHourFor: Record<string, boolean> = {
     '-1mStart': false,
     yStart: true,
     all: true,
+    other: false,
 }
 
-export function autocorrectInterval({ date_from, interval }: { date_from: string; interval: string }): string {
-    if (!interval) {
+export function autocorrectInterval(filters: Partial<FilterType>): string {
+    if (!filters.interval) {
         return 'day'
     } // undefined/uninitialized
 
-    const minute_disabled = disableMinuteFor[date_from] && interval === 'minute'
-    const hour_disabled = disableHourFor[date_from] && interval === 'hour'
+    const minute_disabled = disableMinuteFor[filters.date_from || 'other'] && filters.interval === 'minute'
+    const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
 
     if (minute_disabled) {
         return 'hour'
