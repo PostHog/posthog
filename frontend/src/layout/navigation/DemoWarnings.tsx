@@ -11,9 +11,11 @@ interface WarningInterface {
     message: JSX.Element | string
     description: JSX.Element | string
     action?: JSX.Element
+    type?: 'warning' | 'info'
 }
 
 interface WarningsInterface {
+    welcome: WarningInterface
     incomplete_setup_on_demo_project: WarningInterface
     incomplete_setup_on_real_project: WarningInterface
     demo_project: WarningInterface
@@ -25,6 +27,21 @@ export function DemoWarnings(): JSX.Element | null {
     const { demoWarning } = useValues(navigationLogic)
 
     const WARNINGS: WarningsInterface = {
+        welcome: {
+            message: `Welcome ${user?.name}! Ready to explore?`,
+            description: (
+                <span>
+                    We want you to try all the power of PostHog right away. Explore everything in this full-fledged demo
+                    environment. When you're ready, head over to setup to use some real data.
+                </span>
+            ),
+            action: (
+                <LinkButton to="/setup">
+                    <SettingOutlined /> Go to setup
+                </LinkButton>
+            ),
+            type: 'info',
+        },
         incomplete_setup_on_demo_project: {
             message: `Get started using Posthog, ${user?.name}!`,
             description: (
@@ -80,7 +97,7 @@ export function DemoWarnings(): JSX.Element | null {
     return (
         <>
             <Alert
-                type="warning"
+                type={WARNINGS[demoWarning].type || 'warning'}
                 message={WARNINGS[demoWarning].message}
                 className="demo-warning"
                 description={WARNINGS[demoWarning].description}
