@@ -1,8 +1,9 @@
 describe('Person Visualization Check', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-people]').click() // TODO: Adjust when releasing navigation-1775
-        cy.get('[data-attr=menu-item-persons].ant-menu-item-selected').should('be.visible')
-        cy.get('.ant-tabs-nav-list > :nth-child(2)').click()
+        cy.get('[data-attr=menu-item-persons]').click()
+        cy.get('.ant-spin-spinning').should('not.visible') // Wait until initial table load to be able to use the search
+        cy.get('[data-attr=persons-search]').type('deb').should('have.value', 'deb')
+        cy.get('.ant-input-search-button').click()
         cy.contains('deborah.fernandez@gmail.com').click()
     })
 
@@ -20,20 +21,12 @@ describe('Person Visualization Check', () => {
 
 describe('Person Show All Distinct Checks', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-people]').click()
-        cy.get('[data-attr=menu-item-persons].ant-menu-item-selected').should('be.visible')
+        cy.get('[data-attr=menu-item-persons]').click()
+        cy.get('.ant-spin-spinning').should('not.visible') // Wait until initial table load
     })
 
-    // it('Should have Show All Distinct Id Button', () => {
-    //     cy.get('.ant-input').type('smith.nunez@gmail.com').type('{enter}')
-
-    //     cy.contains('smith.nunez@gmail.com').click()
-    //     cy.get('[data-cy="show-more-distinct-id"]').should('exist')
-    //     cy.get('[data-cy="show-more-distinct-id"]').click()
-    // })
-
     it('Should have no Show All Distinct Id Button', () => {
-        cy.get('.ant-tabs-nav-list > :nth-child(2)').click()
+        cy.get('[data-attr=persons-search]').type('fernand{enter}')
         cy.contains('deborah.fernandez@gmail.com').click()
         cy.get('[data-cy="show-more-distinct-id"]').should('not.exist')
     })

@@ -1,11 +1,11 @@
-from typing import Any, Dict
+from typing import Any, Dict, List
 
-from django.db.models import QuerySet
+from django.db import transaction
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
-from rest_framework_extensions.mixins import NestedViewSetMixin
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.user import UserSerializer
 from posthog.email import is_email_available
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
@@ -13,39 +13,27 @@ from posthog.tasks.email import send_invite
 
 
 class OrganizationInviteSerializer(serializers.ModelSerializer):
-    created_by_id = serializers.IntegerField(source="created_by.id", read_only=True)
-    created_by_email = serializers.CharField(source="created_by.email", read_only=True)
-    created_by_first_name = serializers.CharField(source="created_by.first_name", read_only=True)
-    is_expired = serializers.SerializerMethodField()
-    # Listing target_email explicitly here as it's nullable in ORM but actually required
-    target_email = serializers.CharField(required=True)
+    created_by = UserSerializer(many=False, read_only=True)
 
     class Meta:
         model = OrganizationInvite
         fields = [
             "id",
             "target_email",
-            "created_by_id",
-            "created_by_email",
-            "created_by_first_name",
-            "created_at",
-            "updated_at",
+            "first_name",
             "emailing_attempt_made",
             "is_expired",
+            "created_by",
+            "created_at",
+            "updated_at",
         ]
         read_only_fields = [
             "id",
-            "created_by_id",
-            "created_by_email",
-            "created_by_first_name",
             "created_at",
             "updated_at",
             "emailing_attempt_made",
-            "is_expired",
         ]
-
-    def get_is_expired(self, invite: OrganizationInvite) -> bool:
-        return invite.is_expired()
+        extra_kwargs = {"target_email": {"required": True, "allow_null": False}}
 
     def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
         if OrganizationMembership.objects.filter(
@@ -53,15 +41,35 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         ).exists():
             raise exceptions.ValidationError("A user with this email address already belongs to the organization.")
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            organization_id=self.context["organization_id"],
-            created_by=self.context["request"].user,
-            target_email=validated_data["target_email"],
+            organization_id=self.context["organization_id"], created_by=self.context["request"].user, **validated_data,
         )
         if is_email_available(with_absolute_urls=True):
             invite.emailing_attempt_made = True
             send_invite.delay(invite_id=invite.id)
             invite.save()
         return invite
+
+
+class BulkCreateOrganizationSerializer(serializers.Serializer):
+    invites = OrganizationInviteSerializer(many=True)
+
+    def validate_invites(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if len(data) > 20:
+            raise serializers.ValidationError(
+                "A maximum of 20 invites can be sent in a single request.", code="max_length",
+            )
+        return data
+
+    def create(self, validated_data: Dict[str, Any]) -> Dict[str, Any]:
+        output = []
+
+        with transaction.atomic():
+            for invite in validated_data["invites"]:
+                serializer = OrganizationInviteSerializer(data=invite, context=self.context)
+                serializer.is_valid(raise_exception=False)  # Don't raise, already validated before
+                output.append(serializer.save())
+
+        return {"invites": output}
 
 
 class OrganizationInviteViewSet(
@@ -97,3 +105,12 @@ class OrganizationInviteViewSet(
                 else parents_query_dict["organization_id"]
             ),
         }
+
+
+class OrganizationInviteBulkViewSet(StructuredViewSetMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
+    serializer_class = BulkCreateOrganizationSerializer
+    permission_classes = (
+        IsAuthenticated,
+        OrganizationMemberPermissions,
+        OrganizationAdminWritePermissions,
+    )

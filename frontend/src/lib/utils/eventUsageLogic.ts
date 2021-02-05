@@ -168,7 +168,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             projectCount,
             nameLength,
         }: {
-            projectCount: number
+            projectCount?: number
             nameLength: number
         }) => {
             posthog.capture('project create submitted', {

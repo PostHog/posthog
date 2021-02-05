@@ -1,7 +1,5 @@
 from typing import cast
-from unittest.mock import patch
 
-from django.test.utils import tag
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest

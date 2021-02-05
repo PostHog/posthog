@@ -9,7 +9,7 @@ import { ShownAsFilter } from '../../ShownAsFilter'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../trendsLogic'
 import { ViewType } from '../../insightLogic'
-import { LIFECYCLE } from 'lib/constants'
+import { ShownAsValue } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FilterType } from '~/types'
 
@@ -31,10 +31,12 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                 filters={filters}
                 setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                 typeKey={'trends_' + view}
-                hideMathSelector={filters.shown_as === LIFECYCLE}
+                hideMathSelector={filters.shown_as === ShownAsValue.LIFECYCLE}
                 copy="Add graph series"
-                disabled={filters.shown_as === LIFECYCLE && (filters.events?.length || filters.actions?.length)}
-                singleFilter={filters.shown_as === LIFECYCLE}
+                disabled={
+                    filters.shown_as === ShownAsValue.LIFECYCLE && !!(filters.events?.length || filters.actions?.length)
+                }
+                singleFilter={filters.shown_as === ShownAsValue.LIFECYCLE}
             />
             {filters.insight !== ViewType.LIFECYCLE && (
                 <>
@@ -79,9 +81,11 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                 filters={filters}
                 setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                 typeKey="trends"
-                hideMathSelector={filters.shown_as === LIFECYCLE}
+                hideMathSelector={filters.shown_as === ShownAsValue.LIFECYCLE}
                 copy="Add graph series"
-                disabled={filters.shown_as === LIFECYCLE && (filters.events?.length || filters.actions?.length)}
+                disabled={
+                    filters.shown_as === ShownAsValue.LIFECYCLE && !!(filters.events?.length || filters.actions?.length)
+                }
             />
             <hr />
             <h4 className="secondary">Filters</h4>

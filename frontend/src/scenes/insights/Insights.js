@@ -26,6 +26,7 @@ import {
     ACTIONS_BAR_CHART,
     FUNNEL_VIZ,
     FUNNEL_LABEL,
+    LIFECYCLE,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
@@ -126,6 +127,7 @@ function _Insights() {
     const { setActiveView } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
     return (
         user?.team && (
             <div className="actions-graph">
@@ -241,18 +243,13 @@ function _Insights() {
                                                     }}
                                                     displayMap={displayMap}
                                                     filters={allFilters}
+                                                    disabled={allFilters.shown_as === LIFECYCLE}
                                                 />
                                             )}
 
-                                            {showDateFilter[activeView] && (
-                                                <DateFilter
-                                                    disabled={
-                                                        activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
-                                                    }
-                                                />
-                                            )}
+                                            {showDateFilter[activeView] && <DateFilter disabled={dateFilterDisabled} />}
 
-                                            {showComparePrevious[activeView] && <CompareFilter filters={allFilters} />}
+                                            {showComparePrevious[activeView] && <CompareFilter />}
                                             <SaveToDashboard
                                                 item={{
                                                     entity: {

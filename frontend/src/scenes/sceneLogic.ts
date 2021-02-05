@@ -117,6 +117,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.OnboardingSetup]: {
         hideDemoWarnings: true,
     },
+    [Scene.ProjectSettings]: {
+        hideDemoWarnings: true,
+    },
 }
 
 export const redirects: Record<string, string | ((params: Params) => any)> = {
@@ -279,6 +282,7 @@ export const sceneLogic = kea<sceneLogicType>({
                             // We were on another page (not the first loaded scene)
                             console.error('App assets regenerated. Reloading this page.')
                             window.location.reload()
+                            return
                         } else {
                             // First scene, show an error page
                             console.error('App assets regenerated. Showing error page.')

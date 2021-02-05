@@ -18,7 +18,7 @@ from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
     from ee.clickhouse.process_event import log_event, process_event_ee
-    from ee.kafka_client.topics import KAFKA_EVENTS_INGESTION_HANDOFF, KAFKA_EVENTS_WAL
+    from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_WAL
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -51,16 +51,18 @@ def _get_token(data, request) -> Optional[str]:
         return request.POST["api_key"]
     if request.POST.get("token"):
         return request.POST["token"]
-    if isinstance(data, list) and len(data) > 0:
-        return data[0]["properties"]["token"]  # Mixpanel Swift SDK
-    if data.get("$token"):
-        return data["$token"]  # JS identify call
-    if "token" in data:
-        return data["token"]  # JS reloadFeatures call
-    if data.get("api_key"):
-        return data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
-    if data.get("properties") and data["properties"].get("token"):
-        return data["properties"]["token"]  # JS capture call
+    if data:
+        if isinstance(data, list):
+            data = data[0]  # Mixpanel Swift SDK
+        if isinstance(data, dict):
+            if data.get("$token"):
+                return data["$token"]  # JS identify call
+            if data.get("token"):
+                return data["token"]  # JS reloadFeatures call
+            if data.get("api_key"):
+                return data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
+            if data.get("properties") and data["properties"].get("token"):
+                return data["properties"]["token"]  # JS capture call
     return None
 
 
@@ -204,10 +206,12 @@ def get_event(request):
 
         if is_ee_enabled():
             log_topics = [KAFKA_EVENTS_WAL]
-            if settings.PLUGIN_SERVER_INGESTION_HANDOFF and team.organization_id in getattr(
+            # TODO: remove team.organization_id in ... for full rollout of Plugins on EE/Cloud
+            if settings.PLUGIN_SERVER_INGESTION and str(team.organization_id) in getattr(
                 settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", []
             ):
-                log_topics.append(KAFKA_EVENTS_INGESTION_HANDOFF)
+                log_topics.append(KAFKA_EVENTS_PLUGIN_INGESTION)
+                statsd.Counter("%s_posthog_cloud_plugin_server_ingestion" % (settings.STATSD_PREFIX,)).increment()
             else:
                 process_event_ee(
                     distinct_id=distinct_id,
@@ -232,7 +236,7 @@ def get_event(request):
             )
         else:
             task_name = "posthog.tasks.process_event.process_event"
-            if settings.PLUGIN_SERVER_INGESTION_HANDOFF or team.plugins_opt_in:
+            if settings.PLUGIN_SERVER_INGESTION or team.plugins_opt_in:
                 task_name += "_with_plugins"
                 celery_queue = settings.PLUGINS_CELERY_QUEUE
             else:

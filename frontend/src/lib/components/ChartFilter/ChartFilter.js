@@ -8,7 +8,6 @@ import {
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
     ACTIONS_TABLE,
-    LIFECYCLE,
     FUNNEL_VIZ,
 } from '~/lib/constants'
 import { chartFilterLogic } from './chartFilterLogic'
@@ -48,7 +47,7 @@ export function ChartFilter(props) {
             bordered={false}
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
-            disabled={filters.shown_as === LIFECYCLE}
+            disabled={props.disabled}
         >
             {filters.insight === ViewType.FUNNELS && <Select.Option value={FUNNEL_VIZ}>Funnel</Select.Option>}
             <Select.OptGroup label={'Line Chart'}>
