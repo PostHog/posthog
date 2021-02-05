@@ -27,7 +27,7 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
             },
         ],
     },
-    listeners: ({ values }) => ({
+    listeners: {
         switchToNonDemoProject: ({ dest }: { dest: string }) => {
             // Swithces to the first non-demo project (if on demo) and takes user to dest
             const { user } = userLogic.values
@@ -43,11 +43,9 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
             }
         },
         completeOnboarding: () => {
-            if (values.currentSection === 2) {
-                organizationLogic.actions.updateOrganization({ setup_section_2_completed: true })
-            }
+            organizationLogic.actions.completeOnboarding()
         },
-    }),
+    },
     selectors: {
         // All `step{Key}` selectors represent whether a step has been completed or not
         stepProjectSetup: [

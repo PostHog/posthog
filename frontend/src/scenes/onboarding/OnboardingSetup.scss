@@ -119,7 +119,7 @@
     }
 
     .already-completed {
-        min-height: 100vh;
+        margin-top: $default_spacing * 4;
         display: flex;
         flex-direction: column;
         align-items: center;

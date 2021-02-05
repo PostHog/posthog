@@ -22,6 +22,7 @@ import { IconExternalLink } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
 import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
 import { LinkButton } from 'lib/components/LinkButton'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 const { Panel } = Collapse
 
@@ -115,6 +116,7 @@ function _OnboardingSetup(): JSX.Element {
 
     const { user, userUpdateLoading } = useValues(userLogic)
     const { userUpdateRequest } = useActions(userLogic)
+    const { currentOrganizationLoading } = useValues(organizationLogic)
 
     const UTM_TAGS = 'utm_medium=in-product&utm_campaign=onboarding-setup-2822'
 
@@ -245,7 +247,11 @@ function _OnboardingSetup(): JSX.Element {
                                 />
                             </div>
                             <div className="text-center" style={{ marginTop: 32 }}>
-                                <Button type="default" onClick={completeOnboarding}>
+                                <Button
+                                    type="default"
+                                    onClick={completeOnboarding}
+                                    loading={currentOrganizationLoading}
+                                >
                                     Finish setup
                                 </Button>
                             </div>
@@ -291,7 +297,7 @@ function _OnboardingSetup(): JSX.Element {
                         </Link>
                     </div>
                     <div style={{ marginTop: 32 }}>
-                        <LinkButton to="/insights" data-attr="onbording-completed-insights">
+                        <LinkButton type="primary" to="/" data-attr="onbording-completed-insights">
                             Go to insights <ArrowRightOutlined />
                         </LinkButton>
                     </div>
