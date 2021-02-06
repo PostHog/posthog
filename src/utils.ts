@@ -302,7 +302,9 @@ export function castTimestampOrNow(
         timestamp = DateTime.fromISO(timestamp)
     }
     timestamp = timestamp.toUTC()
-    if (timestampFormat === TimestampFormat.ClickHouse) {
+    if (timestampFormat === TimestampFormat.ClickHouseSecondPrecision) {
+        return timestamp.toFormat('yyyy-MM-dd HH:mm:ss')
+    } else if (timestampFormat === TimestampFormat.ClickHouse) {
         return timestamp.toFormat('yyyy-MM-dd HH:mm:ss.u')
     } else if (timestampFormat === TimestampFormat.ISO) {
         return timestamp.toUTC().toISO()
