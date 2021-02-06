@@ -94,7 +94,14 @@ export class KafkaQueue implements Queue {
                 eachBatchAutoResolve: false, // we are resolving the last offset of the batch more deliberately
                 autoCommitInterval: 500, // autocommit every 500 ms…
                 autoCommitThreshold: 1000, // …or every 1000 messages, whichever is sooner
-                eachBatch: this.eachBatch.bind(this),
+                eachBatch: async (payload) => {
+                    try {
+                        await this.eachBatch(payload)
+                    } catch (error) {
+                        Sentry.captureException(error)
+                        throw error
+                    }
+                },
             })
         })
         return await startPromise
