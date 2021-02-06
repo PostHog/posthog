@@ -152,7 +152,7 @@ export class DB {
                     } else if (typeof value === 'boolean') {
                         clickhouseValue = value ? '1' : '0'
                     } else if (DateTime.isDateTime(value)) {
-                        clickhouseValue = castTimestampOrNow(value, TimestampFormat.ClickHouse)
+                        clickhouseValue = castTimestampOrNow(value, TimestampFormat.ClickHouseSecondPrecision)
                     } else {
                         clickhouseValue = JSON.stringify(value)
                     }
