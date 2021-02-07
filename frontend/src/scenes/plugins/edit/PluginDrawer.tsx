@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Input, Popconfirm, Switch } from 'antd'
+import { Button, Form, Input, Popconfirm, Select, Switch } from 'antd'
 import { DeleteOutlined, CodeOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
@@ -177,6 +177,17 @@ export function PluginDrawer(): JSX.Element {
                                                 <UploadField />
                                             ) : fieldConfig.type === 'string' ? (
                                                 <Input />
+                                            ) : fieldConfig.type === 'selection' ? (
+                                                <Select
+                                                    defaultValue={fieldConfig.options[0]}
+                                                    dropdownMatchSelectWidth={false}
+                                                >
+                                                    {fieldConfig.options.map((option) => (
+                                                        <Select.Option value={option} key={option}>
+                                                            {option}
+                                                        </Select.Option>
+                                                    ))}
+                                                </Select>
                                             ) : (
                                                 <strong style={{ color: 'var(--red)' }}>
                                                     Unknown field type "<code>{fieldConfig.type}</code>".
