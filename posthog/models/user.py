@@ -196,7 +196,7 @@ class User(AbstractUser):
             "organization_id": str(self.organization.id) if self.organization else None,
             "project_id": str(self.team.uuid) if self.team else None,
             "project_setup_complete": project_setup_complete,
-            "joined_at": self.date_joined.timestamp(),  # integer timestamp to be filterable
+            "joined_at": self.date_joined,
             "has_password_set": self.has_usable_password(),
             "has_social_auth": self.social_auth.exists(),
             "social_providers": list(self.social_auth.values_list("provider", flat=True)),
