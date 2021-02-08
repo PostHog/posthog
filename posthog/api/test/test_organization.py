@@ -4,7 +4,6 @@ from unittest.mock import patch
 from django.test import tag
 from rest_framework import status
 
-from posthog.api import organization
 from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User
 from posthog.test.base import APIBaseTest
 
@@ -98,7 +97,9 @@ class TestOrganizationAPI(APIBaseTest):
             self.assertEqual(self.organization.setup_section_2_completed, True)
 
             # Assert the event was reported
-            mock_capture.assert_called_with(user.distinct_id, "onboarding completed", {"team_members_count": 2})
+            mock_capture.assert_called_with(
+                user.distinct_id, "onboarding completed", properties={"team_members_count": 2},
+            )
 
     def test_cannot_complete_onboarding_for_another_org(self):
         _, _, user = User.objects.bootstrap(
@@ -185,7 +186,15 @@ class TestSignup(APIBaseTest):
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
-            user.distinct_id, "user signed up", properties={"is_first_user": True, "is_organization_first_user": True},
+            user.distinct_id,
+            "user signed up",
+            properties={
+                "is_first_user": True,
+                "is_organization_first_user": True,
+                "new_onboarding_enabled": False,
+                "signup_backend_processor": "OrganizationSignupSerializer",
+                "social_provider": "",
+            },
         )
 
         # Assert that the user is logged in
@@ -219,7 +228,8 @@ class TestSignup(APIBaseTest):
 
     @tag("skip_on_multitenancy")
     @patch("posthog.api.organization.posthoganalytics.capture")
-    def test_signup_minimum_attrs(self, mock_capture):
+    @patch("posthoganalytics.identify")
+    def test_signup_minimum_attrs(self, mock_identify, mock_capture):
         response = self.client.post(
             "/api/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"},
         )
@@ -245,8 +255,17 @@ class TestSignup(APIBaseTest):
         self.assertEqual(organization.name, "Jane")
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
+        mock_identify.assert_called_once()
         mock_capture.assert_called_once_with(
-            user.distinct_id, "user signed up", properties={"is_first_user": True, "is_organization_first_user": True},
+            user.distinct_id,
+            "user signed up",
+            properties={
+                "is_first_user": True,
+                "is_organization_first_user": True,
+                "new_onboarding_enabled": False,
+                "signup_backend_processor": "OrganizationSignupSerializer",
+                "social_provider": "",
+            },
         )
 
         # Assert that the user is logged in

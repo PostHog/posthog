@@ -75,6 +75,10 @@ class TestUser(BaseTest):
                     "organization_id": str(organization.id),
                     "project_id": str(team.uuid),
                     "project_setup_complete": False,
+                    "has_password_set": True,
+                    "joined_at": user.date_joined,
+                    "has_social_auth": False,
+                    "social_providers": [],
                 },
             )
 
