@@ -3,6 +3,8 @@ import { Sessions } from './Sessions'
 import * as helpers from 'cypress/support/helpers'
 
 describe('<Sessions />', () => {
+    const mount = () => helpers.mountPage(<Sessions />, { cssFile: 'sessions.css' })
+
     beforeEach(() => {
         cy.intercept('/api/user/', { fixture: 'api/user' })
         cy.intercept('/api/dashboard/', { fixture: 'api/dashboard' })
@@ -15,10 +17,11 @@ describe('<Sessions />', () => {
         helpers.setLocation('/sessions')
     })
 
+    given('featureFlags', () => ['filter_by_session_props'])
     given('sessions', () => ({ fixture: 'api/event/sessions/demo_sessions' }))
 
     it('can navigate within sessions page', () => {
-        helpers.mountPage(<Sessions />, { cssFile: 'sessions.css' })
+        mount()
 
         cy.contains('Sessions').should('be.visible')
         cy.wait('@api_sessions').map(helpers.getSearchParameters).should('include', {
@@ -42,30 +45,34 @@ describe('<Sessions />', () => {
                 date_to: '2021-01-05',
                 pagination: JSON.stringify({ offset: 10 }),
             })
+
+        cy.get('[data-attr="sessions-prev-date"]').click()
+        cy.wait('@api_sessions').map(helpers.getSearchParameters).should('include', {
+            date_from: '2021-01-04',
+            date_to: '2021-01-04',
+        })
     })
 
-    describe('sessions filters', () => {
-        given('featureFlags', () => ['filter_by_session_props'])
+    it('can filter sessions', () => {})
 
+    describe('sessions filters', () => {
         beforeEach(() => {
             cy.intercept('/api/sessions_filter/', { fixture: 'api/sessions_filter' }).as('sessions_filter')
         })
 
         it('renders sessions filters', () => {
-            helpers.mountPage(<Sessions />, { cssFile: 'sessions.css' })
+            mount()
 
             cy.wait('@sessions_filter')
             cy.contains('Unseen recordings').should('be.visible')
             cy.contains('ChromeUsers').should('be.visible')
 
             cy.get('[data-attr="sessions-filter-link"]').last().click()
-            cy.wait('@api_sessions')
 
+            cy.wait('@api_sessions')
             cy.get('@api_sessions').map(helpers.getSearchParameters).should('include', {
                 filters: '[{"key":"$browser","type":"person","label":"$browser","value":"Chrome","operator":"exact"}]',
             })
-
-            cy.pause()
         })
     })
 })
