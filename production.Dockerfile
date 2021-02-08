@@ -27,5 +27,14 @@ RUN pip install $(grep -ivE "psycopg2" requirements.txt | cut -d'#' -f1) --no-ca
 
 RUN SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
+RUN apt-get purge -y git && apt autoremove -y
+# add posthog user, move runtime files into home and change permissions
+# this alleviates compliance issue for not running a container as root
+RUN useradd -m posthog && mv /code /home/posthog && chown -R 1000:1000 /home/posthog/code
+
+WORKDIR /home/posthog/code
+
+USER posthog
+
 EXPOSE 8000
 CMD ["./bin/docker"]
