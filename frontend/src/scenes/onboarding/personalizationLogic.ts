@@ -40,6 +40,9 @@ export const personalizationLogic = kea<personalizationLogicType<Personalization
             })
             organizationLogic.actions.updateOrganization({ personalization: payload })
         },
+        [organizationLogic.actionTypes.updateOrganizationSuccess]: async () => {
+            window.location.href = '/'
+        },
         [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: async () => {
             // Edge case in case this logic loaded before the api/organization request is completed
             const personalization = organizationLogic.values.currentOrganization?.personalization
