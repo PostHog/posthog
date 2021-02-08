@@ -4,7 +4,6 @@ Cypress.Commands.add('interceptLazy', (pattern, handler) => {
     })
 })
 
-
 Cypress.Commands.add('map', { prevSubject: true }, (subject, method) => {
     return method(subject)
 })
