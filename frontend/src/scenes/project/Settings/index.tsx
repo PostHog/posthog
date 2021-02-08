@@ -73,7 +73,7 @@ function _ProjectSettings(): JSX.Element {
             <PageHeader title="Project Settings" />
             <Card>
                 <h2 id="name" className="subtitle">
-                    Project Name
+                    Display Name
                 </h2>
                 <DisplayName />
                 <Divider />
