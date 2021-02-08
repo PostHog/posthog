@@ -13,7 +13,7 @@ from posthog.models.filters.utils import get_filter
 from posthog.settings import TEMP_CACHE_RESULTS_TTL
 from posthog.utils import generate_cache_key
 
-from .utils import generate_cache_key
+from .utils import generate_cache_key, get_safe_cache
 
 
 class CacheType(str, Enum):
@@ -40,7 +40,7 @@ def cached_function():
             cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
             # return cached result if possible
             if not request.GET.get("refresh", False):
-                cached_result = cache.get(cache_key)
+                cached_result = get_safe_cache(cache_key)
                 # Backwards compatibility with 1.20
                 if cached_result and cached_result.get("result"):
                     return {"data": cached_result["result"], "is_cached": True}

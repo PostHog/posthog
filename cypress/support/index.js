@@ -16,7 +16,7 @@ beforeEach(() => {
 const logIn = () => {
     cy.get('#inputEmail').type('test@posthog.com').should('have.value', 'test@posthog.com')
 
-    cy.get('#inputPassword').type('pass').should('have.value', 'pass')
+    cy.get('#inputPassword').type('12345678').should('have.value', '12345678')
 
     cy.get('.btn').click()
 }

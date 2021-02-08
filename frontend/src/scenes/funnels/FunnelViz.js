@@ -4,13 +4,26 @@ import { Loading, humanFriendlyDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import './FunnelViz.scss'
 import { funnelLogic } from './funnelLogic'
+import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
+import { LineGraph } from 'scenes/insights/LineGraph'
+import { router } from 'kea-router'
+import { IllustrationDanger } from 'lib/components/icons'
 
-export function FunnelViz({ steps: stepsParam, dashboardItemId, cachedResults }) {
+export function FunnelViz({
+    steps: stepsParam,
+    filters: defaultFilters,
+    dashboardItemId,
+    cachedResults,
+    inSharedMode,
+    color = 'white',
+}) {
     const container = useRef(null)
     const [steps, setSteps] = useState(stepsParam)
     const logic = funnelLogic({ dashboardItemId, cachedResults })
     const { results: stepsResult, resultsLoading: funnelLoading } = useValues(logic)
     const { loadResults: loadFunnel } = useActions(logic)
+    const { filters } = useValues(funnelLogic({ filters: defaultFilters }))
+    const [{ fromItem }] = useState(router.values.hashParams)
 
     function buildChart() {
         if (!steps || steps.length === 0) {
@@ -69,6 +82,38 @@ export function FunnelViz({ steps: stepsParam, dashboardItemId, cachedResults })
             buildChart()
         }
     }, [stepsResult, funnelLoading])
+
+    if (filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
+        if (filters.events?.length + filters.actions?.length == 1) {
+            return (
+                <div className="insight-empty-state error-message">
+                    <div className="illustration-main">
+                        <IllustrationDanger />
+                    </div>
+                    <h3 className="l3">You can only use funnel trends with more than one funnel step.</h3>
+                </div>
+            )
+        }
+        return steps && steps.length > 0 ? (
+            <>
+                <div style={{ position: 'absolute', right: 24, marginTop: -20 }}>
+                    % of users converted between first and last step
+                </div>
+                <LineGraph
+                    pageKey="trends-annotations"
+                    data-attr="trend-line-graph-funnel"
+                    type="line"
+                    color={color}
+                    datasets={steps}
+                    labels={steps[0].labels}
+                    isInProgress={!filters.date_to}
+                    dashboardItemId={dashboardItemId || fromItem}
+                    inSharedMode={inSharedMode}
+                    percentage={true}
+                />
+            </>
+        ) : null
+    }
 
     return !funnelLoading ? (
         steps && steps.length > 0 ? (

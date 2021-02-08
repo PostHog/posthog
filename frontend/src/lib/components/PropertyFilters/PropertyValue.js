@@ -10,7 +10,7 @@ export function PropertyValue({
     endpoint,
     placeholder,
     style,
-    bordered,
+    bordered = true,
     onSet,
     value,
     operator,

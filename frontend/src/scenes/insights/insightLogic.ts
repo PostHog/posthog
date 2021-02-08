@@ -142,7 +142,9 @@ export const insightLogic = kea<insightLogicType>({
             const view = values.activeView
             actions.setTimeout(
                 setTimeout(() => {
-                    view == values.activeView && actions.setShowTimeoutMessage(true)
+                    if (values && view == values.activeView) {
+                        actions.setShowTimeoutMessage(true)
+                    }
                 }, SHOW_TIMEOUT_MESSAGE_AFTER)
             )
             actions.setIsLoading(true)

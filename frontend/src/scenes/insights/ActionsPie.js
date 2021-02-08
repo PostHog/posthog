@@ -36,7 +36,7 @@ export function ActionsPie({ dashboardItemId, view, filters: filtersParam, color
 
     useEffect(() => {
         updateData()
-    }, [results])
+    }, [results, color])
 
     return data && !resultsLoading ? (
         data[0] && data[0].labels ? (

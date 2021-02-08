@@ -1,7 +1,6 @@
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
 from django.utils.timezone import now
 
 from posthog.models import Dashboard, DashboardItem, Event, Filter
@@ -10,7 +9,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.tasks.update_cache import update_cache_item, update_cached_items
 from posthog.test.base import BaseTest
 from posthog.types import FilterType
-from posthog.utils import generate_cache_key
+from posthog.utils import generate_cache_key, get_safe_cache
 
 
 class TestUpdateCache(BaseTest):
@@ -63,8 +62,8 @@ class TestUpdateCache(BaseTest):
         self.assertIsNotNone(DashboardItem.objects.get(pk=item.pk).last_refresh)
         self.assertIsNotNone(DashboardItem.objects.get(pk=item_to_cache.pk).last_refresh)
         self.assertIsNotNone(DashboardItem.objects.get(pk=item_do_not_cache.pk).last_refresh)
-        self.assertEqual(cache.get(item_key)["data"][0]["count"], 0)
-        self.assertEqual(cache.get(funnel_key)["data"][0]["count"], 0)
+        self.assertEqual(get_safe_cache(item_key)["data"][0]["count"], 0)
+        self.assertEqual(get_safe_cache(funnel_key)["data"][0]["count"], 0)
 
     def _test_refresh_dashboard_cache_types(
         self, filter: FilterType, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock,
@@ -84,7 +83,7 @@ class TestUpdateCache(BaseTest):
             update_cache_item(*call_item[0])
 
         item_key = generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk))
-        self.assertIsNotNone(cache.get(item_key))
+        self.assertIsNotNone(get_safe_cache(item_key))
 
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")

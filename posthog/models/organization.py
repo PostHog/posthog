@@ -28,7 +28,7 @@ class OrganizationManager(models.Manager):
             organization_membership: Optional[OrganizationMembership] = None
             if user is not None:
                 organization_membership = OrganizationMembership.objects.create(
-                    organization=organization, user=user, level=OrganizationMembership.Level.OWNER
+                    organization=organization, user=user, level=OrganizationMembership.Level.OWNER,
                 )
                 user.current_organization = organization
                 user.current_team = team
@@ -46,6 +46,7 @@ class Organization(UUIDModel):
     name: models.CharField = models.CharField(max_length=64)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)  # Onboarding (#2822)
     personalization: JSONField = JSONField(default=dict, null=False)
 
     objects = OrganizationManager()
@@ -154,9 +155,10 @@ class OrganizationMembership(UUIDModel):
 
 class OrganizationInvite(UUIDModel):
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.CASCADE, related_name="invites", related_query_name="invite"
+        "posthog.Organization", on_delete=models.CASCADE, related_name="invites", related_query_name="invite",
     )
     target_email: models.EmailField = models.EmailField(null=True, db_index=True)
+    first_name: models.CharField = models.CharField(max_length=30, blank=True, default="")
     created_by: models.ForeignKey = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
@@ -179,7 +181,7 @@ class OrganizationInvite(UUIDModel):
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise ValueError("User already is a member of the organization.")
         if OrganizationMembership.objects.filter(
-            organization=self.organization, user__email=self.target_email
+            organization=self.organization, user__email=self.target_email,
         ).exists():
             raise ValueError("A user with this email address already belongs to the organization.")
 

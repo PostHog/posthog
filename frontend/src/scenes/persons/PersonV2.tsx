@@ -147,7 +147,7 @@ function _PersonV2(): JSX.Element {
                     </Card>
                 </Col>
             </Row>
-            {mergeModalOpen && (
+            {mergeModalOpen && person && (
                 <MergePerson person={person} onPersonChange={setPerson} closeModal={() => setMergeModalOpen(false)} />
             )}
         </div>

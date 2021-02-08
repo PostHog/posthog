@@ -36,7 +36,9 @@ export function SavedFunnels(): JSX.Element {
                     <List.Item>
                         <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
                             <Row justify="space-between" align="middle">
-                                <Link to={'/insights?' + toParams(funnel.filters)}>{funnel.name}</Link>
+                                <Link to={'/insights?' + toParams(funnel.filters)} style={{ flex: 1 }}>
+                                    {funnel.name}
+                                </Link>
                                 <Popconfirm
                                     title={`Delete saved funnel "${funnel.name}"?`}
                                     okText="Delete Funnel"
