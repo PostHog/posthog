@@ -1,11 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
-import Worker from '../celery/worker'
+
 import Client from '../celery/client'
-import { PluginsServer, Queue } from '../types'
+import Worker from '../celery/worker'
 import { KafkaQueue } from '../ingestion/kafka-queue'
 import { status } from '../status'
+import { PluginsServer, Queue } from '../types'
 import { UUIDT } from '../utils'
 
 export async function startQueue(

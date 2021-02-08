@@ -1,9 +1,9 @@
-import { runPlugins, runPluginsOnBatch, runPluginTask, setupPlugins } from '../plugins'
-import { cloneObject } from '../utils'
-import { createServer } from '../server'
-import { PluginsServerConfig } from '../types'
 import { initApp } from '../init'
+import { runPlugins, runPluginsOnBatch, runPluginTask, setupPlugins } from '../plugins'
+import { createServer } from '../server'
 import { status } from '../status'
+import { PluginsServerConfig } from '../types'
+import { cloneObject } from '../utils'
 
 type TaskWorker = ({ task, args }: { task: string; args: any }) => Promise<any>
 

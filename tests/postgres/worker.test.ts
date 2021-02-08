@@ -1,11 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import { setupPiscina } from '../helpers/worker'
-import { delay } from '../../src/utils'
+
+import Client from '../../src/celery/client'
 import { startPluginsServer } from '../../src/server'
 import { LogLevel } from '../../src/types'
+import { delay } from '../../src/utils'
 import { makePiscina } from '../../src/worker/piscina'
-import Client from '../../src/celery/client'
 import { resetTestDatabase } from '../helpers/sql'
+import { setupPiscina } from '../helpers/worker'
 
 jest.mock('../../src/sql')
 jest.setTimeout(600000) // 600 sec timeout

@@ -1,8 +1,8 @@
-import { PluginsServerConfig, Event } from '../../src/types'
+import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/ingestion/topics'
+import { Event, PluginsServerConfig } from '../../src/types'
 import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
 import { createProcessEventTests } from '../shared/process-event'
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/ingestion/topics'
 
 jest.setTimeout(180_000) // 3 minute timeout
 

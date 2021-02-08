@@ -1,8 +1,9 @@
-import { Plugin, PluginAttachmentDB, PluginConfig } from '../../src/types'
-import fs from 'fs'
-import path from 'path'
-import os from 'os'
 import AdmZip from 'adm-zip'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+
+import { Plugin, PluginAttachmentDB, PluginConfig } from '../../src/types'
 
 export const commonUserId = 1001
 export const commonOrganizationMembershipId = '0177364a-fc7b-0000-511c-137090b9e4e1'

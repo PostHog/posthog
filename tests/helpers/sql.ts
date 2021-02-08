@@ -1,8 +1,9 @@
-import { makePluginObjects, commonOrganizationId, commonUserId, commonOrganizationMembershipId } from './plugins'
-import { defaultConfig } from '../../src/config'
 import { Pool } from 'pg'
-import { delay, UUIDT } from '../../src/utils'
+
+import { defaultConfig } from '../../src/config'
 import { PluginsServer, PluginsServerConfig, Team } from '../../src/types'
+import { delay, UUIDT } from '../../src/utils'
+import { commonOrganizationId, commonOrganizationMembershipId, commonUserId, makePluginObjects } from './plugins'
 
 export async function resetTestDatabase(
     code: string,

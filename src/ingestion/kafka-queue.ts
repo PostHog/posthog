@@ -1,7 +1,8 @@
-import * as Sentry from '@sentry/node'
-import { Kafka, Consumer, Message, EachBatchPayload } from 'kafkajs'
-import { PluginsServer, Queue, RawEventMessage } from 'types'
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import * as Sentry from '@sentry/node'
+import { Consumer, EachBatchPayload, Kafka, Message } from 'kafkajs'
+import { PluginsServer, Queue, RawEventMessage } from 'types'
+
 import { status } from '../status'
 import { killGracefully } from '../utils'
 

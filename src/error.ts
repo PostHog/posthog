@@ -1,8 +1,9 @@
-import { PluginConfig, PluginConfigId, PluginError, PluginsServer } from './types'
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { setError } from './sql'
 import * as Sentry from '@sentry/node'
+
+import { setError } from './sql'
 import { status } from './status'
+import { PluginConfig, PluginConfigId, PluginError, PluginsServer } from './types'
 
 export async function processError(
     server: PluginsServer,

@@ -1,6 +1,7 @@
+import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
+
 import { startPluginsServer } from '../src/server'
 import { LogLevel } from '../src/types'
-import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 

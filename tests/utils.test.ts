@@ -1,17 +1,18 @@
+import { randomBytes } from 'crypto'
+
+import { LogLevel } from '../src/types'
 import {
+    bufferToStream,
+    cloneObject,
+    escapeClickHouseString,
+    getFileFromArchive,
     getFileFromTGZ,
     getFileFromZip,
-    getFileFromArchive,
-    bufferToStream,
+    sanitizeSqlIdentifier,
     setLogLevel,
-    cloneObject,
     UUID,
     UUIDT,
-    sanitizeSqlIdentifier,
-    escapeClickHouseString,
 } from '../src/utils'
-import { randomBytes } from 'crypto'
-import { LogLevel } from '../src/types'
 
 // .zip in Base64: github repo posthog/helloworldplugin
 const zip =

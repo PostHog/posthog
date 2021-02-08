@@ -1,12 +1,13 @@
-import * as path from 'path'
+import { PluginAttachment, PluginEvent } from '@posthog/plugin-scaffold'
 import * as fs from 'fs'
-import { createPluginConfigVM } from './vm'
-import { PluginsServer, PluginConfig, PluginJsonConfig, TeamId, PluginTask } from './types'
-import { PluginEvent, PluginAttachment } from '@posthog/plugin-scaffold'
+import * as path from 'path'
+
 import { clearError, processError } from './error'
-import { getFileFromArchive } from './utils'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from './sql'
 import { status } from './status'
+import { PluginConfig, PluginJsonConfig, PluginsServer, PluginTask, TeamId } from './types'
+import { getFileFromArchive } from './utils'
+import { createPluginConfigVM } from './vm'
 
 export async function setupPlugins(server: PluginsServer): Promise<void> {
     const pluginRows = await getPluginRows(server)
