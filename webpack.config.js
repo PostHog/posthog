@@ -85,6 +85,7 @@ function createEntry(entry) {
                 scenes: path.resolve(__dirname, 'frontend', 'src', 'scenes'),
                 types: path.resolve(__dirname, 'frontend', 'types'),
                 public: path.resolve(__dirname, 'frontend', 'public'),
+                cypress: path.resolve(__dirname, 'cypress'),
                 ...(process.env.NODE_ENV !== 'production'
                     ? {
                           'react-dom': '@hot-loader/react-dom',
