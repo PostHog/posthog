@@ -2,8 +2,12 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { teamLogicType } from './teamLogicType'
 import { TeamType } from '~/types'
+import { userLogic } from './userLogic'
 
 export const teamLogic = kea<teamLogicType<TeamType>>({
+    connect: {
+        actions: [userLogic, ['loadUser']],
+    },
     actions: {
         deleteCurrentTeam: true,
     },
@@ -18,9 +22,14 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
                         return null
                     }
                 },
-                // no API request in patch as that's handled in userLogic for now
-                patchCurrentTeam: (patch: Partial<TeamType>) =>
-                    values.currentTeam ? { ...values.currentTeam, ...patch } : null,
+                patchCurrentTeam: async (patch: Partial<TeamType>) => {
+                    if (!values.currentTeam) {
+                        return null
+                    }
+                    const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, patch)) as TeamType
+                    userLogic.actions.loadUser()
+                    return patchedTeam
+                },
                 createTeam: async (name: string): Promise<TeamType> => await api.create('api/projects/', { name }),
                 resetToken: async () => await api.update('api/projects/@current/reset_token', {}),
             },
