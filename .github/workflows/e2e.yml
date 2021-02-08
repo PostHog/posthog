@@ -108,7 +108,7 @@ jobs:
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:
-                  config-file: cypress-e2e.json
+                  config-file: cypress.e2e.json
                   record: true
                   parallel: true
                   group: 'PostHog Frontend'
