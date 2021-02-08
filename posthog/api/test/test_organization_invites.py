@@ -28,7 +28,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     # Creating invites
 
-    def test_add_organization_invite_email_required(self):
+    @patch("posthoganalytics.capture")
+    def test_add_organization_invite_email_required(self, mock_capture):
         response = self.client.post("/api/organizations/@current/invites/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
@@ -42,7 +43,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-    def test_add_organization_invite_with_email(self):
+        mock_capture.assert_not_called()
+
+    @patch("posthoganalytics.capture")
+    def test_add_organization_invite_with_email(self, mock_capture):
         email = "x@x.com"
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
@@ -67,6 +71,18 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 },
                 "is_expired": False,
                 "emailing_attempt_made": True,
+            },
+        )
+
+        # Assert capture was called
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "team invite executed",
+            properties={
+                "name_provided": False,
+                "current_invite_count": 0,
+                "current_member_count": 1,
+                "email_available": True,
             },
         )
 

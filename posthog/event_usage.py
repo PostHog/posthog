@@ -43,6 +43,21 @@ def report_onboarding_completed(organization: Organization, current_user: User) 
     )
 
 
+def report_team_member_invited(
+    distinct_id: str, name_provided: bool, current_invite_count: int, current_member_count: int, email_available: bool,
+) -> None:
+    posthoganalytics.capture(
+        distinct_id,
+        "team invite executed",
+        properties={
+            "name_provided": name_provided,
+            "current_invite_count": current_invite_count,
+            "current_member_count": current_member_count,
+            "email_available": email_available,
+        },
+    )
+
+
 def report_bulk_invited(
     distinct_id: str,
     invitee_count: int,

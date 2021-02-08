@@ -21,6 +21,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<PersonType>>({
         reportDemoWarningDismissed: (key) => ({ key }),
         reportOnboardingStepTriggered: (stepKey, extra_args) => ({ stepKey, extra_args }),
         reportBulkInviteAttempted: (inviteesCount, namesCount) => ({ inviteesCount, namesCount }),
+        reportInviteAttempted: (nameProvided, instanceEmailAvailable) => ({ nameProvided, instanceEmailAvailable }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }: { annotations: AnnotationType[] | null }, breakpoint) => {
@@ -201,6 +202,18 @@ export const eventUsageLogic = kea<eventUsageLogicType<PersonType>>({
         }) => {
             // namesCount -> Number of invitees for which a name was provided
             posthog.capture('bulk invite attempted', { invitees_count: inviteesCount, name_count: namesCount })
+        },
+        reportInviteAttempted: async ({
+            nameProvided,
+            instanceEmailAvailable,
+        }: {
+            nameProvided: boolean
+            instanceEmailAvailable: boolean
+        }) => {
+            posthog.capture('team invite attempted', {
+                name_provided: nameProvided,
+                instance_email_available: instanceEmailAvailable,
+            })
         },
     },
 })

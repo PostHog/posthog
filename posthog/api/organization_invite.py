@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.email import is_email_available
-from posthog.event_usage import report_bulk_invited
+from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
 from posthog.tasks.email import send_invite
@@ -44,10 +44,26 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             organization_id=self.context["organization_id"], created_by=self.context["request"].user, **validated_data,
         )
+
         if is_email_available(with_absolute_urls=True):
             invite.emailing_attempt_made = True
             send_invite.delay(invite_id=invite.id)
             invite.save()
+
+        if not self.context.get("bulk_create"):
+            report_team_member_invited(
+                self.context["request"].user.distinct_id,
+                name_provided=bool(validated_data.get("first_name")),
+                current_invite_count=OrganizationInvite.objects.filter(
+                    organization_id=self.context["organization_id"],
+                ).count()
+                - 1,
+                current_member_count=OrganizationMembership.objects.filter(
+                    organization_id=self.context["organization_id"],
+                ).count(),
+                email_available=is_email_available(),
+            )
+
         return invite
 
 
@@ -70,11 +86,13 @@ class BulkCreateOrganizationSerializer(serializers.Serializer):
 
         with transaction.atomic():
             for invite in validated_data["invites"]:
-                if invite["first_name"]:
-                    name_count = name_count + 1
+                self.context["bulk_create"] = True
                 serializer = OrganizationInviteSerializer(data=invite, context=self.context)
                 serializer.is_valid(raise_exception=False)  # Don't raise, already validated before
                 output.append(serializer.save())
+
+                if invite["first_name"]:  # For analytics
+                    name_count = name_count + 1
 
         report_bulk_invited(
             self.context["request"].user.distinct_id,
@@ -82,7 +100,7 @@ class BulkCreateOrganizationSerializer(serializers.Serializer):
             name_count=name_count,
             current_invite_count=current_invite_count,
             current_member_count=OrganizationMembership.objects.filter(
-                organization_id=self.context["organization_id"]
+                organization_id=self.context["organization_id"],
             ).count(),
             email_available=is_email_available(),
         )
