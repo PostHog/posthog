@@ -20,6 +20,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<PersonType>>({
         reportProjectCreationSubmitted: (projectCount, nameLength) => ({ projectCount, nameLength }),
         reportDemoWarningDismissed: (key) => ({ key }),
         reportOnboardingStepTriggered: (stepKey, extra_args) => ({ stepKey, extra_args }),
+        reportBulkInviteAttempted: (inviteesCount, namesCount) => ({ inviteesCount, namesCount }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }: { annotations: AnnotationType[] | null }, breakpoint) => {
@@ -190,6 +191,16 @@ export const eventUsageLogic = kea<eventUsageLogicType<PersonType>>({
         }) => {
             // Fired after the user attempts to start an onboarding step (e.g. clicking on create project)
             posthog.capture('onboarding step triggered', { step: stepKey, ...extra_args })
+        },
+        reportBulkInviteAttempted: async ({
+            inviteesCount,
+            namesCount,
+        }: {
+            inviteesCount: number
+            namesCount: number
+        }) => {
+            // namesCount -> Number of invitees for which a name was provided
+            posthog.capture('bulk invite attempted', { invitees_count: inviteesCount, name_count: namesCount })
         },
     },
 })

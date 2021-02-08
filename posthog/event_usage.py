@@ -39,9 +39,26 @@ def report_onboarding_completed(organization: Organization, current_user: User) 
     # TODO: This should be $set_once as user props.
     posthoganalytics.identify(current_user.distinct_id, {"onboarding_completed": True})
     posthoganalytics.capture(
-        current_user.distinct_id,
-        "onboarding completed",
+        current_user.distinct_id, "onboarding completed", properties={"team_members_count": team_members_count},
+    )
+
+
+def report_bulk_invited(
+    distinct_id: str,
+    invitee_count: int,
+    name_count: int,
+    current_invite_count: int,
+    current_member_count: int,
+    email_available: bool,
+) -> None:
+    posthoganalytics.capture(
+        distinct_id,
+        "bulk invite executed",
         properties={
-            "team_members_count": team_members_count,
+            "invitee_count": invitee_count,
+            "name_count": name_count,
+            "current_invite_count": current_invite_count,
+            "current_member_count": current_member_count,
+            "email_available": email_available,
         },
     )

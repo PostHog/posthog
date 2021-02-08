@@ -1,4 +1,5 @@
 import random
+from unittest.mock import patch
 
 from django.core import mail
 from rest_framework import status
@@ -43,7 +44,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     def test_add_organization_invite_with_email(self):
         email = "x@x.com"
-        response = self.client.post("/api/organizations/@current/invites/", {"target_email": email})
+
+        with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
+            response = self.client.post("/api/organizations/@current/invites/", {"target_email": email})
+
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(OrganizationInvite.objects.exists())
         response_data = response.json()
@@ -62,7 +66,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                     "first_name": self.user.first_name,
                 },
                 "is_expired": False,
-                "emailing_attempt_made": False,
+                "emailing_attempt_made": True,
             },
         )
 
@@ -92,7 +96,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     # Bulk create invites
 
-    def test_allow_bulk_creating_invites(self):
+    @patch("posthoganalytics.capture")
+    def test_allow_bulk_creating_invites(self, mock_capture):
         count = OrganizationInvite.objects.count()
         payload = self.helper_generate_bulk_invite_payload(7)
 
@@ -118,6 +123,19 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Emails should be sent
         self.assertEqual(len(mail.outbox), 7)
+
+        # Assert capture was called
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "bulk invite executed",
+            properties={
+                "invitee_count": 7,
+                "name_count": len(list(filter(lambda x: bool(x["first_name"]), payload))),
+                "current_invite_count": 0,
+                "current_member_count": 1,
+                "email_available": True,
+            },
+        )
 
     def test_maximum_20_invites_per_request(self):
         count = OrganizationInvite.objects.count()

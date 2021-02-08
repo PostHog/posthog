@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.email import is_email_available
+from posthog.event_usage import report_bulk_invited
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
 from posthog.tasks.email import send_invite
@@ -62,12 +63,29 @@ class BulkCreateOrganizationSerializer(serializers.Serializer):
 
     def create(self, validated_data: Dict[str, Any]) -> Dict[str, Any]:
         output = []
+        name_count: int = 0
+        current_invite_count = OrganizationInvite.objects.filter(
+            organization_id=self.context["organization_id"],
+        ).count()
 
         with transaction.atomic():
             for invite in validated_data["invites"]:
+                if invite["first_name"]:
+                    name_count = name_count + 1
                 serializer = OrganizationInviteSerializer(data=invite, context=self.context)
                 serializer.is_valid(raise_exception=False)  # Don't raise, already validated before
                 output.append(serializer.save())
+
+        report_bulk_invited(
+            self.context["request"].user.distinct_id,
+            invitee_count=len(validated_data["invites"]),
+            name_count=name_count,
+            current_invite_count=current_invite_count,
+            current_member_count=OrganizationMembership.objects.filter(
+                organization_id=self.context["organization_id"]
+            ).count(),
+            email_available=is_email_available(),
+        )
 
         return {"invites": output}
 
