@@ -102,6 +102,7 @@ export const insightLogic = kea<insightLogicType>({
             false as boolean | string,
             {
                 setLastRefresh: (_, { lastRefresh }): string | boolean => lastRefresh,
+                setActiveView: () => false,
             },
         ],
         isLoading: [

@@ -359,8 +359,11 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
         },
     }),
 
-    urlToAction: ({ actions, values }) => ({
+    urlToAction: ({ actions, values, props }) => ({
         '/insights': ({}, searchParams: Partial<FilterType>) => {
+            if (props.dashboardItemId) {
+                return
+            }
             if (
                 !searchParams.insight ||
                 searchParams.insight === ViewType.TRENDS ||

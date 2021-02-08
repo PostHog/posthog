@@ -152,7 +152,7 @@ export function DashboardItem({
     const Element = displayMap[_type].element
     const Icon = displayMap[_type].icon
     const viewText = displayMap[_type].viewText
-    const link = displayMap[_type].link(item)
+    const link = displayMap[_type].link({ ...item, insight: item.insight || ViewType.TRENDS })
     const color = item.color || 'white'
     const { dashboards } = useValues(dashboardsModel)
     const { renameDashboardItem } = useActions(dashboardItemsModel)
