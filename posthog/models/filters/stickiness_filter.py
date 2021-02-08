@@ -29,7 +29,7 @@ class StickinessFilter(
     team: Team
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
-        super().__init__(data, request)
+        super().__init__(data, request, **kwargs)
         team: Optional[Team] = kwargs.get("team", None)
         if not team:
             raise ValueError("Team must be provided to stickiness filter")
