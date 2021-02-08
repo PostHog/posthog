@@ -53,7 +53,22 @@ describe('<Sessions />', () => {
         })
     })
 
-    it('can filter sessions', () => {})
+    it('can filter sessions', () => {
+        mount()
+        cy.wait('@api_sessions')
+
+        cy.get('[data-attr="sessions-filter-open"]').click()
+        cy.focused().type('br').type('{downarrow}').type('{enter}')
+        cy.get('.sessions-filter-row input').last().type('Chrome').type('{enter}')
+
+        cy.contains('There are unapplied filters').should('be.visible')
+        cy.get('[data-attr="sessions-apply-filters"]').click()
+        cy.contains('There are unapplied filters').should('not.exist')
+
+        cy.wait('@api_sessions').map(helpers.getSearchParameters).should('include', {
+            filters: '[{"type":"person","key":"$browser","value":"Chrome","label":"$browser","operator":"exact"}]',
+        })
+    })
 
     describe('sessions filters', () => {
         beforeEach(() => {
