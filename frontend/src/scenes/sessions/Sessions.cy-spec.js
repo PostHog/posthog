@@ -77,8 +77,9 @@ describe('<Sessions />', () => {
 
         it('renders sessions filters', () => {
             mount()
-
+            cy.wait('@api_sessions')
             cy.wait('@sessions_filter')
+
             cy.contains('Unseen recordings').should('be.visible')
             cy.contains('ChromeUsers').should('be.visible')
 
