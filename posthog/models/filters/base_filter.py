@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 from django.http import HttpRequest
 
 from posthog.models.filters.mixins.common import BaseParamMixin
+from posthog.models.utils import sane_repr
 
 
 class BaseFilter(BaseParamMixin):
@@ -17,6 +18,7 @@ class BaseFilter(BaseParamMixin):
         elif not data:
             raise ValueError("You need to define either a data dict or a request")
         self._data = data
+        self.kwargs = kwargs
 
     def to_dict(self) -> Dict[str, Any]:
         ret = {}
@@ -29,3 +31,9 @@ class BaseFilter(BaseParamMixin):
 
     def toJSON(self):
         return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)
+
+    def with_data(self, overrides: Dict[str, Any]):
+        "Allow making copy of filter whilst preserving the class"
+        return type(self)(data={**self._data, **overrides}, **self.kwargs)
+
+    __repr__ = sane_repr("_data", "kwargs", include_id=False)

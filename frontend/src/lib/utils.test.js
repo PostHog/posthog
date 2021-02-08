@@ -1,4 +1,12 @@
-import { formatLabel, identifierToHuman, midEllipsis, isURL } from './utils'
+import { formatLabel, identifierToHuman, midEllipsis, isURL, capitalizeFirstLetter } from './utils'
+
+describe('capitalizeFirstLetter()', () => {
+    it('returns the capitalized string', () => {
+        expect(capitalizeFirstLetter('jane')).toEqual('Jane')
+        expect(capitalizeFirstLetter('hello there!')).toEqual('Hello there!')
+        expect(capitalizeFirstLetter('underscores_make_no_difference')).toEqual('Underscores_make_no_difference')
+    })
+})
 
 describe('identifierToHuman()', () => {
     it('humanizes properly', () => {

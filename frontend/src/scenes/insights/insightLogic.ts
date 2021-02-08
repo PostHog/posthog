@@ -4,14 +4,14 @@ import posthog from 'posthog-js'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
 
-export const ViewType = {
-    TRENDS: 'TRENDS',
-    STICKINESS: 'STICKINESS',
-    LIFECYCLE: 'LIFECYCLE',
-    SESSIONS: 'SESSIONS',
-    FUNNELS: 'FUNNELS',
-    RETENTION: 'RETENTION',
-    PATHS: 'PATHS',
+export enum ViewType {
+    TRENDS = 'TRENDS',
+    STICKINESS = 'STICKINESS',
+    LIFECYCLE = 'LIFECYCLE',
+    SESSIONS = 'SESSIONS',
+    FUNNELS = 'FUNNELS',
+    RETENTION = 'RETENTION',
+    PATHS = 'PATHS',
 }
 
 /*
@@ -114,7 +114,9 @@ export const insightLogic = kea<insightLogicType>({
             const view = values.activeView
             actions.setTimeout(
                 setTimeout(() => {
-                    view == values.activeView && actions.setShowTimeoutMessage(true)
+                    if (values && view == values.activeView) {
+                        actions.setShowTimeoutMessage(true)
+                    }
                 }, SHOW_TIMEOUT_MESSAGE_AFTER)
             )
             actions.setIsLoading(true)

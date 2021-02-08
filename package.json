@@ -31,7 +31,9 @@
         "typegen:write": "kea-typegen write",
         "typegen:check": "kea-typegen check",
         "typegen:watch": "kea-typegen watch",
-        "format-python": "black . && isort ."
+        "format:python": "black . && isort .",
+        "format:js": "yarn prettier && yarn eslint --fix",
+        "format": "yarn format:python && yarn format:js"
     },
     "dependencies": {
         "@babel/core": "^7.10.4",
@@ -39,7 +41,7 @@
         "@papercups-io/chat-widget": "^1.1.5",
         "@posthog/plugin-scaffold": "0.2.6",
         "@posthog/simmerjs": "0.7.2-posthog.2",
-        "@sentry/browser": "^5.27.2",
+        "@sentry/browser": "^6.0.4",
         "antd": "^4.11.2",
         "babel-preset-nano-react-app": "^0.1.0",
         "chart.js": "^2.9.3",
@@ -56,7 +58,7 @@
         "kea-router": "^0.5.1",
         "kea-window-values": "^0.0.1",
         "moment": "^2.24.0",
-        "posthog-js": "1.8.3",
+        "posthog-js": "^1.8.6",
         "posthog-js-lite": "^0.0.3",
         "posthog-react-rrweb-player": "^1.0.12",
         "prop-types": "^15.7.2",

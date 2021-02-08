@@ -28,6 +28,7 @@ def format_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
             {"cohort_id": cohort.pk, "team_id": cohort.team_id},
         )
 
+    or_queries = []
     for group_idx, group in enumerate(cohort.groups):
         if group.get("action_id"):
             action = Action.objects.get(pk=group["action_id"], team_id=cohort.team.pk)
@@ -54,8 +55,11 @@ def format_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
                     prop=prop, idx=idx, prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx)
                 )
                 params = {**params, **filter_params}
-                query += " {}".format(filter_query)
-            filters.append("person_id IN {}".format(GET_LATEST_PERSON_ID_SQL.format(query=query)))
+                query += filter_query
+            or_queries.append(query.replace("AND ", "", 1))
+    if len(or_queries) > 0:
+        query = "AND ({})".format(" OR ".join(or_queries))
+        filters.append("person_id IN {}".format(GET_LATEST_PERSON_ID_SQL.format(query=query)))
 
     joined_filter = " OR ".join(filters)
     return joined_filter, params

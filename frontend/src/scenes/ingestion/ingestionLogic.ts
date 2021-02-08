@@ -3,10 +3,12 @@ import { Framework, PlatformType } from 'scenes/ingestion/types'
 import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { ingestionLogicType } from './ingestionLogicType'
 import { userLogic } from 'scenes/userLogic'
-import { router } from 'kea-router'
-import { teamLogic } from 'scenes/teamLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
+    connect: {
+        actions: [userLogic, ['userUpdateSuccess']],
+    },
     actions: {
         setPlatform: (platform: PlatformType) => ({ platform }),
         setFramework: (framework: Framework) => ({ framework: framework as Framework }),
@@ -101,25 +103,12 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
 
     listeners: () => ({
         completeOnboarding: () => {
-            const { user } = userLogic.values
-            if (user) {
-                // make the change immediately before the request comes back
-                // this way we are not re-redirected to the ingestion page
-                if (user.team) {
-                    userLogic.actions.setUser({
-                        ...user,
-                        team: {
-                            ...user.team,
-                            completed_snippet_onboarding: true,
-                        },
-                    })
-                }
-                teamLogic.actions.patchCurrentTeam({
-                    completed_snippet_onboarding: true,
-                })
-            }
             userLogic.actions.userUpdateRequest({ team: { completed_snippet_onboarding: true } })
-            router.actions.push('/insights')
+        },
+        userUpdateSuccess: () => {
+            const usingOnboardingSetup = organizationLogic.values.currentOrganization?.setup.is_active
+            // If user is under the new setup state (#2822), take them back to start section II of the setup
+            window.location.href = usingOnboardingSetup ? '/setup' : '/insights'
         },
     }),
 })

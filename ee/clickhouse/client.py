@@ -5,6 +5,7 @@ from time import time
 from typing import Any, Dict, List, Tuple
 
 import sqlparse
+import statsd
 from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
@@ -26,8 +27,15 @@ from posthog.settings import (
     CLICKHOUSE_USER,
     CLICKHOUSE_VERIFY,
     PRIMARY_DB,
+    STATSD_HOST,
+    STATSD_PORT,
+    STATSD_PREFIX,
     TEST,
 )
+from posthog.utils import get_safe_cache
+
+if STATSD_HOST is not None:
+    statsd.Connection.set_defaults(host=STATSD_HOST, port=STATSD_PORT)
 
 CACHE_TTL = 60  # seconds
 
@@ -107,10 +115,11 @@ else:
     def sync_execute(query, args=None, settings=None):
         start_time = time()
         try:
-            with ch_sync_pool.get_client() as client:
-                result = client.execute(query, args, settings=settings)
+            result = ch_client.execute(query, args, settings=settings)
         finally:
             execution_time = time() - start_time
+            g = statsd.Gauge("%s_clickhouse_sync_execution_time" % (STATSD_PREFIX,))
+            g.send("clickhouse_sync_query_time", execution_time)
             if app_settings.SHELL_PLUS_PRINT_SQL:
                 print(format_sql(query, args))
                 print("Execution time: %.6fs" % (execution_time,))
@@ -160,7 +169,7 @@ def save_query(sql: str, params: Dict, execution_time: float) -> None:
 
     try:
         key = "save_query_{}".format(_save_query_user_id)
-        queries = json.loads(cache.get(key) or "[]")
+        queries = json.loads(get_safe_cache(key) or "[]")
 
         queries.insert(
             0, {"timestamp": now().isoformat(), "query": format_sql(sql, params), "execution_time": execution_time}

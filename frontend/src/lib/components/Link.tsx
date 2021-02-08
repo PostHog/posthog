@@ -1,10 +1,10 @@
-import React, { HTMLProps } from 'react'
+import React from 'react'
 import { router } from 'kea-router'
 
-export interface LinkProps extends HTMLProps<HTMLAnchorElement> {
+export interface LinkProps extends React.HTMLProps<HTMLAnchorElement> {
     to: string
     preventClick?: boolean
-    tag?: string | React.Component
+    tag?: string | React.FunctionComponentElement<any>
 }
 
 export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProps): JSX.Element {
@@ -16,7 +16,6 @@ export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProp
 
         if (!props.target) {
             event.preventDefault()
-            event.stopPropagation()
             if (to && to !== '#' && !preventClick) {
                 router.actions.push(to) // router is mounted automatically, so this is safe to call
             }
@@ -24,9 +23,15 @@ export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProp
         props.onClick && props.onClick(event)
     }
 
-    return React.createElement(tag, {
+    const elProps = {
         href: to || '#',
         ...props,
         onClick,
-    })
+    }
+
+    if (typeof tag === 'string') {
+        return React.createElement(tag, elProps)
+    } else {
+        return React.cloneElement(tag, elProps)
+    }
 }

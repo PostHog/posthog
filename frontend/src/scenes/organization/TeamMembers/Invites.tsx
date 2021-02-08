@@ -5,9 +5,10 @@ import { invitesLogic } from './invitesLogic'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { hot } from 'react-hot-loader/root'
-import { OrganizationInviteType } from '~/types'
+import { OrganizationInviteType, UserNestedType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CreateInviteModalWithButton } from './CreateInviteModal'
+import { ColumnsType } from 'antd/lib/table'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
@@ -22,29 +23,25 @@ function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.El
 
 function makeActionsComponent(
     deleteInvite: (invite: OrganizationInviteType) => void
-): (_: any, invite: OrganizationInviteType) => JSX.Element {
+): (_: any, invite: any) => JSX.Element {
     return function ActionsComponent(_, invite: OrganizationInviteType): JSX.Element {
         return (
-            <div>
-                <a
-                    className="text-danger"
-                    onClick={() => {
-                        invite.is_expired
-                            ? deleteInvite(invite)
-                            : Modal.confirm({
-                                  title: `Delete invite for ${invite.target_email}?`,
-                                  icon: <ExclamationCircleOutlined />,
-                                  okText: 'Delete',
-                                  okType: 'danger',
-                                  onOk() {
-                                      deleteInvite(invite)
-                                  },
-                              })
-                    }}
-                >
-                    <DeleteOutlined />
-                </a>
-            </div>
+            <DeleteOutlined
+                className="text-danger"
+                onClick={() => {
+                    invite.is_expired
+                        ? deleteInvite(invite)
+                        : Modal.confirm({
+                              title: `Delete invite for ${invite.target_email}?`,
+                              icon: <ExclamationCircleOutlined />,
+                              okText: 'Delete',
+                              okType: 'danger',
+                              onOk() {
+                                  deleteInvite(invite)
+                              },
+                          })
+                }}
+            />
         )
     }
 }
@@ -53,7 +50,7 @@ function _Invites(): JSX.Element {
     const { invites, invitesLoading } = useValues(invitesLogic)
     const { deleteInvite } = useActions(invitesLogic)
 
-    const columns = [
+    const columns: ColumnsType = [
         {
             title: 'Target Email',
             dataIndex: 'target_email',
@@ -65,27 +62,25 @@ function _Invites(): JSX.Element {
         {
             title: 'Created At',
             dataIndex: 'created_at',
-            key: 'created_by',
-            render: (createdAt: string) => humanFriendlyDetailedTime(createdAt),
+            key: 'created_at',
+            render: (created_at: string) => humanFriendlyDetailedTime(created_at),
         },
         {
             title: 'Created By',
-            dataIndex: 'created_by_first_name',
+            dataIndex: 'created_by',
             key: 'created_by',
-            render: (createdByFirstName: string, invite: Record<string, any>) =>
-                `${createdByFirstName} (${invite.created_by_email})`,
+            render: (createdBy?: UserNestedType) => (createdBy ? `${createdBy.first_name} (${createdBy.email})` : '–'),
         },
         {
             title: 'Invite Link',
             dataIndex: 'id',
             key: 'link',
-            render: InviteLinkComponent,
+            render: (id, invite) => InviteLinkComponent(id as string, invite as OrganizationInviteType),
         },
         {
             title: '',
             dataIndex: 'actions',
             key: 'actions',
-            align: 'center',
             render: makeActionsComponent(deleteInvite),
         },
     ]

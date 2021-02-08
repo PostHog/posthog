@@ -84,14 +84,14 @@ export function RetentionTable({
                 size="small"
                 className="retention-table"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowClassName={'cursor-pointer'}
+                rowClassName={dashboardItemId ? '' : 'cursor-pointer'}
                 dataSource={results}
                 columns={columns}
                 rowKey="date"
                 loading={resultsLoading}
                 onRow={(_, rowIndex: number | undefined) => ({
                     onClick: () => {
-                        if (rowIndex !== undefined) {
+                        if (!dashboardItemId && rowIndex !== undefined) {
                             loadPeople(rowIndex)
                             setModalVisible(true)
                             selectRow(rowIndex)

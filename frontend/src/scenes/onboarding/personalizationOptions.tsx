@@ -10,13 +10,14 @@ import {
     DollarOutlined,
     ToolOutlined,
     BlockOutlined,
-    MessageOutlined,
-    CoffeeOutlined,
+    NotificationOutlined,
     CloudServerOutlined,
     DatabaseOutlined,
     MobileOutlined,
     DesktopOutlined,
     GlobalOutlined,
+    EllipsisOutlined,
+    MoreOutlined,
 } from '@ant-design/icons'
 
 export const ROLES: RadioSelectType[] = [
@@ -39,7 +40,7 @@ export const ROLES: RadioSelectType[] = [
     {
         key: 'marketing',
         label: 'Marketing',
-        icon: <MessageOutlined />,
+        icon: <NotificationOutlined />,
     },
     {
         key: 'sales',
@@ -67,12 +68,12 @@ export const IS_TECHNICAL: RadioSelectType[] = [
     {
         key: 'technical',
         label: 'Yes',
-        icon: <CodeOutlined />,
+        icon: <MoreOutlined />,
     },
     {
         key: 'non_technical',
         label: 'No',
-        icon: <CoffeeOutlined />,
+        icon: <EllipsisOutlined />,
     },
 ]
 
