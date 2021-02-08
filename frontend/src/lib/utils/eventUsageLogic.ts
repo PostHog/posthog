@@ -19,6 +19,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<PersonType>>({
         reportIngestionBookmarkletCollapsible: (activePanels) => ({ activePanels }),
         reportProjectCreationSubmitted: (projectCount, nameLength) => ({ projectCount, nameLength }),
         reportDemoWarningDismissed: (key) => ({ key }),
+        reportOnboardingStepTriggered: (stepKey, extra_args) => ({ stepKey, extra_args }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }: { annotations: AnnotationType[] | null }, breakpoint) => {
@@ -178,7 +179,17 @@ export const eventUsageLogic = kea<eventUsageLogicType<PersonType>>({
             })
         },
         reportDemoWarningDismissed: async ({ key }: { key: string }) => {
-            posthog.capture('demo warning dismessed', { warning_key: key })
+            posthog.capture('demo warning dismissed', { warning_key: key })
+        },
+        reportOnboardingStepTriggered: async ({
+            stepKey,
+            extra_args,
+        }: {
+            stepKey: string
+            extra_args?: Record<string, any>
+        }) => {
+            // Fired after the user attempts to start an onboarding step (e.g. clicking on create project)
+            posthog.capture('onboarding step triggered', { step: stepKey, ...extra_args })
         },
     },
 })
