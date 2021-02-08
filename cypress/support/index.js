@@ -1,8 +1,8 @@
 import '@cypress/react/support'
-import 'given2/setup'
+import 'givens/setup'
 import './commands'
 
-try{
+try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     require('cypress-terminal-report/src/installLogsCollector')()
 } catch {}
