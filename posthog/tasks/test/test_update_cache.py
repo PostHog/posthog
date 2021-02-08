@@ -62,8 +62,8 @@ class TestUpdateCache(BaseTest):
         self.assertIsNotNone(DashboardItem.objects.get(pk=item.pk).last_refresh)
         self.assertIsNotNone(DashboardItem.objects.get(pk=item_to_cache.pk).last_refresh)
         self.assertIsNotNone(DashboardItem.objects.get(pk=item_do_not_cache.pk).last_refresh)
-        self.assertEqual(get_safe_cache(item_key)["data"][0]["count"], 0)
-        self.assertEqual(get_safe_cache(funnel_key)["data"][0]["count"], 0)
+        self.assertEqual(get_safe_cache(item_key)["result"][0]["count"], 0)
+        self.assertEqual(get_safe_cache(funnel_key)["result"][0]["count"], 0)
 
     def _test_refresh_dashboard_cache_types(
         self, filter: FilterType, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock,
