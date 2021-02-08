@@ -15,7 +15,7 @@ const SECONDS_TO_POLL = 3 * 60
 async function pollFunnel(params = {}) {
     let result = await api.get('api/insight/funnel/?' + toParams(params))
     let start = window.performance.now()
-    while (result.data.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
+    while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
         await wait()
         const { refresh: _, ...restParams } = params // eslint-disable-line
         result = await api.get('api/insight/funnel/?' + toParams(restParams))
@@ -80,7 +80,7 @@ export const funnelLogic = kea({
                     return []
                 }
                 insightLogic.actions.endQuery(ViewType.FUNNELS, result.last_refresh)
-                return result.data
+                return result.result
             },
         },
         people: {
@@ -179,7 +179,7 @@ export const funnelLogic = kea({
                 return []
             }
             insightLogic.actions.endQuery(ViewType.FUNNELS, result.last_refresh)
-            actions.setSteps(result.data)
+            actions.setSteps(result.result)
         },
         saveFunnelInsight: async ({ name }) => {
             await api.create('api/insight', {

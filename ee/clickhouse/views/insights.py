@@ -38,12 +38,12 @@ class ClickhouseInsightsViewSet(InsightViewSet):
             result = ClickhouseTrends().run(filter, team)
 
         self._refresh_dashboard(request=request)
-        return {"data": result}
+        return {"result": result}
 
     @cached_function()
     def calculate_session(self, request: Request) -> Dict[str, Any]:
         return {
-            "data": ClickhouseSessions().run(
+            "result": ClickhouseSessions().run(
                 team=self.team, filter=SessionsFilter(request=request, data={"insight": INSIGHT_SESSIONS})
             )
         }
@@ -53,7 +53,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
         resp = ClickhousePaths().run(filter=filter, team=team)
-        return {"data": resp}
+        return {"result": resp}
 
     @action(methods=["GET"], detail=False)
     def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -64,7 +64,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     def calculate_funnel(self, request: Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
-        return {"data": ClickhouseFunnel(team=team, filter=filter).run()}
+        return {"result": ClickhouseFunnel(team=team, filter=filter).run()}
 
     @cached_function()
     def calculate_retention(self, request: Request) -> Dict[str, Any]:
@@ -74,4 +74,4 @@ class ClickhouseInsightsViewSet(InsightViewSet):
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request)
         result = ClickhouseRetention().run(filter, team)
-        return {"data": result}
+        return {"result": result}

@@ -76,7 +76,7 @@ export const retentionTableLogic = kea<
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(ViewType.RETENTION, res.last_refresh)
-                return res.data
+                return res.result
             },
         },
         people: {

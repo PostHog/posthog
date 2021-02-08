@@ -41,18 +41,15 @@ def cached_function():
             # return cached result if possible
             if not request.GET.get("refresh", False):
                 cached_result = get_safe_cache(cache_key)
-                # Backwards compatibility with 1.20
                 if cached_result and cached_result.get("result"):
-                    return {"data": cached_result["result"], "is_cached": True}
-                if cached_result and cached_result.get("data"):
                     return {**cached_result, "is_cached": True}
             # call function being wrapped
             result = f(*args, **kwargs)
 
             # cache new data
-            if result is not None and not (isinstance(result.get("data"), dict) and result["data"].get("loading")):
+            if result is not None and not (isinstance(result.get("result"), dict) and result["result"].get("loading")):
                 cache.set(
-                    cache_key, {"data": result["data"], "last_refresh": now()}, TEMP_CACHE_RESULTS_TTL,
+                    cache_key, {"result": result["result"], "last_refresh": now()}, TEMP_CACHE_RESULTS_TTL,
                 )
                 if filter:
                     dashboard_items = DashboardItem.objects.filter(team_id=team.pk, filters_hash=cache_key)

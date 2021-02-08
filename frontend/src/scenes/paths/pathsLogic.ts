@@ -78,7 +78,7 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(ViewType.PATHS, paths.last_refresh)
-                return { paths: paths.data, filter }
+                return { paths: paths.result, filter }
             },
         },
     }),

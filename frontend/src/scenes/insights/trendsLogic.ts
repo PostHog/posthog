@@ -164,7 +164,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                 }
                 insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, response.last_refresh)
                 breakpoint()
-                return response.data
+                return response.result
             },
         },
     }),

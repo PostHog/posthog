@@ -161,7 +161,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         self._refresh_dashboard(request=request)
 
-        return {"data": result}
+        return {"result": result}
 
     # ******************************************
     # /insight/session
@@ -177,7 +177,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @cached_function()
     def calculate_session(self, request: request.Request) -> Dict[str, Any]:
         result = Sessions().run(filter=SessionsFilter(request=request), team=self.team)
-        return {"data": result}
+        return {"result": result}
 
     # ******************************************
     # /insight/funnel
@@ -213,7 +213,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 if not task_id:
                     return cached_result["data"]
                 else:
-                    return {"data": result}
+                    return {"result": result}
 
         payload = {"filter": filter.toJSON(), "team_id": team.pk}
         task = update_cache_item_task.delay(cache_key, CacheType.FUNNEL, payload)
@@ -221,7 +221,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
 
         self._refresh_dashboard(request=request)
-        return {"data": result}
+        return {"result": result}
 
     # ******************************************
     # /insight/retention
@@ -242,7 +242,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request)
         result = retention.Retention().run(filter, team)
-        return {"data": result}
+        return {"result": result}
 
     # ******************************************
     # /insight/path
@@ -261,7 +261,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
         resp = paths.Paths().run(filter=filter, team=team)
-        return {"data": resp}
+        return {"result": resp}
 
     # Checks if a dashboard id has been set and if so, update the refresh date
     def _refresh_dashboard(self, request) -> None:
