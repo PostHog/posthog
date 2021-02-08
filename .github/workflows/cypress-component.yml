@@ -27,6 +27,18 @@ jobs:
             - name: Yarn install deps
               run: |
                   yarn install --frozen-lockfile; yarn add cypress@6.4.0
+            - uses: actions/cache@v1
+              name: Setup Yarn build cache
+              id: yarn-build-cache
+              with:
+                  path: frontend/dist
+                  key: ${{ runner.os }}-yarn-build-${{ hashFiles('frontend/src/') }}
+                  restore-keys: |
+                      ${{ runner.os }}-yarn-build-
+            - name: Yarn build
+              run: |
+                  yarn build
+              if: steps.yarn-build-cache.outputs.cache-hit != 'true'
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:
