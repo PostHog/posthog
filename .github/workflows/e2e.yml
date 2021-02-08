@@ -5,7 +5,7 @@ on:
 
 jobs:
     cypress:
-        name: Cypress tests
+        name: Cypress E2E tests
         runs-on: ubuntu-18.04
         strategy:
             # when one test fails, DO NOT cancel the other
@@ -108,7 +108,7 @@ jobs:
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:
-                  config-file: cypress.json
+                  config-file: cypress-e2e.json
                   record: true
                   parallel: true
                   group: 'PostHog Frontend'

@@ -1,7 +1,7 @@
 {
     "video": false,
-    "numTestsKeptInMemory": 0,
     "experimentalComponentTesting": true,
     "testFiles": "**/*cy-spec.js",
-    "componentFolder": "frontend/src"
+    "componentFolder": "frontend/src",
+    "projectId": "twojfp"
 }

@@ -2,6 +2,8 @@ import '@cypress/react/support'
 import 'givens/setup'
 import './commands'
 
+import { unmount } from '@cypress/react'
+
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     require('cypress-terminal-report/src/installLogsCollector')()
@@ -19,6 +21,12 @@ beforeEach(() => {
                 logIn()
             }
         })
+    }
+})
+
+afterEach(() => {
+    if (Cypress.spec.specType === 'component') {
+        unmount()
     }
 })
 
