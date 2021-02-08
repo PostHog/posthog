@@ -52,7 +52,8 @@ class UserManager(BaseUserManager):
             else:
                 team = Team.objects.create_with_data(user=user, organization=organization, **(team_fields or {}))
             user.join(
-                organization=organization, level=OrganizationMembership.Level.OWNER,
+                organization=organization,
+                level=OrganizationMembership.Level.OWNER,
             )
             return organization, team, user
 
@@ -96,7 +97,10 @@ class User(AbstractUser):
 
     username = None  # type: ignore
     current_organization = models.ForeignKey(
-        "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+",
+        "posthog.Organization",
+        models.SET_NULL,
+        null=True,
+        related_name="users_currently+",
     )
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
     email = models.EmailField(_("email address"), unique=True)
@@ -133,7 +137,10 @@ class User(AbstractUser):
         return self.current_team
 
     def join(
-        self, *, organization: Organization, level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
+        self,
+        *,
+        organization: Organization,
+        level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
     ) -> OrganizationMembership:
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
@@ -157,9 +164,14 @@ class User(AbstractUser):
 
     def get_analytics_metadata(self):
 
-        team_member_count_all: int = OrganizationMembership.objects.filter(
-            organization__in=self.organizations.all(),
-        ).values("user_id").distinct().count()
+        team_member_count_all: int = (
+            OrganizationMembership.objects.filter(
+                organization__in=self.organizations.all(),
+            )
+            .values("user_id")
+            .distinct()
+            .count()
+        )
 
         project_setup_complete = False
         if self.team and self.team.completed_snippet_onboarding and self.team.ingested_event:
@@ -176,13 +188,18 @@ class User(AbstractUser):
             "project_count": self.teams.count(),
             "team_member_count_all": team_member_count_all,
             "completed_onboarding_once": self.teams.filter(
-                completed_snippet_onboarding=True, ingested_event=True,
+                completed_snippet_onboarding=True,
+                ingested_event=True,
             ).exists(),  # has completed the onboarding at least for one project
             # properties dependent on current project / org below
             "billing_plan": self.organization.billing_plan if self.organization else None,
             "organization_id": str(self.organization.id) if self.organization else None,
             "project_id": str(self.team.uuid) if self.team else None,
             "project_setup_complete": project_setup_complete,
+            "joined_at": self.date_joined.timestamp(),  # integer timestamp to be filterable
+            "has_password_set": self.has_usable_password(),
+            "has_social_auth": self.social_auth.exists(),
+            "social_providers": list(self.social_auth.values_list("provider", flat=True)),
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")
