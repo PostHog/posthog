@@ -165,7 +165,7 @@ def signup_to_organization_view(request, invite_id):
                 user.distinct_id,
                 is_instance_first_user=False,
                 is_organization_first_user=False,
-                new_onboarding_enabled=(not invite.organization.setup_section_2_completed),
+                new_onboarding_enabled=(not organization.setup_section_2_completed),
                 backend_processor="signup_to_organization_view",
             )
 

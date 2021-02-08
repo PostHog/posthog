@@ -188,8 +188,8 @@ class User(AbstractUser):
             "project_setup_complete": project_setup_complete,
             "joined_at": self.date_joined,
             "has_password_set": self.has_usable_password(),
-            "has_social_auth": self.social_auth.exists(),
-            "social_providers": list(self.social_auth.values_list("provider", flat=True)),
+            "has_social_auth": self.social_auth.exists(),  # type: ignore
+            "social_providers": list(self.social_auth.values_list("provider", flat=True)),  # type: ignore
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")
