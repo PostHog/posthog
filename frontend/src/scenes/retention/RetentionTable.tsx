@@ -146,7 +146,7 @@ export function RetentionTable({
                                                     ))}
                                             </tr>
                                             {people.result?.detail &&
-                                                (people.result.detail as any[]).map((personAppearances) => (
+                                                people.result.detail.map((personAppearances) => (
                                                     <tr key={personAppearances.person.id}>
                                                         <td className="text-overflow" style={{ minWidth: 200 }}>
                                                             <Link to={`/person_by_id/${personAppearances.person.id}`}>
