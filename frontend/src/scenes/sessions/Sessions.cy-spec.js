@@ -8,17 +8,17 @@ import { getContext } from 'kea'
 import { initKea } from '~/initKea'
 import posthog from 'posthog-js'
 
-export const mountPage = (component, { featureFlags = [] } = {}) => {
-    // posthog.init('fake_token', { autocapture: false, opt_out_capturing_by_default: true })
-    // posthog.featureFlags.override(featureFlags)
+export const mountPage = (component, { cssFile, featureFlags = [] } = {}) => {
+    cy.stub(posthog, 'onFeatureFlags', (callback) => {
+        callback(featureFlags)
+    })
+    cy.stub(posthog, 'capture')
+    cy.stub(posthog, 'identify')
 
     initKea()
-    return mount(
-        <Provider store={getContext().store}>
-            {component}
-        </Provider>,
-        { stylesheets: 'http://localhost:8234/main.css' }
-    )
+    return mount(<Provider store={getContext().store}>{component}</Provider>, {
+        stylesheets: ['frontend/dist/main.css', `frontend/dist/${cssFile}`],
+    })
 }
 
 export const setLocation = (path) => {
@@ -33,8 +33,6 @@ export const getSearchParameters = ({ request }) => {
     }
     return result
 }
-
-
 
 describe('<Sessions />', () => {
     beforeEach(() => {
@@ -51,31 +49,32 @@ describe('<Sessions />', () => {
 
     it('loads sessions data', () => {
         setLocation('/sessions')
-        mountPage(<Sessions />, { featureFlags: ['filter_by_session_props'] })
+        mountPage(<Sessions />, { featureFlags: ['filter_by_session_props'], cssFile: 'sessions.css' })
 
         cy.contains('Sessions').should('be.visible')
         cy.wait('@api_sessions').map(getSearchParameters).should('include', {
-            date_from: "2021-01-05",
-            date_to: "2021-01-05",
-            distinct_id: "",
-            filters: "[]",
-            offset: "0",
-            properties: "[]",
+            date_from: '2021-01-05',
+            date_to: '2021-01-05',
+            distinct_id: '',
+            filters: '[]',
+            offset: '0',
+            properties: '[]',
         })
 
         cy.get('[data-attr="load-more-sessions"]').click()
-        cy.wait('@api_sessions').map(getSearchParameters).should('include', {
-            date_from: "2021-01-05",
-            date_to: "2021-01-05",
-            pagination: JSON.stringify({ offset: 10 })
-        })
+        cy.wait('@api_sessions')
+            .map(getSearchParameters)
+            .should('include', {
+                date_from: '2021-01-05',
+                date_to: '2021-01-05',
+                pagination: JSON.stringify({ offset: 10 }),
+            })
 
         // Navigate back/forward in time.
         // Session recording disabled
         // Toggle feature flags on-off
     })
 })
-
 
 // const readFixture = (name) => {
 //     import fs from 'fs'
