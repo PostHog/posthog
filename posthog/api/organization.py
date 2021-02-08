@@ -82,8 +82,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
         membership = OrganizationMembership.objects.filter(
-            organization=organization,
-            user=self.context["request"].user,
+            organization=organization, user=self.context["request"].user,
         ).first()
         return membership.level if membership is not None else None
 
@@ -96,8 +95,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         non_demo_team_id = next((team.pk for team in instance.teams.filter(is_demo=False)), None)
         any_project_ingested_events = instance.teams.filter(is_demo=False, ingested_event=True).exists()
         any_project_completed_snippet_onboarding = instance.teams.filter(
-            is_demo=False,
-            completed_snippet_onboarding=True,
+            is_demo=False, completed_snippet_onboarding=True,
         ).exists()
 
         current_section = 1
@@ -178,9 +176,7 @@ class OrganizationSignupSerializer(serializers.Serializer):
         company_name = validated_data.pop("company_name", validated_data["first_name"])
 
         self._organization, self._team, self._user = User.objects.bootstrap(
-            company_name=company_name,
-            create_team=self.create_team,
-            **validated_data,
+            company_name=company_name, create_team=self.create_team, **validated_data,
         )
         user = self._user
 
@@ -190,9 +186,7 @@ class OrganizationSignupSerializer(serializers.Serializer):
             self._organization.save()
 
         login(
-            self.context["request"],
-            user,
-            backend="django.contrib.auth.backends.ModelBackend",
+            self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
         )
 
         report_user_signed_up(

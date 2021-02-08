@@ -124,9 +124,7 @@ def signup_to_organization_view(request, invite_id):
                 )
             else:
                 posthoganalytics.capture(
-                    user.distinct_id,
-                    "user joined from invite",
-                    properties={"organization_id": organization.id},
+                    user.distinct_id, "user joined from invite", properties={"organization_id": organization.id},
                 )
                 return redirect("/")
         else:
@@ -235,19 +233,13 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
             try:
                 invite = TeamInviteSurrogate(invite_id)
             except Team.DoesNotExist:
-                processed = render_to_string(
-                    "auth_error.html",
-                    {"message": "Invalid invite link!"},
-                )
+                processed = render_to_string("auth_error.html", {"message": "Invalid invite link!"},)
                 return HttpResponse(processed, status=401)
 
         try:
             invite.validate(user=None, email=user_email)
         except ValueError as e:
-            processed = render_to_string(
-                "auth_error.html",
-                {"message": str(e)},
-            )
+            processed = render_to_string("auth_error.html", {"message": str(e)},)
             return HttpResponse(processed, status=401)
 
         try:
@@ -299,10 +291,7 @@ def authorize_and_redirect(request):
     return render_template(
         "authorize_and_redirect.html",
         request=request,
-        context={
-            "domain": urlparse(url).hostname,
-            "redirect_url": url,
-        },
+        context={"domain": urlparse(url).hostname, "redirect_url": url,},
     )
 
 
@@ -366,10 +355,7 @@ urlpatterns = [
         []
         if is_email_available()
         else [
-            path(
-                "accounts/password_reset/",
-                TemplateView.as_view(template_name="registration/password_no_smtp.html"),
-            )
+            path("accounts/password_reset/", TemplateView.as_view(template_name="registration/password_no_smtp.html"),)
         ]
     ),
     path(
