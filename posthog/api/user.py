@@ -35,7 +35,7 @@ def get_event_names_with_usage(team: Team):
     def get_key(event: str, type: str):
         try:
             return next(item.get(type) for item in team.event_names_with_usage if item["event"] == event)
-        except IndexError:
+        except StopIteration:
             return None
 
     return [
@@ -48,7 +48,7 @@ def get_event_properties_with_usage(team: Team):
     def get_key(key: str, type: str):
         try:
             return next(item.get(type) for item in team.event_properties_with_usage if item["key"] == key)
-        except IndexError:
+        except StopIteration:
             return None
 
     return [
