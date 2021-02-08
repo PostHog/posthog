@@ -1,5 +1,6 @@
-import { PluginsServerConfig } from '../types'
 import { TaskQueue } from 'piscina/src/common'
+
+import { PluginsServerConfig } from '../types'
 
 // Copy From: node_modules/piscina/src/index.ts -- copied because it's not exported
 export interface PiscinaOptions {

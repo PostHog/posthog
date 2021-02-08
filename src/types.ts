@@ -1,12 +1,13 @@
-import { Pool } from 'pg'
-import { Redis } from 'ioredis'
-import { Kafka, Producer } from 'kafkajs'
-import { PluginEvent, PluginAttachment, PluginConfigSchema, Properties } from '@posthog/plugin-scaffold'
-import { VM } from 'vm2'
-import { DateTime } from 'luxon'
+import ClickHouse from '@posthog/clickhouse'
+import { PluginAttachment, PluginConfigSchema, PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { StatsD } from 'hot-shots'
 import { EventsProcessor } from 'ingestion/process-event'
-import ClickHouse from '@posthog/clickhouse'
+import { Redis } from 'ioredis'
+import { Kafka, Producer } from 'kafkajs'
+import { DateTime } from 'luxon'
+import { Pool } from 'pg'
+import { VM } from 'vm2'
+
 import { DB } from './db'
 
 export enum LogLevel {

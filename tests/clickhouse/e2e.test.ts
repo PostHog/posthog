@@ -1,15 +1,15 @@
-import { LogLevel, PluginsServerConfig } from '../../src/types'
-import { resetTestDatabase } from '../helpers/sql'
-import { startPluginsServer } from '../../src/server'
-import { makePiscina } from '../../src/worker/piscina'
-import { PluginsServer } from '../../src/types'
 import { createPosthog, DummyPostHog } from '../../src/extensions/posthog'
-import { pluginConfig39 } from '../helpers/plugins'
+import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/ingestion/topics'
+import { startPluginsServer } from '../../src/server'
+import { LogLevel, PluginsServerConfig } from '../../src/types'
+import { PluginsServer } from '../../src/types'
 import { delay, UUIDT } from '../../src/utils'
+import { makePiscina } from '../../src/worker/piscina'
 import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
+import { pluginConfig39 } from '../helpers/plugins'
+import { resetTestDatabase } from '../helpers/sql'
 import { delayUntilEventIngested } from '../shared/process-event'
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/ingestion/topics'
 
 jest.setTimeout(60000) // 60 sec timeout
 

@@ -1,14 +1,15 @@
-import { Database, LogLevel, PluginsServer, PluginsServerConfig, Team, TimestampFormat } from '../../src/types'
-import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
-import { startPluginsServer } from '../../src/server'
-import { makePiscina } from '../../src/worker/piscina'
+import { DateTime } from 'luxon'
+
 import { createPosthog, DummyPostHog } from '../../src/extensions/posthog'
-import { pluginConfig39 } from '../helpers/plugins'
+import { startPluginsServer } from '../../src/server'
+import { Database, LogLevel, PluginsServer, PluginsServerConfig, Team, TimestampFormat } from '../../src/types'
 import { castTimestampOrNow, UUIDT } from '../../src/utils'
+import { makePiscina } from '../../src/worker/piscina'
 import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
+import { pluginConfig39 } from '../helpers/plugins'
+import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { delayUntilEventIngested } from '../shared/process-event'
-import { DateTime } from 'luxon'
 
 jest.setTimeout(60000) // 60 sec timeout
 
@@ -152,7 +153,10 @@ describe('postgres parity', () => {
         expect(postgresPersons2[0].created_at.toISO()).toEqual(randomDate.toISO())
 
         expect(clickHousePersons2[0].is_identified).toEqual(0)
-        expect(clickHousePersons2[0].created_at).toEqual(castTimestampOrNow(randomDate, TimestampFormat.ClickHouse))
+        expect(clickHousePersons2[0].created_at).toEqual(
+            // TODO: get rid of `+ '.000'` by removing the need for ClickHouseSecondPrecision on CH persons
+            castTimestampOrNow(randomDate, TimestampFormat.ClickHouseSecondPrecision) + '.000'
+        )
     })
 
     test('deletePerson', async () => {

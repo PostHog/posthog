@@ -1,8 +1,8 @@
+import { createServer } from '../src/server'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setError } from '../src/sql'
 import { PluginConfig, PluginError, PluginsServer } from '../src/types'
-import { createServer } from '../src/server'
-import { resetTestDatabase } from './helpers/sql'
 import { commonOrganizationId } from './helpers/plugins'
+import { resetTestDatabase } from './helpers/sql'
 
 let server: PluginsServer
 let closeServer: () => Promise<void>

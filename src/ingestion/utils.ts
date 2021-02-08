@@ -1,5 +1,6 @@
-import { Element, BasePerson, RawPerson, Person } from '../types'
 import crypto from 'crypto'
+
+import { BasePerson, Element, Person, RawPerson } from '../types'
 
 export function unparsePersonPartial(person: Partial<Person>): Partial<RawPerson> {
     return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }

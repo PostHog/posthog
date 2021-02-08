@@ -1,8 +1,9 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import ClickHouse from '@posthog/clickhouse'
+import { Properties } from '@posthog/plugin-scaffold'
 import { Producer } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool, QueryConfig, QueryResult, QueryResultRow } from 'pg'
+
 import { KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID } from './ingestion/topics'
 import { chainToElements, hashElements, unparsePersonPartial } from './ingestion/utils'
 import {

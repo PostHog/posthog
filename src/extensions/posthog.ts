@@ -1,6 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
-import { PluginsServer, PluginConfig, RawEventMessage } from 'types'
+import { PluginConfig, PluginsServer, RawEventMessage } from 'types'
+
 import { version } from '../../package.json'
 import Client from '../celery/client'
 import { UUIDT } from '../utils'

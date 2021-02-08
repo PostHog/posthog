@@ -1,5 +1,6 @@
 import { fastify, FastifyInstance } from 'fastify'
 import { PluginsServer } from 'types'
+
 import { status } from '../status'
 
 export function buildFastifyInstance(): FastifyInstance {

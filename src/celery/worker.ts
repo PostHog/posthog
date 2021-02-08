@@ -1,7 +1,7 @@
+import { status } from '../status'
 import { Queue } from '../types'
 import Base from './base'
 import { Message } from './message'
-import { status } from '../status'
 
 type Handler = (...args: any[]) => Promise<void>
 

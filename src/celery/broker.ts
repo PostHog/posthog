@@ -1,6 +1,7 @@
 import * as Redis from 'ioredis'
-import { status } from '../status'
 import { v4 } from 'uuid'
+
+import { status } from '../status'
 import { Pausable } from '../types'
 import { Message } from './message'
 

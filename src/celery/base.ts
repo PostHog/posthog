@@ -2,9 +2,10 @@
  * writes here Base Parent class of Celery client and worker
  * @author SunMyeong Lee <actumn814@gmail.com>
  */
-import { CeleryConf, defaultConf } from './conf'
-import RedisBroker from './broker'
 import * as Redis from 'ioredis'
+
+import RedisBroker from './broker'
+import { CeleryConf, defaultConf } from './conf'
 
 export default class Base {
     broker: RedisBroker

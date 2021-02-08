@@ -1,10 +1,11 @@
-import { PluginConfigId, PluginsServer } from '../types'
-import Piscina from 'piscina'
-import { processError } from '../error'
-import * as schedule from 'node-schedule'
-import Redlock from 'redlock'
 import * as Sentry from '@sentry/node'
+import * as schedule from 'node-schedule'
+import Piscina from 'piscina'
+import Redlock from 'redlock'
+
+import { processError } from '../error'
 import { status } from '../status'
+import { PluginConfigId, PluginsServer } from '../types'
 
 const LOCKED_RESOURCE = 'plugin-server:locks:schedule'
 

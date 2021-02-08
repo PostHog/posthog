@@ -1,12 +1,13 @@
-import { createPluginConfigVM } from '../../src/vm'
-import { PluginsServer } from '../../src/types'
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { createServer } from '../../src/server'
 import * as fetch from 'node-fetch'
-import { delay } from '../../src/utils'
+
 import Client from '../../src/celery/client'
-import { resetTestDatabase } from '../helpers/sql'
+import { createServer } from '../../src/server'
+import { PluginsServer } from '../../src/types'
+import { delay } from '../../src/utils'
+import { createPluginConfigVM } from '../../src/vm'
 import { pluginConfig39 } from '../helpers/plugins'
+import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/celery/client')
 

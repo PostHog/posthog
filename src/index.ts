@@ -1,9 +1,10 @@
 import * as yargs from 'yargs'
-import { PluginsServerConfig } from './types'
-import { startPluginsServer } from './server'
-import { makePiscina } from './worker/piscina'
-import { defaultConfig, configHelp } from './config'
+
+import { configHelp, defaultConfig } from './config'
 import { initApp } from './init'
+import { startPluginsServer } from './server'
+import { PluginsServerConfig } from './types'
+import { makePiscina } from './worker/piscina'
 
 type Argv = {
     config: string

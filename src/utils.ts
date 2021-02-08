@@ -1,11 +1,12 @@
-import { Readable } from 'stream'
-import * as tar from 'tar-stream'
 import AdmZip from 'adm-zip'
-import * as zlib from 'zlib'
-import { LogLevel, TimestampFormat } from './types'
 import { randomBytes } from 'crypto'
 import { DateTime } from 'luxon'
+import { Readable } from 'stream'
+import * as tar from 'tar-stream'
+import * as zlib from 'zlib'
+
 import { status } from './status'
+import { LogLevel, TimestampFormat } from './types'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
 const GRACEFUL_EXIT_PERIOD_SECONDS = 5

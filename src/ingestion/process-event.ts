@@ -1,5 +1,14 @@
+import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import * as Sentry from '@sentry/node'
+import { Producer } from 'kafkajs'
 import { DateTime, Duration } from 'luxon'
+import { nodePostHog } from 'posthog-js-lite/dist/src/targets/node'
+
+import Client from '../celery/client'
+import { DB } from '../db'
+import { Event as EventProto, IEvent } from '../idl/protos'
+import { status } from '../status'
 import {
     CohortPeople,
     Element,
@@ -12,16 +21,8 @@ import {
     TimestampFormat,
 } from '../types'
 import { castTimestampOrNow, UUID, UUIDT } from '../utils'
-import { Event as EventProto, IEvent } from '../idl/protos'
-import { Producer } from 'kafkajs'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from './topics'
 import { elementsToString, sanitizeEventName } from './utils'
-import ClickHouse from '@posthog/clickhouse'
-import { DB } from '../db'
-import { status } from '../status'
-import * as Sentry from '@sentry/node'
-import { nodePostHog } from 'posthog-js-lite/dist/src/targets/node'
-import Client from '../celery/client'
 
 export class EventsProcessor {
     pluginsServer: PluginsServer

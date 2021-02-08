@@ -1,11 +1,12 @@
-import { VM } from 'vm2'
 import fetch from 'node-fetch'
-import { createConsole } from './extensions/console'
+import { VM } from 'vm2'
+
 import { createCache } from './extensions/cache'
-import { createPosthog } from './extensions/posthog'
+import { createConsole } from './extensions/console'
 import { createGoogle } from './extensions/google'
-import { PluginsServer, PluginConfig, PluginConfigVMReponse } from './types'
+import { createPosthog } from './extensions/posthog'
 import { createStorage } from './extensions/storage'
+import { PluginConfig, PluginConfigVMReponse, PluginsServer } from './types'
 
 export async function createPluginConfigVM(
     server: PluginsServer,
