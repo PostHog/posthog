@@ -8,6 +8,7 @@ import { hot } from 'react-hot-loader/root'
 import { OrganizationInviteType, UserNestedType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CreateInviteModalWithButton } from './CreateInviteModal'
+import { ColumnsType } from 'antd/lib/table'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
@@ -22,29 +23,25 @@ function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.El
 
 function makeActionsComponent(
     deleteInvite: (invite: OrganizationInviteType) => void
-): (_: any, invite: OrganizationInviteType) => JSX.Element {
+): (_: any, invite: any) => JSX.Element {
     return function ActionsComponent(_, invite: OrganizationInviteType): JSX.Element {
         return (
-            <div>
-                <a
-                    className="text-danger"
-                    onClick={() => {
-                        invite.is_expired
-                            ? deleteInvite(invite)
-                            : Modal.confirm({
-                                  title: `Delete invite for ${invite.target_email}?`,
-                                  icon: <ExclamationCircleOutlined />,
-                                  okText: 'Delete',
-                                  okType: 'danger',
-                                  onOk() {
-                                      deleteInvite(invite)
-                                  },
-                              })
-                    }}
-                >
-                    <DeleteOutlined />
-                </a>
-            </div>
+            <DeleteOutlined
+                className="text-danger"
+                onClick={() => {
+                    invite.is_expired
+                        ? deleteInvite(invite)
+                        : Modal.confirm({
+                              title: `Delete invite for ${invite.target_email}?`,
+                              icon: <ExclamationCircleOutlined />,
+                              okText: 'Delete',
+                              okType: 'danger',
+                              onOk() {
+                                  deleteInvite(invite)
+                              },
+                          })
+                }}
+            />
         )
     }
 }
@@ -53,7 +50,7 @@ function _Invites(): JSX.Element {
     const { invites, invitesLoading } = useValues(invitesLogic)
     const { deleteInvite } = useActions(invitesLogic)
 
-    const columns = [
+    const columns: ColumnsType = [
         {
             title: 'Target Email',
             dataIndex: 'target_email',
@@ -72,14 +69,13 @@ function _Invites(): JSX.Element {
             title: 'Created By',
             dataIndex: 'created_by',
             key: 'created_by',
-            render: (created_by?: UserNestedType) =>
-                created_by ? `${created_by.first_name} (${created_by.email})` : '',
+            render: (createdBy?: UserNestedType) => (createdBy ? `${createdBy.first_name} (${createdBy.email})` : '–'),
         },
         {
             title: 'Invite Link',
             dataIndex: 'id',
             key: 'link',
-            render: InviteLinkComponent,
+            render: (id, invite) => InviteLinkComponent(id as string, invite as OrganizationInviteType),
         },
         {
             title: '',

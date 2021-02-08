@@ -3,6 +3,7 @@ import api from 'lib/api'
 import { teamLogicType } from './teamLogicType'
 import { TeamType } from '~/types'
 import { userLogic } from './userLogic'
+import { toast } from 'react-toastify'
 
 export const teamLogic = kea<teamLogicType<TeamType>>({
     connect: {
@@ -38,7 +39,9 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
     listeners: ({ values }) => ({
         deleteCurrentTeam: async () => {
             if (values.currentTeam) {
-                api.delete(`api/projects/${values.currentTeam.id}`)
+                toast('Deleting project...')
+                await api.delete(`api/projects/${values.currentTeam.id}`)
+                location.reload()
             }
         },
         createTeamSuccess: () => {

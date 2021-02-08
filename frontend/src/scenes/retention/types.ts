@@ -15,7 +15,10 @@ export interface RetentionTrendPayload {
 
 export interface RetentionTablePeoplePayload {
     next?: string
-    result?: RetentionTableAppearanceType[]
+    result?: {
+        detail: RetentionTableAppearanceType[]
+        totals: number[]
+    }
 }
 
 export interface RetentionTrendPeoplePayload {
