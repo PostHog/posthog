@@ -4,6 +4,8 @@ Module to centralize event reporting on the server-side.
 
 import posthoganalytics
 
+from posthog.models import Organization, User
+
 
 def report_user_signed_up(
     distinct_id: str,
@@ -25,3 +27,21 @@ def report_user_signed_up(
     # TODO: This should be $set_once as user props.
     posthoganalytics.identify(distinct_id, props)
     posthoganalytics.capture(distinct_id, "user signed up", properties=props)
+
+
+def report_onboarding_completed(organization: Organization, current_user: User) -> None:
+    """
+    Reports that the `new-onboarding-2822` has been completed.
+    """
+
+    team_members_count = organization.members.count()
+
+    # TODO: This should be $set_once as user props.
+    posthoganalytics.identify(current_user.distinct_id, {"onboarding_completed": True})
+    posthoganalytics.capture(
+        current_user.distinct_id,
+        "onboarding completed",
+        properties={
+            "team_members_count": team_members_count,
+        },
+    )
