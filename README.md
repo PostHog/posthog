@@ -24,7 +24,7 @@ See [PostHog Docs](https://posthog.com/docs/) for in-depth walk-throughs on func
 
 ![PostHog dashboard screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/app-dashboard.png)
 
-Join [our PostHog Users Slack community](https://join.slack.com/t/posthogusers/shared_invite/enQtOTY0MzU5NjAwMDY3LTc2MWQ0OTZlNjhkODk3ZDI3NDVjMDE1YjgxY2I4ZjI4MzJhZmVmNjJkN2NmMGJmMzc2N2U3Yjc3ZjI5NGFlZDQ) if you need help, want to chat, or are thinking of a new feature. We're here to help - and to make PostHog even better.
+Join [our PostHog Users Slack community](https://posthog.com/slack) if you need help, want to chat, or are thinking of a new feature. We're here to help - and to make PostHog even better.
 
 <br /><br />
 
