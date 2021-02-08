@@ -81,7 +81,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
         membership = OrganizationMembership.objects.filter(
-            organization=organization, user=self.context["request"].user,
+            organization=organization,
+            user=self.context["request"].user,
         ).first()
         return membership.level if membership is not None else None
 
@@ -94,7 +95,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
         non_demo_team_id = next((team.pk for team in instance.teams.filter(is_demo=False)), None)
         any_project_ingested_events = instance.teams.filter(is_demo=False, ingested_event=True).exists()
         any_project_completed_snippet_onboarding = instance.teams.filter(
-            is_demo=False, completed_snippet_onboarding=True,
+            is_demo=False,
+            completed_snippet_onboarding=True,
         ).exists()
 
         current_section = 1
@@ -175,7 +177,9 @@ class OrganizationSignupSerializer(serializers.Serializer):
         company_name = validated_data.pop("company_name", validated_data["first_name"])
 
         self._organization, self._team, self._user = User.objects.bootstrap(
-            company_name=company_name, create_team=self.create_team, **validated_data,
+            company_name=company_name,
+            create_team=self.create_team,
+            **validated_data,
         )
         user = self._user
 
@@ -185,11 +189,14 @@ class OrganizationSignupSerializer(serializers.Serializer):
             self._organization.save()
 
         login(
-            self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
+            self.context["request"],
+            user,
+            backend="django.contrib.auth.backends.ModelBackend",
         )
 
         posthoganalytics.identify(
-            user.distinct_id, {"is_first_user": is_instance_first_user, "is_organization_first_user": True},
+            user.distinct_id,
+            {"is_first_user": is_instance_first_user, "is_organization_first_user": True},
         )
         posthoganalytics.capture(
             user.distinct_id,
@@ -207,7 +214,7 @@ class OrganizationSignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance) -> Dict:
         data = UserSerializer(instance=instance).data
-        data["redirect_url"] = "/personalization" if self.enable_new_onboarding() else "/ingestion"
+        data["redirect_url"] = "/personalization?new_account=true" if self.enable_new_onboarding() else "/ingestion"
         return data
 
     def enable_new_onboarding(self, user: Optional[User] = None) -> bool:
@@ -240,7 +247,9 @@ class OrganizationOnboardingViewset(StructuredViewSetMixin, viewsets.GenericView
         instance.complete_onboarding()
 
         posthoganalytics.capture(
-            request.user.distinct_id, "onboarding completed", {"team_members_count": instance.members.count()},
+            request.user.distinct_id,
+            "onboarding completed",
+            {"team_members_count": instance.members.count()},
         )
 
         serializer = self.get_serializer(instance=instance)
