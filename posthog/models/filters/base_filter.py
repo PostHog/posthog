@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 from django.http import HttpRequest
 
 from posthog.models.filters.mixins.common import BaseParamMixin
+from posthog.models.utils import sane_repr
 
 
 class BaseFilter(BaseParamMixin):
@@ -34,3 +35,5 @@ class BaseFilter(BaseParamMixin):
     def with_data(self, overrides: Dict[str, Any]):
         "Allow making copy of filter whilst preserving the class"
         return type(self)(data={**self._data, **overrides}, **self.kwargs)
+
+    __repr__ = sane_repr("_data", "kwargs", include_id=False)

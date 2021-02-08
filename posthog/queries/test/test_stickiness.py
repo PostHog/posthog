@@ -7,13 +7,14 @@ from freezegun import freeze_time
 from posthog.api.test.base import APIBaseTest
 from posthog.models import Action, ActionStep, Event, Person, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.queries.abstract_test.test_compare import AbstractCompareTest
 from posthog.queries.stickiness import Stickiness
 from posthog.test.base import BaseTest
 
 
 # parameterize tests to reuse in EE
 def stickiness_test_factory(stickiness, event_factory, person_factory, action_factory, get_earliest_timestamp):
-    class TestStickiness(APIBaseTest):
+    class TestStickiness(APIBaseTest, AbstractCompareTest):
         def _create_multiple_people(self, period=timedelta(days=1)):
             base_time = datetime.fromisoformat("2020-01-01T12:00:00.000000")
             p1 = person_factory(team_id=self.team.id, distinct_ids=["person1"], properties={"name": "person1"})
@@ -340,7 +341,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             second_result = self.client.get(result["next"]).json()
             self.assertEqual(len(second_result["results"][0]["people"]), 50)
 
-        def test_stickiness_compared(self):
+        def test_compare(self):
             self._create_multiple_people()
 
             filter = StickinessFilter(

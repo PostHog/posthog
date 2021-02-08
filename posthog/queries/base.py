@@ -29,14 +29,11 @@ def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> Q
     return QuerySet()
 
 
-def determine_compared_filter(filter):
+def determine_compared_filter(filter) -> Filter:
     if not filter.date_to or not filter.date_from:
         raise ValueError("You need date_from and date_to to compare")
     date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
-    compared_filter = filter.with_data(
-        {"date_from": date_from.date().isoformat(), "date_to": date_to.date().isoformat()}
-    )
-    return compared_filter
+    return filter.with_data({"date_from": date_from.date().isoformat(), "date_to": date_to.date().isoformat()})
 
 
 def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str) -> List[Dict[str, Any]]:
