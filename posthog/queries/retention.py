@@ -284,9 +284,10 @@ class Retention(BaseQuery):
         marker_length = filter.total_intervals
         result = []
         appearance_totals = [0 for _ in range(marker_length)]
-        for val in vals:
-            appearances = appearance_to_markers(sorted(val[2]), marker_length)
-            result.append({"person": people_dict[val[0]], "appearances": appearances})
+
+        for person_id, _, appearances_array in vals:
+            appearances = appearance_to_markers(sorted(appearances_array), marker_length)
+            result.append({"person": people_dict[person_id], "appearances": appearances})
             appearance_totals = [sum(x) for x in zip(*[appearance_totals, appearances])]
 
         return {"detail": result, "totals": appearance_totals}
