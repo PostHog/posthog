@@ -34,8 +34,8 @@ class UserSerializer(serializers.ModelSerializer):
 def get_event_names_with_usage(team: Team):
     def get_key(event: str, type: str):
         try:
-            return [item.get(type) for item in team.event_names_with_usage if item["event"] == event][0]
-        except IndexError:
+            return next(item.get(type) for item in team.event_names_with_usage if item["event"] == event)
+        except StopIteration:
             return None
 
     return [
@@ -47,8 +47,8 @@ def get_event_names_with_usage(team: Team):
 def get_event_properties_with_usage(team: Team):
     def get_key(key: str, type: str):
         try:
-            return [item.get(type) for item in team.event_properties_with_usage if item["key"] == key][0]
-        except IndexError:
+            return next(item.get(type) for item in team.event_properties_with_usage if item["key"] == key)
+        except StopIteration:
             return None
 
     return [
