@@ -80,6 +80,7 @@ export interface OrganizationType {
     teams?: TeamType[]
     membership_level: OrganizationMembershipLevel | null
     setup: SetupState
+    personalization: PersonalizationData
 }
 
 export interface OrganizationMemberType {
