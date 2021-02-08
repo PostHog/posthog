@@ -22,7 +22,7 @@ import { userLogic } from 'scenes/userLogic'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 
 function DisplayName(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { patchCurrentTeam } = useActions(teamLogic)
 
     const [name, setName] = useState(currentTeam?.name || '')
@@ -50,6 +50,8 @@ function DisplayName(): JSX.Element {
                     e.preventDefault()
                     patchCurrentTeam({ name })
                 }}
+                disabled={!name}
+                loading={currentTeamLoading}
             >
                 Save
             </Button>
