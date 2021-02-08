@@ -19,6 +19,7 @@ from rest_framework import (
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.demo import create_demo_team
+from posthog.event_usage import report_user_signed_up
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.permissions import (
@@ -188,13 +189,12 @@ class OrganizationSignupSerializer(serializers.Serializer):
             self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
         )
 
-        posthoganalytics.identify(
-            user.distinct_id, {"is_first_user": is_instance_first_user, "is_organization_first_user": True},
-        )
-        posthoganalytics.capture(
+        report_user_signed_up(
             user.distinct_id,
-            "user signed up",
-            properties={"is_first_user": is_instance_first_user, "is_organization_first_user": True},
+            is_instance_first_user=is_instance_first_user,
+            is_organization_first_user=True,
+            new_onboarding_enabled=(not self._organization.setup_section_2_completed),
+            backend_processor="OrganizationSignupSerializer",
         )
 
         return user
