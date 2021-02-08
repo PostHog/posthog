@@ -364,12 +364,6 @@ function MathPropertySelector(props) {
             onChange={(_, payload) => props.onMathPropertySelect(props.index, payload && payload.value)}
             className="property-select"
             value={props.mathProperty}
-            onSearch={(input) => {
-                setInput(input)
-                if (!optionsCache[input] && !isOperatorFlag(operator)) {
-                    loadPropertyValues(input)
-                }
-            }}
             data-attr="math-property-select"
             dropdownMatchSelectWidth={350}
             placeholder={'Select property'}

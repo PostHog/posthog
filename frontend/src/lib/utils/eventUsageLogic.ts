@@ -4,15 +4,15 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
-import { AnnotationType, FilterType, DashboardType } from '~/types'
+import { AnnotationType, FilterType, DashboardType, PersonType } from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
-export const eventUsageLogic = kea<eventUsageLogicType>({
+export const eventUsageLogic = kea<eventUsageLogicType<PersonType>>({
     actions: {
         reportAnnotationViewed: (annotations) => ({ annotations }),
-        reportPersonDetailViewed: (person) => ({ person }),
+        reportPersonDetailViewed: (person: PersonType) => ({ person }),
         reportInsightViewed: (filters, isFirstLoad) => ({ filters, isFirstLoad }),
         reportDashboardViewed: (dashboard, hasShareToken) => ({ dashboard, hasShareToken }),
         reportBookmarkletDragged: () => true,
@@ -43,7 +43,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 posthog.capture('annotation viewed', properties)
             }
         },
-        reportPersonDetailViewed: async ({ person }, breakpoint) => {
+        reportPersonDetailViewed: async ({ person }: { person: PersonType }, breakpoint) => {
             await breakpoint(500)
 
             let custom_properties_count = 0
@@ -156,11 +156,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             posthog.capture('viewed dashboard', properties)
         },
         reportBookmarkletDragged: async (_, breakpoint) => {
-            breakpoint(500)
+            await breakpoint(500)
             posthog.capture('bookmarklet drag start')
         },
         reportIngestionBookmarkletCollapsible: async ({ activePanels }: { activePanels: string[] }, breakpoint) => {
-            breakpoint(500)
+            await breakpoint(500)
             const action = activePanels.includes('bookmarklet') ? 'shown' : 'hidden'
             posthog.capture(`ingestion bookmarklet panel ${action}`)
         },
@@ -168,7 +168,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             projectCount,
             nameLength,
         }: {
-            projectCount: number
+            projectCount?: number
             nameLength: number
         }) => {
             posthog.capture('project create submitted', {

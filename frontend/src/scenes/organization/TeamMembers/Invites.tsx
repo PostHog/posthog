@@ -5,7 +5,7 @@ import { invitesLogic } from './invitesLogic'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { hot } from 'react-hot-loader/root'
-import { OrganizationInviteType } from '~/types'
+import { OrganizationInviteType, UserNestedType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CreateInviteModalWithButton } from './CreateInviteModal'
 import { ColumnsType } from 'antd/lib/table'
@@ -62,15 +62,14 @@ function _Invites(): JSX.Element {
         {
             title: 'Created At',
             dataIndex: 'created_at',
-            key: 'created_by',
-            render: (createdAt: string) => humanFriendlyDetailedTime(createdAt),
+            key: 'created_at',
+            render: (created_at: string) => humanFriendlyDetailedTime(created_at),
         },
         {
             title: 'Created By',
-            dataIndex: 'created_by_first_name',
+            dataIndex: 'created_by',
             key: 'created_by',
-            render: (createdByFirstName, invite) =>
-                `${createdByFirstName as string} (${(invite as OrganizationInviteType).created_by_email})`,
+            render: (createdBy?: UserNestedType) => (createdBy ? `${createdBy.first_name} (${createdBy.email})` : '–'),
         },
         {
             title: 'Invite Link',
@@ -82,7 +81,6 @@ function _Invites(): JSX.Element {
             title: '',
             dataIndex: 'actions',
             key: 'actions',
-            align: 'center',
             render: makeActionsComponent(deleteInvite),
         },
     ]

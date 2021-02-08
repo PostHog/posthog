@@ -193,7 +193,7 @@ export const sessionsTableLogic = kea<
         }
     },
     urlToAction: ({ actions, values }) => ({
-        '*': (_: any, params: Params) => {
+        '/sessions': (_: any, params: Params) => {
             const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
 
             if (
@@ -202,7 +202,7 @@ export const sessionsTableLogic = kea<
                 values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD')
             ) {
                 actions.setFilters(params.properties || [], newDate)
-            } else if (values.sessions.length === 0) {
+            } else if (values.sessions.length === 0 && !values.sessionsLoading) {
                 actions.loadSessions(true)
             }
 

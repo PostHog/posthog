@@ -160,6 +160,8 @@ export function DashboardItem({
             ? 'RetentionContainer'
             : item.filters.insight === ViewType.PATHS
             ? 'PathsViz'
+            : item.filters.insight === ViewType.FUNNELS
+            ? 'FunnelViz'
             : item.filters.display || 'ActionsLineGraph'
 
     const className = displayMap[_type].className
