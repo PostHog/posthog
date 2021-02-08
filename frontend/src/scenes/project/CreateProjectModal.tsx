@@ -80,7 +80,7 @@ export function CreateProjectModal({
                     }}
                 />
             </div>
-            {errorMessage && <Alert message={errorMessage} type="error" style={{ marginTop: '1rem' }} />}
+            {errorMessage && <Alert message={errorMessage} type="error" />}
         </Modal>
     )
 }

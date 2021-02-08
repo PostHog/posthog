@@ -276,6 +276,9 @@ class Funnel(BaseQuery):
         return steps
 
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
+        if len(self._filter.entities) == 0:
+            return []
+
         if self._filter.display == TRENDS_LINEAR:
             return self._get_trends()
 
