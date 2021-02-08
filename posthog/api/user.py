@@ -33,10 +33,7 @@ class UserSerializer(serializers.ModelSerializer):
 
 def get_event_names_with_usage(team: Team):
     def get_key(event: str, type: str):
-        try:
-            return next(item.get(type) for item in team.event_names_with_usage if item["event"] == event)
-        except StopIteration:
-            return None
+        return next((item.get(type) for item in team.event_names_with_usage if item["event"] == event), None)
 
     return [
         {"event": event, "volume": get_key(event, "volume"), "usage_count": get_key(event, "usage_count"),}
@@ -46,10 +43,7 @@ def get_event_names_with_usage(team: Team):
 
 def get_event_properties_with_usage(team: Team):
     def get_key(key: str, type: str):
-        try:
-            return next(item.get(type) for item in team.event_properties_with_usage if item["key"] == key)
-        except StopIteration:
-            return None
+        return next((item.get(type) for item in team.event_properties_with_usage if item["key"] == key), None)
 
     return [
         {"key": key, "volume": get_key(key, "volume"), "usage_count": get_key(key, "usage_count"),}
