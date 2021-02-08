@@ -24,10 +24,7 @@ export function DangerZone(): JSX.Element {
                 'data-attr': 'delete-project-ok',
             },
             cancelText: 'Cancel',
-            onOk() {
-                deleteCurrentTeam()
-                location.reload()
-            },
+            onOk: deleteCurrentTeam,
         })
     }
 
