@@ -3,3 +3,8 @@ Cypress.Commands.add('interceptLazy', (pattern, handler) => {
         req.reply(handler())
     })
 })
+
+
+Cypress.Commands.add('map', { prevSubject: true }, (subject, method) => {
+    return method(subject)
+})

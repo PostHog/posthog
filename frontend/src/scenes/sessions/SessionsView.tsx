@@ -234,7 +234,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 }}
             >
                 {(pagination || isLoadingNext) && (
-                    <Button type="primary" onClick={fetchNextSessions}>
+                    <Button type="primary" onClick={fetchNextSessions} data-attr="load-more-sessions">
                         {isLoadingNext ? <Spin> </Spin> : 'Load more sessions'}
                     </Button>
                 )}

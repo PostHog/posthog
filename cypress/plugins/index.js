@@ -1,7 +1,6 @@
 // const preprocessor = require('@cypress/react/plugins/babelrc')
 
 const webpackPreprocessor = require('@cypress/webpack-preprocessor')
-const defaults = webpackPreprocessor.defaultOptions
 
 
 const mainConfig = require('../../webpack.config')()

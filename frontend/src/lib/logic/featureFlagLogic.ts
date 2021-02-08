@@ -71,7 +71,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<PostHog, FeatureFlagsSe
 
     events: ({ actions }) => ({
         afterMount: () => {
-            posthog.onFeatureFlags(actions.setFeatureFlags)
+            // posthog.onFeatureFlags(actions.setFeatureFlags)
         },
     }),
 })
