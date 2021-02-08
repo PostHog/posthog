@@ -27,6 +27,7 @@ export function DangerZone(): JSX.Element {
             okText: currentTeam ? `Delete ${currentTeam.name}` : <i>Loading current project…</i>,
             okType: 'danger',
             okButtonProps: {
+                // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
                 'data-attr': 'delete-project-ok',
             },
             cancelText: 'Cancel',
