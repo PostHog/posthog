@@ -1,11 +1,12 @@
 import React from 'react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Alert } from 'antd'
 import { StarOutlined, SettingOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { Link } from 'lib/components/Link'
 import { navigationLogic } from './navigationLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface WarningInterface {
     message: JSX.Element | string
@@ -25,6 +26,7 @@ interface WarningsInterface {
 export function DemoWarnings(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { demoWarning } = useValues(navigationLogic)
+    const { reportDemoWarningDismissed } = useActions(eventUsageLogic)
 
     const WARNINGS: WarningsInterface = {
         welcome: {
@@ -124,6 +126,7 @@ export function DemoWarnings(): JSX.Element | null {
                 action={WARNINGS[demoWarning].action}
                 closable
                 style={{ marginTop: 32 }}
+                onClose={() => reportDemoWarningDismissed(demoWarning)}
             />
         </>
     )

@@ -129,6 +129,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                         posthog.register({
                             posthog_version: user.posthog_version,
                             has_slack_webhook: !!user.team?.slack_incoming_webhook,
+                            is_demo_project: user.team?.is_demo,
                         })
                     }
                 }

@@ -18,6 +18,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<PersonType>>({
         reportBookmarkletDragged: () => true,
         reportIngestionBookmarkletCollapsible: (activePanels) => ({ activePanels }),
         reportProjectCreationSubmitted: (projectCount, nameLength) => ({ projectCount, nameLength }),
+        reportDemoWarningDismissed: (key) => ({ key }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }: { annotations: AnnotationType[] | null }, breakpoint) => {
@@ -175,6 +176,9 @@ export const eventUsageLogic = kea<eventUsageLogicType<PersonType>>({
                 current_project_count: projectCount,
                 name_length: nameLength,
             })
+        },
+        reportDemoWarningDismissed: async ({ key }: { key: string }) => {
+            posthog.capture('demo warning dismessed', { warning_key: key })
         },
     },
 })
