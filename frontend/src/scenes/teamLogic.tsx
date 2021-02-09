@@ -22,11 +22,21 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
                 },
                 patchCurrentTeam: async (patch: Partial<TeamType>) => {
                     if (!values.currentTeam) {
-                        return null
+                        throw new Error('Current team has not been loaded yet, so it cannot be updated!')
                     }
                     const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, patch)) as TeamType
                     userLogic.actions.loadUser()
                     return patchedTeam
+                },
+                renameCurrentTeam: async (newName: string) => {
+                    if (!values.currentTeam) {
+                        throw new Error('Current team has not been loaded yet, so it cannot be renamed!')
+                    }
+                    const renamedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, {
+                        name: newName,
+                    })) as TeamType
+                    userLogic.actions.loadUser()
+                    return renamedTeam
                 },
                 createTeam: async (name: string): Promise<TeamType> => await api.create('api/projects/', { name }),
                 resetToken: async () => await api.update('api/projects/@current/reset_token', {}),
@@ -36,10 +46,13 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
     listeners: ({ values }) => ({
         deleteCurrentTeam: async () => {
             if (values.currentTeam) {
-                toast('Deleting project...')
+                toast('Deleting project…')
                 await api.delete(`api/projects/${values.currentTeam.id}`)
                 location.reload()
             }
+        },
+        renameCurrentTeamSuccess: () => {
+            toast.success('Project has been renamed')
         },
         createTeamSuccess: () => {
             window.location.href = '/ingestion'

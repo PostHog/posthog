@@ -23,9 +23,8 @@ import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { patchCurrentTeam } = useActions(teamLogic)
+    const { renameCurrentTeam } = useActions(teamLogic)
 
-    const [hasInputBeenUsed, setHasInputBeenUsed] = useState(false)
     const [name, setName] = useState(currentTeam?.name || '')
 
     if (currentTeam?.is_demo) {
@@ -42,7 +41,6 @@ function DisplayName(): JSX.Element {
                 value={name}
                 onChange={(event) => {
                     setName(event.target.value)
-                    setHasInputBeenUsed(true)
                 }}
                 style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
             />
@@ -50,10 +48,9 @@ function DisplayName(): JSX.Element {
                 type="primary"
                 onClick={(e) => {
                     e.preventDefault()
-                    patchCurrentTeam({ name })
-                    setHasInputBeenUsed(false)
+                    renameCurrentTeam(name)
                 }}
-                disabled={!name && hasInputBeenUsed}
+                disabled={!name || !currentTeam || name === currentTeam.name}
                 loading={currentTeamLoading}
             >
                 Rename Project
