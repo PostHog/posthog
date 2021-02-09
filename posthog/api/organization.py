@@ -16,6 +16,7 @@ from rest_framework import (
     viewsets,
 )
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.demo import create_demo_team
 from posthog.models import Organization, Team, User
@@ -64,12 +65,14 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "membership_level",
             "personalization",
             "setup",
+            "setup_section_2_completed",
         ]
         read_only_fields = [
             "id",
             "created_at",
             "updated_at",
         ]
+        extra_kwargs = {"setup_section_2_completed": {"write_only": True}}  # `setup` is used for reading this attribute
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
@@ -84,7 +87,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def get_setup(self, instance: Organization) -> Dict[str, Union[bool, int, str, None]]:
 
-        if instance.setup_section_2_completed:
+        if not instance.is_onboarding_active:
             # As Section 2 is the last one of the setup process (as of today), if it's completed it means the setup process is done
             return {"is_active": False, "current_section": None}
 
@@ -105,6 +108,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "any_project_ingested_events": any_project_ingested_events,
             "any_project_completed_snippet_onboarding": any_project_completed_snippet_onboarding,
             "non_demo_team_id": non_demo_team_id,
+            "has_invited_team_members": instance.invites.exists() or instance.members.count() > 1,
         }
 
 
@@ -175,7 +179,7 @@ class OrganizationSignupSerializer(serializers.Serializer):
         )
         user = self._user
 
-        # Temp (due to FF-release [`onboarding-2822`]): Activate the setup/onboarding process if applicable
+        # Temp (due to FF-release [`new-onboarding-2822`]): Activate the setup/onboarding process if applicable
         if self.enable_new_onboarding(user):
             self._organization.setup_section_2_completed = False
             self._organization.save()
@@ -209,9 +213,35 @@ class OrganizationSignupSerializer(serializers.Serializer):
     def enable_new_onboarding(self, user: Optional[User] = None) -> bool:
         if user is None:
             user = self._user
-        return posthoganalytics.feature_enabled("onboarding-2822", user.distinct_id) or settings.DEBUG
+        return posthoganalytics.feature_enabled("new-onboarding-2822", user.distinct_id) or settings.DEBUG
 
 
 class OrganizationSignupViewset(generics.CreateAPIView):
     serializer_class = OrganizationSignupSerializer
     permission_classes = [UninitiatedOrCloudOnly]
+
+
+class OrganizationOnboardingViewset(StructuredViewSetMixin, viewsets.GenericViewSet):
+
+    serializer_class = OrganizationSerializer
+    permission_classes = [
+        permissions.IsAuthenticated,
+        OrganizationMemberPermissions,
+    ]
+
+    def create(self, request, *args, **kwargs):
+        # Complete onboarding
+        instance: Organization = self.organization
+        self.check_object_permissions(request, instance)
+
+        if not instance.is_onboarding_active:
+            raise exceptions.ValidationError("Onboarding already completed.")
+
+        instance.complete_onboarding()
+
+        posthoganalytics.capture(
+            request.user.distinct_id, "onboarding completed", {"team_members_count": instance.members.count()},
+        )
+
+        serializer = self.get_serializer(instance=instance)
+        return response.Response(serializer.data)

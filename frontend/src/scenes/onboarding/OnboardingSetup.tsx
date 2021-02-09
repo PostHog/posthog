@@ -1,7 +1,7 @@
 import { PageHeader } from 'lib/components/PageHeader'
-import React, { useState } from 'react'
+import React from 'react'
 import { hot } from 'react-hot-loader/root'
-import { Button, Collapse, Switch } from 'antd'
+import { Button, Col, Collapse, Progress, Row, Switch } from 'antd'
 import {
     ProjectOutlined,
     CodeOutlined,
@@ -11,6 +11,7 @@ import {
     SlackOutlined,
     UsergroupAddOutlined,
     PlusOutlined,
+    ArrowRightOutlined,
 } from '@ant-design/icons'
 import './OnboardingSetup.scss'
 import { useActions, useValues } from 'kea'
@@ -20,6 +21,8 @@ import { Link } from 'lib/components/Link'
 import { IconExternalLink } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
 import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
+import { LinkButton } from 'lib/components/LinkButton'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 const { Panel } = Collapse
 
@@ -98,7 +101,6 @@ function OnboardingStep({
 
 export const OnboardingSetup = hot(_OnboardingSetup)
 function _OnboardingSetup(): JSX.Element {
-    const [slackClicked, setslackClicked] = useState(false)
     const {
         stepProjectSetup,
         stepInstallation,
@@ -106,11 +108,21 @@ function _OnboardingSetup(): JSX.Element {
         stepVerification,
         currentSection,
         inviteTeamModalShown,
+        teamInviteAvailable,
+        progressPercentage,
+        slackCalled,
     } = useValues(onboardingSetupLogic)
-    const { switchToNonDemoProject, setProjectModalShown, setInviteTeamModalShown } = useActions(onboardingSetupLogic)
+    const {
+        switchToNonDemoProject,
+        setProjectModalShown,
+        setInviteTeamModalShown,
+        completeOnboarding,
+        callSlack,
+    } = useActions(onboardingSetupLogic)
 
     const { user, userUpdateLoading } = useValues(userLogic)
     const { userUpdateRequest } = useActions(userLogic)
+    const { currentOrganizationLoading } = useValues(organizationLogic)
 
     const UTM_TAGS = 'utm_medium=in-product&utm_campaign=onboarding-setup-2822'
 
@@ -118,10 +130,17 @@ function _OnboardingSetup(): JSX.Element {
         <div className="onboarding-setup">
             {currentSection ? (
                 <>
-                    <PageHeader
-                        title="Setup"
-                        caption="Get your PostHog instance up and running with all the bells and whistles"
-                    />
+                    <Row gutter={16}>
+                        <Col span={18}>
+                            <PageHeader
+                                title="Setup"
+                                caption="Get your PostHog instance up and running with all the bells and whistles"
+                            />
+                        </Col>
+                        <Col span={6} style={{ display: 'flex', alignItems: 'center' }}>
+                            <Progress percent={progressPercentage} strokeColor="var(--purple)" strokeWidth={16} />
+                        </Col>
+                    </Row>
 
                     <Collapse defaultActiveKey={currentSection} expandIconPosition="right" accordion>
                         <Panel
@@ -217,31 +236,39 @@ function _OnboardingSetup(): JSX.Element {
                                     icon={<SlackOutlined />}
                                     identifier="slack"
                                     handleClick={() => {
-                                        setslackClicked(true)
+                                        callSlack()
                                         window.open(`https://posthog.com/slack?s=app&${UTM_TAGS}`, '_blank')
                                     }}
                                     caption="Fastest way to reach the PostHog team and the community."
                                     customActionElement={
-                                        <Button type={slackClicked ? 'default' : 'primary'} icon={<SlackOutlined />}>
+                                        <Button type={slackCalled ? 'default' : 'primary'} icon={<SlackOutlined />}>
                                             Join us
                                         </Button>
                                     }
                                 />
-                                <OnboardingStep
-                                    title="Invite your team members"
-                                    icon={<UsergroupAddOutlined />}
-                                    identifier="invite-team"
-                                    handleClick={() => setInviteTeamModalShown(true)}
-                                    caption="Spread the knowledge, share insights with everyone in your team."
-                                    customActionElement={
-                                        <Button type="primary" icon={<PlusOutlined />}>
-                                            Invite my team
-                                        </Button>
-                                    }
-                                />
+                                {teamInviteAvailable && (
+                                    <OnboardingStep
+                                        title="Invite your team members"
+                                        icon={<UsergroupAddOutlined />}
+                                        identifier="invite-team"
+                                        handleClick={() => setInviteTeamModalShown(true)}
+                                        caption="Spread the knowledge, share insights with everyone in your team."
+                                        customActionElement={
+                                            <Button type="primary" icon={<PlusOutlined />}>
+                                                Invite my team
+                                            </Button>
+                                        }
+                                    />
+                                )}
                             </div>
                             <div className="text-center" style={{ marginTop: 32 }}>
-                                <Button type="default">Finish setup</Button>
+                                <Button
+                                    type="default"
+                                    onClick={completeOnboarding}
+                                    loading={currentOrganizationLoading}
+                                >
+                                    Finish setup
+                                </Button>
                             </div>
                         </Panel>
                     </Collapse>
@@ -272,12 +299,22 @@ function _OnboardingSetup(): JSX.Element {
                 </>
             ) : (
                 <div className="already-completed">
-                    <CheckCircleOutlined /> <h2 className="">Your organization is already set up!</h2>
+                    <CheckCircleOutlined className="completed-icon" />{' '}
+                    <h2 className="">Your organization is set up!</h2>
                     <div className="text-muted">
-                        Looks like your organization is already good to go. If you still need some help, check out{' '}
-                        <Link to={`https://posthog.com/docs?${UTM_TAGS}`} target="_blank" rel="noopener">
+                        Looks like your organization is good to go. If you still need some help, check out{' '}
+                        <Link
+                            to={`https://posthog.com/docs?${UTM_TAGS}&utm_message=onboarding-completed`}
+                            target="_blank"
+                            rel="noopener"
+                        >
                             our docs <IconExternalLink />
                         </Link>
+                    </div>
+                    <div style={{ marginTop: 32 }}>
+                        <LinkButton type="primary" to="/" data-attr="onbording-completed-insights">
+                            Go to insights <ArrowRightOutlined />
+                        </LinkButton>
                     </div>
                 </div>
             )}

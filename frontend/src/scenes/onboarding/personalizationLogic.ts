@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 import { personalizationLogicType } from './personalizationLogicType'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PersonalizationData } from '~/types'
+import { router } from 'kea-router'
 
 export const personalizationLogic = kea<personalizationLogicType<PersonalizationData>>({
     actions: {
@@ -38,8 +39,25 @@ export const personalizationLogic = kea<personalizationLogicType<Personalization
                 number_of_answers: Object.keys(payload).length,
             })
             organizationLogic.actions.updateOrganization({ personalization: payload })
-
+        },
+        [organizationLogic.actionTypes.updateOrganizationSuccess]: async () => {
             window.location.href = '/'
+        },
+        [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: async () => {
+            // Edge case in case this logic loaded before the api/organization request is completed
+            const personalization = organizationLogic.values.currentOrganization?.personalization
+            if (personalization && Object.keys(personalization).length) {
+                router.actions.push('/setup')
+            }
+        },
+    },
+    events: {
+        afterMount: () => {
+            const personalization = organizationLogic.values.currentOrganization?.personalization
+            if (personalization && Object.keys(personalization).length) {
+                // If personalization has already been filled, this screen should no longer be loaded
+                router.actions.push('/setup')
+            }
         },
     },
 })

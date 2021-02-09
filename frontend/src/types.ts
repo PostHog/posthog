@@ -80,6 +80,7 @@ export interface OrganizationType {
     teams?: TeamType[]
     membership_level: OrganizationMembershipLevel | null
     setup: SetupState
+    personalization: PersonalizationData
 }
 
 export interface OrganizationMemberType {
@@ -484,9 +485,10 @@ export type PersonalizationData = Record<string, string | string[] | null>
 interface EnabledSetupState {
     is_active: true // Whether the onbarding setup is currently active
     current_section: number
-    any_project_ingested_events?: boolean
-    any_project_completed_snippet_onboarding?: boolean
-    non_demo_team_id?: number | null
+    any_project_ingested_events: boolean
+    any_project_completed_snippet_onboarding: boolean
+    non_demo_team_id: number | null
+    has_invited_team_members: boolean
 }
 
 interface DisabledSetupState {
