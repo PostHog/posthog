@@ -25,9 +25,10 @@ export function CurrentUsage(): JSX.Element {
                                 You can use up to <b>{eventAllocation.formatted}</b> events per month.
                             </>
                         )}
-                        {plan && !plan.allowance && !plan.is_metered_billing && (
-                            <>Your current plan has an unlimited event allocation.</>
-                        )}
+                        {plan &&
+                            !plan.allowance &&
+                            !plan.is_metered_billing &&
+                            'Your current plan has an unlimited event allocation.'}
                         <Progress
                             type="line"
                             percent={percentage !== null ? percentage * 100 : 100}

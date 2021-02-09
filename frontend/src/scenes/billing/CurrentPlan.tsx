@@ -50,8 +50,8 @@ export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
                             </Link>
                             <div style={{ marginTop: 4 }}>{plan.price_string}</div>
                             <div className="text-muted mt">
-                                To cancel your billing agreement, <b>update your card</b> or other billing information,
-                                click on <b>manage subscription</b>.
+                                Click on <b>manage subscription</b> to cancel your billing agreement,{' '}
+                                <b>update your card</b> or other billing information,
                             </div>
                         </div>
                         <div>
