@@ -306,7 +306,8 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
 
         def test_return_non_anonymous_name(self) -> None:
             person_factory(
-                team=self.team, distinct_ids=["distinct_id", str(uuid4())],
+                team=self.team,
+                distinct_ids=["distinct_id", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
             )
             response = self.client.get("/api/person/").json()
             self.assertEqual(response["results"][0]["name"], "distinct_id")
