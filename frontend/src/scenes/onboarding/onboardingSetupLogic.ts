@@ -84,36 +84,28 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
         ],
         progressPercentage: [
             (s) => [
+                s.teamInviteAvailable,
+                userLogic.selectors.user,
+                organizationLogic.selectors.currentOrganization,
                 s.stepProjectSetup,
                 s.stepInstallation,
                 s.stepVerification,
                 s.slackCalled,
-                s.teamInviteAvailable,
-                userLogic.selectors.user,
-                organizationLogic.selectors.currentOrganization,
             ],
             (
-                stepProjectSetup: boolean,
-                stepInstallation: boolean,
-                stepVerification: boolean,
-                slackCalled: boolean,
                 teamInviteAvailable: boolean,
                 user: UserType,
-                currentOrganization: OrganizationType
+                currentOrganization: OrganizationType,
+                ...steps: boolean[]
             ): number => {
-                const total_steps = (teamInviteAvailable ? 1 : 0) + 5
-                const completed_steps =
-                    (stepProjectSetup ? 1 : 0) +
-                    (stepInstallation ? 1 : 0) +
-                    (stepVerification ? 1 : 0) +
-                    (user.team?.session_recording_opt_in ? 1 : 0) +
-                    (slackCalled ? 1 : 0) +
-                    (teamInviteAvailable &&
-                    currentOrganization.setup.is_active &&
-                    currentOrganization.setup.has_invited_team_members
-                        ? 1
-                        : 0)
-                return Math.round((completed_steps / total_steps) * 100)
+                if (teamInviteAvailable) {
+                    steps.push(
+                        currentOrganization.setup.is_active && currentOrganization.setup.has_invited_team_members
+                    )
+                }
+                steps.push(user.team ? user.team.session_recording_opt_in : false)
+                const completed_steps = steps.reduce((acc, step) => acc + (step ? 1 : 0), 0)
+                return Math.round((completed_steps / steps.length) * 100)
             },
         ],
     },

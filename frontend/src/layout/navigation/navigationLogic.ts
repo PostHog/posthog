@@ -6,15 +6,15 @@ import { navigationLogicType } from './navigationLogicType'
 import { OrganizationType, SystemStatus, UserType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-export const AVAILABLE_WARNINGS = [
-    'welcome',
-    'incomplete_setup_on_demo_project',
-    'incomplete_setup_on_real_project',
-    'demo_project',
-    'real_project_with_no_events',
-] as const
+type WarningType =
+    | 'welcome'
+    | 'incomplete_setup_on_demo_project'
+    | 'incomplete_setup_on_real_project'
+    | 'demo_project'
+    | 'real_project_with_no_events'
+    | null
 
-export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus>>({
+export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, WarningType>>({
     actions: {
         setMenuCollapsed: (collapsed: boolean) => ({ collapsed }),
         collapseMenu: () => {},
@@ -86,7 +86,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus>>(
         ],
         demoWarning: [
             () => [userLogic.selectors.user, organizationLogic.selectors.currentOrganization],
-            (user: UserType, organization: OrganizationType): typeof AVAILABLE_WARNINGS[number] | null => {
+            (user: UserType, organization: OrganizationType): WarningType => {
                 const yesterday = new Date()
                 yesterday.setDate(new Date().getDate() - 1)
 
