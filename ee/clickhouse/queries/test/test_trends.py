@@ -335,7 +335,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 ),
                 self.team,
             )
-        self.assertEqual(action_response["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1199.0, 0.0, 0.0])
+        self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1199.0, 0.0, 0.0])
 
         with freeze_time("2020-01-04T13:01:01Z"):
             action_response = ClickhouseTrends().run(
@@ -350,7 +350,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 ),
                 self.team,
             )
-        self.assertEqual(action_response["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 360000.0, 0.0, 0.0])
+        self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 360000.0, 0.0, 0.0])
 
         with freeze_time("2020-01-04T13:01:01Z"):
             action_response = ClickhouseTrends().run(
