@@ -85,11 +85,10 @@ class TestDashboard(TransactionBaseTest):
         self.assertEqual(response["items"][0]["result"], None)
 
         # cache results
-        response = self.client.get(
-            "/api/insight/trend/?events=%s&properties=%s"
+        self.client.get(
+            "/api/action/trends/?events=%s&properties=%s"
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
-        self.assertEqual(response.status_code, 200)
         item = DashboardItem.objects.get(pk=item.pk)
         self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(item.filters_hash, generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)))
