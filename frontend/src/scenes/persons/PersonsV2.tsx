@@ -64,9 +64,15 @@ export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
                         }}
                         value={listFilters.is_identified !== undefined ? listFilters.is_identified.toString() : 'all'}
                     >
-                        <Radio.Button value="all">All users</Radio.Button>
-                        <Radio.Button value="true">Identified</Radio.Button>
-                        <Radio.Button value="false">Anonymous</Radio.Button>
+                        <Radio.Button data-attr="people-types-tab-all" value="all">
+                            All users
+                        </Radio.Button>
+                        <Radio.Button data-attr="people-types-tab-identified" value="true">
+                            Identified
+                        </Radio.Button>
+                        <Radio.Button data-attr="people-types-tab-anonymous" value="false">
+                            Anonymous
+                        </Radio.Button>
                     </Radio.Group>
                 </div>
             </Row>

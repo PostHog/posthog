@@ -15,8 +15,40 @@ describe('<Person /> ', () => {
     given('featureFlags', () => ['persons-2353'])
     given('persons', () => ({ fixture: 'api/person/persons' }))
 
-    it('can navigate within person page', () => {
+    it('person type tabs', () => {
         mount()
         cy.contains('Persons').should('be.visible')
+        cy.wait('@api_persons').map(helpers.getSearchParameters).should('include', {})
+        cy.get('[data-attr="people-types-tab-identified"]').click({ force: true })
+        cy.wait('@api_persons').map(helpers.getSearchParameters).should('include', {
+            is_identified: 'true',
+        })
+
+        cy.get('[data-attr="people-types-tab-anonymous"]').click({ force: true })
+        cy.wait('@api_persons').map(helpers.getSearchParameters).should('include', {
+            is_identified: 'false',
+        })
+    })
+
+    it('person search', () => {
+        mount()
+
+        cy.wait('@api_persons').map(helpers.getSearchParameters).should('include', {})
+        cy.get('[data-attr="persons-search"]').type('01776f08-b02e-0025-98c6-d8c376e3617b', { delay: 1 })
+        cy.get('[data-attr="persons-search"]').type('{enter}')
+
+        cy.wait('@api_persons').map(helpers.getSearchParameters).should('include', {
+            search: '01776f08-b02e-0025-98c6-d8c376e3617b',
+        })
+    })
+
+    it('person row click', () => {
+        mount()
+
+        cy.wait('@api_persons').map(helpers.getSearchParameters).should('include', {})
+        cy.get('[data-attr="goto-person-arrow-0"]').click()
+        cy.wait('@api_persons').map(helpers.getSearchParameters).should('include', {
+            distinct_id: '01776f08-b02e-0025-98c6-d8c376e3617b',
+        })
     })
 })
