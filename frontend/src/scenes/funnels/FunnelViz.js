@@ -3,6 +3,7 @@ import FunnelGraph from 'funnel-graph-js'
 import { Loading, humanFriendlyDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import './FunnelViz.scss'
+import { funnelVizLogic } from './funnelVizLogic'
 import { funnelLogic } from './funnelLogic'
 import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { LineGraph } from 'scenes/insights/LineGraph'
@@ -19,7 +20,7 @@ export function FunnelViz({
 }) {
     const container = useRef(null)
     const [steps, setSteps] = useState(stepsParam)
-    const logic = funnelLogic({ dashboardItemId, cachedResults })
+    const logic = funnelVizLogic({ dashboardItemId, cachedResults })
     const { results: stepsResult, resultsLoading: funnelLoading } = useValues(logic)
     const { loadResults: loadFunnel } = useActions(logic)
     const { filters } = useValues(funnelLogic({ filters: defaultFilters }))
@@ -77,7 +78,7 @@ export function FunnelViz({
     }, [stepsParam])
 
     useEffect(() => {
-        if (stepsResult) {
+        if (stepsResult && !stepsParam) {
             setSteps(stepsResult)
             buildChart()
         }

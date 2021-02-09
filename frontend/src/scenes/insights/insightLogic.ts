@@ -6,7 +6,7 @@ import { insightLogicType } from './insightLogicType'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from './trendsLogic'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 
 export enum ViewType {
     TRENDS = 'TRENDS',
@@ -27,7 +27,7 @@ const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
 
 export const logicFromInsight = (insight: string, logicProps: Record<string, any>): Logic => {
     if (insight === ViewType.FUNNELS) {
-        return funnelLogic(logicProps)
+        return funnelVizLogic(logicProps)
     } else if (insight === ViewType.RETENTION) {
         return retentionTableLogic(logicProps)
     } else if (insight === ViewType.PATHS) {
