@@ -72,7 +72,7 @@ export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
                         >
                             Upgrade PostHog to Enterprise Edition
                         </a>{' '}
-                        and get access to a superscalable backend based on the ClickHouse database.
+                        and get access to a backend engineered for scale using the ClickHouse database.
                     </li>
                 )}
                 <li>
