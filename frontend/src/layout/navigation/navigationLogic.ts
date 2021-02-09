@@ -24,7 +24,6 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus>>(
         updateCurrentProject: (id: number, dest: string) => ({ id, dest }),
         setToolbarModalOpen: (isOpen: boolean) => ({ isOpen }),
         setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
-        setAccountCreated: (path: string) => ({ path }), // `true` just after account has been created
     },
     reducers: {
         menuCollapsed: [
@@ -49,12 +48,6 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus>>(
             false,
             {
                 setPinnedDashboardsVisible: (_, { visible }) => visible,
-            },
-        ],
-        accountJustCreated: [
-            false,
-            {
-                setAccountCreated: () => true,
             },
         ],
     },
@@ -92,13 +85,12 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus>>(
             },
         ],
         demoWarning: [
-            (s) => [userLogic.selectors.user, organizationLogic.selectors.currentOrganization, s.accountJustCreated],
-            (
-                user: UserType,
-                organization: OrganizationType,
-                accountJustCreated: boolean
-            ): typeof AVAILABLE_WARNINGS[number] | null => {
-                if (accountJustCreated && user.team?.is_demo) {
+            () => [userLogic.selectors.user, organizationLogic.selectors.currentOrganization],
+            (user: UserType, organization: OrganizationType): typeof AVAILABLE_WARNINGS[number] | null => {
+                const yesterday = new Date()
+                yesterday.setDate(new Date().getDate() - 1)
+
+                if (Date.parse(organization.created_at) >= yesterday.getTime() && user.team?.is_demo) {
                     return 'welcome'
                 } else if (organization.setup.is_active && user.team?.is_demo) {
                     return 'incomplete_setup_on_demo_project'
@@ -150,15 +142,5 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus>>(
         afterMount: () => {
             actions.loadLatestVersion()
         },
-    }),
-    urlToAction: ({ actions }) => ({
-        '*': ({ _: path }: { _: string }, { new_account }: { new_account?: boolean }) => {
-            if (new_account) {
-                actions.setAccountCreated(path)
-            }
-        },
-    }),
-    actionToUrl: () => ({
-        setAccountCreated: ({ path }: { path: string }) => [path, { accountJustCreated: undefined }],
     }),
 })
