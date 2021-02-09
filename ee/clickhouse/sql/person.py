@@ -32,7 +32,7 @@ PERSONS_TABLE_SQL = (
 """
 ).format(
     table_name=PERSONS_TABLE,
-    engine=table_engine(PERSONS_TABLE, "_timestamp"),
+    engine=table_engine(PERSONS_TABLE, "_offset"),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
