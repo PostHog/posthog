@@ -21,7 +21,7 @@ def report_user_signed_up(
         "is_organization_first_user": is_organization_first_user,
         "new_onboarding_enabled": new_onboarding_enabled,
         "signup_backend_processor": backend_processor,
-        "social_provider": social_provider,
+        "signup_social_provider": social_provider,
     }
 
     # TODO: This should be $set_once as user props.
