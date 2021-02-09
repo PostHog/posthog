@@ -22,7 +22,7 @@ from posthog.queries.base import properties_to_Q
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
-from posthog.utils import convert_property_value, get_safe_cache, is_anonymous_id, is_valid_uuid, relative_date_parse
+from posthog.utils import convert_property_value, get_safe_cache, is_anonymous_id, relative_date_parse
 
 
 class PersonCursorPagination(CursorPagination):
