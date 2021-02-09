@@ -5,8 +5,7 @@ import { EntityTypes } from '../trendsLogic'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { userLogic } from 'scenes/userLogic'
-import { DownOutlined } from '@ant-design/icons'
-import { CloseButton } from 'lib/components/CloseButton'
+import { DownOutlined, DeleteOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import './ActionFilterRow.scss'
 
@@ -245,6 +244,19 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
                         />
                     )}
                 </Col>
+                <Col>
+                    {!singleFilter && (
+                        <Button
+                            type="text"
+                            onClick={onClose}
+                            style={{
+                                marginLeft: -2,
+                            }}
+                        >
+                            <DeleteOutlined />
+                        </Button>
+                    )}
+                </Col>
             </Row>
             {!hideMathSelector && MATHS[math]?.onProperty && (
                 <MathPropertySelector
@@ -265,17 +277,6 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
                 >
                     {determineFilterLabel(visible, filter)}
                 </Button>
-                {!singleFilter && (
-                    <CloseButton
-                        onClick={onClose}
-                        style={{
-                            float: 'none',
-                            position: 'absolute',
-                            marginTop: 3,
-                            marginLeft: 4,
-                        }}
-                    />
-                )}
             </div>
 
             {visible && (
@@ -294,7 +295,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
 }
 
 function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAvailable }) {
-    const numericalNotice = `This can only be used on on properties that have at least one number type occurence in your events.${
+    const numericalNotice = `This can only be used on properties that have at least one number type occurence in your events.${
         areEventPropertiesNumericalAvailable ? '' : ' None have been found yet!'
     }`
 
