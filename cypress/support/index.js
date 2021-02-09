@@ -11,8 +11,8 @@ try {
 
 beforeEach(() => {
     if (Cypress.spec.specType === 'component') {
-        // Freeze time to 2021.01.05
-        cy.clock(1609804800000, ['Date'])
+        // Freeze time to 2021.01.05 Noon UTC - this should be the same date regardless of timezone.
+        cy.clock(1578225600000, ['Date'])
     } else {
         cy.visit('/')
 
