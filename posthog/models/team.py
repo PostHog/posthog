@@ -2,6 +2,7 @@ from typing import Dict, Optional
 
 import posthoganalytics
 from django.contrib.postgres.fields import ArrayField, JSONField
+from django.core.validators import MinLengthValidator
 from django.db import models
 from django.utils import timezone
 
@@ -82,7 +83,12 @@ class Team(models.Model):
         max_length=200, null=True, unique=True, default=generate_random_token
     )
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
-    name: models.CharField = models.CharField(max_length=200, null=True, default="Default Project")
+    name: models.CharField = models.CharField(
+        max_length=200,
+        null=True,
+        default="Default Project",
+        validators=[MinLengthValidator(1, "Project must have a name!")],
+    )
     slack_incoming_webhook: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     event_names: JSONField = JSONField(default=list)
     event_names_with_usage: JSONField = JSONField(default=list)
