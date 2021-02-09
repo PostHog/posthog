@@ -196,7 +196,7 @@ export function _TopNavigation(): JSX.Element {
                             <Badge
                                 data-attr="update-indicator-badge"
                                 type={updateAvailable ? 'warning' : undefined}
-                                tooltip={updateAvailable ? 'New version available' : undefined}
+                                tooltip={updateAvailable ? 'New version available' : 'PostHog is up-to-date'}
                                 icon={<UpOutlined />}
                                 onClick={() => setChangelogModalOpen(true)}
                             />
