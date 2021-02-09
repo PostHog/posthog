@@ -213,7 +213,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
     return (
         <div>
             <Row gutter={8} className="mt">
-                <Col style={{ maxWidth: 'calc(50% - 16px)' }}>
+                <Col style={{ maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}>
                     <Button
                         data-attr={'trend-element-subject-' + index}
                         ref={node}
