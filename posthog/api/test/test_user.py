@@ -153,5 +153,9 @@ class TestUserAPI(APITransactionBaseTest):
                 "organization_id": str(self.organization.id),
                 "project_id": str(self.team.uuid),
                 "project_setup_complete": False,
+                "joined_at": self.user.date_joined,
+                "has_password_set": True,
+                "has_social_auth": False,
+                "social_providers": [],
             },
         )

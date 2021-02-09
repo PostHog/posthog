@@ -5,6 +5,7 @@ import requests
 from celery import Task
 from django.conf import settings
 
+from ee.clickhouse.models.element import chain_to_elements
 from posthog.celery import app
 from posthog.models import Action, Event, Team
 from posthog.tasks.webhooks import determine_webhook_type, get_formatted_message
@@ -15,6 +16,7 @@ def post_event_to_webhook_ee(self: Task, event: Dict[str, Any], team_id: int, si
     team = Team.objects.select_related("organization").get(pk=team_id)
     is_zapier_available = team.organization.is_feature_available("zapier")
 
+    elements_list = chain_to_elements(event.get("elements_chain", ""))
     ephemeral_postgres_event = Event.objects.create(
         event=event["event"],
         distinct_id=event["distinct_id"],
@@ -22,7 +24,7 @@ def post_event_to_webhook_ee(self: Task, event: Dict[str, Any], team_id: int, si
         team=team,
         site_url=site_url,
         **({"timestamp": event["timestamp"]} if event["timestamp"] else {}),
-        **({"elements": event["elements_list"]} if event["elements_list"] else {})
+        **({"elements": elements_list})
     )
 
     if not site_url:
