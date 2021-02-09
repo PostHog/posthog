@@ -146,7 +146,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             "bulk invite executed",
             properties={
                 "invitee_count": 7,
-                "name_count": len(list(filter(lambda x: bool(x["first_name"]), payload))),
+                "name_count": sum(1 for user in payload if user["first_name"]),
                 "current_invite_count": 0,
                 "current_member_count": 1,
                 "email_available": True,

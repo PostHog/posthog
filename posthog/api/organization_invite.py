@@ -79,7 +79,6 @@ class BulkCreateOrganizationSerializer(serializers.Serializer):
 
     def create(self, validated_data: Dict[str, Any]) -> Dict[str, Any]:
         output = []
-        name_count: int = 0
         current_invite_count = OrganizationInvite.objects.filter(
             organization_id=self.context["organization_id"],
         ).count()
@@ -91,13 +90,10 @@ class BulkCreateOrganizationSerializer(serializers.Serializer):
                 serializer.is_valid(raise_exception=False)  # Don't raise, already validated before
                 output.append(serializer.save())
 
-                if invite["first_name"]:  # For analytics
-                    name_count = name_count + 1
-
         report_bulk_invited(
             self.context["request"].user.distinct_id,
             invitee_count=len(validated_data["invites"]),
-            name_count=name_count,
+            name_count=sum(1 for invite in validated_data["invites"] if invite["first_name"]),
             current_invite_count=current_invite_count,
             current_member_count=OrganizationMembership.objects.filter(
                 organization_id=self.context["organization_id"],
