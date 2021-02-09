@@ -103,7 +103,7 @@ def determine_webhook_type(team: Team) -> str:
 @app.task(ignore_result=True, bind=True, max_retries=3)
 def post_event_to_webhook(self: Task, event_id: int, site_url: str) -> None:
     try:
-        event = Event.objects.select_related("team").get(pk=event_id)
+        event = Event.objects.get(pk=event_id)
         team = event.team
         actions = [action for action in event.action_set.all() if action.post_to_slack]
 
