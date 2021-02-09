@@ -6,9 +6,6 @@ import { userLogic } from './userLogic'
 import { toast } from 'react-toastify'
 
 export const teamLogic = kea<teamLogicType<TeamType>>({
-    connect: {
-        actions: [userLogic, ['loadUser']],
-    },
     actions: {
         deleteCurrentTeam: true,
     },
