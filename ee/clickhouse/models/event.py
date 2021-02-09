@@ -7,6 +7,7 @@ import pytz
 from dateutil.parser import isoparse
 from django.utils import timezone
 from rest_framework import serializers
+from sentry_sdk import capture_exception
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
@@ -80,7 +81,7 @@ def create_event(
                     ),
                 )
             except:
-                pass
+                capture_exception()
 
     return str(event_uuid)
 
