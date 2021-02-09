@@ -25,7 +25,16 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="team",
             name="api_token",
-            field=models.CharField(default=posthog.models.utils.generate_random_token, max_length=200, unique=True),
+            field=models.CharField(
+                default=posthog.models.utils.generate_random_token,
+                max_length=200,
+                unique=True,
+                validators=[
+                    django.core.validators.MinLengthValidator(
+                        10, "Project's API token must be at least 10 characters long!"
+                    )
+                ],
+            ),
         ),
         migrations.AlterField(
             model_name="team",

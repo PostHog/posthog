@@ -79,7 +79,12 @@ class Team(models.Model):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
-    api_token: models.CharField = models.CharField(max_length=200, unique=True, default=generate_random_token)
+    api_token: models.CharField = models.CharField(
+        max_length=200,
+        unique=True,
+        default=generate_random_token,
+        validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
+    )
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
     name: models.CharField = models.CharField(
         max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")],
