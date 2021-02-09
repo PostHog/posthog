@@ -22,7 +22,7 @@ from posthog.queries.base import properties_to_Q
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
-from posthog.utils import convert_property_value, get_safe_cache, is_anonymous_id, relative_date_parse
+from posthog.utils import convert_property_value, get_safe_cache, is_valid_uuid, relative_date_parse
 
 
 class PersonCursorPagination(CursorPagination):
@@ -49,7 +49,8 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         if person.properties.get("email"):
             return person.properties["email"]
         if len(person.distinct_ids) > 0:
-            return sorted(person.distinct_ids, key=lambda x: 1 if is_anonymous_id(x) else 0)[0]
+            # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
+            return sorted(person.distinct_ids, key=is_valid_uuid)[0]
         return person.pk
 
 
