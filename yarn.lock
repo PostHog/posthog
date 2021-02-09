@@ -1696,7 +1696,7 @@
     semver "7.3.2"
     unfetch "4.1.0"
 
-"@cypress/webpack-preprocessor@5.5.0":
+"@cypress/webpack-preprocessor@5.5.0", "@cypress/webpack-preprocessor@^5.5.0":
   version "5.5.0"
   resolved "https://registry.yarnpkg.com/@cypress/webpack-preprocessor/-/webpack-preprocessor-5.5.0.tgz#e7010b2ee7449691cc16a9d5d1956af17ea175fd"
   integrity sha512-iqwPygSNZ1u6bM3r5QRVv6qYngkcgI2xCzi9Jmo4mrkcofwX08UaItJq7xlB2/dHbB2aryQYOsfe4xNKtQIm3A==
