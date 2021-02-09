@@ -99,12 +99,6 @@ class Team(models.Model):
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
     session_recording_retention_period_days: models.IntegerField = models.IntegerField(null=True, default=None)
     plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
-
-    # DEPRECATED: with organizations, all users belonging to the organization get access to all its teams right away
-    # This may be brought back into use with a more robust approach (and some constraint checks)
-    users: models.ManyToManyField = models.ManyToManyField(
-        "User", blank=True, related_name="teams_deprecated_relationship"
-    )
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
 
