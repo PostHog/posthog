@@ -37,7 +37,7 @@ export function OptInPlugins(): JSX.Element {
                     <div style={{ marginBottom: 20 }}>
                         Plugin support requires the cooperation of the main PostHog application and the{' '}
                         <a href="https://github.com/PostHog/plugin-server" target="_blank" rel="noreferrer noopener">
-                            PostHog plugin server
+                            PostHog Plugin Server
                         </a>
                         , which must be properly set up.
                     </div>

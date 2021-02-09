@@ -16,11 +16,11 @@ export function DangerZone(): JSX.Element {
 
     function confirmDeleteProject(): void {
         confirm({
-            title: 'Delete the whole project?',
+            title: 'Delete the entire project?',
             content: (
                 <>
-                    Project deletion <b>cannot be undone</b>.<br />
-                    You will lose all data within the project.
+                    Project deletion <b>cannot be undone</b>. You will lose all data, <b>including events</b>, related
+                    to the project.
                 </>
             ),
             icon: <ExclamationCircleOutlined color={red.primary} />,
