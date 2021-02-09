@@ -16,7 +16,7 @@ export function JSBookmarklet({ team }: { team: TeamType }): JSX.Element {
         <a href={href} onDragStart={reportBookmarkletDragged}>
             <BookOutlined /> PostHog Bookmarklet{' '}
             <span style={{ color: 'var(--muted)', fontStyle: 'italic', marginLeft: 16 }}>
-                <ArrowLeftOutlined /> <b>drag</b> to your bookmarks. Don't click it.
+                <ArrowLeftOutlined /> <b>Drag</b> to your bookmarks. Do not click on this page.
             </span>
         </a>
     )

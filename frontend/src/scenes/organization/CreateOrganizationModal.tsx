@@ -42,6 +42,7 @@ export function CreateOrganizationModal({
                 }
             }}
             okButtonProps={{
+                // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
                 'data-attr': 'create-organization-ok',
             }}
             onCancel={closeModal}
