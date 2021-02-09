@@ -13,9 +13,11 @@ from posthog.tasks.webhooks import determine_webhook_type, get_formatted_message
 
 @app.task(ignore_result=True, bind=True, max_retries=3)
 def post_event_to_webhook_ee(self: Task, event: Dict[str, Any], team_id: int, site_url: str) -> None:
-    team = Team.objects.get(pk=team_id)
+    team = Team.objects.select_related("organization").get(pk=team_id)
+    is_zapier_available = team.organization.is_feature_available("zapier")
+
     elements_list = chain_to_elements(event.get("elements_chain", ""))
-    _event = Event.objects.create(
+    ephemeral_postgres_event = Event.objects.create(
         event=event["event"],
         distinct_id=event["distinct_id"],
         properties=event["properties"],
@@ -25,21 +27,27 @@ def post_event_to_webhook_ee(self: Task, event: Dict[str, Any], team_id: int, si
         **({"elements": elements_list})
     )
 
-    actions = cast(Sequence[Action], Action.objects.filter(team_id=team_id, post_to_slack=True).all())
-
     if not site_url:
         site_url = settings.SITE_URL
 
-    for action in actions:
-        qs = Event.objects.filter(pk=_event.pk).query_db_by_action(action)
+    actionFilters = {"team_id": team_id}
+    if not is_zapier_available:
+        if not team.slack_incoming_webhook:
+            return  # Exit this task if neither Zapier nor webhook URL are available
+        else:
+            actionFilters["post_to_slack"] = True  # We only need to fire for actions that are posted to webhook URL
+
+    for action in cast(Sequence[Action], Action.objects.filter(**actionFilters).all()):
+        qs = Event.objects.filter(pk=ephemeral_postgres_event.pk).query_db_by_action(action)
         if not qs:
             continue
         # REST hooks
-        action.on_perform(_event)
+        if is_zapier_available:
+            action.on_perform(ephemeral_postgres_event)
         # webhooks
         if not team.slack_incoming_webhook:
             continue
-        message_text, message_markdown = get_formatted_message(action, _event, site_url,)
+        message_text, message_markdown = get_formatted_message(action, ephemeral_postgres_event, site_url,)
         if determine_webhook_type(team) == "slack":
             message = {
                 "text": message_text,
@@ -51,4 +59,4 @@ def post_event_to_webhook_ee(self: Task, event: Dict[str, Any], team_id: int, si
             }
         requests.post(team.slack_incoming_webhook, verify=False, json=message)
 
-    _event.delete()
+    ephemeral_postgres_event.delete()
