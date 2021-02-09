@@ -2,7 +2,7 @@ import { Team } from '../../src/types'
 import { createUserTeamAndOrganization } from '../helpers/sql'
 import { createProcessEventTests } from '../shared/process-event'
 
-jest.setTimeout(600000) // 600 sec timeout
+jest.setTimeout(600000) // 600 sec timeout.
 
 describe('process event (postgresql)', () => {
     createProcessEventTests('postgresql', {}, (response) => {
@@ -10,10 +10,8 @@ describe('process event (postgresql)', () => {
             const { server } = response
             const elements = [{ tag_name: 'button', text: 'Sign up!' }, { tag_name: 'div' }]
 
-            const elementsHash = server!.db.createElementGroup(elements, 2)
+            const elementsHash = await server!.db.createElementGroup(elements, 2)
             const elementGroup = await server!.db.fetchElements()
-
-            console.log(elementGroup)
 
             expect(elementGroup[0].tag_name).toEqual('button')
             expect(elementGroup[1].tag_name).toEqual('div')
@@ -25,7 +23,7 @@ describe('process event (postgresql)', () => {
                 { tag_name: 'div', event: { id: 'blabla' } },
             ]
 
-            const elementsHash2 = server!.db.createElementGroup(elements2, 2)
+            const elementsHash2 = await server!.db.createElementGroup(elements2, 2)
             const elementGroup2 = await server!.db.fetchElements()
             // we are fetching all the elements, so expect there to be no new ones
             expect(elementGroup2.length).toEqual(2)
@@ -44,9 +42,9 @@ describe('process event (postgresql)', () => {
             // # Test no team leakage
             const team2 = teams[1]
 
-            const elementsHash3 = server!.db.createElementGroup(elements2, 3)
+            const elementsHash3 = await server!.db.createElementGroup(elements2, 3)
             const elementGroup3 = await server!.db.fetchElements()
-            console.log(elementGroup3)
+
             // created new elements as it's different team even if the hash is the same
             expect(elementGroup3.length).toEqual(4)
             expect(elementsHash).toEqual(elementsHash2)
