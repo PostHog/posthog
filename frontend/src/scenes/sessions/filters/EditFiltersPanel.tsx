@@ -132,7 +132,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                         <SaveOutlined /> Save filter
                     </span>
                 </Button>
-                <Button type="primary" onClick={onSubmit}>
+                <Button type="primary" onClick={onSubmit} data-attr="sessions-apply-filters">
                     <span>
                         <SearchOutlined /> Apply filters
                     </span>

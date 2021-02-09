@@ -174,9 +174,9 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
     return (
         <div className="events" data-attr="events-table">
             <Space className="mb-05">
-                <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
+                <Button onClick={previousDay} icon={<CaretLeftOutlined />} data-attr="sessions-prev-date" />
                 <DatePicker value={selectedDate} onChange={(date) => setFilters(properties, date)} allowClear={false} />
-                <Button onClick={nextDay} icon={<CaretRightOutlined />} />
+                <Button onClick={nextDay} icon={<CaretRightOutlined />} data-attr="sessions-next-date" />
             </Space>
 
             {featureFlags['filter_by_session_props'] && (
@@ -234,7 +234,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 }}
             >
                 {(pagination || isLoadingNext) && (
-                    <Button type="primary" onClick={fetchNextSessions}>
+                    <Button type="primary" onClick={fetchNextSessions} data-attr="load-more-sessions">
                         {isLoadingNext ? <Spin> </Spin> : 'Load more sessions'}
                     </Button>
                 )}
