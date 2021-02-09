@@ -57,7 +57,7 @@ pdi.person_id as person_id,
 argMin(e.uuid, {trunc_func}(e.timestamp)) as min_uuid,
 argMin(e.event, {trunc_func}(e.timestamp)) as min_event
 from events e JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
-WHERE e.team_id = %(team_id)s {target_query} {filters} 
+WHERE e.team_id = %(team_id)s AND toDateTime(e.timestamp) <= toDateTime(%(initial_event_date)s) {target_query} {filters} 
 GROUP BY person_id HAVING
 event_date = {trunc_func}(toDateTime(%(start_date)s))
 """
@@ -68,7 +68,7 @@ SELECT DISTINCT
 0,
 pdi.person_id as person_id
 from events e JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
-WHERE e.team_id = %(team_id)s {target_query} {filters} 
+WHERE e.team_id = %(team_id)s AND toDateTime(e.timestamp) <= toDateTime(%(initial_event_date)s) {target_query} {filters} 
 GROUP BY person_id HAVING
 min({trunc_func}(e.timestamp)) >= {trunc_func}(toDateTime(%(start_date)s))
 """
