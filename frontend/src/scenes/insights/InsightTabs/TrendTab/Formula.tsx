@@ -16,7 +16,7 @@ export function Formula({
                 allowClear
                 defaultValue={filters.formula}
                 enterButton="Apply"
-                onSearch={onChange}
+                onSearch={(value) => onChange(value)}
             />
         </div>
     )
