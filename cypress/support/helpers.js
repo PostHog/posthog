@@ -6,6 +6,7 @@ import { getContext } from 'kea'
 import { initKea } from '~/initKea'
 import { GlobalStyles } from '~/GlobalStyles'
 import posthog from 'posthog-js'
+import { toParams } from '~/lib/utils'
 
 export const mountPage = (component) => {
     initKea()
@@ -17,8 +18,12 @@ export const mountPage = (component) => {
     )
 }
 
-export const setLocation = (path) => {
-    window.history.replaceState(null, '', path)
+export const setLocation = (path, params = null) => {
+    let qs = ''
+    if (params) {
+        qs = '?' + toParams(params)
+    }
+    window.history.replaceState(null, '', path + qs)
 }
 
 export const getSearchParameters = ({ request }) => {
