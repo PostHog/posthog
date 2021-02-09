@@ -6,14 +6,13 @@ describe('<Person /> ', () => {
     const mount = () => helpers.mountPage(<Persons />)
 
     beforeEach(() => {
-        cy.interceptLazy('/api/person/', () => given.persons).as('api_persons')
+        cy.intercept('/api/person/', { fixture: 'api/person/persons' }).as('api_persons')
 
         helpers.mockPosthog()
         helpers.setLocation('/persons')
     })
 
     given('featureFlags', () => ['persons-2353'])
-    given('persons', () => ({ fixture: 'api/person/persons' }))
 
     it('person type tabs', () => {
         mount()
