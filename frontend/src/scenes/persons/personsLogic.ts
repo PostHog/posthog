@@ -92,7 +92,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                     if (!response.results.length) {
                         router.actions.push('/404')
                     }
-                    const person: PersonType | null = response.results[0]
+                    const person = response.results[0] as PersonType
                     person && actions.reportPersonDetailViewed(person)
                     return person
                 },
