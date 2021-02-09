@@ -77,6 +77,7 @@ RETURNING_ENTITY = "returning_entity"
 OFFSET = "offset"
 PERIOD = "period"
 STICKINESS_DAYS = "stickiness_days"
+FORMULA = "formula"
 
 RETENTION_RECURRING = "retention_recurring"
 RETENTION_FIRST_TIME = "retention_first_time"

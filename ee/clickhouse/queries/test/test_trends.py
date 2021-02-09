@@ -285,3 +285,105 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         # if the params were shared it would be 1 because action would take precedence
         self.assertEqual(action_response[0]["count"], 0)
+
+    def test_formula(self):
+        person = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+        )
+        with freeze_time("2020-01-02T13:01:01Z"):
+            _create_event(
+                team=self.team,
+                event="session start",
+                distinct_id="blabla",
+                properties={"session duration": 200, "location": "Paris"},
+            )
+            _create_event(
+                team=self.team,
+                event="session start",
+                distinct_id="blabla",
+                properties={"session duration": 200, "location": "Paris"},
+            )
+            _create_event(
+                team=self.team,
+                event="session start",
+                distinct_id="blabla",
+                properties={"session duration": 400, "location": "London"},
+            )
+            _create_event(
+                team=self.team,
+                event="session start",
+                distinct_id="blabla",
+                properties={"session duration": 400, "location": "London"},
+            )
+            _create_event(
+                team=self.team,
+                event="session end",
+                distinct_id="blabla",
+                properties={"session duration": 400, "location": "London"},
+            )
+
+        # with freeze_time("2020-01-04T13:01:01Z"):
+        #     action_response = ClickhouseTrends().run(
+        #         Filter(
+        #             data={
+        #                 "events": [
+        #                     {"id": "session start", "math": "sum", "math_property": "session duration"},
+        #                     {"id": "session start", "math": "dau"}
+        #                 ],
+        #                 "formula": "A - B"
+        #             }
+        #         ),
+        #         self.team,
+        #     )
+        # self.assertEqual(action_response['data'], [0.0, 0.0, 0.0, 0.0, 0.0, 1199.0, 0.0, 0.0])
+
+        # with freeze_time("2020-01-04T13:01:01Z"):
+        #     action_response = ClickhouseTrends().run(
+        #         Filter(
+        #             data={
+        #                 "events": [
+        #                     {"id": "session start", "math": "sum", "math_property": "session duration"},
+        #                     {"id": "session start", "math": "avg", "math_property": "session duration"}
+        #                 ],
+        #                 "formula": "A * B"
+        #             }
+        #         ),
+        #         self.team,
+        #     )
+        # self.assertEqual(action_response['data'], [0.0, 0.0, 0.0, 0.0, 0.0, 360000.0, 0.0, 0.0])
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "events": [
+                            {"id": "session start", "math": "sum", "math_property": "session duration"},
+                            {"id": "session start", "math": "avg", "math_property": "session duration"},
+                        ],
+                        "formula": "A / B",
+                    }
+                ),
+                self.team,
+            )
+        self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 4.0, 0.0, 0.0])
+
+        # formula with breakdown
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "events": [
+                            {"id": "session start", "math": "sum", "math_property": "session duration"},
+                            {"id": "session start", "math": "avg", "math_property": "session duration"},
+                            {"id": "session end", "math": "min", "math_property": "session duration"},
+                        ],
+                        "formula": "A - B",
+                        "breakdown": "location",
+                    }
+                ),
+                self.team,
+            )
+        self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 0.0, 0.0])
+        self.assertEqual(action_response[0]["label"], "London")
+        self.assertEqual(action_response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 200.0, 0.0, 0.0])
+        self.assertEqual(action_response[1]["label"], "Paris")
