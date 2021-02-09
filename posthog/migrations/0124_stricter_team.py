@@ -7,9 +7,10 @@ from django.db import migrations, models
 import posthog.models.utils
 
 
-def remove_orgless_teams(apps, schema_editor):
+def prepare_teams(apps, schema_editor):
     Team = apps.get_model("posthog", "Team")
     Team.objects.filter(organization_id__isnull=True).delete()
+    Team.objects.filter(opt_out_capture=True).update(anonymize_ips=True)
 
 
 class Migration(migrations.Migration):
@@ -19,7 +20,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(remove_orgless_teams, migrations.RunPython.noop),
+        migrations.RunPython(prepare_teams, migrations.RunPython.noop),
         migrations.RemoveField(model_name="team", name="opt_out_capture",),
         migrations.RemoveField(model_name="team", name="users",),
         migrations.AlterField(
