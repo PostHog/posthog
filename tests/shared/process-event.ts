@@ -16,7 +16,7 @@ import {
     Team,
 } from '../../src/types'
 import { delay, UUIDT } from '../../src/utils'
-import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
+import { createUserTeamAndOrganization, getFirstTeam, getTeams, onQuery, resetTestDatabase } from '../helpers/sql'
 
 jest.setTimeout(600000) // 600 sec timeout
 
@@ -65,11 +65,7 @@ export const createProcessEventTests = (
         await server.redis.del(server.PLUGINS_CELERY_QUEUE)
         await server.redis.del(server.CELERY_DEFAULT_QUEUE)
 
-        const query = server.postgres.query.bind(server.postgres)
-        server.postgres.query = (queryText: any, values?: any, callback?: any): any => {
-            queryCounter++
-            return query(queryText, values, callback)
-        }
+        onQuery(server, () => queryCounter++)
 
         return [server, stopServer]
     }

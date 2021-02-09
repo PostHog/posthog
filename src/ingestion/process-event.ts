@@ -153,15 +153,15 @@ export class EventsProcessor {
         let personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
             try {
-                const personCreated = await this.db.createPerson(
+                personFound = await this.db.createPerson(
                     DateTime.utc(),
                     {},
                     teamId,
                     null,
                     true,
-                    new UUIDT().toString()
+                    new UUIDT().toString(),
+                    [distinctId]
                 )
-                await this.db.addDistinctId(personCreated, distinctId)
             } catch {
                 // Catch race condition where in between getting and creating,
                 // another request already created this person
@@ -182,23 +182,28 @@ export class EventsProcessor {
         let personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
             try {
-                const personCreated = await this.db.createPerson(
+                personFound = await this.db.createPerson(
                     DateTime.utc(),
                     properties,
                     teamId,
                     null,
                     false,
-                    new UUIDT().toString()
+                    new UUIDT().toString(),
+                    [distinctId]
                 )
-                await this.db.addDistinctId(personCreated, distinctId)
             } catch {
                 // Catch race condition where in between getting and creating,
                 // another request already created this person
                 personFound = await this.db.fetchPerson(teamId, distinctId)
             }
         }
-        const updatedProperties: Properties = { ...propertiesOnce, ...personFound!.properties, ...properties }
-        return await this.db.updatePerson(personFound!, { properties: updatedProperties })
+        if (!personFound) {
+            throw new Error(
+                `Could not find person with distinct id "${distinctId}" in team "${teamId}", even after trying to insert them`
+            )
+        }
+        const updatedProperties: Properties = { ...propertiesOnce, ...personFound.properties, ...properties }
+        return await this.db.updatePerson(personFound, { properties: updatedProperties })
     }
 
     private async alias(
@@ -240,16 +245,10 @@ export class EventsProcessor {
 
         if (!oldPerson && !newPerson) {
             try {
-                const personCreated = await this.db.createPerson(
-                    DateTime.utc(),
-                    {},
-                    teamId,
-                    null,
-                    false,
-                    new UUIDT().toString()
-                )
-                await this.db.addDistinctId(personCreated, distinctId)
-                await this.db.addDistinctId(personCreated, previousDistinctId)
+                await this.db.createPerson(DateTime.utc(), {}, teamId, null, false, new UUIDT().toString(), [
+                    distinctId,
+                    previousDistinctId,
+                ])
             } catch {
                 // Catch race condition where in between getting and creating,
                 // another request already created this person
@@ -349,15 +348,9 @@ export class EventsProcessor {
         if (!pdiCount) {
             // Catch race condition where in between getting and creating, another request already created this user
             try {
-                const personCreated: Person = await this.db.createPerson(
-                    sentAt || DateTime.utc(),
-                    {},
-                    teamId,
-                    null,
-                    false,
-                    personUuid.toString(),
-                    [distinctId]
-                )
+                await this.db.createPerson(sentAt || DateTime.utc(), {}, teamId, null, false, personUuid.toString(), [
+                    distinctId,
+                ])
             } catch {}
         }
 
@@ -462,7 +455,7 @@ export class EventsProcessor {
             if (elements && elements.length > 0) {
                 elementsHash = await this.db.createElementGroup(elements, team.id)
             }
-            const insertResult = await this.db.postgresQuery(
+            await this.db.postgresQuery(
                 'INSERT INTO posthog_event (created_at, event, distinct_id, properties, team_id, timestamp, elements, elements_hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
                 [
                     data.createdAt,
@@ -475,7 +468,6 @@ export class EventsProcessor {
                     elementsHash,
                 ]
             )
-            const eventCreated = insertResult.rows[0] as Event
         }
 
         this.celery.sendTask('ee.tasks.webhooks_ee.post_event_to_webhook_ee', [

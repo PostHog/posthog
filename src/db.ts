@@ -1,8 +1,8 @@
 import ClickHouse from '@posthog/clickhouse'
 import { Properties } from '@posthog/plugin-scaffold'
-import { Producer } from 'kafkajs'
+import { Producer, ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { Pool, QueryConfig, QueryResult, QueryResultRow } from 'pg'
+import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
 import { KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID } from './ingestion/topics'
 import { chainToElements, hashElements, unparsePersonPartial } from './ingestion/utils'
@@ -39,7 +39,7 @@ export class DB {
         this.clickhouse = clickhouse
     }
 
-    // Direct queries
+    // Postgres
 
     public async postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
         queryTextOrConfig: string | QueryConfig<I>,
@@ -47,6 +47,25 @@ export class DB {
     ): Promise<QueryResult<R>> {
         return await this.postgres.query(queryTextOrConfig, values)
     }
+
+    public async postgresTransaction<ReturnType extends any>(
+        transaction: (client: PoolClient) => Promise<ReturnType>
+    ): Promise<ReturnType> {
+        const client = await this.postgres.connect()
+        try {
+            await client.query('BEGIN')
+            const response = await transaction(client)
+            await client.query('COMMIT')
+            return response
+        } catch (e) {
+            await client.query('ROLLBACK')
+            throw e
+        } finally {
+            client.release()
+        }
+    }
+
+    // ClickHouse
 
     public async clickhouseQuery(
         query: string,
@@ -108,29 +127,54 @@ export class DB {
         uuid: string,
         distinctIds?: string[]
     ): Promise<Person> {
-        const insertResult = await this.postgresQuery(
-            'INSERT INTO posthog_person (created_at, properties, team_id, is_user_id, is_identified, uuid) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-            [createdAt.toISO(), JSON.stringify(properties), teamId, isUserId, isIdentified, uuid]
-        )
-        const personCreated = insertResult.rows[0] as RawPerson
-        const person = { ...personCreated, created_at: DateTime.fromISO(personCreated.created_at).toUTC() } as Person
-        if (this.kafkaProducer) {
-            const data = {
-                created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
-                properties: JSON.stringify(properties),
-                team_id: teamId,
-                is_identified: isIdentified,
-                id: uuid,
+        const kafkaMessages: ProducerRecord[] = []
+
+        const person = await this.postgresTransaction(async (client) => {
+            const insertResult = await client.query(
+                'INSERT INTO posthog_person (created_at, properties, team_id, is_user_id, is_identified, uuid) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+                [createdAt.toISO(), JSON.stringify(properties), teamId, isUserId, isIdentified, uuid]
+            )
+            const personCreated = insertResult.rows[0] as RawPerson
+            const person = {
+                ...personCreated,
+                created_at: DateTime.fromISO(personCreated.created_at).toUTC(),
+            } as Person
+
+            if (this.kafkaProducer) {
+                kafkaMessages.push({
+                    topic: KAFKA_PERSON,
+                    messages: [
+                        {
+                            value: Buffer.from(
+                                JSON.stringify({
+                                    created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
+                                    properties: JSON.stringify(properties),
+                                    team_id: teamId,
+                                    is_identified: isIdentified,
+                                    id: uuid,
+                                })
+                            ),
+                        },
+                    ],
+                })
             }
-            await this.kafkaProducer.send({
-                topic: KAFKA_PERSON,
-                messages: [{ value: Buffer.from(JSON.stringify(data)) }],
-            })
+
+            for (const distinctId of distinctIds || []) {
+                const kafkaMessage = await this.addDistinctIdPooled(client, person, distinctId)
+                if (kafkaMessage) {
+                    kafkaMessages.push(kafkaMessage)
+                }
+            }
+
+            return person
+        })
+
+        if (this.kafkaProducer) {
+            for (const kafkaMessage of kafkaMessages) {
+                await this.kafkaProducer.send(kafkaMessage)
+            }
         }
 
-        for (const distinctId of distinctIds || []) {
-            await this.addDistinctId(person, distinctId)
-        }
         return person
     }
 
@@ -213,18 +257,30 @@ export class DB {
     }
 
     public async addDistinctId(person: Person, distinctId: string): Promise<void> {
-        const insertResult = await this.postgresQuery(
+        const kafkaMessage = await this.addDistinctIdPooled(this.postgres, person, distinctId)
+        if (this.kafkaProducer && kafkaMessage) {
+            await this.kafkaProducer.send(kafkaMessage)
+        }
+    }
+
+    public async addDistinctIdPooled(
+        client: PoolClient | Pool,
+        person: Person,
+        distinctId: string
+    ): Promise<ProducerRecord | void> {
+        const insertResult = await client.query(
             'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id) VALUES ($1, $2, $3) RETURNING *',
             [distinctId, person.id, person.team_id]
         )
+
         const personDistinctIdCreated = insertResult.rows[0] as PersonDistinctId
         if (this.kafkaProducer) {
-            await this.kafkaProducer.send({
+            return {
                 topic: KAFKA_PERSON_UNIQUE_ID,
                 messages: [
                     { value: Buffer.from(JSON.stringify({ ...personDistinctIdCreated, person_id: person.uuid })) },
                 ],
-            })
+            }
         }
     }
 
@@ -318,29 +374,31 @@ export class DB {
         const hash = hashElements(cleanedElements)
 
         try {
-            const insertResult = await this.postgresQuery(
-                'INSERT INTO posthog_elementgroup (hash, team_id) VALUES ($1, $2) RETURNING *',
-                [hash, teamId]
-            )
-            const elementGroup = insertResult.rows[0] as ElementGroup
-            for (const element of cleanedElements) {
-                await this.postgresQuery(
-                    'INSERT INTO posthog_element (text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, "order", event_id, attr_class, group_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
-                    [
-                        element.text,
-                        element.tag_name,
-                        element.href,
-                        element.attr_id,
-                        element.nth_child,
-                        element.nth_of_type,
-                        element.attributes || '{}',
-                        element.order,
-                        element.event_id,
-                        element.attr_class,
-                        elementGroup.id,
-                    ]
+            await this.postgresTransaction(async () => {
+                const insertResult = await this.postgresQuery(
+                    'INSERT INTO posthog_elementgroup (hash, team_id) VALUES ($1, $2) RETURNING *',
+                    [hash, teamId]
                 )
-            }
+                const elementGroup = insertResult.rows[0] as ElementGroup
+                for (const element of cleanedElements) {
+                    await this.postgresQuery(
+                        'INSERT INTO posthog_element (text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, "order", event_id, attr_class, group_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
+                        [
+                            element.text,
+                            element.tag_name,
+                            element.href,
+                            element.attr_id,
+                            element.nth_child,
+                            element.nth_of_type,
+                            element.attributes || '{}',
+                            element.order,
+                            element.event_id,
+                            element.attr_class,
+                            elementGroup.id,
+                        ]
+                    )
+                }
+            })
         } catch (error) {
             // Throw further if not postgres error nr "23505" == "unique_violation"
             // https://www.postgresql.org/docs/12/errcodes-appendix.html

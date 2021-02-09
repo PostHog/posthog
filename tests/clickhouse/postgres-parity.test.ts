@@ -140,7 +140,7 @@ describe('postgres parity', () => {
         await server.db.updatePerson(person, { created_at: randomDate, is_identified: false })
 
         await delayUntilEventIngested(async () =>
-            (await server.db.fetchPersons(Database.ClickHouse)).filter((p) => p.is_identified)
+            (await server.db.fetchPersons(Database.ClickHouse)).filter((p) => !p.is_identified)
         )
 
         const clickHousePersons2 = await server.db.fetchPersons(Database.ClickHouse)
@@ -177,6 +177,9 @@ describe('postgres parity', () => {
 
         await delayUntilEventIngested(async () =>
             (await server.db.fetchPersons(Database.ClickHouse)).length === 0 ? ['deleted!'] : []
+        )
+        await delayUntilEventIngested(async () =>
+            (await server.db.fetchDistinctIdValues(person, Database.ClickHouse)).length === 0 ? ['deleted!'] : []
         )
 
         const clickHousePersons = await server.db.fetchPersons(Database.ClickHouse)
