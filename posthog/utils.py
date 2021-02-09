@@ -572,7 +572,8 @@ def mask_email_address(email_address: str) -> str:
 
     return f"{email_address[0]}{'*' * (index - 2)}{email_address[index-1:]}"
 
-def is_valid_regex(value: str) -> bool:
+
+def is_valid_regex(value: Any) -> bool:
     try:
         re.compile(value)
         return True
