@@ -547,4 +547,4 @@ ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
 
 
 def is_anonymous_id(distinct_id: str) -> bool:
-    return re.match(ANONYMOUS_REGEX, distinct_id)
+    return True if re.match(ANONYMOUS_REGEX, distinct_id) else False
