@@ -33,7 +33,7 @@ export const personalizationLogic = kea<personalizationLogicType<Personalization
         },
         reportPersonalization: async ({ payload, step_completed_fully }) => {
             posthog.people.set_once(payload)
-            posthog.capture('personalization completed', {
+            posthog.capture('personalization finalized', {
                 step_completed_fully,
                 payload,
                 number_of_answers: Object.keys(payload).length,

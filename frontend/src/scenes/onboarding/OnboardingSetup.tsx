@@ -23,6 +23,7 @@ import { userLogic } from 'scenes/userLogic'
 import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
 import { LinkButton } from 'lib/components/LinkButton'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const { Panel } = Collapse
 
@@ -36,7 +37,7 @@ function PanelHeader({
     stepNumber: number
 }): JSX.Element {
     return (
-        <div className="panel-title">
+        <div className="panel-title" data-attr={`setup-header-${stepNumber}`}>
             <div className="step-number">{stepNumber}</div>
             <div>
                 <h3 className="l3">{title}</h3>
@@ -56,6 +57,7 @@ function OnboardingStep({
     handleClick,
     caption,
     customActionElement,
+    analyticsExtraArgs = {},
 }: {
     label?: string
     title?: string
@@ -66,6 +68,7 @@ function OnboardingStep({
     handleClick?: () => void
     caption?: JSX.Element | string
     customActionElement?: JSX.Element
+    analyticsExtraArgs?: Record<string, string | number | boolean>
 }): JSX.Element {
     const actionElement = (
         <>
@@ -76,11 +79,20 @@ function OnboardingStep({
             )}
         </>
     )
+    const { reportOnboardingStepTriggered } = useActions(eventUsageLogic)
+
+    const onClick = (): void => {
+        if (disabled || completed || !handleClick) {
+            return
+        }
+        reportOnboardingStepTriggered(identifier, analyticsExtraArgs)
+        handleClick()
+    }
 
     return (
         <div
             className={`onboarding-step${disabled ? ' disabled' : ''}${completed ? ' completed' : ''}`}
-            onClick={() => !disabled && !completed && handleClick && handleClick()}
+            onClick={onClick}
             data-attr="onboarding-setup-step"
             data-step={identifier}
         >
@@ -230,6 +242,9 @@ function _OnboardingSetup(): JSX.Element {
                                             />
                                         </div>
                                     }
+                                    analyticsExtraArgs={{
+                                        new_session_recording_enabled: !user?.team?.session_recording_opt_in,
+                                    }}
                                 />
                                 <OnboardingStep
                                     title="Join us on Slack"
@@ -266,6 +281,7 @@ function _OnboardingSetup(): JSX.Element {
                                     type="default"
                                     onClick={completeOnboarding}
                                     loading={currentOrganizationLoading}
+                                    data-attr="onboarding-setup-complete"
                                 >
                                     Finish setup
                                 </Button>
