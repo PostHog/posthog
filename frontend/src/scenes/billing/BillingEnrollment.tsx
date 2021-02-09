@@ -1,16 +1,33 @@
 import { Button, Card, Col, Row, Skeleton, Spin } from 'antd'
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { PlanInterface } from '~/types'
 import { billingLogic } from './billingLogic'
 import defaultImg from 'public/plan-default.svg'
 
 function Plan({ plan, onSubscribe }: { plan: PlanInterface; onSubscribe: (plan: PlanInterface) => void }): JSX.Element {
+    const [state, setState] = useState({ detail: '', loading: true } as { detail: string; loading: boolean })
+
+    const loadPlanDetail = async (key: string): Promise<void> => {
+        const response = await fetch(`/plans/${key}/template/`)
+        if (response.status == 200) {
+            const responseText = await response.text()
+            setState({ ...state, detail: responseText, loading: false })
+        } else {
+            setState({ ...state, loading: false })
+        }
+    }
+
+    useEffect(() => {
+        loadPlanDetail(plan.key)
+    }, [plan.key])
+
     return (
         <Card>
             <div className="cursor-pointer" onClick={() => onSubscribe(plan)}>
                 <img src={plan.image_url || defaultImg} alt="" height={100} width={100} />
                 <h3 style={{ fontSize: 22 }}>{plan.name}</h3>
+                <div style={{ fontWeight: 'bold', marginBottom: 16, fontSize: 16 }}>{plan.price_string}</div>
             </div>
             <div>
                 <Button
@@ -22,12 +39,16 @@ function Plan({ plan, onSubscribe }: { plan: PlanInterface; onSubscribe: (plan: 
                     Subscribe now
                 </Button>
             </div>
-            <div className="plan-description" dangerouslySetInnerHTML={{ __html: plan.description }} />
+            {state.loading ? (
+                <Skeleton paragraph={{ rows: 6 }} title={false} className="mt" active />
+            ) : (
+                <div className="plan-description" dangerouslySetInnerHTML={{ __html: state.detail }} />
+            )}
         </Card>
     )
 }
 
-export function BillingEnrollment(): JSX.Element {
+export function BillingEnrollment(): JSX.Element | null {
     const { plans, plansLoading, billingSubscriptionLoading } = useValues(billingLogic)
     const { subscribe } = useActions(billingLogic)
 
@@ -37,7 +58,7 @@ export function BillingEnrollment(): JSX.Element {
 
     if (!plans.length && !plansLoading) {
         // If there are no plans to which enrollment is available, no point in showing the component
-        return <></>
+        return null
     }
 
     return (

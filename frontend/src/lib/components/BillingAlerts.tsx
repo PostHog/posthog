@@ -6,12 +6,12 @@ import { Button, Card } from 'antd'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { LinkButton } from './LinkButton'
 
-export function BillingAlerts(): JSX.Element {
+export function BillingAlerts(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { alertToShow, percentage, strokeColor } = useValues(billingLogic)
 
     if (!alertToShow) {
-        return <></>
+        return null
     }
 
     return (
@@ -40,7 +40,7 @@ export function BillingAlerts(): JSX.Element {
                         <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
                             <WarningOutlined className="text-warning" style={{ paddingRight: 16 }} />
                             <div>
-                                <b>Warning!</b> The event usage for your organization is nearing its limit. You have
+                                <b>Warning!</b> Nearing the monthly limit of events for your organization. You have
                                 already used{' '}
                                 <b style={{ color: typeof strokeColor === 'string' ? strokeColor : 'inherit' }}>
                                     {percentage && percentage * 100}%

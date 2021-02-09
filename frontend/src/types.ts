@@ -341,7 +341,6 @@ export interface PlanInterface {
     is_metered_billing: boolean
     allowance: FormattedNumber | null
     price_string: string
-    description: string
 }
 
 export interface BillingSubscription {
