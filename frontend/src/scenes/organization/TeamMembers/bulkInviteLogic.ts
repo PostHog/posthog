@@ -3,6 +3,8 @@ import { bulkInviteLogicType } from './bulkInviteLogicType'
 import { OrganizationInviteType } from '~/types'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface InviteType {
     email: string
@@ -66,14 +68,22 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<BulkInviteResponse, Invit
                         }
                         payload.invites.push({ target_email: invite.email, first_name: invite.first_name })
                     }
+
+                    eventUsageLogic.actions.reportBulkInviteAttempted(
+                        payload.invites.length,
+                        payload.invites.filter((invite) => !!invite.first_name).length
+                    )
+
                     return await api.create('api/organizations/@current/invites/bulk/', payload)
                 },
             },
         ],
     }),
-    listeners: ({ values }) => ({
+    listeners: ({ values, actions }) => ({
         inviteTeamMembersSuccess: (): void => {
             toast.success(`Invites sent to ${values.invitedTeamMembers.invites.length} new team members.`)
+            organizationLogic.actions.loadCurrentOrganization()
+            actions.resetInvites()
         },
     }),
 })

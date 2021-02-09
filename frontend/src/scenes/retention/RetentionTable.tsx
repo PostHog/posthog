@@ -4,7 +4,11 @@ import { Table, Modal, Button, Spin, Tooltip } from 'antd'
 import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
-import { RetentionTablePayload, RetentionTablePeoplePayload } from 'scenes/retention/types'
+import {
+    RetentionTablePayload,
+    RetentionTablePeoplePayload,
+    RetentionTableAppearanceType,
+} from 'scenes/retention/types'
 
 import './RetentionTable.scss'
 import moment from 'moment'
@@ -129,24 +133,25 @@ export function RetentionTable({
                                             </tr>
                                             <tr>
                                                 <td />
-                                                {people.result?.totals &&
-                                                    people.result.totals.map((count: any, index: number) => (
+                                                {results &&
+                                                    results[selectedRow]?.values.map((data: any, index: number) => (
                                                         <td key={index}>
-                                                            {count}&nbsp;{' '}
-                                                            {count > 0 && (
+                                                            {data.count}&nbsp;{' '}
+                                                            {data.count > 0 && (
                                                                 <span>
                                                                     (
-                                                                    {people.result
-                                                                        ? percentage(count / people.result.totals[0])
-                                                                        : percentage(0)}
+                                                                    {percentage(
+                                                                        data.count /
+                                                                            results[selectedRow]?.values[0]['count']
+                                                                    )}
                                                                     )
                                                                 </span>
                                                             )}
                                                         </td>
                                                     ))}
                                             </tr>
-                                            {people.result?.detail &&
-                                                people.result.detail.map((personAppearances) => (
+                                            {people.result &&
+                                                people.result.map((personAppearances: RetentionTableAppearanceType) => (
                                                     <tr key={personAppearances.person.id}>
                                                         <td className="text-overflow" style={{ minWidth: 200 }}>
                                                             <Link to={`/person_by_id/${personAppearances.person.id}`}>

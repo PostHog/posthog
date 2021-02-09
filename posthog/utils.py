@@ -541,3 +541,15 @@ def get_safe_cache(cache_key: str):
         except:
             pass
     return None
+
+
+def is_valid_uuid4(uuid_string: str) -> bool:
+    try:
+        val = uuid.UUID(uuid_string, version=4)
+    except ValueError:
+        return False
+    # If the uuid_string is a valid hex code,
+    # but an invalid uuid4,
+    # the UUID.__init__ will convert it to a
+    # valid uuid4. This is bad for validation purposes.
+    return val.hex == uuid_string

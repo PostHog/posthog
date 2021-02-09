@@ -51,6 +51,11 @@ class Organization(UUIDModel):
 
     objects = OrganizationManager()
 
+    def __str__(self):
+        return self.name
+
+    __repr__ = sane_repr("name")
+
     @property
     def _billing_plan_details(self) -> Tuple[Optional[str], Optional[str]]:
         """
@@ -87,10 +92,14 @@ class Organization(UUIDModel):
     def is_feature_available(self, feature: str) -> bool:
         return feature in self.available_features
 
-    def __str__(self):
-        return self.name
+    @property
+    def is_onboarding_active(self) -> bool:
+        return not self.setup_section_2_completed
 
-    __repr__ = sane_repr("name")
+    def complete_onboarding(self) -> "Organization":
+        self.setup_section_2_completed = True
+        self.save()
+        return self
 
 
 class OrganizationMembership(UUIDModel):

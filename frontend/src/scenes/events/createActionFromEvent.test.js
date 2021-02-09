@@ -51,47 +51,53 @@ describe('createActionFromEvent()', () => {
             expect(toast.mock.calls).toMatchSnapshot()
         })
 
-        it('handles increments', async () => {
+        describe('increments', () => {
             given('increment', () => 4)
 
-            await given.subject()
+            it('handles increments', async () => {
+                await given.subject()
 
-            expect(api.create).toHaveBeenCalledWith('api/action', {
-                name: 'some-event event 4',
-                steps: [{ event: 'some-event', url: 'http://foo.bar/some/path', url_matching: 'exact' }],
+                expect(api.create).toHaveBeenCalledWith('api/action', {
+                    name: 'some-event event 4',
+                    steps: [{ event: 'some-event', url: 'http://foo.bar/some/path', url_matching: 'exact' }],
+                })
             })
         })
 
-        it('handles submit $autocapture events with elements', async () => {
+        describe('$autocapture events', () => {
             given('eventName', () => '$autocapture')
             given('eventType', () => 'submit')
             given('elements', () => [{ tag_name: 'form', text: 'Submit form!' }, {}])
 
-            await given.subject()
+            it('handles submit $autocapture events with elements', async () => {
+                await given.subject()
 
-            expect(api.create).toHaveBeenCalledWith('api/action', {
-                name: 'submitted form with text "Submit form!"',
-                steps: [
-                    {
-                        event: '$autocapture',
-                        url: 'http://foo.bar/some/path',
-                        url_matching: 'exact',
-                        tag_name: 'form',
-                        text: 'Submit form!',
-                        properties: [{ key: '$event_type', value: 'submit' }],
-                    },
-                ],
+                expect(api.create).toHaveBeenCalledWith('api/action', {
+                    name: 'submitted form with text "Submit form!"',
+                    steps: [
+                        {
+                            event: '$autocapture',
+                            url: 'http://foo.bar/some/path',
+                            url_matching: 'exact',
+                            tag_name: 'form',
+                            text: 'Submit form!',
+                            properties: [{ key: '$event_type', value: 'submit' }],
+                        },
+                    ],
+                })
             })
         })
 
-        it('handles $pageview events', async () => {
+        describe('$pageview event', () => {
             given('eventName', () => '$pageview')
 
-            await given.subject()
+            it('is handled', async () => {
+                await given.subject()
 
-            expect(api.create).toHaveBeenCalledWith('api/action', {
-                name: 'Pageview on /some/path',
-                steps: [{ event: '$pageview', url: 'http://foo.bar/some/path', url_matching: 'exact' }],
+                expect(api.create).toHaveBeenCalledWith('api/action', {
+                    name: 'Pageview on /some/path',
+                    steps: [{ event: '$pageview', url: 'http://foo.bar/some/path', url_matching: 'exact' }],
+                })
             })
         })
     })
@@ -110,13 +116,15 @@ describe('createActionFromEvent()', () => {
             expect(toast).not.toHaveBeenCalled()
         })
 
-        it('stops recursion if increment == 30', async () => {
+        describe('increment == 30', () => {
             given('increment', () => 30)
 
-            await given.subject()
+            it('stops recursion', async () => {
+                await given.subject()
 
-            expect(given.recurse).not.toHaveBeenCalled()
-            expect(toast).not.toHaveBeenCalled()
+                expect(given.recurse).not.toHaveBeenCalled()
+                expect(toast).not.toHaveBeenCalled()
+            })
         })
     })
 })

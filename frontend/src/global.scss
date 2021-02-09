@@ -8,6 +8,7 @@ style files without adding already imported styles. */
 
 :root {
     --primary: #{$primary};
+    --primary-alt: #{$primary_alt};
     --success: #{$success};
     --danger: #{$danger};
     --warning: #{$warning};

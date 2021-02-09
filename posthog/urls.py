@@ -31,6 +31,7 @@ from posthog.api import (
 )
 from posthog.demo import demo
 from posthog.email import is_email_available
+from posthog.event_usage import report_user_signed_up
 from posthog.models.organization import Organization
 
 from .api.organization import OrganizationSignupSerializer
@@ -159,9 +160,15 @@ def signup_to_organization_view(request, invite_id):
             user = User.objects.create_user(email, password, first_name=first_name, email_opt_in=email_opt_in)
             invite.use(user, prevalidated=True)
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-            posthoganalytics.capture(
-                user.distinct_id, "user signed up", properties={"is_first_user": False, "first_team_user": False},
+
+            report_user_signed_up(
+                user.distinct_id,
+                is_instance_first_user=False,
+                is_organization_first_user=False,
+                new_onboarding_enabled=(not organization.setup_section_2_completed),
+                backend_processor="signup_to_organization_view",
             )
+
             return redirect("/")
     return render_template(
         "signup_to_organization.html",
@@ -220,7 +227,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
         from_invite = True
         try:
             invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
-                "organization"
+                "organization",
             ).get(id=invite_id)
         except (OrganizationInvite.DoesNotExist, ValidationError):
             try:
@@ -248,14 +255,13 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
             return HttpResponse(processed, status=401)
         invite.use(user, prevalidated=True)
 
-    posthoganalytics.capture(
-        user.distinct_id,
-        "user signed up",
-        properties={
-            "is_first_user": User.objects.count() == 1,
-            "is_first_team_user": not from_invite,
-            "login_provider": backend.name,
-        },
+    report_user_signed_up(
+        distinct_id=user.distinct_id,
+        is_instance_first_user=User.objects.count() == 1,
+        is_organization_first_user=not from_invite,
+        new_onboarding_enabled=False,
+        backend_processor="social_create_user",
+        social_provider=backend.name,
     )
 
     return {"is_new": True, "user": user}

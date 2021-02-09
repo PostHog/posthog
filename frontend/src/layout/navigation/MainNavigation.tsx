@@ -33,7 +33,7 @@ import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import { dashboardsModel } from '~/models'
 import { DashboardType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 // to show the right page in the sidebar
 const sceneOverride: Record<string, string> = {
@@ -141,13 +141,13 @@ function PinnedDashboards(): JSX.Element {
 export const MainNavigation = hot(_MainNavigation)
 function _MainNavigation(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { menuCollapsed, toolbarModalOpen, pinnedDashboardsVisible } = useValues(navigationLogic)
     const { setMenuCollapsed, collapseMenu, setToolbarModalOpen, setPinnedDashboardsVisible } = useActions(
         navigationLogic
     )
     const navRef = useRef<HTMLDivElement | null>(null)
     const [canScroll, setCanScroll] = useState(false)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     useEscapeKey(collapseMenu, [menuCollapsed])
 
@@ -190,8 +190,7 @@ function _MainNavigation(): JSX.Element {
                             <img src={lgLogo} className="logo-lg" alt="" />
                         </Link>
                     </div>
-                    {/* TODO: Only if setup hasn't been completed  */}
-                    {featureFlags['onboarding-2822'] && (
+                    {currentOrganization?.setup.is_active && (
                         <MenuItem title="Setup" icon={<SettingOutlined />} identifier="onboardingSetup" to="/setup" />
                     )}
                     <Popover
