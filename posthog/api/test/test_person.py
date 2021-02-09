@@ -306,10 +306,12 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
 
         def test_return_non_anonymous_name(self) -> None:
             person_factory(
-                team=self.team, distinct_ids=["distinct_id1", "c4d86f06-25d8-47ac-8e15-c052c48b6c81"],
+                team=self.team,
+                distinct_ids=["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
             )
             person_factory(
-                team=self.team, distinct_ids=["0451E507-9619-4330-9DAD-68588B8045D6", "distinct_id2"],
+                team=self.team,
+                distinct_ids=["17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c", "distinct_id2"],
             )
 
             response = self.client.get("/api/person/").json()

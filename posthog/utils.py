@@ -543,8 +543,8 @@ def get_safe_cache(cache_key: str):
     return None
 
 
-UUID_REGEX = r"^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$"
+ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
 
 
-def is_valid_uuid(candidate: str) -> bool:
-    return bool(re.match(UUID_REGEX, candidate, flags=re.IGNORECASE))
+def is_anonymous_id(distinct_id: str) -> bool:
+    return bool(re.match(ANONYMOUS_REGEX, distinct_id))
