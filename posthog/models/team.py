@@ -77,13 +77,13 @@ class TeamManager(models.Manager):
 
 class Team(models.Model):
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team", null=True
+        "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
-    api_token: models.CharField = models.CharField(
-        max_length=200, null=True, unique=True, default=generate_random_token
-    )
+    api_token: models.CharField = models.CharField(max_length=200, unique=True, default=generate_random_token)
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
-    name: models.CharField = models.CharField(max_length=200, null=True, default="Default Project")
+    name: models.CharField = models.CharField(
+        max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")],
+    )
     slack_incoming_webhook: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     event_names: JSONField = JSONField(default=list)
     event_names_with_usage: JSONField = JSONField(default=list)
