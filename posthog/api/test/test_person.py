@@ -309,8 +309,15 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
                 team=self.team,
                 distinct_ids=["distinct_id", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
             )
+            person_factory(
+                team=self.team,
+                distinct_ids=["0451E507-9619-4330-9DAD-68588B8045D6", "distinct_id"],
+            )
+            
             response = self.client.get("/api/person/").json()
+            
             self.assertEqual(response["results"][0]["name"], "distinct_id")
+            self.assertEqual(response["results"][1]["name"], "distinct_id")
 
     return TestPerson
 
