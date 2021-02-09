@@ -46,7 +46,7 @@ export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
             <div className="illustration-main">{isLoading ? <LoadingOutlined spin /> : <IllustrationDanger />}</div>
 
             <h3 className="l3">
-                {isLoading ? <>Looks like things are a little slow...</> : <>Your query took too long to complete. </>}
+                {isLoading ? 'Looks like things are a little slow…' : 'Your query took too long to complete.'}
             </h3>
             {isLoading ? (
                 <>
@@ -59,9 +59,9 @@ export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
                 </>
             )}
             <ol>
-                <li>Reduce the date range of your query</li>
-                <li>Remove some filters</li>
-                {!user?.is_multi_tenancy && <li>Increase the size of your database server</li>}
+                <li>Reduce the date range of your query.</li>
+                <li>Remove some filters.</li>
+                {!user?.is_multi_tenancy && <li>Increase the size of your database server.</li>}
                 {!user?.is_multi_tenancy && !user?.ee_enabled && (
                     <li>
                         <a
@@ -70,15 +70,15 @@ export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
                             rel="noopener"
                             target="_blank"
                         >
-                            Upgrade PostHog
+                            Upgrade PostHog to Enterprise Edition
                         </a>{' '}
-                        to enterprise to get access to Clickhouse
+                        and get access to a backend engineered for scale using the ClickHouse database.
                     </li>
                 )}
                 <li>
                     <a
                         data-attr="insight-timeout-raise-issue"
-                        href="https://github.com/PostHog/posthog/issues/new?labels=bug&template=bug_report.md"
+                        href="https://github.com/PostHog/posthog/issues/new?labels=performance&template=performance_issue_report.md"
                         target="_blank"
                         rel="noreferrer noopener"
                     >
