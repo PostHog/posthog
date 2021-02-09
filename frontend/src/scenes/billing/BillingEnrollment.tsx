@@ -6,16 +6,15 @@ import { billingLogic } from './billingLogic'
 import defaultImg from 'public/plan-default.svg'
 
 function Plan({ plan, onSubscribe }: { plan: PlanInterface; onSubscribe: (plan: PlanInterface) => void }): JSX.Element {
-    const [state, setState] = useState({ detail: '', loading: true } as { detail: string; loading: boolean })
+    const [detail, setDetail] = useState('')
+    const [isDetailLoading, setIsDetailLoading] = useState(true)
 
     const loadPlanDetail = async (key: string): Promise<void> => {
         const response = await fetch(`/plans/${key}/template/`)
-        if (response.status == 200) {
-            const responseText = await response.text()
-            setState({ ...state, detail: responseText, loading: false })
-        } else {
-            setState({ ...state, loading: false })
+        if (response.ok) {
+            setDetail(await response.text())
         }
+        setIsDetailLoading(false)
     }
 
     useEffect(() => {
@@ -39,10 +38,10 @@ function Plan({ plan, onSubscribe }: { plan: PlanInterface; onSubscribe: (plan: 
                     Subscribe now
                 </Button>
             </div>
-            {state.loading ? (
+            {isDetailLoading ? (
                 <Skeleton paragraph={{ rows: 6 }} title={false} className="mt" active />
             ) : (
-                <div className="plan-description" dangerouslySetInnerHTML={{ __html: state.detail }} />
+                <div className="plan-description" dangerouslySetInnerHTML={{ __html: detail }} />
             )}
         </Card>
     )

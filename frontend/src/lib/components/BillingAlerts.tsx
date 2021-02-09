@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { WarningOutlined, ToolFilled } from '@ant-design/icons'
 import { Button, Card } from 'antd'
-import { billingLogic, BillingAlertsEnum } from 'scenes/billing/billingLogic'
+import { billingLogic, BillingAlertType } from 'scenes/billing/billingLogic'
 import { LinkButton } from './LinkButton'
 
 export function BillingAlerts(): JSX.Element | null {
@@ -17,7 +17,7 @@ export function BillingAlerts(): JSX.Element | null {
     return (
         <>
             <div style={{ marginTop: 32 }} />
-            {alertToShow === BillingAlertsEnum.setup_billing && (
+            {alertToShow === BillingAlertType.SetupBilling && (
                 <Card>
                     <div style={{ display: 'flex' }}>
                         <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
@@ -34,7 +34,7 @@ export function BillingAlerts(): JSX.Element | null {
                     </div>
                 </Card>
             )}
-            {alertToShow === BillingAlertsEnum.usage_near_limit && (
+            {alertToShow === BillingAlertType.UsageNearLimit && (
                 <Card>
                     <div style={{ display: 'flex' }}>
                         <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>

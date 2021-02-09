@@ -8,9 +8,9 @@ import { sceneLogic, Scene } from 'scenes/sceneLogic'
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 
-export enum BillingAlertsEnum {
-    setup_billing = 'setup_billing',
-    usage_near_limit = 'usage_near_limit',
+export enum BillingAlertType {
+    SetupBilling = 'setup_billing',
+    UsageNearLimit = 'usage_near_limit',
 }
 
 export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscription, UserType>>({
@@ -71,12 +71,12 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
                 eventAllocation: FormattedNumber | null | undefined,
                 user: UserType,
                 scene: Scene
-            ): BillingAlertsEnum | undefined => {
+            ): BillingAlertType | undefined => {
                 // Determines which billing alert/warning to show to the user (if any)
 
                 // Priority 1: In-progress incomplete billing setup
                 if (user?.billing?.should_setup_billing && user?.billing.subscription_url) {
-                    return BillingAlertsEnum.setup_billing
+                    return BillingAlertType.SetupBilling
                 }
 
                 // Priority 2: Event allowance near limit
@@ -86,7 +86,7 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
                     user.billing?.current_usage &&
                     user.billing.current_usage.value / eventAllocation.value >= ALLOCATION_THRESHOLD_ALERT
                 ) {
-                    return BillingAlertsEnum.usage_near_limit
+                    return BillingAlertType.UsageNearLimit
                 }
             },
         ],
