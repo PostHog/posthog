@@ -318,12 +318,18 @@ export interface SessionType {
     matching_events: Array<number | string>
 }
 
+export interface FormattedNumber {
+    value: number
+    formatted: string
+}
+
 export interface OrganizationBilling {
-    plan: PlanInterface
+    plan: PlanInterface | null
     current_usage: { value: number; formatted: string } | null
-    should_setup_billing: boolean
-    stripe_checkout_session: string
-    subscription_url: string
+    should_setup_billing?: boolean
+    stripe_checkout_session?: string
+    subscription_url?: string
+    event_allocation: FormattedNumber | null
 }
 
 export interface PlanInterface {
@@ -332,7 +338,9 @@ export interface PlanInterface {
     custom_setup_billing_message: string
     image_url: string
     self_serve: boolean
-    allowance: { value: number; formatted: string } | null
+    is_metered_billing: boolean
+    allowance: FormattedNumber | null
+    price_string: string
 }
 
 export interface BillingSubscription {
