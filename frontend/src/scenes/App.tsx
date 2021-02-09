@@ -1,13 +1,11 @@
 import { hot } from 'react-hot-loader/root'
-
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
 import { MainNavigation, TopNavigation, DemoWarnings } from '~/layout/navigation'
-import { BillingToolbar } from 'lib/components/BillingToolbar'
-
+import { BillingAlerts } from 'lib/components/BillingAlerts'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic, Scene } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
@@ -120,7 +118,7 @@ function _App(): JSX.Element | null {
                     <Layout.Content className="main-app-content" data-attr="layout-content">
                         {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
 
-                        {!featureFlags['hide-billing-toolbar'] && <BillingToolbar />}
+                        <BillingAlerts />
                         <BackTo />
                         <SceneComponent user={user} {...params} />
                     </Layout.Content>

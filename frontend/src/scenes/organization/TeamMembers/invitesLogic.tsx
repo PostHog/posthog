@@ -5,7 +5,6 @@ import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import { OrganizationInviteType } from '~/types'
 import { invitesLogicType } from './invitesLogicType'
-import { copyToClipboard } from 'lib/utils'
 
 export const invitesLogic = kea<invitesLogicType>({
     loaders: ({ values }) => ({
@@ -26,9 +25,6 @@ export const invitesLogic = kea<invitesLogicType>({
                             <p>{targetEmail} can now join PostHog by clicking the link on the sent email.</p>
                         </div>
                     )
-                } else {
-                    const inviteLink = new URL(`/signup/${newInvite.id}`, document.baseURI).href
-                    copyToClipboard(inviteLink, `invite link for ${targetEmail}`)
                 }
 
                 return [newInvite, ...values.invites]

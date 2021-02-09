@@ -14,7 +14,7 @@ interface PersonPaginatedResponse {
 
 const FILTER_WHITELIST: string[] = ['is_identified', 'search', 'cohort']
 
-export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
+export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, PersonType>>({
     connect: {
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
     },
@@ -87,13 +87,13 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         person: [
             null as PersonType | null,
             {
-                loadPerson: async (id: string): Promise<PersonType> => {
+                loadPerson: async (id: string): Promise<PersonType | null> => {
                     const response = await api.get(`api/person/?distinct_id=${id}`)
                     if (!response.results.length) {
                         router.actions.push('/404')
                     }
-                    const person = response.results[0]
-                    actions.reportPersonDetailViewed(person)
+                    const person: PersonType | null = response.results[0]
+                    person && actions.reportPersonDetailViewed(person)
                     return person
                 },
                 setPerson: (person: PersonType): PersonType => {

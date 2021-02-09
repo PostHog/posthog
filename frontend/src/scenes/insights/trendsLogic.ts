@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { objectsEqual, toParams as toAPIParams } from 'lib/utils'
+import { autocorrectInterval, objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
@@ -59,32 +59,6 @@ export const EntityTypes: Record<string, string> = {
     NEW_ENTITY: 'new_entity',
 }
 
-export const disableMinuteFor: Record<string, boolean> = {
-    dStart: false,
-    '-1d': false,
-    '-7d': true,
-    '-14d': true,
-    '-30d': true,
-    '-90d': true,
-    mStart: true,
-    '-1mStart': true,
-    yStart: true,
-    all: true,
-}
-
-export const disableHourFor: Record<string, boolean> = {
-    dStart: false,
-    '-1d': false,
-    '-7d': false,
-    '-14d': false,
-    '-30d': false,
-    '-90d': true,
-    mStart: false,
-    '-1mStart': false,
-    yStart: true,
-    all: true,
-}
-
 function cleanFilters(filters: Partial<FilterType>): Record<string, any> {
     return {
         insight: ViewType.TRENDS,
@@ -109,23 +83,6 @@ function filterClientSideParams(filters: Partial<FilterType>): Partial<FilterTyp
     } = filters
 
     return newFilters
-}
-
-function autocorrectInterval({ date_from, interval }: Partial<FilterType>): string {
-    if (!interval) {
-        return 'day'
-    } // undefined/uninitialized
-
-    const minute_disabled = date_from && disableMinuteFor[date_from] && interval === 'minute'
-    const hour_disabled = date_from && disableHourFor[date_from] && interval === 'hour'
-
-    if (minute_disabled) {
-        return 'hour'
-    } else if (hour_disabled) {
-        return 'day'
-    } else {
-        return interval
-    }
 }
 
 function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
@@ -174,7 +131,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
     },
 
     connect: {
-        values: [userLogic, ['eventNames'], actionsModel, ['actions'], insightLogic, ['isFirstLoad']],
+        values: [userLogic, ['eventNames'], actionsModel, ['actions']],
         actions: [insightHistoryLogic, ['createInsight']],
     },
 
@@ -194,7 +151,6 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                                 (refresh ? 'refresh=true&' : '') +
                                 toAPIParams(filterClientSideParams(values.filters))
                         )
-                        response = response.result
                     } else {
                         response = await api.get(
                             'api/insight/trend/?' +
@@ -203,12 +159,12 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                         )
                     }
                 } catch (e) {
-                    insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, e)
+                    insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, false, e)
                     return []
                 }
-                insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS)
+                insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, response.last_refresh)
                 breakpoint()
-                return response
+                return response.result
             },
         },
     }),
@@ -385,9 +341,12 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
         },
     }),
 
-    events: ({ actions }) => ({
+    events: ({ actions, props }) => ({
         afterMount: () => {
-            actions.loadResults()
+            if (props.dashboardItemId) {
+                // loadResults gets called in urlToAction for non-dashboard insights
+                actions.loadResults()
+            }
         },
     }),
 
@@ -402,6 +361,9 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
 
     urlToAction: ({ actions, values, props }) => ({
         '/insights': ({}, searchParams: Partial<FilterType>) => {
+            if (props.dashboardItemId) {
+                return
+            }
             if (
                 !searchParams.insight ||
                 searchParams.insight === ViewType.TRENDS ||
@@ -409,11 +371,6 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                 searchParams.insight === ViewType.STICKINESS ||
                 searchParams.insight === ViewType.LIFECYCLE
             ) {
-                if (props.dashboardItemId) {
-                    actions.loadResults()
-                    return // don't use the URL if on the dashboard
-                }
-
                 const cleanSearchParams = cleanFilters(searchParams)
 
                 const keys = Object.keys(searchParams)
@@ -460,7 +417,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                 } else {
                     /* Edge case when opening a trends graph from a dashboard or sometimes when trends are loaded
                     with filters already set, `setAllFilters` action is not triggered, and therefore usage is not reported */
-                    eventUsageLogic.actions.reportInsightViewed(values.filters, values.isFirstLoad)
+                    eventUsageLogic.actions.reportInsightViewed(values.filters, insightLogic.values.isFirstLoad)
                 }
 
                 handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))

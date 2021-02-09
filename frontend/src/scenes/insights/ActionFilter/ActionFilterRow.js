@@ -215,8 +215,15 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
         <div>
             <Row gutter={8} className="mt">
                 <Col>
-                    <Button data-attr={'trend-element-subject-' + index} ref={node} onClick={onClick}>
-                        {name || 'Select action'}
+                    <Button
+                        data-attr={'trend-element-subject-' + index}
+                        ref={node}
+                        onClick={onClick}
+                        style={{ maxWidth: '100%', display: 'flex', alignItems: 'center' }}
+                    >
+                        <span className="text-overflow" style={{ maxWidth: '100%' }}>
+                            {name || 'Select action'}
+                        </span>
                         <DownOutlined style={{ fontSize: 10 }} />
                     </Button>
                     <ActionFilterDropdown
@@ -364,12 +371,6 @@ function MathPropertySelector(props) {
             onChange={(_, payload) => props.onMathPropertySelect(props.index, payload && payload.value)}
             className="property-select"
             value={props.mathProperty}
-            onSearch={(input) => {
-                setInput(input)
-                if (!optionsCache[input] && !isOperatorFlag(operator)) {
-                    loadPropertyValues(input)
-                }
-            }}
             data-attr="math-property-select"
             dropdownMatchSelectWidth={350}
             placeholder={'Select property'}

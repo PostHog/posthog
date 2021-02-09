@@ -47,6 +47,13 @@ DATERANGE_MAP = {
 }
 
 
+def format_label_date(date: datetime.datetime, interval: str) -> str:
+    labels_format = "%a. {day} %B"
+    if interval == "hour" or interval == "minute":
+        labels_format += ", %H:%M"
+    return date.strftime(labels_format.format(day=date.day))
+
+
 def absolute_uri(url: Optional[str] = None) -> str:
     """
     Returns an absolutely-formatted URL based on the `SITE_URL` config.
@@ -254,18 +261,16 @@ def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]
     append["labels"] = []
     append["days"] = []
 
-    labels_format = "%a. {day} %B"
     days_format = "%Y-%m-%d"
 
     if interval == "hour" or interval == "minute":
-        labels_format += ", %H:%M"
         days_format += " %H:%M:%S"
 
     for item in dates_filled:
         date = item[0]
         value = item[1]
         append["days"].append(date.strftime(days_format))
-        append["labels"].append(date.strftime(labels_format.format(day=date.day)))
+        append["labels"].append(format_label_date(date, interval))
         append["data"].append(value)
     if math == "sum":
         append["count"] = sum(append["data"])
@@ -508,6 +513,9 @@ def get_daterange(
         return []
 
     time_range = []
+    if frequency != "minute" and frequency != "hour":
+        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
     if frequency == "week":
         start_date += datetime.timedelta(days=6 - start_date.weekday())
     if frequency != "month":
@@ -533,3 +541,15 @@ def get_safe_cache(cache_key: str):
         except:
             pass
     return None
+
+
+def is_valid_uuid4(uuid_string: str) -> bool:
+    try:
+        val = uuid.UUID(uuid_string, version=4)
+    except ValueError:
+        return False
+    # If the uuid_string is a valid hex code,
+    # but an invalid uuid4,
+    # the UUID.__init__ will convert it to a
+    # valid uuid4. This is bad for validation purposes.
+    return val.hex == uuid_string

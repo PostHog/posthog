@@ -234,10 +234,7 @@ class Retention(BaseQuery):
         return results
 
     def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
-
-        new_data = filter._data
-        new_data.update({"total_intervals": filter.total_intervals - filter.selected_interval})
-        filter = RetentionFilter(data=new_data)
+        filter = filter.with_data({"total_intervals": filter.total_intervals - filter.selected_interval})
 
         format_fields, params = self._determine_query_params(filter, team)
 
@@ -261,7 +258,7 @@ class Retention(BaseQuery):
             **format_fields
         )
 
-        result = []
+        result = {}
 
         from posthog.api.person import PersonSerializer
 
@@ -280,14 +277,17 @@ class Retention(BaseQuery):
 
     def process_people_in_period(
         self, filter: RetentionFilter, vals, people_dict: Dict[str, ReturnDict]
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         marker_length = filter.total_intervals
         result = []
-        for val in vals:
-            result.append(
-                {"person": people_dict[val[0]], "appearances": appearance_to_markers(sorted(val[2]), marker_length)}
-            )
-        return result
+        appearance_totals = [0 for _ in range(marker_length)]
+
+        for person_id, _, appearances_array in vals:
+            appearances = appearance_to_markers(sorted(appearances_array), marker_length)
+            result.append({"person": people_dict[person_id], "appearances": appearances})
+            appearance_totals = [sum(x) for x in zip(*[appearance_totals, appearances])]
+
+        return {"detail": result, "totals": appearance_totals}
 
     def get_entity_condition(self, entity: Entity, table: str) -> Tuple[Q, str]:
         if entity.type == TREND_FILTER_TYPE_EVENTS:
