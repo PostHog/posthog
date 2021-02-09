@@ -45,6 +45,7 @@ const cleanFunnelParams = (filters) => {
 const isStepsEmpty = (filters) => [...(filters.actions || []), ...(filters.events || [])].length === 0
 
 export const funnelLogic = kea({
+    key: (props) => props.dashboardItemId || 'some_funnel',
     actions: () => ({
         setSteps: (steps) => ({ steps }),
         clearFunnel: true,
