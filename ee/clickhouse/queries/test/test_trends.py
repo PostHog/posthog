@@ -322,35 +322,35 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 properties={"session duration": 400, "location": "London"},
             )
 
-        # with freeze_time("2020-01-04T13:01:01Z"):
-        #     action_response = ClickhouseTrends().run(
-        #         Filter(
-        #             data={
-        #                 "events": [
-        #                     {"id": "session start", "math": "sum", "math_property": "session duration"},
-        #                     {"id": "session start", "math": "dau"}
-        #                 ],
-        #                 "formula": "A - B"
-        #             }
-        #         ),
-        #         self.team,
-        #     )
-        # self.assertEqual(action_response['data'], [0.0, 0.0, 0.0, 0.0, 0.0, 1199.0, 0.0, 0.0])
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "events": [
+                            {"id": "session start", "math": "sum", "math_property": "session duration"},
+                            {"id": "session start", "math": "dau"},
+                        ],
+                        "formula": "A - B",
+                    }
+                ),
+                self.team,
+            )
+        self.assertEqual(action_response["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1199.0, 0.0, 0.0])
 
-        # with freeze_time("2020-01-04T13:01:01Z"):
-        #     action_response = ClickhouseTrends().run(
-        #         Filter(
-        #             data={
-        #                 "events": [
-        #                     {"id": "session start", "math": "sum", "math_property": "session duration"},
-        #                     {"id": "session start", "math": "avg", "math_property": "session duration"}
-        #                 ],
-        #                 "formula": "A * B"
-        #             }
-        #         ),
-        #         self.team,
-        #     )
-        # self.assertEqual(action_response['data'], [0.0, 0.0, 0.0, 0.0, 0.0, 360000.0, 0.0, 0.0])
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "events": [
+                            {"id": "session start", "math": "sum", "math_property": "session duration"},
+                            {"id": "session start", "math": "avg", "math_property": "session duration"},
+                        ],
+                        "formula": "A * B",
+                    }
+                ),
+                self.team,
+            )
+        self.assertEqual(action_response["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 360000.0, 0.0, 0.0])
 
         with freeze_time("2020-01-04T13:01:01Z"):
             action_response = ClickhouseTrends().run(
