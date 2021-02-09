@@ -19,8 +19,8 @@ export const signupLogic = kea<signupLogicType<AccountResponse>>({
                     } catch (response) {
                         toast.error(
                             <div>
-                                <h1>Signup failed</h1>
-                                <p className="error-details">{response.detail || 'Unknown exception.'}</p>
+                                <h1>Error creating account</h1>
+                                <p className="error-details">We couldn't create your account. {response.detail}</p>
                             </div>
                         )
                         throw response
