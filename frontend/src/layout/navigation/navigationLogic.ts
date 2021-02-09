@@ -5,6 +5,7 @@ import { userLogic } from 'scenes/userLogic'
 import { navigationLogicType } from './navigationLogicType'
 import { OrganizationType, SystemStatus, UserType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
+import moment from 'moment'
 
 type WarningType =
     | 'welcome'
@@ -87,10 +88,11 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
         demoWarning: [
             () => [userLogic.selectors.user, organizationLogic.selectors.currentOrganization],
             (user: UserType, organization: OrganizationType): WarningType => {
-                const yesterday = new Date()
-                yesterday.setDate(new Date().getDate() - 1)
-
-                if (Date.parse(organization.created_at) >= yesterday.getTime() && user.team?.is_demo) {
+                if (
+                    organization.setup.is_active &&
+                    moment(organization.created_at) >= moment().subtract(1, 'days') &&
+                    user.team?.is_demo
+                ) {
                     return 'welcome'
                 } else if (organization.setup.is_active && user.team?.is_demo) {
                     return 'incomplete_setup_on_demo_project'

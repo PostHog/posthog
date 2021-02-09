@@ -11,8 +11,8 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
         switchToNonDemoProject: (dest) => ({ dest }),
         setProjectModalShown: (shown) => ({ shown }),
         setInviteTeamModalShown: (shown) => ({ shown }),
-        completeOnboarding: () => true,
-        callSlack: () => true,
+        completeOnboarding: true,
+        callSlack: true,
     },
     reducers: {
         projectModalShown: [
