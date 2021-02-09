@@ -70,7 +70,7 @@ def create_event(
                         "properties": properties,
                         "distinct_id": distinct_id,
                         "timestamp": timestamp,
-                        "elements_list": elements,
+                        "elements_chain": elements_chain,
                     },
                     team.pk,
                     site_url,
