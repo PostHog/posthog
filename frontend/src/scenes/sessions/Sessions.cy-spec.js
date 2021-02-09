@@ -3,7 +3,7 @@ import { Sessions } from './Sessions'
 import * as helpers from 'cypress/support/helpers'
 
 describe('<Sessions />', () => {
-    const mount = () => helpers.mountPage(<Sessions />, { cssFile: 'sessions.css' })
+    const mount = () => helpers.mountPage(<Sessions />)
 
     beforeEach(() => {
         cy.intercept('/api/user/', { fixture: 'api/user' })

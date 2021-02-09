@@ -4,13 +4,17 @@ import { mount } from '@cypress/react'
 import { Provider } from 'react-redux'
 import { getContext } from 'kea'
 import { initKea } from '~/initKea'
+import { GlobalStyles } from '~/GlobalStyles'
 import posthog from 'posthog-js'
 
-export const mountPage = (component, { cssFile } = {}) => {
+export const mountPage = (component) => {
     initKea()
-    return mount(<Provider store={getContext().store}>{component}</Provider>, {
-        stylesheets: ['frontend/dist/main.css', `frontend/dist/${cssFile}`],
-    })
+    return mount(
+        <Provider store={getContext().store}>
+            <GlobalStyles />
+            {component}
+        </Provider>
+    )
 }
 
 export const setLocation = (path) => {
