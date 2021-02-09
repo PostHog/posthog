@@ -57,7 +57,7 @@ function OnboardingStep({
     handleClick,
     caption,
     customActionElement,
-    analyticsExtraArgs,
+    analyticsExtraArgs = {},
 }: {
     label?: string
     title?: string
@@ -68,7 +68,7 @@ function OnboardingStep({
     handleClick?: () => void
     caption?: JSX.Element | string
     customActionElement?: JSX.Element
-    analyticsExtraArgs?: Record<string, any>
+    analyticsExtraArgs?: Record<string, string | number | boolean>
 }): JSX.Element {
     const actionElement = (
         <>

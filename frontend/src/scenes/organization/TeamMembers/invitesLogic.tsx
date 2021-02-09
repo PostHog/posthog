@@ -45,7 +45,10 @@ export const invitesLogic = kea<invitesLogicType>({
     listeners: {
         createInviteSuccess: async () => {
             const nameProvided = false // TODO: Change when adding support for names on invites
-            eventUsageLogic.actions.reportInviteAttempted(nameProvided, userLogic.values.user?.email_service_available)
+            eventUsageLogic.actions.reportInviteAttempted(
+                nameProvided,
+                !!userLogic.values.user?.email_service_available
+            )
         },
     },
     events: ({ actions }) => ({

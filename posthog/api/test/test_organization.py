@@ -193,7 +193,7 @@ class TestSignup(APIBaseTest):
                 "is_organization_first_user": True,
                 "new_onboarding_enabled": False,
                 "signup_backend_processor": "OrganizationSignupSerializer",
-                "social_provider": "",
+                "signup_social_provider": "",
             },
         )
 
@@ -264,7 +264,7 @@ class TestSignup(APIBaseTest):
                 "is_organization_first_user": True,
                 "new_onboarding_enabled": False,
                 "signup_backend_processor": "OrganizationSignupSerializer",
-                "social_provider": "",
+                "signup_social_provider": "",
             },
         )
 
