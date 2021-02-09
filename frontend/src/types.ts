@@ -19,7 +19,6 @@ export interface UserType {
     email_opt_in: boolean
     id: number
     name: string
-    opt_out_capture: null
     posthog_version: string
     organization: OrganizationType | null
     team: TeamType | null
@@ -116,7 +115,6 @@ export interface TeamType {
     event_properties_numerical: string[]
     event_names_with_usage: EventUsageType[]
     event_properties_with_usage: PropertyUsageType[]
-    opt_out_capture: boolean
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     session_recording_retention_period_days: number | null

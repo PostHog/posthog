@@ -2,6 +2,7 @@ from typing import Dict, Optional
 
 import posthoganalytics
 from django.contrib.postgres.fields import ArrayField, JSONField
+from django.core.validators import MinLengthValidator
 from django.db import models
 from django.utils import timezone
 
@@ -97,12 +98,7 @@ class Team(models.Model):
     uuid: models.UUIDField = models.UUIDField(default=UUIDT, editable=False, unique=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
     session_recording_retention_period_days: models.IntegerField = models.IntegerField(null=True, default=None)
-
     plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
-
-    # DEPRECATED: replaced with env variable OPT_OUT_CAPTURE and User field anonymized_data
-    # However, we still honor teams that have set this previously
-    opt_out_capture: models.BooleanField = models.BooleanField(default=False)
 
     # DEPRECATED: with organizations, all users belonging to the organization get access to all its teams right away
     # This may be brought back into use with a more robust approach (and some constraint checks)

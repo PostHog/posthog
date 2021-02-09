@@ -195,11 +195,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     except (Team.DoesNotExist, AttributeError):
         team = Team.objects.first()
 
-    if os.environ.get("OPT_OUT_CAPTURE"):
-        # Prioritise instance-level config
-        context["opt_out_capture"] = True
-    else:
-        context["opt_out_capture"] = team.opt_out_capture if team else False
+    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
 
     if settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET:
         context["github_auth"] = True
