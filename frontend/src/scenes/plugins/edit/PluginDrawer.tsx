@@ -177,14 +177,14 @@ export function PluginDrawer(): JSX.Element {
                                                 <UploadField />
                                             ) : fieldConfig.type === 'string' ? (
                                                 <Input />
-                                            ) : fieldConfig.type === 'selection' ? (
+                                            ) : fieldConfig.type === 'choice' ? (
                                                 <Select
-                                                    defaultValue={fieldConfig.options[0]}
+                                                    defaultValue={fieldConfig.choices[0]}
                                                     dropdownMatchSelectWidth={false}
                                                 >
-                                                    {fieldConfig.options.map((option) => (
-                                                        <Select.Option value={option} key={option}>
-                                                            {option}
+                                                    {fieldConfig.choices.map((choice) => (
+                                                        <Select.Option value={choice} key={choice}>
+                                                            {choice}
                                                         </Select.Option>
                                                     ))}
                                                 </Select>
