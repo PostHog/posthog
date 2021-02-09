@@ -119,12 +119,12 @@
     }
 
     .already-completed {
-        height: 100vh;
+        margin-top: $default_spacing * 4;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        .anticon {
+        .completed-icon {
             font-size: 100px;
             color: $success;
         }

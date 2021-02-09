@@ -3,7 +3,7 @@ import { Sessions } from './Sessions'
 import * as helpers from 'cypress/support/helpers'
 
 describe('<Sessions />', () => {
-    const mount = () => helpers.mountPage(<Sessions />, { cssFile: 'sessions.css' })
+    const mount = () => helpers.mountPage(<Sessions />)
 
     beforeEach(() => {
         cy.intercept('/api/user/', { fixture: 'api/user' })
@@ -25,8 +25,8 @@ describe('<Sessions />', () => {
 
         cy.contains('Sessions').should('be.visible')
         cy.wait('@api_sessions').map(helpers.getSearchParameters).should('include', {
-            date_from: '2021-01-05',
-            date_to: '2021-01-05',
+            date_from: '2020-01-05',
+            date_to: '2020-01-05',
             distinct_id: '',
             filters: '[]',
             offset: '0',
@@ -41,15 +41,15 @@ describe('<Sessions />', () => {
         cy.wait('@api_sessions')
             .map(helpers.getSearchParameters)
             .should('include', {
-                date_from: '2021-01-05',
-                date_to: '2021-01-05',
+                date_from: '2020-01-05',
+                date_to: '2020-01-05',
                 pagination: JSON.stringify({ offset: 10 }),
             })
 
         cy.get('[data-attr="sessions-prev-date"]').click()
         cy.wait('@api_sessions').map(helpers.getSearchParameters).should('include', {
-            date_from: '2021-01-04',
-            date_to: '2021-01-04',
+            date_from: '2020-01-04',
+            date_to: '2020-01-04',
         })
     })
 

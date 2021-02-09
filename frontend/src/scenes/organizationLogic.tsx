@@ -3,6 +3,11 @@ import api from 'lib/api'
 import { organizationLogicType } from './organizationLogicType'
 import { OrganizationType, PersonalizationData } from '~/types'
 
+interface OrganizationUpdatePayload {
+    name?: string
+    personalization?: PersonalizationData
+}
+
 export const organizationLogic = kea<organizationLogicType<OrganizationType, PersonalizationData>>({
     loaders: {
         currentOrganization: [
@@ -16,8 +21,9 @@ export const organizationLogic = kea<organizationLogicType<OrganizationType, Per
                     }
                 },
                 createOrganization: async (name: string) => await api.create('api/organizations/', { name }),
-                updateOrganization: async (payload: { name?: string; personalization?: PersonalizationData }) =>
+                updateOrganization: async (payload: OrganizationUpdatePayload) =>
                     await api.update('api/organizations/@current', payload),
+                completeOnboarding: async () => await api.create('api/organizations/@current/onboarding/', {}),
             },
         ],
     },

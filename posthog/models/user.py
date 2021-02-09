@@ -157,9 +157,12 @@ class User(AbstractUser):
 
     def get_analytics_metadata(self):
 
-        team_member_count_all: int = OrganizationMembership.objects.filter(
-            organization__in=self.organizations.all(),
-        ).values("user_id").distinct().count()
+        team_member_count_all: int = (
+            OrganizationMembership.objects.filter(organization__in=self.organizations.all(),)
+            .values("user_id")
+            .distinct()
+            .count()
+        )
 
         project_setup_complete = False
         if self.team and self.team.completed_snippet_onboarding and self.team.ingested_event:
@@ -183,6 +186,10 @@ class User(AbstractUser):
             "organization_id": str(self.organization.id) if self.organization else None,
             "project_id": str(self.team.uuid) if self.team else None,
             "project_setup_complete": project_setup_complete,
+            "joined_at": self.date_joined,
+            "has_password_set": self.has_usable_password(),
+            "has_social_auth": self.social_auth.exists(),  # type: ignore
+            "social_providers": list(self.social_auth.values_list("provider", flat=True)),  # type: ignore
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")

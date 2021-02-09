@@ -1,10 +1,10 @@
 const webpackPreprocessor = require('@cypress/webpack-preprocessor')
 
-const mainConfig = require('../../webpack.config')()
+const { createEntry } = require('../../webpack.config')
 
 module.exports = (on, config) => {
     const options = {
-        webpackOptions: mainConfig[0],
+        webpackOptions: createEntry('cypress'),
         watchOptions: {},
     }
 

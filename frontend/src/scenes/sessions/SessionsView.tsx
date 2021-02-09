@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space, Tooltip, Drawer } from 'antd'
+import { Table, Button, Spin, Space, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -27,6 +27,7 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
 import { EditFiltersPanel } from 'scenes/sessions/filters/EditFiltersPanel'
 import { SearchAllBox } from 'scenes/sessions/filters/SearchAllBox'
+import { Drawer } from 'lib/components/Drawer'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -196,12 +197,11 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                     <span>
                         <LinkButton
                             to={firstRecordingId ? sessionPlayerUrl(firstRecordingId) : '#'}
-                            icon={<PlaySquareOutlined />}
                             type="primary"
                             data-attr="play-all-recordings"
                             disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled
                         >
-                            Play all
+                            <PlaySquareOutlined /> Play all
                         </LinkButton>
                     </span>
                 </Tooltip>
