@@ -142,7 +142,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                 if (props.cachedResults && !refresh) {
                     return props.cachedResults
                 }
-                // insightLogic.actions.startQuery()
+                insightLogic.actions.startQuery()
                 let response
                 try {
                     if (values.filters?.insight === ViewType.SESSIONS || values.filters?.session) {
@@ -159,10 +159,10 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                         )
                     }
                 } catch (e) {
-                    // insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, false, e)
+                    insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, false, e)
                     return []
                 }
-                // insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, response.last_refresh)
+                insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, response.last_refresh)
                 breakpoint()
                 return response.result
             },
