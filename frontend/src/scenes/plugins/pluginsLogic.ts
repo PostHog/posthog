@@ -499,8 +499,9 @@ export const pluginsLogic = kea<
                     initialUpdateStatus[id] = { upToDate: plugin.tag === plugin.latest_tag }
                 }
             }
-            actions.checkForUpdates(false, initialUpdateStatus)
-
+            if (userLogic.values.user?.plugin_access.install) {
+                actions.checkForUpdates(false, initialUpdateStatus)
+            }
             if (Object.keys(values.plugins).length === 0 && userLogic.values.user?.plugin_access.install) {
                 actions.setPluginTab(PluginTab.Repository)
             }
