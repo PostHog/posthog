@@ -463,7 +463,7 @@ def is_celery_alive() -> bool:
 def is_plugin_server_alive() -> bool:
     try:
         ping = get_client().get("@posthog-plugin-server/ping")
-        return ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30)
+        return bool(ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30))
     except BaseException:
         return False
 
