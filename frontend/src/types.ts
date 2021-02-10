@@ -404,7 +404,6 @@ export interface PluginType {
     latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
-    error?: PluginErrorType
     maintainer?: string
 }
 
