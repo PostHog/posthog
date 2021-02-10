@@ -278,7 +278,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         filter = SessionsFilter(request=request)
         pagination = json.loads(request.GET.get("pagination", "{}"))
 
-        sessions, pagination = SessionsList().run(filter=filter, team=self.team, **pagination)
+        sessions, pagination = SessionsList.run(filter=filter, team=self.team, **pagination)
 
         if filter.distinct_id:
             sessions = self._filter_sessions_by_distinct_id(filter.distinct_id, sessions)

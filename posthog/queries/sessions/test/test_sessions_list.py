@@ -186,7 +186,7 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
             self.assertEqual(sessions[0]["distinct_id"], "77")
 
         def run_query(self, sessions_filter):
-            return sessions().run(sessions_filter, self.team, limit=10)[0]
+            return sessions.run(sessions_filter, self.team, limit=10)[0]
 
         def assertLength(self, value, expected):
             self.assertEqual(len(value), expected)

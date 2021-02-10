@@ -132,7 +132,7 @@ class ClickhouseEventsViewSet(EventViewSet):
     def sessions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionsFilter(request=request)
 
-        sessions, pagination = ClickhouseSessionsList().run(team=self.team, filter=filter)
+        sessions, pagination = ClickhouseSessionsList.run(team=self.team, filter=filter)
 
         if filter.distinct_id:
             try:

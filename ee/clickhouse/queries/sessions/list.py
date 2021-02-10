@@ -9,30 +9,30 @@ from ee.clickhouse.queries.clickhouse_session_recording import filter_sessions_b
 from ee.clickhouse.queries.sessions.clickhouse_sessions import set_default_dates
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.sessions.list import SESSION_SQL, SESSIONS_DISTINCT_ID_SQL
-from posthog.models import Entity, Person, Team
+from posthog.models import Entity, Person
 from posthog.models.filters.sessions_filter import SessionsFilter
-from posthog.queries.sessions.mixins import SESSIONS_LIST_DEFAULT_LIMIT, RunUntilResultsMixin
+from posthog.queries.sessions.sessions_list import SessionsList
 from posthog.utils import flatten
 
 Session = Dict
 
 
-class ClickhouseSessionsList(RunUntilResultsMixin):
-    def run_batch(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
-        limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT) + 1
-        offset = filter.pagination.get("offset", 0)
-        distinct_id_offset = filter.pagination.get("distinct_id_offset", 0)
-        filter = set_default_dates(filter)
+class ClickhouseSessionsList(SessionsList):
+    def fetch_page(self) -> Tuple[List[Session], Optional[Dict]]:
+        limit = self.limit + 1
+        self.filter = set_default_dates(self.filter)  # type: ignore
+        offset = self.filter.pagination.get("offset", 0)
+        distinct_id_offset = self.filter.pagination.get("distinct_id_offset", 0)
 
-        person_filters, person_filter_params = parse_prop_clauses(filter.person_filter_properties, team.pk)
+        person_filters, person_filter_params = parse_prop_clauses(self.filter.person_filter_properties, self.team.pk)
         filters_select_clause, filters_timestamps_clause, filters_having, action_filter_params = format_action_filters(
-            filter
+            self.filter
         )
 
-        date_from, date_to, _ = parse_timestamps(filter, team.pk)
+        date_from, date_to, _ = parse_timestamps(self.filter, self.team.pk)
         distinct_ids = sync_execute(
             SESSIONS_DISTINCT_ID_SQL.format(date_from=date_from, date_to=date_to, person_filters=person_filters),
-            {**person_filter_params, "team_id": team.pk, "distinct_id_limit": distinct_id_offset + limit,},
+            {**person_filter_params, "team_id": self.team.pk, "distinct_id_limit": distinct_id_offset + limit,},
         )
 
         query = SESSION_SQL.format(
@@ -47,7 +47,7 @@ class ClickhouseSessionsList(RunUntilResultsMixin):
             query,
             {
                 **action_filter_params,
-                "team_id": team.pk,
+                "team_id": self.team.pk,
                 "limit": limit,
                 "offset": offset,
                 "distinct_ids": distinct_ids,
@@ -61,11 +61,11 @@ class ClickhouseSessionsList(RunUntilResultsMixin):
                 result.pop()
             pagination = {"offset": offset + len(result), "distinct_id_offset": distinct_id_offset + limit}
 
-        self._add_person_properties(team, result)
+        self._add_person_properties(result)
 
-        return filter_sessions_by_recordings(team, result, filter), pagination
+        return filter_sessions_by_recordings(self.team, result, self.filter), pagination
 
-    def _add_person_properties(self, team=Team, sessions=List[Tuple]):
+    def _add_person_properties(self, sessions: List[Session]):
         distinct_id_hash = {}
         for session in sessions:
             distinct_id_hash[session["distinct_id"]] = True
@@ -74,7 +74,7 @@ class ClickhouseSessionsList(RunUntilResultsMixin):
         if len(distinct_ids) == 0:
             return
 
-        persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
+        persons = get_persons_by_distinct_ids(self.team.pk, distinct_ids)
 
         distinct_to_person: Dict[str, Person] = {}
         for person in persons:
