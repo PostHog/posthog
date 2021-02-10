@@ -139,7 +139,7 @@ def prop_filter_json_extract(
     elif operator == "gt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
-            "AND toInt64OrNull(replaceRegexpAll({left}, ' ', '')) > %(v{prepend}_{idx})s".format(
+            "AND toInt64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) > %(v{prepend}_{idx})s".format(
                 idx=idx,
                 prepend=prepend,
                 left=denormalized
@@ -153,7 +153,7 @@ def prop_filter_json_extract(
     elif operator == "lt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
-            "AND toInt64OrNull(replaceRegexpAll({left}, ' ', '')) < %(v{prepend}_{idx})s".format(
+            "AND toInt64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) < %(v{prepend}_{idx})s".format(
                 idx=idx,
                 prepend=prepend,
                 left=denormalized
@@ -165,14 +165,13 @@ def prop_filter_json_extract(
             params,
         )
     else:
-        if is_int(prop.value) and not is_denormalized:
-            clause = "AND JSONExtractInt({prop_var}, %(k{prepend}_{idx})s) = %(v{prepend}_{idx})s"
-        elif is_int(prop.value) and is_denormalized:
-            clause = "AND toInt64OrNull({left}) = %(v{prepend}_{idx})s"
-        elif is_json(prop.value) and not is_denormalized:
+        if is_json(prop.value) and not is_denormalized:
+            import ipdb
+
+            ipdb.set_trace()
             clause = "AND replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', '') = replaceRegexpAll(toString(%(v{prepend}_{idx})s),' ', '')"
         else:
-            clause = "AND {left} = %(v{prepend}_{idx})s"
+            clause = "AND {left} = toString(%(v{prepend}_{idx})s)"
 
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
