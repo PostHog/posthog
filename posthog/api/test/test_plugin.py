@@ -272,6 +272,12 @@ class TestPluginAPI(APIBaseTest):
             self.assertEqual(response.status_code, 400)
 
     def test_install_plugin_on_multiple_orgs(self, mock_get, mock_reload):
+        membership = OrganizationMembership.objects.get()
+        membership.level = OrganizationMembership.Level.OWNER
+        membership.save()
+        self.user.refresh_from_db()
+        self.client.force_login(self.user)  # type: ignore
+
         my_org = self.organization
         other_org = Organization.objects.create(name="FooBar2")
 
@@ -289,14 +295,15 @@ class TestPluginAPI(APIBaseTest):
             self.assertEqual(response.status_code, 400)
             self.assertEqual(Plugin.objects.count(), 1)
 
+            # try to save it for another org
             response = self.client.post(
                 "/api/organizations/{}/plugins/".format(other_org.id),
                 {"url": "https://github.com/PostHog/helloworldplugin"},
             )
-            self.assertEqual(response.status_code, 201)
+            self.assertEqual(response.status_code, 400)  # fails to 201!
             self.assertEqual(Plugin.objects.count(), 1)
 
-            self.user.join(organization=other_org, level=OrganizationMembership.Level.ADMIN)
+            self.user.join(organization=other_org, level=OrganizationMembership.Level.OWNER)
             response = self.client.post(
                 "/api/organizations/{}/plugins/".format(other_org.id),
                 {"url": "https://github.com/PostHog/helloworldplugin"},
