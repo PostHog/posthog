@@ -10,7 +10,7 @@ from posthog.test.base import ErrorResponsesMixin
 
 class TestMixin:
     TESTS_API: bool = False
-    TESTS_COMPANY_NAME: str = "Test"
+    TESTS_ORGANIZATION_NAME: str = "Test Org"
     TESTS_EMAIL: Optional[str] = "user1@posthog.com"
     TESTS_PASSWORD: Optional[str] = "testpassword12345"
     TESTS_API_TOKEN: str = "token123"
@@ -22,7 +22,7 @@ class TestMixin:
 
     def setUp(self):
         super().setUp()  # type: ignore
-        self.organization: Organization = Organization.objects.create(name=self.TESTS_COMPANY_NAME)
+        self.organization: Organization = Organization.objects.create(name=self.TESTS_ORGANIZATION_NAME)
         self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
         if self.TESTS_EMAIL:
             self.user: User = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)

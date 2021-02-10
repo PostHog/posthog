@@ -157,7 +157,7 @@ class OrganizationSignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128)
     email: serializers.Field = serializers.EmailField()
     password: serializers.Field = serializers.CharField(allow_null=True)
-    company_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
 
     def validate_password(self, value):
@@ -168,10 +168,10 @@ class OrganizationSignupSerializer(serializers.Serializer):
     def create(self, validated_data, **kwargs):
         is_instance_first_user: bool = not User.objects.exists()
 
-        company_name = validated_data.pop("company_name", validated_data["first_name"])
+        organization_name = validated_data.pop("organization_name", validated_data["first_name"])
 
         self._organization, self._team, self._user = User.objects.bootstrap(
-            company_name=company_name, create_team=self.create_team, **validated_data,
+            organization_name=organization_name, create_team=self.create_team, **validated_data,
         )
         user = self._user
 

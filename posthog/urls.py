@@ -192,7 +192,7 @@ def finish_social_signup(request):
     if request.method == "POST":
         form = CompanyNameForm(request.POST)
         if form.is_valid():
-            request.session["company_name"] = form.cleaned_data["companyName"]
+            request.session["organization_name"] = form.cleaned_data["companyName"]
             request.session["email_opt_in"] = bool(form.cleaned_data["emailOptIn"])
             return redirect(reverse("social:complete", args=[request.session["backend"]]))
     else:
@@ -211,21 +211,19 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
     from_invite = False
     invite_id = strategy.session_get("invite_id")
     if not invite_id:
-        organization_name = strategy.session_get(
-            "organization_name", strategy.session_get("company_name", None)
-        )  # TODO: Remove `company_name` legacy support
+        organization_name = strategy.session_get("organization_name", None)
         email_opt_in = strategy.session_get("email_opt_in", None)
         if not organization_name or email_opt_in is None:
             return redirect(finish_social_signup)
 
         serializer = OrganizationSignupSerializer(
-            data=dict(
-                company_name=organization_name,
-                email_opt_in=email_opt_in,
-                first_name=user_name,
-                email=user_email,
-                password=None,
-            ),
+            data={
+                "organization_name": organization_name,
+                "email_opt_in": email_opt_in,
+                "first_name": user_name,
+                "email": user_email,
+                "password": None,
+            },
             context={"request": request},
         )
 

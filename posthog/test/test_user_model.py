@@ -54,7 +54,7 @@ class TestUser(BaseTest):
 
         # One org, one team, anonymized
         organization, team, user = User.objects.bootstrap(
-            company_name="Test Org", email="test_org@posthog.com", password="12345678", anonymize_data=True,
+            organization_name="Test Org", email="test_org@posthog.com", password="12345678", anonymize_data=True,
         )
 
         with self.settings(EE_AVAILABLE=True, MULTI_TENANCY=True):

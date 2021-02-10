@@ -34,7 +34,7 @@ class UserManager(BaseUserManager):
 
     def bootstrap(
         self,
-        company_name: str,
+        organization_name: str,
         email: str,
         password: Optional[str],
         first_name: str = "",
@@ -46,7 +46,7 @@ class UserManager(BaseUserManager):
         """Instead of doing the legwork of creating a user from scratch, delegate the details with bootstrap."""
         with transaction.atomic():
             organization_fields = organization_fields or {}
-            organization_fields.setdefault("name", company_name)
+            organization_fields.setdefault("name", organization_name)
             organization = Organization.objects.create(**organization_fields)
             user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
             if create_team:

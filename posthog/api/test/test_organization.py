@@ -107,7 +107,7 @@ class TestOrganizationAPI(APIBaseTest):
 
     def test_cannot_complete_onboarding_for_another_org(self):
         _, _, user = User.objects.bootstrap(
-            company_name="Evil, Inc", email="another_one@posthog.com", password="12345678",
+            organization_name="Evil, Inc", email="another_one@posthog.com", password="12345678",
         )
 
         self.client.force_login(user)
@@ -157,7 +157,7 @@ class TestSignup(APIBaseTest):
                 "first_name": "John",
                 "email": "hedgehog@posthog.com",
                 "password": "notsecure",
-                "company_name": "Hedgehogs United, LLC",
+                "organization_name": "Hedgehogs United, LLC",
                 "email_opt_in": False,
             },
         )
