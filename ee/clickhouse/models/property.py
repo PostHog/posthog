@@ -166,9 +166,6 @@ def prop_filter_json_extract(
         )
     else:
         if is_json(prop.value) and not is_denormalized:
-            import ipdb
-
-            ipdb.set_trace()
             clause = "AND replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', '') = replaceRegexpAll(toString(%(v{prepend}_{idx})s),' ', '')"
         else:
             clause = "AND {left} = toString(%(v{prepend}_{idx})s)"

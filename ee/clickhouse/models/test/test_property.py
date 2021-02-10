@@ -75,6 +75,9 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         filter = Filter(data={"properties": [{"key": "test_prop", "value": "2"}],})
         self.assertEqual(len(self._run_query(filter)), 2)
 
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 2}],})
+        self.assertEqual(len(self._run_query(filter)), 2)
+
         # value passed as string
         filter = Filter(data={"properties": [{"key": "test_prop", "value": "1", "operator": "gt"}],})
         self.assertEqual(len(self._run_query(filter)), 2)
