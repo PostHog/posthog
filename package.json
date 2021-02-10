@@ -39,7 +39,7 @@
         "@babel/core": "^7.10.4",
         "@babel/runtime": "^7.10.4",
         "@papercups-io/chat-widget": "^1.1.5",
-        "@posthog/plugin-scaffold": "0.2.10",
+        "@posthog/plugin-scaffold": "0.2.11",
         "@posthog/simmerjs": "0.7.2-posthog.2",
         "@sentry/browser": "^6.0.4",
         "antd": "^4.11.2",
