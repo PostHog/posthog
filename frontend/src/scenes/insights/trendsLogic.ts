@@ -158,7 +158,6 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                                 (refresh ? 'refresh=true&' : '') +
                                 toAPIParams(filterClientSideParams(values.filters))
                         )
-                        console.log(response)
                     }
                 } catch (e) {
                     insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, e)
