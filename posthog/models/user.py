@@ -7,6 +7,8 @@ from django.db import models, transaction
 from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
 
+from posthog.utils import get_instance_realm
+
 from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey
 from .team import Team
@@ -169,7 +171,7 @@ class User(AbstractUser):
             project_setup_complete = True
 
         return {
-            "realm": "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted",
+            "realm": get_instance_realm(),
             "is_ee_available": settings.EE_AVAILABLE,
             "email_opt_in": self.email_opt_in,
             "anonymize_data": self.anonymize_data,

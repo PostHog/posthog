@@ -29,7 +29,6 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     UninitiatedOrCloudOnly,
 )
-from posthog.utils import get_instance_realm
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
