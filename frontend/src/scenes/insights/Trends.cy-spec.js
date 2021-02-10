@@ -150,41 +150,6 @@ describe('<Insights /> trends', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
-    // TODO: scaffold for tests on trends page
-    it('adds a prop filter', () => {})
-
-    it('adds a breakdown filter', () => {})
-
-    it('clicks on stickiness', () => {})
-
-    describe('Trend interval filters', () => {
-        it('filters hourly', () => {})
-
-        it('filters daily', () => {})
-
-        it('filters weekly', () => {})
-
-        it('filters monthly', () => {})
-    })
-
-    describe('Trend chart filters', () => {
-        it('filters linear chart', () => {})
-
-        it('filters cumulative chart', () => {})
-
-        it('filters table chart', () => {})
-
-        it('filters pie chart', () => {})
-
-        it('filters bar chart', () => {})
-    })
-
-    describe('Trend date filters', () => {})
-
-    it('can compare', () => {})
-
-    it('adds to dashboard', () => {})
-
     describe('Trend filters from url', () => {
         it('renders multiple entities', () => {
             helpers.setLocation('/insights', {
