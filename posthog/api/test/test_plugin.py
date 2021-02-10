@@ -7,7 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils.timezone import now
 
 from posthog.models import Plugin, PluginAttachment, PluginConfig, organization
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.plugins.access import can_configure_plugins_via_api, can_install_plugins_via_api
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP, HELLO_WORLD_PLUGIN_GITHUB_ZIP
@@ -273,7 +273,7 @@ class TestPluginAPI(APIBaseTest):
 
     def test_install_plugin_on_multiple_orgs(self, mock_get, mock_reload):
         my_org = self.organization
-        other_org = Organization.objects.create(name="Foo")
+        other_org = Organization.objects.create(name="FooBar2")
 
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
             response = self.client.post(
@@ -281,6 +281,7 @@ class TestPluginAPI(APIBaseTest):
                 {"url": "https://github.com/PostHog/helloworldplugin"},
             )
             self.assertEqual(response.status_code, 201)
+            self.assertEqual(Plugin.objects.count(), 1)
             response = self.client.post(
                 "/api/organizations/{}/plugins/".format(my_org.id),
                 {"url": "https://github.com/PostHog/helloworldplugin"},
@@ -293,6 +294,15 @@ class TestPluginAPI(APIBaseTest):
                 {"url": "https://github.com/PostHog/helloworldplugin"},
             )
             self.assertEqual(response.status_code, 201)
+            self.assertEqual(Plugin.objects.count(), 1)
+
+            self.user.join(organization=other_org, level=OrganizationMembership.Level.ADMIN)
+            response = self.client.post(
+                "/api/organizations/{}/plugins/".format(other_org.id),
+                {"url": "https://github.com/PostHog/helloworldplugin"},
+            )
+            self.assertEqual(response.status_code, 201)
+            self.assertEqual(Plugin.objects.count(), 2)
             response = self.client.post(
                 "/api/organizations/{}/plugins/".format(other_org.id),
                 {"url": "https://github.com/PostHog/helloworldplugin"},
