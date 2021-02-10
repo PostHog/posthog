@@ -57,6 +57,25 @@ class ClickhouseRetention(Retention):
             target_condition = target_condition.replace("reference_event.uuid", "reference_event.min_uuid")
             target_condition = target_condition.replace("reference_event.event", "reference_event.min_event")
         returning_condition, _ = self._get_condition(returning_entity, table="event", prepend="returning")
+
+        all_params = {
+            "team_id": team.pk,
+            "start_date": date_from.strftime(
+                "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+            ),
+            "end_date": date_to.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
+            "reference_start_date": date_from.strftime(
+                "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+            ),
+            "reference_end_date": (
+                (date_from + filter.period_increment) if filter.display == TRENDS_LINEAR else date_to
+            ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
+            **prop_filter_params,
+            **target_params,
+            **returning_params,
+            "period": period,
+        }
+
         result = sync_execute(
             RETENTION_SQL.format(
                 target_query=target_query_formatted,
@@ -68,48 +87,11 @@ class ClickhouseRetention(Retention):
                 target_condition=target_condition,
                 returning_condition=returning_condition,
             ),
-            {
-                "team_id": team.pk,
-                "start_date": date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "end_date": date_to.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "reference_start_date": date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "reference_end_date": (
-                    (date_from + filter.period_increment) if filter.display == TRENDS_LINEAR else date_to
-                ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
-                **prop_filter_params,
-                **target_params,
-                **returning_params,
-                "period": period,
-            },
+            all_params,
         )
 
         initial_interval_result = sync_execute(
-            INITIAL_INTERVAL_SQL.format(reference_event_sql=reference_event_sql),
-            {
-                "team_id": team.pk,
-                "start_date": date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "end_date": date_to.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "reference_start_date": date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "reference_end_date": (
-                    (date_from + filter.period_increment) if filter.display == TRENDS_LINEAR else date_to
-                ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
-                **prop_filter_params,
-                **target_params,
-                **returning_params,
-                "period": period,
-            },
+            INITIAL_INTERVAL_SQL.format(reference_event_sql=reference_event_sql), all_params,
         )
 
         result_dict = {}
@@ -140,10 +122,9 @@ class ClickhouseRetention(Retention):
         trunc_func = get_trunc_func_ch(period)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
 
-        returning_entity = filter.returning_entity if filter.selected_interval > 0 else filter.target_entity
         target_query, target_params = self._get_condition(filter.target_entity, table="e")
         target_query_formatted = "AND {target_query}".format(target_query=target_query)
-        return_query, return_params = self._get_condition(returning_entity, table="e", prepend="returning")
+        return_query, return_params = self._get_condition(filter.returning_entity, table="e", prepend="returning")
         return_query_formatted = "AND {return_query}".format(return_query=return_query)
 
         reference_event_query = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
@@ -152,7 +133,7 @@ class ClickhouseRetention(Retention):
         reference_date_from = filter.date_from
         reference_date_to = filter.date_from + filter.period_increment
         date_from = filter.date_from + filter.selected_interval * filter.period_increment
-        date_to = date_from + filter.period_increment
+        date_to = filter.date_to
 
         result = sync_execute(
             RETENTION_PEOPLE_SQL.format(
@@ -190,10 +171,9 @@ class ClickhouseRetention(Retention):
         trunc_func = get_trunc_func_ch(period)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
 
-        returning_entity = filter.returning_entity if filter.selected_interval > 0 else filter.target_entity
         target_query, target_params = self._get_condition(filter.target_entity, table="e")
         target_query_formatted = "AND {target_query}".format(target_query=target_query)
-        return_query, return_params = self._get_condition(returning_entity, table="e", prepend="returning")
+        return_query, return_params = self._get_condition(filter.returning_entity, table="e", prepend="returning")
         return_query_formatted = "AND {return_query}".format(return_query=return_query)
 
         first_event_sql = (
@@ -209,6 +189,8 @@ class ClickhouseRetention(Retention):
 
         date_from = filter.date_from + filter.selected_interval * filter.period_increment
         date_to = filter.date_to
+
+        initial_event_date = date_from + filter.period_increment
 
         filter = filter.with_data({"total_intervals": filter.total_intervals - filter.selected_interval})
 
@@ -228,6 +210,9 @@ class ClickhouseRetention(Retention):
                 "end_date": date_to.strftime(
                     "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
                 ),
+                "initial_event_date": initial_event_date.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
                 "offset": filter.offset,
                 "limit": 100,
                 "period": period,
@@ -244,4 +229,5 @@ class ClickhouseRetention(Retention):
             people_dict.update({str(person.uuid): PersonSerializer(person).data})
 
         result = self.process_people_in_period(filter, query_result, people_dict)
+
         return result
