@@ -41,7 +41,6 @@ class ClickhouseTrendsFormula:
                 ["CROSS JOIN ({}) as sub_{}".format(query, letters[i + 1]) for i, query in enumerate(queries[1:])]
             ),
         )
-        print(format_sql(sql, {"formula": filter.formula}))
         result = sync_execute(sql, {"formula": filter.formula})
         return [
             parse_response(
@@ -49,7 +48,7 @@ class ClickhouseTrendsFormula:
                 filter,
                 {
                     "label": item[2] if filter.breakdown else "Formula ({})".format(filter.formula),
-                    "data": [number if not math.isnan(number) else 0.0 for number in item[1]],
+                    "data": [round(number, 2) if not math.isnan(number) else 0.0 for number in item[1]],
                 },
             )
             for item in result
