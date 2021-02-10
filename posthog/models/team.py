@@ -107,6 +107,13 @@ class Team(models.Model):
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
 
+    # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
+    opt_out_capture: models.BooleanField = models.BooleanField(default=False)
+    # DEPRECATED, DISUSED: now managing access in an Organization-centric way
+    users: models.ManyToManyField = models.ManyToManyField(
+        "User", blank=True, related_name="teams_deprecated_relationship"
+    )
+
     objects = TeamManager()
 
     def __str__(self):

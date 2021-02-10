@@ -21,8 +21,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunPython(prepare_teams, migrations.RunPython.noop),
-        migrations.RemoveField(model_name="team", name="opt_out_capture",),
-        migrations.RemoveField(model_name="team", name="users",),
         migrations.AlterField(
             model_name="team",
             name="api_token",
