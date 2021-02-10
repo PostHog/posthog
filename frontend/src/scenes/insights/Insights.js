@@ -40,7 +40,6 @@ import { trendsLogic } from './trendsLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
-import { ReloadOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
@@ -241,22 +240,6 @@ function _Insights() {
                                 headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
                             >
                                 <div>
-                                    {lastRefresh && (
-                                        <small style={{ position: 'absolute', marginTop: -21, right: 24 }}>
-                                            Computed {moment(lastRefresh).fromNow()}
-                                            <Button
-                                                size="small"
-                                                type="link"
-                                                onClick={() => loadResults(true)}
-                                                style={{ margin: 0 }}
-                                            >
-                                                refresh
-                                                <ReloadOutlined
-                                                    style={{ cursor: 'pointer', marginTop: -3, marginLeft: 3 }}
-                                                />
-                                            </Button>
-                                        </small>
-                                    )}
                                     {showErrorMessage ? (
                                         <ErrorMessage />
                                     ) : (
