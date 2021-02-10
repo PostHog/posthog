@@ -486,11 +486,3 @@ class TestPluginAPI(APIBaseTest):
             )
             self.assertEqual(response.data["config"], {"bar": "moop"})  # type: ignore
             self.assertEqual(PluginAttachment.objects.count(), 0)
-
-    def test_cloud_plugin_whitelisting(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=True, TEST=False):
-            self.assertFalse(can_install_plugins_via_api(self.organization))
-            self.assertFalse(can_configure_plugins_via_api(self.organization))
-            with self.settings(PLUGINS_CLOUD_WHITELISTED_ORG_IDS=f"{self.organization.id},"):
-                self.assertTrue(can_install_plugins_via_api(self.organization))
-                self.assertTrue(can_configure_plugins_via_api(self.organization))

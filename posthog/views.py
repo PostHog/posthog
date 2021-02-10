@@ -66,16 +66,11 @@ def system_status(request):
         }
     )
 
-    plugins_cloud_whitelisted_org_ids = getattr(settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", [])
-    plugin_server_ingestion = getattr(settings, "PLUGIN_SERVER_INGESTION", False)
-    plugin_sever_enabled = plugin_server_ingestion and (
-        not is_ee_enabled() or (str(team.organization_id) in plugins_cloud_whitelisted_org_ids)
-    )
     metrics.append(
         {
             "key": "ingestion_server",
             "metric": "Event ingestion via",
-            "value": "Plugin Server" if plugin_sever_enabled else "Django",
+            "value": "Plugin Server" if settings.PLUGIN_SERVER_INGESTION else "Django",
         }
     )
 
