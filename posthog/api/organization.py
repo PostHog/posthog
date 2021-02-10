@@ -9,7 +9,6 @@ from django.shortcuts import get_object_or_404, redirect
 from django.urls.base import reverse
 from rest_framework import exceptions, generics, permissions, response, serializers, status, viewsets
 from rest_framework.request import Request
-from social_core.backends.utils import load_backends
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
@@ -224,21 +223,18 @@ class OrganizationSocialSignupSerializer(serializers.Serializer):
     def create(self, validated_data, **kwargs):
         request = self.context["request"]
 
-        active_social_session = False
-        for backend in list(load_backends(settings.AUTHENTICATION_BACKENDS).keys()):
-            if request.session.get(f"{backend}_state"):
-                active_social_session = True
-                break
-
-        if not active_social_session:
+        if not request.session.get("backend"):
             raise serializers.ValidationError(
                 "Inactive social login session. Go to /login and log in before continuing.",
             )
 
-        request.session["company_name"] = validated_data["organization_name"]
+        request.session["organization_name"] = validated_data["organization_name"]
         request.session["email_opt_in"] = validated_data["email_opt_in"]
         request.session.set_expiry(3600)  # 1 hour to complete process
-        return {"continue_url": redirect(reverse("social:complete", args=[request.session["backend"]]))}
+        return {"continue_url": reverse("social:complete", args=[request.session["backend"]])}
+
+    def to_representation(self, instance: Any) -> Any:
+        return self.instance
 
 
 class OrganizationSignupViewset(generics.CreateAPIView):

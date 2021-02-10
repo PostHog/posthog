@@ -312,7 +312,13 @@ SOCIAL_AUTH_PIPELINE = (
 
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"
 SOCIAL_AUTH_STORAGE = "social_django.models.DjangoStorage"
-SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = ["invite_id", "user_name", "company_name", "email_opt_in"]
+SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
+    "invite_id",
+    "user_name",
+    "company_name",
+    "email_opt_in",
+    "organization_name",
+]  # TODO: company_name deprecated
 
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
 SOCIAL_AUTH_GITHUB_KEY = os.environ.get("SOCIAL_AUTH_GITHUB_KEY")

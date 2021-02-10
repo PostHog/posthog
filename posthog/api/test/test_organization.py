@@ -388,6 +388,8 @@ class TestInviteSignup(APIBaseTest):
 
     CONFIG_USER_EMAIL = None
 
+    # Invite pre-validation
+
     def test_api_invite_sign_up_prevalidate(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+19@posthog.com", organization=self.organization,
@@ -474,6 +476,8 @@ class TestInviteSignup(APIBaseTest):
                 "attr": None,
             },
         )
+
+    # Signup (using invite)
 
     @patch("posthoganalytics.capture")
     @patch("posthog.api.organization.settings.EE_AVAILABLE", True)
@@ -746,3 +750,52 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
         self.assertEqual(Organization.objects.count(), org_count)
+
+    # Social signup (use invite)
+
+    def test_api_social_invite_sign_up(self):
+
+        # simulate SSO process started
+        session = self.client.session
+        session.update({"backend": "google-oauth2"})
+        session.save()
+
+        response = self.client.post("/api/social_signup", {"organization_name": "Tech R Us", "email_opt_in": False})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        self.assertEqual(response.json(), {"continue_url": "/complete/google-oauth2/"})
+
+        # Check the values were saved in the session
+        self.assertEqual(self.client.session.get("organization_name"), "Tech R Us")
+        self.assertEqual(self.client.session.get("email_opt_in"), False)
+        self.assertEqual(self.client.session.get_expiry_age(), 3600)
+
+    def test_cannot_use_social_invite_sign_up_if_social_session_is_not_active(self):
+
+        response = self.client.post("/api/social_signup", {"organization_name": "Tech R Us", "email_opt_in": False})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Inactive social login session. Go to /login and log in before continuing.",
+                "attr": None,
+            },
+        )
+        self.assertEqual(len(self.client.session.keys()), 0)  # Nothing is saved in the session
+
+    def test_cannot_use_social_invite_sign_up_without_required_attributes(self):
+
+        response = self.client.post("/api/social_signup", {"email_opt_in": False})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "required",
+                "detail": "This field is required.",
+                "attr": "organization_name",
+            },
+        )
+        self.assertEqual(len(self.client.session.keys()), 0)  # Nothing is saved in the session
