@@ -153,13 +153,12 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                         )
                         response = response.result
                     } else {
-                        response = (
-                            await api.get(
-                                'api/insight/trend/?' +
-                                    (refresh ? 'refresh=true&' : '') +
-                                    toAPIParams(filterClientSideParams(values.filters))
-                            )
-                        ).result
+                        response = await api.get(
+                            'api/insight/trend/?' +
+                                (refresh ? 'refresh=true&' : '') +
+                                toAPIParams(filterClientSideParams(values.filters))
+                        )
+                        console.log(response)
                     }
                 } catch (e) {
                     insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, e)
