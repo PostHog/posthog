@@ -15,6 +15,10 @@ def report_user_signed_up(
     backend_processor: str = "",  # which serializer/view processed the request
     social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)
 ) -> None:
+    """
+    Reports that a new user has joined. Only triggered when a new user is actually created (i.e. when an existing user
+    joins a new organization, this event is **not** triggered; see `report_user_joined_organization`).
+    """
 
     props = {
         "is_first_user": is_instance_first_user,
@@ -27,6 +31,23 @@ def report_user_signed_up(
     # TODO: This should be $set_once as user props.
     posthoganalytics.identify(distinct_id, props)
     posthoganalytics.capture(distinct_id, "user signed up", properties=props)
+
+
+def report_user_joined_organization(organization: Organization, current_user: User) -> None:
+    """
+    Triggered after an already existing user joins an already existing organization.
+    """
+    posthoganalytics.capture(
+        current_user.distinct_id,
+        "user joined organization",
+        properties={
+            "organization_id": organization.id,
+            "user_number_of_org_membership": current_user.organization_memberships.count(),
+            "org_current_invite_count": organization.invites.filter(),
+            "org_current_project_count": organization.teams.count(),
+            "org_current_members_count": organization.memberships.count(),
+        },
+    )
 
 
 def report_onboarding_completed(organization: Organization, current_user: User) -> None:
@@ -46,6 +67,10 @@ def report_onboarding_completed(organization: Organization, current_user: User) 
 def report_team_member_invited(
     distinct_id: str, name_provided: bool, current_invite_count: int, current_member_count: int, email_available: bool,
 ) -> None:
+    """
+    Triggered after a user creates an **individual** invite for a new team member. See `report_bulk_invited`
+    for bulk invite creation.
+    """
     posthoganalytics.capture(
         distinct_id,
         "team invite executed",
@@ -66,6 +91,9 @@ def report_bulk_invited(
     current_member_count: int,
     email_available: bool,
 ) -> None:
+    """
+    Triggered after a user bulk creates invites for another user.
+    """
     posthoganalytics.capture(
         distinct_id,
         "bulk invite executed",

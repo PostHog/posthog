@@ -20,7 +20,7 @@ from rest_framework import (
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.demo import create_demo_team
-from posthog.event_usage import report_onboarding_completed, report_user_signed_up
+from posthog.event_usage import report_onboarding_completed, report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.permissions import (
@@ -278,32 +278,21 @@ class OrganizationInviteSignupSerializer(serializers.Serializer):
             except ValueError as e:
                 raise serializers.ValidationError(str(e))
 
-        posthoganalytics.identify(
-            user.distinct_id,
-            properties={"email": user.email, "realm": get_instance_realm(), "ee_available": settings.EE_AVAILABLE},
-        )
-
         if is_new_user:
-            posthoganalytics.capture(
-                user.distinct_id,
-                "user signed up",
-                properties={"is_first_user": False, "is_organization_first_user": False},
-            )
-
             login(
                 self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
             )
 
-        else:
-            posthoganalytics.capture(
+            report_user_signed_up(
                 user.distinct_id,
-                "user joined organization",
-                properties={
-                    "user_memberships_count": user.organization_memberships.count(),
-                    "organization_project_count": user.organization.teams.count(),
-                    "organization_users_count": user.organization.memberships.count(),
-                },
+                is_instance_first_user=False,
+                is_organization_first_user=False,
+                new_onboarding_enabled=(not invite.organization.setup_section_2_completed),
+                backend_processor="OrganizationInviteSignupSerializer",
             )
+
+        else:
+            report_user_joined_organization(organization=invite.organization, current_user=user)
 
         return user
 
@@ -335,3 +324,27 @@ class OrganizationInviteSignupViewset(generics.CreateAPIView):
             raise serializers.ValidationError(str(e))
 
         return response.Response({"target_email": invite.target_email})
+
+
+class OrganizationOnboardingViewset(StructuredViewSetMixin, viewsets.GenericViewSet):
+
+    serializer_class = OrganizationSerializer
+    permission_classes = [
+        permissions.IsAuthenticated,
+        OrganizationMemberPermissions,
+    ]
+
+    def create(self, request, *args, **kwargs):
+        # Complete onboarding
+        instance: Organization = self.organization
+        self.check_object_permissions(request, instance)
+
+        if not instance.is_onboarding_active:
+            raise exceptions.ValidationError("Onboarding already completed.")
+
+        instance.complete_onboarding()
+
+        report_onboarding_completed(organization=instance, current_user=request.user)
+
+        serializer = self.get_serializer(instance=instance)
+        return response.Response(serializer.data)
