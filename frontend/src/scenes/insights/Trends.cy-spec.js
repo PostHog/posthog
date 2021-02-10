@@ -102,38 +102,6 @@ describe('<Insights /> trends', () => {
         cy.get('[data-attr="trend-line-graph"]').should('be.visible')
     })
 
-    it('adds another entity filter', () => {
-        baseLocation()
-        mount()
-        cy.wait('@api_insight')
-
-        cy.contains('Add graph series').click()
-        cy.wait('@api_insight')
-            .map(helpers.getSearchParameters)
-            .should('include', {
-                insight: 'TRENDS',
-                interval: 'day',
-                display: 'ActionsLineGraph',
-                events: JSON.stringify([
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                        order: 0,
-                    },
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                        order: 1,
-                    },
-                ]),
-                properties: '[]',
-            })
-        cy.get('[data-attr=trend-element-subject-1]').click()
-        cy.get('[data-attr=trend-line-graph]').should('exist')
-    })
-
     describe('Trend filters from url', () => {
         it('renders multiple entities', () => {
             helpers.setLocation('/insights', {
