@@ -59,20 +59,16 @@
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:DATABASE_URL::"
                 },
                 {
-                    "name": "KAFKA_CLIENT_CERT_B64",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_CLIENT_CERT_B64::"
-                },
-                {
-                    "name": "KAFKA_CLIENT_CERT_KEY_B64",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_CLIENT_CERT_KEY_B64::"
-                },
-                {
-                    "name": "KAFKA_TRUSTED_CERT_B64",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_TRUSTED_CERT_B64::"
-                },
-                {
                     "name": "KAFKA_HOSTS",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_HOSTS::"
+                },
+                {
+                    "name": "KAFKA_SCRAM_USERNAME",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:AmazonMSK_Kafka-HI5PoY:username::"
+                },
+                {
+                    "name": "KAFKA_SCRAM_PASSWORD",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:AmazonMSK_Kafka-HI5PoY:password::"
                 },
                 {
                     "name": "POSTHOG_PERSONAL_API_KEY",
