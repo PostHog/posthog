@@ -71,7 +71,7 @@ class APITestMixin(ErrorResponsesMixin):
     Test API using Django REST Framework test suite.
     """
 
-    CONFIG_ORGANIZATION_NAME: str = "Test"
+    CONFIG_ORGANIZATION_NAME: str = "Test Co"
     CONFIG_USER_EMAIL: Optional[str] = "user1@posthog.com"
     CONFIG_PASSWORD: Optional[str] = "testpassword12345"
     CONFIG_API_TOKEN: str = "token123"

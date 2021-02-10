@@ -353,7 +353,11 @@ class OrganizationInviteSignupViewset(generics.CreateAPIView):
             raise serializers.ValidationError(str(e))
 
         return response.Response(
-            {"target_email": mask_email_address(invite.target_email), "first_name": invite.first_name}
+            {
+                "target_email": mask_email_address(invite.target_email),
+                "first_name": invite.first_name,
+                "organization_name": invite.organization.name,
+            }
         )
 
 

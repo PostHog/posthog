@@ -398,7 +398,12 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.data, {"target_email": "t*****9@posthog.com", "first_name": ""},
+            response.data,
+            {
+                "target_email": "t*****9@posthog.com",
+                "first_name": "",
+                "organization_name": self.CONFIG_ORGANIZATION_NAME,
+            },
         )
 
     def test_api_invite_sign_up_with_first_nameprevalidate(self):
@@ -409,12 +414,17 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.data, {"target_email": "t*****8@posthog.com", "first_name": "Jane"},
+            response.data,
+            {
+                "target_email": "t*****8@posthog.com",
+                "first_name": "Jane",
+                "organization_name": self.CONFIG_ORGANIZATION_NAME,
+            },
         )
 
     def test_api_invite_sign_up_prevalidate_for_existing_user(self):
         user = self._create_user("test+29@posthog.com", "test_password")
-        new_org = Organization.objects.create(name="TestCo")
+        new_org = Organization.objects.create(name="Test, Inc")
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+29@posthog.com", organization=new_org,
         )
@@ -423,7 +433,7 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.data, {"target_email": "t*****9@posthog.com", "first_name": ""},
+            response.data, {"target_email": "t*****9@posthog.com", "first_name": "", "organization_name": "Test, Inc",},
         )
 
     def test_api_invite_sign_up_prevalidate_invalid_invite(self):
