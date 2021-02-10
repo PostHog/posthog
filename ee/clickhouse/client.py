@@ -9,7 +9,6 @@ import statsd
 from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
-from clickhouse_pool import ChPool
 from django.conf import settings as app_settings
 from django.core.cache import cache
 from django.utils.timezone import now
@@ -43,7 +42,6 @@ _save_query_user_id = False
 
 if PRIMARY_DB != RDBMS.CLICKHOUSE:
     ch_client = None  # type: Client
-    ch_sync_pool = None  # type: ChPool
 
     def async_execute(query, args=None, settings=None):
         return
@@ -87,18 +85,6 @@ else:
 
         def async_execute(query, args=None, settings=None):
             return sync_execute(query, args, settings=settings)
-
-    ch_sync_pool = ChPool(
-        host=CLICKHOUSE_HOST,
-        database=CLICKHOUSE_DATABASE,
-        secure=CLICKHOUSE_SECURE,
-        user=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        ca_certs=CLICKHOUSE_CA,
-        verify=CLICKHOUSE_VERIFY,
-        connections_min=20,
-        connections_max=100,
-    )
 
     def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, settings=None):
         if not redis_client:
