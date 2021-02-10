@@ -1,12 +1,10 @@
-from django.db import transaction
-
 from posthog.models import Event, Person
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.test.trends import all_trend_tests
 from posthog.queries.test.trends.base import QueryTest
 from posthog.queries.trends import Trends
-from posthog.test.base import APIBaseTest, TransactionBaseTest
+from posthog.test.base import TransactionBaseTest
 
 
 # TODO: add more supported entities here
