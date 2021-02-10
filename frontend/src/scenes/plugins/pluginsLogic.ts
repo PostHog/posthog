@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
-import { PluginConfigType, PluginType } from '~/types'
+import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
 import {
     PluginInstallationType,
     PluginRepositoryEntry,
@@ -10,8 +10,7 @@ import {
     PluginUpdateStatusType,
 } from './types'
 import { userLogic } from 'scenes/userLogic'
-import { getConfigSchemaObject, getPluginConfigFormData, getConfigSchemaArray } from 'scenes/plugins/utils'
-import { PersonalAPIKeyType } from '~/types'
+import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 import posthog from 'posthog-js'
 import { FormInstance } from 'antd/lib/form'
 
@@ -501,6 +500,10 @@ export const pluginsLogic = kea<
                 }
             }
             actions.checkForUpdates(false, initialUpdateStatus)
+
+            if (Object.keys(values.plugins).length === 0 && userLogic.values.user?.plugin_access.install) {
+                actions.setPluginTab(PluginTab.Repository)
+            }
         },
         generateApiKeysIfNeeded: async ({ form }, breakpoint) => {
             const { editingPlugin } = values
