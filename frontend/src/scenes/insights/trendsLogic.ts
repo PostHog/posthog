@@ -131,7 +131,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
     },
 
     connect: {
-        values: [userLogic, ['eventNames'], actionsModel, ['actions']],
+        values: [userLogic, ['eventNames'], actionsModel, ['actions'], insightLogic, ['isFirstLoad']],
         actions: [insightHistoryLogic, ['createInsight']],
     },
 
@@ -151,6 +151,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                                 (refresh ? 'refresh=true&' : '') +
                                 toAPIParams(filterClientSideParams(values.filters))
                         )
+                        response = response.result
                     } else {
                         response = await api.get(
                             'api/insight/trend/?' +
@@ -159,12 +160,12 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                         )
                     }
                 } catch (e) {
-                    insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, false, e)
+                    insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, e)
                     return []
                 }
-                insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, response.last_refresh)
+                insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS)
                 breakpoint()
-                return response.result
+                return response
             },
         },
     }),
@@ -341,12 +342,9 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
         },
     }),
 
-    events: ({ actions, props }) => ({
+    events: ({ actions }) => ({
         afterMount: () => {
-            if (props.dashboardItemId) {
-                // loadResults gets called in urlToAction for non-dashboard insights
-                actions.loadResults()
-            }
+            actions.loadResults()
         },
     }),
 
@@ -361,9 +359,6 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
 
     urlToAction: ({ actions, values, props }) => ({
         '/insights': ({}, searchParams: Partial<FilterType>) => {
-            if (props.dashboardItemId) {
-                return
-            }
             if (
                 !searchParams.insight ||
                 searchParams.insight === ViewType.TRENDS ||
@@ -371,6 +366,11 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                 searchParams.insight === ViewType.STICKINESS ||
                 searchParams.insight === ViewType.LIFECYCLE
             ) {
+                if (props.dashboardItemId) {
+                    actions.loadResults()
+                    return // don't use the URL if on the dashboard
+                }
+
                 const cleanSearchParams = cleanFilters(searchParams)
 
                 const keys = Object.keys(searchParams)
@@ -417,7 +417,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                 } else {
                     /* Edge case when opening a trends graph from a dashboard or sometimes when trends are loaded
                     with filters already set, `setAllFilters` action is not triggered, and therefore usage is not reported */
-                    eventUsageLogic.actions.reportInsightViewed(values.filters, insightLogic.values.isFirstLoad)
+                    eventUsageLogic.actions.reportInsightViewed(values.filters, values.isFirstLoad)
                 }
 
                 handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))

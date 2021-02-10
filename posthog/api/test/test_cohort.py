@@ -45,13 +45,7 @@ class TestCohort(BaseTest):
 
         response = self.client.patch(
             "/api/cohort/%s/" % response.json()["id"],
-            data={
-                "name": "whatever2",
-                "groups": [{"properties": {"team_id": 6}}],
-                "created_by": "something something",
-                "last_calculation": "some random date",
-                "errors_calculating": 100,
-            },
+            data={"name": "whatever2", "groups": [{"properties": {"team_id": 6}}]},
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200, response.content)

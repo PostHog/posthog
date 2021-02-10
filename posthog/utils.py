@@ -543,13 +543,9 @@ def get_safe_cache(cache_key: str):
     return None
 
 
-def is_valid_uuid4(uuid_string: str) -> bool:
-    try:
-        val = uuid.UUID(uuid_string, version=4)
-    except ValueError:
-        return False
-    # If the uuid_string is a valid hex code,
-    # but an invalid uuid4,
-    # the UUID.__init__ will convert it to a
-    # valid uuid4. This is bad for validation purposes.
-    return val.hex == uuid_string
+ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
+
+
+def is_anonymous_id(distinct_id: str) -> bool:
+    # Our anonymous ids are _not_ uuids, but a random collection of strings
+    return bool(re.match(ANONYMOUS_REGEX, distinct_id))

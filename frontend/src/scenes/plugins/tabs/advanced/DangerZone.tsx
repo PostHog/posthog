@@ -33,8 +33,8 @@ export function DangerZone(): JSX.Element {
                     okText="Yes"
                     cancelText="No"
                 >
-                    <Button danger type="default">
-                        <ApiOutlined /> Disable plugins for this project
+                    <Button danger type="default" icon={<ApiOutlined />}>
+                        Disable plugins for this project
                     </Button>
                 </Popconfirm>
             </Card>

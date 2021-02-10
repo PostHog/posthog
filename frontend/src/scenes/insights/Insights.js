@@ -3,7 +3,6 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
-import moment from 'moment'
 import { DateFilter } from 'lib/components/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 
@@ -21,6 +20,7 @@ import {
     ACTIONS_TABLE,
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
+    FUNNEL_VIZ,
     LIFECYCLE,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
@@ -34,7 +34,8 @@ import { Paths } from 'scenes/paths/Paths'
 import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { insightLogic, logicFromInsight, ViewType } from './insightLogic'
+import { People } from 'scenes/funnels/People'
+import { insightLogic, ViewType } from './insightLogic'
 import { trendsLogic } from './trendsLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
@@ -108,14 +109,11 @@ function _Insights() {
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const { lastRefresh, isLoading, activeView, allFilters, showTimeoutMessage, showErrorMessage } = useValues(
-        insightLogic
-    )
+    const { isLoading, activeView, allFilters, showTimeoutMessage, showErrorMessage } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
-    const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
 
+    const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
     return (
         <div className="actions-graph">
             <PageHeader title="Insights" />
@@ -295,6 +293,14 @@ function _Insights() {
                                     </div>
                                 </div>
                             </Card>
+                            {!showErrorMessage &&
+                                !showTimeoutMessage &&
+                                activeView === ViewType.FUNNELS &&
+                                allFilters.display === FUNNEL_VIZ && (
+                                    <Card>
+                                        <FunnelPeople />
+                                    </Card>
+                                )}
                         </Col>
                     </>
                 )}
@@ -356,4 +362,12 @@ function FunnelInsight() {
             )}
         </div>
     )
+}
+
+function FunnelPeople() {
+    const { stepsWithCount } = useValues(funnelLogic)
+    if (stepsWithCount && stepsWithCount.length > 0) {
+        return <People />
+    }
+    return <></>
 }
