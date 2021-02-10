@@ -34,7 +34,6 @@ from posthog.utils import is_plugin_server_alive
 
 class PluginSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
 
     class Meta:
         model = Plugin
@@ -141,6 +140,7 @@ class PluginSerializer(serializers.ModelSerializer):
 class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -187,7 +187,6 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
 
     class Meta:
         model = PluginConfig
@@ -276,6 +275,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
 
     def get_queryset(self):
         if not can_configure_plugins_via_api(self.team.organization_id):
