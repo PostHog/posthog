@@ -17,7 +17,7 @@ except ImportError:
 
 class OrganizationManager(models.Manager):
     def bootstrap(
-        self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs
+        self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs,
     ) -> Tuple["Organization", Optional["OrganizationMembership"], Any]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
         from .team import Team  # Avoiding circular import
@@ -179,9 +179,10 @@ class OrganizationInvite(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
-    def validate(self, *, user: Optional[Any] = None, email: Optional[str] = None) -> None:
-        email = email or (hasattr(user, "email") and user.email)
-        if email and email != self.target_email:
+    def validate(self, *, user: Any = None, email: Optional[str] = None) -> None:
+        _email = email or (hasattr(user, "email") and user.email)
+
+        if _email and _email != self.target_email:
             raise ValueError("This invite is intended for another email address.")
 
         if self.is_expired():

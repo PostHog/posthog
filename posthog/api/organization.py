@@ -250,7 +250,11 @@ class OrganizationInviteSignupSerializer(serializers.Serializer):
         if "view" not in self.context or not self.context["view"].kwargs.get("invite_id"):
             raise serializers.ValidationError("Please provide an invite ID to continue.")
 
-        user = cast(User, self.context["request"].user)
+        user: Optional[User] = None
+        is_new_user: bool = False
+
+        if self.context["request"].user.authenticated:
+            user = cast(User, self.context["request"].user)
 
         invite_id = self.context["view"].kwargs.get("invite_id")
 
@@ -259,10 +263,8 @@ class OrganizationInviteSignupSerializer(serializers.Serializer):
         except (OrganizationInvite.DoesNotExist):
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
-        is_new_user: bool = False
-
         with transaction.atomic():
-            if not user.is_authenticated:
+            if not user:
                 is_new_user = True
                 user = User.objects.create_user(
                     invite.target_email,
@@ -270,7 +272,6 @@ class OrganizationInviteSignupSerializer(serializers.Serializer):
                     validated_data.pop("first_name"),
                     **validated_data,
                 )
-                user.set_password
 
             try:
                 invite.use(user)
@@ -322,7 +323,7 @@ class OrganizationInviteSignupViewset(generics.CreateAPIView):
         except ValueError as e:
             raise serializers.ValidationError(str(e))
 
-        return response.Response({"target_email": invite.target_email})
+        return response.Response({"target_email": invite.target_email, "first_name": invite.first_name})
 
 
 class OrganizationOnboardingViewset(StructuredViewSetMixin, viewsets.GenericViewSet):

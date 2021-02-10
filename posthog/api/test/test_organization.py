@@ -485,7 +485,7 @@ class TestInviteSignup(APIBaseTest):
 
         # User is now a member of the organization
         self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(user.organization_memberships.first().organization, self.organization)
+        self.assertEqual(user.organization_memberships.first().organization, self.organization)  # type: ignore
 
         # Defaults are set correctly
         self.assertEqual(user.organization, self.organization)
