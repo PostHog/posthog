@@ -23,6 +23,7 @@ from posthog.permissions import (
     UninitiatedOrCloudOnly,
 )
 from posthog.tasks import user_identify
+from posthog.utils import mask_email_address
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
@@ -351,7 +352,9 @@ class OrganizationInviteSignupViewset(generics.CreateAPIView):
         except ValueError as e:
             raise serializers.ValidationError(str(e))
 
-        return response.Response({"target_email": invite.target_email, "first_name": invite.first_name})
+        return response.Response(
+            {"target_email": mask_email_address(invite.target_email), "first_name": invite.first_name}
+        )
 
 
 class OrganizationOnboardingViewset(StructuredViewSetMixin, viewsets.GenericViewSet):

@@ -398,18 +398,18 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.data, {"target_email": "test+19@posthog.com", "first_name": ""},
+            response.data, {"target_email": "t*****9@posthog.com", "first_name": ""},
         )
 
     def test_api_invite_sign_up_with_first_nameprevalidate(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+19@posthog.com", organization=self.organization, first_name="Jane"
+            target_email="test+58@posthog.com", organization=self.organization, first_name="Jane"
         )
 
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.data, {"target_email": "test+19@posthog.com", "first_name": "Jane"},
+            response.data, {"target_email": "t*****8@posthog.com", "first_name": "Jane"},
         )
 
     def test_api_invite_sign_up_prevalidate_for_existing_user(self):
@@ -423,7 +423,7 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.data, {"target_email": "test+29@posthog.com", "first_name": ""},
+            response.data, {"target_email": "t*****9@posthog.com", "first_name": ""},
         )
 
     def test_api_invite_sign_up_prevalidate_invalid_invite(self):

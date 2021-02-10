@@ -77,7 +77,7 @@ class BulkCreateOrganizationSerializer(serializers.Serializer):
 
     def create(self, validated_data: Dict[str, Any]) -> Dict[str, Any]:
         output = []
-        organization = cast(self.context["organization"], Organization)  # type: ignore
+        organization = Organization.objects.get(id=self.context["organization_id"])
 
         with transaction.atomic():
             for invite in validated_data["invites"]:
