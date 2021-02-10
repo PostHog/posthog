@@ -357,7 +357,6 @@ urlpatterns = [
     path("logout", logout, name="login"),
     path("login", login_view, name="login"),
     path("signup/finish/", finish_social_signup, name="signup_finish"),
-    path("signup/<str:invite_id>", signup_to_organization_view, name="signup"),
     path("", include("social_django.urls", namespace="social")),
     *(
         []
@@ -404,9 +403,9 @@ if settings.TEST:
     urlpatterns.append(path("delete_events/", delete_events))
 
 # Routes added individually to remove login requirement
-frontend_unauthenticated_routes = ["preflight", "signup"]
+frontend_unauthenticated_routes = ["preflight", "signup", r"signup/*"]
 for route in frontend_unauthenticated_routes:
-    urlpatterns.append(path(route, home))
+    urlpatterns.append(re_path(route, home))
 
 urlpatterns += [
     re_path(r"^.*", decorators.login_required(home)),
