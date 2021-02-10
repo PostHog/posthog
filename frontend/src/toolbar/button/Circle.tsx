@@ -107,7 +107,7 @@ export function Circle({
                           {
                               zIndex,
                               position: 'absolute',
-                              top: 0,
+                              top: 15,
                               left: 0,
                               transform: `rotate(${usedRotation}deg) translate(${usedDistance}px, 0px)`,
                               transformOrigin: '0px 0px',
