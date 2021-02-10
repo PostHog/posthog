@@ -5,7 +5,6 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogicType } from './toolbarButtonLogicType'
 
-
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
     actions: () => ({
         showHeatmapInfo: true,
