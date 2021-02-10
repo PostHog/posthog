@@ -13,6 +13,7 @@ import { defaultConfigForPlugin, getConfigSchemaArray } from 'scenes/plugins/uti
 import Markdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from './PluginSource'
+import { PluginConfigChoice } from '@posthog/plugin-scaffold'
 
 function EnabledDisabledSwitch({
     value,
@@ -51,6 +52,15 @@ export function PluginDrawer(): JSX.Element {
             form.resetFields()
         }
     }, [editingPlugin?.id])
+
+    const isValidChoiceConfig = (configField: PluginConfigChoice): boolean => {
+        const invalid =
+            !configField.choices ||
+            !(configField.choices instanceof Array) ||
+            !configField.choices.length ||
+            [...configField.choices].filter((choice) => typeof choice === 'string').length != configField.choices.length
+        return !invalid
+    }
 
     return (
         <>
@@ -158,9 +168,16 @@ export function PluginDrawer(): JSX.Element {
                                     ) : null}
                                     {fieldConfig.type ? (
                                         <Form.Item
-                                            label={fieldConfig.name || fieldConfig.key}
+                                            label={
+                                                fieldConfig.type !== 'choice' || isValidChoiceConfig(fieldConfig)
+                                                    ? fieldConfig.name || fieldConfig.key
+                                                    : ''
+                                            }
                                             extra={
-                                                fieldConfig.hint ? (
+                                                fieldConfig.hint &&
+                                                (fieldConfig.type === 'choice'
+                                                    ? isValidChoiceConfig(fieldConfig)
+                                                    : true) ? (
                                                     <Markdown source={fieldConfig.hint} linkTarget="_blank" />
                                                 ) : null
                                             }
@@ -178,18 +195,27 @@ export function PluginDrawer(): JSX.Element {
                                             ) : fieldConfig.type === 'string' ? (
                                                 <Input />
                                             ) : fieldConfig.type === 'choice' ? (
-                                                <Select
-                                                    defaultValue={fieldConfig.choices?.[0]}
-                                                    dropdownMatchSelectWidth={false}
-                                                >
-                                                    {fieldConfig.choices.map((choice) => (
-                                                        <Select.Option value={choice} key={choice}>
-                                                            {choice}
-                                                        </Select.Option>
-                                                    ))}
-                                                </Select>
+                                                isValidChoiceConfig(fieldConfig) ? (
+                                                    <Select
+                                                        defaultValue={fieldConfig.choices?.[0]}
+                                                        dropdownMatchSelectWidth={false}
+                                                    >
+                                                        {fieldConfig.choices.map((choice) => (
+                                                            <Select.Option value={choice} key={choice}>
+                                                                {choice}
+                                                            </Select.Option>
+                                                        ))}
+                                                    </Select>
+                                                ) : (
+                                                    <p style={{ color: 'var(--danger)' }}>
+                                                        <i>
+                                                            Plugin contains invalid configuration. Please contact the
+                                                            plugin author.
+                                                        </i>
+                                                    </p>
+                                                )
                                             ) : (
-                                                <strong style={{ color: 'var(--red)' }}>
+                                                <strong style={{ color: 'var(--danger)' }}>
                                                     Unknown field type "<code>{fieldConfig.type}</code>".
                                                     <br />
                                                     You may need to upgrade PostHog!
