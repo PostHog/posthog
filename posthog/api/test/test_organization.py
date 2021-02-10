@@ -396,7 +396,18 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.data, {"target_email": "test+19@posthog.com"},
+            response.data, {"target_email": "test+19@posthog.com", "first_name": ""},
+        )
+
+    def test_api_invite_sign_up_with_first_nameprevalidate(self):
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+19@posthog.com", organization=self.organization, first_name="Jane"
+        )
+
+        response = self.client.get(f"/api/signup/{invite.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data, {"target_email": "test+19@posthog.com", "first_name": "Jane"},
         )
 
     def test_api_invite_sign_up_prevalidate_for_existing_user(self):
@@ -410,7 +421,7 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.data, {"target_email": "test+29@posthog.com"},
+            response.data, {"target_email": "test+29@posthog.com", "first_name": ""},
         )
 
     def test_api_invite_sign_up_prevalidate_invalid_invite(self):
@@ -464,10 +475,9 @@ class TestInviteSignup(APIBaseTest):
             },
         )
 
-    @patch("posthoganalytics.identify")
     @patch("posthoganalytics.capture")
     @patch("posthog.api.organization.settings.EE_AVAILABLE", True)
-    def test_api_invite_sign_up(self, mock_capture, mock_identify):
+    def test_api_invite_sign_up(self, mock_capture):
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+99@posthog.com", organization=self.organization,
@@ -500,11 +510,13 @@ class TestInviteSignup(APIBaseTest):
         mock_capture.assert_called_once_with(
             user.distinct_id,
             "user signed up",
-            properties={"is_first_user": False, "is_organization_first_user": False},
-        )
-
-        mock_identify.assert_called_once_with(
-            user.distinct_id, properties={"email": "test+99@posthog.com", "realm": "hosted", "ee_available": True},
+            properties={
+                "is_first_user": False,
+                "is_organization_first_user": False,
+                "new_onboarding_enabled": False,
+                "signup_backend_processor": "OrganizationInviteSignupSerializer",
+                "signup_social_provider": "",
+            },
         )
 
         # Assert that the user is logged in
@@ -558,12 +570,15 @@ class TestInviteSignup(APIBaseTest):
         mock_capture.assert_called_once_with(
             user.distinct_id,
             "user joined organization",
-            properties={"user_memberships_count": 2, "organization_project_count": 1, "organization_users_count": 1},
+            properties={
+                "organization_id": str(new_org.id),
+                "user_number_of_org_membership": 2,
+                "org_current_invite_count": 0,
+                "org_current_project_count": 1,
+                "org_current_members_count": 1,
+            },
         )
-
-        mock_identify.assert_called_once_with(
-            user.distinct_id, properties={"email": "test+159@posthog.com", "realm": "cloud", "ee_available": False},
-        )
+        mock_identify.assert_called_once()
 
         # Assert that the user remains logged in
         response = self.client.get("/api/user/")
@@ -575,8 +590,11 @@ class TestInviteSignup(APIBaseTest):
         Tests that a user cannot use the claim invite endpoint to change their name or password
         (as this endpoint does not do any checks that might be required).
         """
-        user = self._create_user("test+189@posthog.com", "test_password")
         new_org = Organization.objects.create(name="TestCo")
+        user = self._create_user("test+189@posthog.com", "test_password")
+        user2 = self._create_user("test+949@posthog.com")
+        user2.join(organization=new_org)
+
         Team.objects.create(organization=new_org)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+189@posthog.com", organization=new_org,
@@ -608,7 +626,13 @@ class TestInviteSignup(APIBaseTest):
         mock_capture.assert_called_once_with(
             user.distinct_id,
             "user joined organization",
-            properties={"user_memberships_count": 2, "organization_project_count": 1, "organization_users_count": 1},
+            properties={
+                "organization_id": str(new_org.id),
+                "user_number_of_org_membership": 2,
+                "org_current_invite_count": 0,
+                "org_current_project_count": 1,
+                "org_current_members_count": 2,
+            },
         )
 
     def test_cant_claim_sign_up_invite_without_required_attributes(self):

@@ -41,7 +41,7 @@ def report_user_joined_organization(organization: Organization, current_user: Us
         current_user.distinct_id,
         "user joined organization",
         properties={
-            "organization_id": organization.id,
+            "organization_id": str(organization.id),
             "user_number_of_org_membership": current_user.organization_memberships.count(),
             "org_current_invite_count": organization.invites.filter(),
             "org_current_project_count": organization.teams.count(),

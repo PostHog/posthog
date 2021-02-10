@@ -29,6 +29,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     UninitiatedOrCloudOnly,
 )
+from posthog.tasks import user_identify
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
@@ -253,7 +254,7 @@ class OrganizationInviteSignupSerializer(serializers.Serializer):
         user: Optional[User] = None
         is_new_user: bool = False
 
-        if self.context["request"].user.authenticated:
+        if self.context["request"].user.is_authenticated:
             user = cast(User, self.context["request"].user)
 
         invite_id = self.context["view"].kwargs.get("invite_id")
@@ -293,6 +294,9 @@ class OrganizationInviteSignupSerializer(serializers.Serializer):
 
         else:
             report_user_joined_organization(organization=invite.organization, current_user=user)
+
+        # Update user props
+        user_identify.identify_task.delay(user_id=user.id)
 
         return user
 
