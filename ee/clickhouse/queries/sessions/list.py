@@ -8,7 +8,7 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_session_recording import filter_sessions_by_recordings
 from ee.clickhouse.queries.sessions.clickhouse_sessions import set_default_dates
 from ee.clickhouse.queries.util import parse_timestamps
-from ee.clickhouse.sql.sessions.list import SESSION_SQL
+from ee.clickhouse.sql.sessions.list import SESSION_SQL, SESSIONS_DISTINCT_ID_SQL
 from posthog.models import Entity, Person, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.sessions.mixins import SESSIONS_LIST_DEFAULT_LIMIT, RunUntilResultsMixin
@@ -21,6 +21,7 @@ class ClickhouseSessionsList(RunUntilResultsMixin):
     def run_batch(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
         limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT) + 1
         offset = filter.pagination.get("offset", 0)
+        distinct_id_offset = filter.pagination.get("distinct_id_offset", 0)
         filter = set_default_dates(filter)
 
         person_filters, person_filter_params = parse_prop_clauses(filter.person_filter_properties, team.pk)
@@ -29,29 +30,36 @@ class ClickhouseSessionsList(RunUntilResultsMixin):
         )
 
         date_from, date_to, _ = parse_timestamps(filter, team.pk)
-        params = {
-            **person_filter_params,
-            **action_filter_params,
-            "team_id": team.pk,
-            "limit": limit,
-            "offset": offset,
-        }
+        distinct_ids = sync_execute(
+            SESSIONS_DISTINCT_ID_SQL.format(date_from=date_from, date_to=date_to, person_filters=person_filters),
+            {**person_filter_params, "team_id": team.pk, "distinct_id_limit": distinct_id_offset + limit,},
+        )
+
         query = SESSION_SQL.format(
             date_from=date_from,
             date_to=date_to,
-            person_filters=person_filters,
             filters_select_clause=filters_select_clause,
             filters_timestamps_clause=filters_timestamps_clause,
             filters_having=filters_having,
             sessions_limit="LIMIT %(offset)s, %(limit)s",
         )
-        query_result = sync_execute(query, params)
+        query_result = sync_execute(
+            query,
+            {
+                **action_filter_params,
+                "team_id": team.pk,
+                "limit": limit,
+                "offset": offset,
+                "distinct_ids": distinct_ids,
+            },
+        )
         result = self._parse_list_results(query_result)
 
         pagination = None
-        if len(result) == limit:
-            result.pop()
-            pagination = {"offset": offset + limit - 1}
+        if len(distinct_ids) >= limit + distinct_id_offset or len(result) == limit:
+            if len(result) == limit:
+                result.pop()
+            pagination = {"offset": offset + len(result), "distinct_id_offset": distinct_id_offset + limit}
 
         self._add_person_properties(team, result)
 
