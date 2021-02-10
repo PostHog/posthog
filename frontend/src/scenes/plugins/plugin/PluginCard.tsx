@@ -19,6 +19,7 @@ import { PluginInstallationType, PluginTypeWithConfig } from 'scenes/plugins/typ
 import { SourcePluginTag } from './SourcePluginTag'
 import { CommunityPluginTag } from './CommunityPluginTag'
 import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
+import { userLogic } from 'scenes/userLogic'
 
 interface PluginCardProps {
     plugin: Partial<PluginTypeWithConfig>
@@ -59,7 +60,9 @@ export function PluginCard({
         pluginsLogic
     )
     const { loading, installingPluginUrl, checkingForUpdates, updatingPlugin } = useValues(pluginsLogic)
+    const { user } = useValues(userLogic)
 
+    const canInstall = user?.plugin_access.install
     const canConfigure = pluginId && !pluginConfig?.global
     const switchDisabled = rearranging || pluginConfig?.global
 
@@ -124,27 +127,32 @@ export function PluginCard({
                             ) : error ? (
                                 <PluginError error={error} />
                             ) : null}
-                            {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
 
-                            {updateStatus?.error ? (
-                                <Tag color="red">
-                                    <WarningOutlined /> Error checking for updates
-                                </Tag>
-                            ) : checkingForUpdates && !updateStatus && pluginType !== PluginInstallationType.Source ? (
-                                <Tag color="blue">
-                                    <LoadingOutlined /> Checking for updates…
-                                </Tag>
-                            ) : url && latestTag && tag ? (
-                                tag === latestTag ? (
-                                    <Tag color="green">
-                                        <CheckOutlined /> Up to date
-                                    </Tag>
-                                ) : (
-                                    <UpdateAvailable url={url} tag={tag} latestTag={latestTag} />
-                                )
+                            {canInstall ? (
+                                <>
+                                    {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
+                                    {updateStatus?.error ? (
+                                        <Tag color="red">
+                                            <WarningOutlined /> Error checking for updates
+                                        </Tag>
+                                    ) : checkingForUpdates &&
+                                      !updateStatus &&
+                                      pluginType !== PluginInstallationType.Source ? (
+                                        <Tag color="blue">
+                                            <LoadingOutlined /> Checking for updates…
+                                        </Tag>
+                                    ) : url && latestTag && tag ? (
+                                        tag === latestTag ? (
+                                            <Tag color="green">
+                                                <CheckOutlined /> Up to date
+                                            </Tag>
+                                        ) : (
+                                            <UpdateAvailable url={url} tag={tag} latestTag={latestTag} />
+                                        )
+                                    ) : null}
+                                    {pluginType === PluginInstallationType.Source ? <SourcePluginTag /> : null}
+                                </>
                             ) : null}
-
-                            {pluginType === PluginInstallationType.Source ? <SourcePluginTag /> : null}
                         </div>
                         <div>
                             {description}
