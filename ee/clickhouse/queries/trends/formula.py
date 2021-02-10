@@ -1,32 +1,59 @@
 import math
+from itertools import accumulate
+from typing import List
 
 from clickhouse_driver import Client as SyncClient
 
 from ee.clickhouse.client import ch_client, format_sql, substitute_params, sync_execute
 from ee.clickhouse.queries.trends import breakdown
 from ee.clickhouse.queries.trends.util import parse_response
+from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE, TRENDS_TABLE
+from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 
 
 class ClickhouseTrendsFormula:
+    def _label(self, filter: Filter, item: List, team_id: int) -> str:
+        if filter.breakdown:
+            if filter.breakdown_type == "cohort":
+                if item[2] == 0:
+                    return "all users"
+                return Cohort.objects.get(team=team_id, pk=item[2]).name
+            return item[2]
+        return "Formula ({})".format(filter.formula)
+
     def _run_formula_query(self, filter: Filter, team_id: int):
         letters = [chr(65 + i) for i in range(0, len(filter.entities))]
         queries = []
-        for i, entity in enumerate(filter.entities):
+        for entity in filter.entities:
             sql, params, _ = self._get_sql_for_entity(filter, entity, team_id)  # type: ignore
             queries.append(substitute_params(sql, params))
 
+        breakdown_value = (
+            ", sub_A.breakdown_value"
+            if filter.breakdown_type == "cohort"
+            else ", trim(BOTH '\"' FROM sub_A.breakdown_value)"
+        )
+        is_aggregate = filter.display in [TRENDS_TABLE, TRENDS_PIE]
+
         sql = """SELECT
-            sub_A.date,
+            {date_select}
             arrayMap(({letters_select}) -> {formula}, {selects})
             {breakdown_value}
             FROM ({first_query}) as sub_A
             {queries}
         """.format(
+            date_select="'' as date," if is_aggregate else "sub_A.date,",
             letters_select=", ".join(letters),
             formula=filter.formula,  # formula is properly escaped in the filter
-            selects=", ".join(["sub_{}.data".format(letters[i]) for i in range(0, len(filter.entities))]),
-            breakdown_value=", trim(BOTH '\"' FROM sub_A.breakdown_value)" if filter.breakdown else "",
+            # Need to wrap aggregates in arrays so we can still use arrayMap
+            selects=", ".join(
+                [
+                    ("[sub_{}.data]" if is_aggregate else "sub_{}.data").format(letters[i])
+                    for i in range(0, len(filter.entities))
+                ]
+            ),
+            breakdown_value=breakdown_value if filter.breakdown else "",
             first_query=queries[0],
             queries="".join(
                 [
@@ -42,14 +69,14 @@ class ClickhouseTrendsFormula:
             ),
         )
         result = sync_execute(sql, {"formula": filter.formula})
-        return [
-            parse_response(
-                item,
-                filter,
-                {
-                    "label": item[2] if filter.breakdown else "Formula ({})".format(filter.formula),
-                    "data": [round(number, 2) if not math.isnan(number) else 0.0 for number in item[1]],
-                },
-            )
-            for item in result
-        ]
+        response = []
+        for item in result:
+            if is_aggregate:
+                data = []
+            else:
+                data = [round(number, 2) if not math.isnan(number) else 0.0 for number in item[1]]
+                if filter.display == TRENDS_CUMULATIVE:
+                    data = list(accumulate(data))
+
+            response.append(parse_response(item, filter, {"label": self._label(filter, item, team_id), "data": data},))
+        return response

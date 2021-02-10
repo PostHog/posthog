@@ -5,7 +5,8 @@ from freezegun.api import freeze_time
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
-from posthog.models import Person
+from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE
+from posthog.models import Cohort, Person
 from posthog.models.filters.filter import Filter
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.queries.abstract_test.test_timerange import AbstractTimerangeTest
@@ -159,8 +160,49 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
         self.assertEqual(action_response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 250.0, 0.0, 0.0])
         self.assertEqual(action_response[1]["label"], "Paris")
 
-    def test_filtering(self):
+    def test_breakdown_cohort(self):
+        cohort = Cohort.objects.create(
+            team=self.team, name="cohort1", groups=[{"properties": {"$some_prop": "some_val"}}]
+        )
+        action_response = self._run({"breakdown": ["all", cohort.pk], "breakdown_type": "cohort"})
+        self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0])
+        self.assertEqual(action_response[0]["label"], "all users")
+        self.assertEqual(action_response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0])
+        self.assertEqual(action_response[1]["label"], "cohort1")
+
+    def test_global_properties(self):
         self.assertEqual(
             self._run({"properties": [{"key": "$current_url", "value": "http://example.org"}]})[0]["data"],
             [0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 0.0, 0.0],
+        )
+
+    def test_event_properties(self):
+        self.assertEqual(
+            self._run(
+                {
+                    "events": [
+                        {
+                            "id": "session start",
+                            "math": "sum",
+                            "math_property": "session duration",
+                            "properties": [{"key": "$current_url", "value": "http://example.org"}],
+                        },
+                        {"id": "session start", "math": "avg", "math_property": "session duration"},
+                    ]
+                }
+            )[0]["data"],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 450.0, 0.0],
+        )
+
+    def test_compare(self):
+        response = self._run({"date_from": "-1dStart", "compare": True})
+        self.assertEqual(response[0]["data"], [1350.0, 0.0])
+        self.assertEqual(response[1]["data"], [0, 1200.0, 1350.0])
+
+    def test_pie(self):
+        self.assertEqual(self._run({"display": TRENDS_PIE})[0]["count"], 2160.0)
+
+    def test_cumulative(self):
+        self.assertEqual(
+            self._run({"display": TRENDS_CUMULATIVE})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 2550.0, 2550.0]
         )

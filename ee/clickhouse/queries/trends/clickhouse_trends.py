@@ -62,7 +62,7 @@ class ClickhouseTrends(
         filter = self._set_default_dates(filter, team.pk)
 
         if filter.formula:
-            return self._run_formula_query(filter, team.pk)
+            return handle_compare(filter, self._run_formula_query, team)
 
         result = []
         for entity in filter.entities:
