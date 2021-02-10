@@ -383,7 +383,7 @@ class TestSignup(APIBaseTest):
 
 class TestInviteSignup(APIBaseTest):
     """
-    Tests the sign up process for users with an invite.
+    Tests the sign up process for users with an invite (i.e. existing organization).
     """
 
     CONFIG_USER_EMAIL = None

@@ -1,0 +1,63 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+    <form class="form-signin" method="post">
+        {% csrf_token %}
+        {% if user.is_authenticated %}
+            <h1 class="h3 mb-3 font-weight-normal">Hello, {{ user.first_name }}!</h1>
+            <button class="btn btn-lg btn-primary btn-block" type="submit">Join {{organization.name}}</button>
+        {% else %}
+            <h1 class="h3 mb-3 font-weight-normal">Join {{organization.name}} on PostHog</h1>
+            {% if already_exists %}
+            <p>That account already exists. <a href='/login'>Try logging in?</a></p>
+            {% endif %}
+            {% if custom_error %}
+            <p>{{ custom_error }}</p>
+            {% endif %}
+            {% if invalid_input %}
+            <p>Please make sure no fields are empty and that the email entered is valid.</p>
+            {% endif %}
+            <div class='form-signin-inputs'>
+                <div class='field'>
+                    <input type="name" name='name' id="inputName" placeholder="" value="{{ user.first_name }}" required>
+                    <label for="inputName">Name</label>
+                </div>
+                <div class='field'>
+                    <input type="email" name='email' id="inputEmail" value="{{ user.email }}" placeholder="" required>
+                    <label for="inputEmail">Email address</label>
+                </div>
+                <div class='field'>
+                    <small id="passwordHelpBlock" class="form-text text-muted">
+                        Your password must be at least 8 characters long and must contain at least 1 lowercase letter, 1 uppercase letter, and 1 digit. We strongly recommend at least 1 special character as well.
+                    </small>
+                    <input
+                        pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[!-~]{8,}$" type="password" name='password'
+                        id="inputPassword" placeholder="" required
+                    >
+                    <label for="inputPassword">Password</label>
+                </div>
+                <p>
+                    <label style="cursor: pointer">
+                        <input type="checkbox" name='emailOptIn' id="emailOptIn" data-attr="updates-checkbox"> 
+                        Tick this box to receive security and feature updates via email. You can easily unsubscribe at any time.
+                    </label>
+                </p>
+            </div>
+            <p>Already have an account? <a href='/login'>Log in here.</a></p>
+            <button class="btn btn-lg btn-primary btn-block" type="submit">Sign up</button>
+            {% if google_auth or github_auth or gitlab_auth %}
+            <div class="btn-toolbar mt-2">
+                {% if google_auth %}
+                <a href="{% url 'social:begin' 'google-oauth2' %}{% if invite_id %}?invite_id={{ invite_id }}{% endif %}" class="btn btn-outline-dark btn-block mt-2">Sign in with Google</a>
+                {% endif %}
+                {% if github_auth %}
+                <a href="{% url 'social:begin' 'github' %}{% if invite_id %}?invite_id={{ invite_id }}{% endif %}" class="btn btn-outline-dark btn-block mt-2">Sign in with GitHub</a>
+                {% endif %}
+                {% if gitlab_auth %}
+                <a href="{% url 'social:begin' 'gitlab' %}{% if invite_id %}?invite_id={{ invite_id }}{% endif %}" class="btn btn-outline-dark btn-block mt-2">Sign in with GitLab</a>
+                {% endif %}
+            </div>
+            {% endif %}
+        {% endif %}
+    </form>
+{% endblock %}
