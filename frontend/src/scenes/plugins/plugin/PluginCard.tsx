@@ -63,8 +63,8 @@ export function PluginCard({
     const { user } = useValues(userLogic)
 
     const canInstall = user?.plugin_access.install
-    const canConfigure = pluginId && !pluginConfig?.global
-    const switchDisabled = rearranging || pluginConfig?.global
+    const canConfigure = pluginId
+    const switchDisabled = rearranging
 
     return (
         <Col

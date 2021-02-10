@@ -291,21 +291,6 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         plugin_config.save()
         return Response(status=204)
 
-    @action(methods=["GET"], detail=False)
-    def global_plugins(self, request: request.Request, **kwargs):
-        if not can_configure_plugins_via_api(self.team.organization_id):
-            return Response([])
-
-        response = []
-        plugin_configs = PluginConfig.objects.filter(team_id=None, enabled=True)  # type: ignore
-        for plugin_config in plugin_configs:
-            plugin = PluginConfigSerializer(plugin_config).data
-            plugin["config"] = None
-            plugin["error"] = None
-            response.append(plugin)
-
-        return Response(response)
-
     @action(methods=["PATCH"], detail=False)
     def rearrange(self, request: request.Request, **kwargs):
         if not can_configure_plugins_via_api(self.team.organization_id):
