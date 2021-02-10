@@ -11,14 +11,14 @@ from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.sessions.list import SESSION_SQL
 from posthog.models import Entity, Person, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.queries.sessions.mixins import SESSIONS_LIST_DEFAULT_LIMIT, RunUntilResultsMixin
 from posthog.utils import flatten
 
 Session = Dict
-SESSIONS_LIST_DEFAULT_LIMIT = 50
 
 
-class ClickhouseSessionsList:
-    def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
+class ClickhouseSessionsList(RunUntilResultsMixin):
+    def run_batch(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
         limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT) + 1
         offset = filter.pagination.get("offset", 0)
         filter = set_default_dates(filter)
@@ -35,7 +35,6 @@ class ClickhouseSessionsList:
             "team_id": team.pk,
             "limit": limit,
             "offset": offset,
-            "distinct_id_limit": limit + offset,
         }
         query = SESSION_SQL.format(
             date_from=date_from,

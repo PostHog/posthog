@@ -12,15 +12,15 @@ from django.utils.timezone import now
 from posthog.models import Event, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.base import entity_to_Q, properties_to_Q
+from posthog.queries.sessions.mixins import SESSIONS_LIST_DEFAULT_LIMIT, RunUntilResultsMixin
 from posthog.queries.sessions.session_recording import filter_sessions_by_recordings
 from posthog.queries.sessions.sessions_list_builder import SessionListBuilder
 
 Session = Dict
-SESSIONS_LIST_DEFAULT_LIMIT = 50
 
 
-class SessionsList:
-    def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
+class SessionsList(RunUntilResultsMixin):
+    def run_batch(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
         limit = int(kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
         offset = int(filter.pagination.get("offset", 0))
         start_timestamp = filter.pagination.get("start_timestamp")

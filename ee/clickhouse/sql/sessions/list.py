@@ -56,17 +56,7 @@ SESSION_SQL = """
                         AND event != '$feature_flag_called'
                         {date_from}
                         {date_to}
-                        AND distinct_id IN (
-                            SELECT distinct distinct_id
-                            FROM
-                                events
-                            WHERE team_id = %(team_id)s
-                            {date_from}
-                            {date_to}
-                            {person_filters}
-                            ORDER BY timestamp DESC
-                            LIMIT %(distinct_id_limit)s
-                        )
+                        {person_filters}
                     GROUP BY
                         uuid,
                         event,
