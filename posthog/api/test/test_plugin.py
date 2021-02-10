@@ -271,6 +271,35 @@ class TestPluginAPI(APIBaseTest):
             response = self.client.get("/api/organizations/@current/plugins/status/")
             self.assertEqual(response.status_code, 400)
 
+    def test_install_plugin_on_multiple_orgs(self, mock_get, mock_reload):
+        my_org = self.organization
+        other_org = Organization.objects.create(name="Foo")
+
+        with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
+            response = self.client.post(
+                "/api/organizations/{}/plugins/".format(my_org.id),
+                {"url": "https://github.com/PostHog/helloworldplugin"},
+            )
+            self.assertEqual(response.status_code, 201)
+            response = self.client.post(
+                "/api/organizations/{}/plugins/".format(my_org.id),
+                {"url": "https://github.com/PostHog/helloworldplugin"},
+            )
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(Plugin.objects.count(), 1)
+
+            response = self.client.post(
+                "/api/organizations/{}/plugins/".format(other_org.id),
+                {"url": "https://github.com/PostHog/helloworldplugin"},
+            )
+            self.assertEqual(response.status_code, 201)
+            response = self.client.post(
+                "/api/organizations/{}/plugins/".format(other_org.id),
+                {"url": "https://github.com/PostHog/helloworldplugin"},
+            )
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(Plugin.objects.count(), 2)
+
     def test_cannot_access_others_orgs_plugins(self, mock_get, mock_reload):
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
             other_org = Organization.objects.create(name="Foo")
