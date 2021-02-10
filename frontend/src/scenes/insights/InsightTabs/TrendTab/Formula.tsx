@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Input } from 'antd'
 import { FilterType } from '~/types'
+import { LIFECYCLE, STICKINESS } from 'lib/constants'
 
 export function Formula({
     filters,
@@ -9,12 +10,15 @@ export function Formula({
     filters: Partial<FilterType>
     onChange: CallableFunction
 }): JSX.Element {
+    const [value, setValue] = useState(filters.formula)
     return (
         <div style={{ maxWidth: 300 }}>
             <Input.Search
                 placeholder="(A + B)/(A - B) * 100"
                 allowClear
-                defaultValue={filters.formula}
+                value={value}
+                onChange={(e) => setValue(e.target.value.toLocaleUpperCase())}
+                disabled={filters.shown_as === STICKINESS || filters.shown_as === LIFECYCLE}
                 enterButton="Apply"
                 onSearch={(value) => onChange(value)}
             />

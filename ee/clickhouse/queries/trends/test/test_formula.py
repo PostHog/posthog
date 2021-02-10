@@ -200,7 +200,7 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
         self.assertEqual(response[1]["data"], [0, 1200.0, 1350.0])
 
     def test_pie(self):
-        self.assertEqual(self._run({"display": TRENDS_PIE})[0]["count"], 2160.0)
+        self.assertEqual(self._run({"display": TRENDS_PIE})[0]["aggregated_value"], 2160.0)
 
     def test_cumulative(self):
         self.assertEqual(

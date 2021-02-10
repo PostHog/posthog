@@ -71,12 +71,16 @@ class ClickhouseTrendsFormula:
         result = sync_execute(sql, {"formula": filter.formula})
         response = []
         for item in result:
+            additional_values = {
+                "label": self._label(filter, item, team_id),
+            }
             if is_aggregate:
-                data = []
+                additional_values["data"] = []
+                additional_values["aggregated_value"] = item[1][0]
             else:
-                data = [round(number, 2) if not math.isnan(number) else 0.0 for number in item[1]]
+                additional_values["data"] = [round(number, 2) if not math.isnan(number) else 0.0 for number in item[1]]
                 if filter.display == TRENDS_CUMULATIVE:
-                    data = list(accumulate(data))
+                    additional_values["data"] = list(accumulate(additional_values["data"]))
 
-            response.append(parse_response(item, filter, {"label": self._label(filter, item, team_id), "data": data},))
+            response.append(parse_response(item, filter, additional_values))
         return response
