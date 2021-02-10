@@ -106,22 +106,7 @@ describe('<Insights /> trends', () => {
         baseLocation()
         mount()
         cy.wait('@api_insight')
-            .map(helpers.getSearchParameters)
-            .should('include', {
-                insight: 'TRENDS',
-                interval: 'day',
-                display: 'ActionsLineGraph',
-                events: JSON.stringify([
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                        order: 0,
-                    },
-                ]),
-                properties: '[]',
-            })
-        // when
+
         cy.contains('Add graph series').click()
         cy.wait('@api_insight')
             .map(helpers.getSearchParameters)
@@ -146,7 +131,6 @@ describe('<Insights /> trends', () => {
                 properties: '[]',
             })
         cy.get('[data-attr=trend-element-subject-1]').click()
-        // then
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
