@@ -269,6 +269,12 @@ export interface PersonType {
     created_at?: string
 }
 
+export interface CohortGroupType {
+    days?: string
+    action_id?: number
+    properties?: Record<string, any>
+}
+
 export interface CohortType {
     count?: number
     created_by?: Record<string, any>
@@ -279,7 +285,7 @@ export interface CohortType {
     last_calculation?: string
     name?: string
     csv?: File
-    groups: Record<string, any>[]
+    groups: CohortGroupType[]
 }
 
 export interface InsightHistory {
