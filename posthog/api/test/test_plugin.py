@@ -300,7 +300,7 @@ class TestPluginAPI(APIBaseTest):
                 "/api/organizations/{}/plugins/".format(other_org.id),
                 {"url": "https://github.com/PostHog/helloworldplugin"},
             )
-            self.assertEqual(response.status_code, 400)  # fails to 201!
+            self.assertEqual(response.status_code, 403)
             self.assertEqual(Plugin.objects.count(), 1)
 
             self.user.join(organization=other_org, level=OrganizationMembership.Level.OWNER)
