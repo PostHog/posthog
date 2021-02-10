@@ -94,7 +94,7 @@ function _App(): JSX.Element | null {
         ) : null
     }
 
-    if (!scene || sceneConfig.plain) {
+    if (sceneConfig.plain) {
         return (
             <Layout style={{ minHeight: '100vh' }}>
                 {!sceneConfig.hideTopNav && <TopNavigation />}
@@ -115,13 +115,15 @@ function _App(): JSX.Element | null {
                 <MainNavigation />
                 <Layout className={`${sceneConfig.dark ? 'bg-mid' : ''}`} style={{ minHeight: '100vh' }}>
                     {!sceneConfig.hideTopNav && <TopNavigation />}
-                    <Layout.Content className="main-app-content" data-attr="layout-content">
-                        {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
+                    {scene ? (
+                        <Layout.Content className="main-app-content" data-attr="layout-content">
+                            {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
 
-                        <BillingAlerts />
-                        <BackTo />
-                        <SceneComponent user={user} {...params} />
-                    </Layout.Content>
+                            <BillingAlerts />
+                            <BackTo />
+                            <SceneComponent user={user} {...params} />
+                        </Layout.Content>
+                    ) : null}
                 </Layout>
                 {essentialElements}
             </Layout>

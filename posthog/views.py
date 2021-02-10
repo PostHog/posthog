@@ -10,6 +10,7 @@ from rest_framework.exceptions import AuthenticationFailed
 
 from posthog.ee import is_ee_enabled
 from posthog.models import User
+from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api
 from posthog.settings import TEST
 from posthog.utils import (
     get_redis_info,
@@ -44,6 +45,7 @@ def stats(request):
 @never_cache
 @login_required
 def system_status(request):
+    team = request.user.team
     is_multitenancy: bool = getattr(settings, "MULTI_TENANCY", False)
 
     if is_multitenancy and not request.user.is_staff:
@@ -61,6 +63,19 @@ def system_status(request):
             "key": "analytics_database",
             "metric": "Analytics database in use",
             "value": "ClickHouse" if is_ee_enabled() else "Postgres",
+        }
+    )
+
+    plugins_cloud_whitelisted_org_ids = getattr(settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", [])
+    plugin_server_ingestion = getattr(settings, "PLUGIN_SERVER_INGESTION", False)
+    plugin_sever_enabled = plugin_server_ingestion and (
+        not is_ee_enabled() or (str(team.organization_id) in plugins_cloud_whitelisted_org_ids)
+    )
+    metrics.append(
+        {
+            "key": "ingestion_server",
+            "metric": "Event ingestion via",
+            "value": "Plugin Server" if plugin_sever_enabled else "Django",
         }
     )
 
@@ -124,6 +139,22 @@ def system_status(request):
             metrics.append(
                 {"metric": "Redis metrics", "value": f"Redis connected but then failed to return metrics: {e}"}
             )
+
+    metrics.append({"key": "plugin_sever_alive", "metric": "Plugin server alive", "value": is_plugin_server_alive()})
+    metrics.append(
+        {
+            "key": "plugins_install",
+            "metric": "Plugins can be installed",
+            "value": can_install_plugins_via_api(team.organization),
+        }
+    )
+    metrics.append(
+        {
+            "key": "plugins_configure",
+            "metric": "Plugins can be configured",
+            "value": can_configure_plugins_via_api(team.organization),
+        }
+    )
 
     return JsonResponse({"results": metrics})
 
