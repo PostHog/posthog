@@ -394,8 +394,7 @@ export const pluginsLogic = kea<
                         }
                         return { ...plugin, pluginConfig, updateStatus: updateStatus[plugin.id] }
                     })
-                    .sort((a, b) => a.pluginConfig.order - b.pluginConfig.order)
-                    .map((plugin, index) => ({ ...plugin, order: index + 1 }))
+                    .sort((p1, p2) => p1.name.toUpperCase().localeCompare(p2.name.toUpperCase()))
             },
         ],
         enabledPlugins: [
