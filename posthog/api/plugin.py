@@ -34,6 +34,7 @@ from posthog.utils import is_plugin_server_alive
 
 class PluginSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
 
     class Meta:
         model = Plugin
