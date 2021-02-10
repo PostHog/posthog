@@ -30,4 +30,4 @@ class PathFilter(
             data["insight"] = INSIGHT_PATHS
         else:
             data = {"insight": INSIGHT_PATHS}
-        super().__init__(data, request)
+        super().__init__(data, request, **kwargs)

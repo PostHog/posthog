@@ -58,9 +58,8 @@ class Sessions(BaseQuery):
 
         if filter.session == SESSION_AVG:
             if not filter.date_from:
-                filter = Filter(
-                    data={
-                        **filter._data,
+                filter = filter.with_data(
+                    {
                         "date_from": Event.objects.filter(team=team)
                         .order_by("timestamp")[0]
                         .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)

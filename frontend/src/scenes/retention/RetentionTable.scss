@@ -8,6 +8,11 @@
     .percentage-cell {
         padding: 8px;
     }
+
+    .period-in-progress {
+        background: repeating-linear-gradient(-45deg, #e4edf9, #e4edf9 10px, #f8fbfe 10px, #f8fbfe 20px);
+        color: #555555;
+    }
 }
 
 .retention-success {

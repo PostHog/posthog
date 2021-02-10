@@ -24,6 +24,8 @@ class Plugin(models.Model):
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
     source: models.TextField = models.TextField(blank=True, null=True)
+    latest_tag: models.CharField = models.CharField(max_length=800, null=True, blank=True)
+    latest_tag_checked_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     # Error installing or configuring this plugin (frontend: PluginErrorType)
     # - e.g: "could not find plugin.json" / "syntax error in index.js")
     # - error = { message: "Could not find plugin.json", time: "iso-string", ...meta }
@@ -37,7 +39,7 @@ class PluginConfig(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
     enabled: models.BooleanField = models.BooleanField(default=False)
-    order: models.IntegerField = models.IntegerField(null=True, blank=True)
+    order: models.IntegerField = models.IntegerField()
     config: JSONField = JSONField(default=dict)
     # Error when running this plugin on an event (frontend: PluginErrorType)
     # - e.g: "undefined is not a function on index.js line 23"

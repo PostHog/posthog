@@ -4,9 +4,9 @@ on:
     - pull_request
 
 jobs:
-    code-quality:
+    frontend-code-quality:
         name: Code quality checks
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-20.04
         steps:
             - uses: actions/checkout@v1
 
@@ -23,6 +23,24 @@ jobs:
 
             - name: Lint with ESLint
               run: yarn eslint
+
+            - name: Run typescript with strict
+              run: |
+                  ./bin/check-typescript-strict
+
+    jest:
+        name: Jest tests
+        runs-on: ubuntu-20.04
+        steps:
+            - uses: actions/checkout@v1
+
+            - name: Set up Node 14
+              uses: actions/setup-node@v1
+              with:
+                  node-version: 14
+
+            - name: Install package.json dependencies with Yarn
+              run: yarn
 
             - name: Test with Jest
               run: yarn test

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
@@ -38,6 +38,7 @@ class UserManager(BaseUserManager):
         first_name: str = "",
         organization_fields: Optional[Dict[str, Any]] = None,
         team_fields: Optional[Dict[str, Any]] = None,
+        create_team: Optional[Callable[["Organization", "User"], "Team"]] = None,
         **user_fields,
     ) -> Tuple["Organization", "Team", "User"]:
         """Instead of doing the legwork of creating a user from scratch, delegate the details with bootstrap."""
@@ -46,7 +47,10 @@ class UserManager(BaseUserManager):
             organization_fields.setdefault("name", company_name)
             organization = Organization.objects.create(**organization_fields)
             user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
-            team = Team.objects.create_with_data(user=user, organization=organization, **(team_fields or {}))
+            if create_team:
+                team = create_team(organization, user)
+            else:
+                team = Team.objects.create_with_data(user=user, organization=organization, **(team_fields or {}))
             user.join(
                 organization=organization, level=OrganizationMembership.Level.OWNER,
             )
@@ -153,9 +157,12 @@ class User(AbstractUser):
 
     def get_analytics_metadata(self):
 
-        team_member_count_all: int = OrganizationMembership.objects.filter(
-            organization__in=self.organizations.all(),
-        ).values("user_id").distinct().count()
+        team_member_count_all: int = (
+            OrganizationMembership.objects.filter(organization__in=self.organizations.all(),)
+            .values("user_id")
+            .distinct()
+            .count()
+        )
 
         project_setup_complete = False
         if self.team and self.team.completed_snippet_onboarding and self.team.ingested_event:
@@ -179,6 +186,10 @@ class User(AbstractUser):
             "organization_id": str(self.organization.id) if self.organization else None,
             "project_id": str(self.team.uuid) if self.team else None,
             "project_setup_complete": project_setup_complete,
+            "joined_at": self.date_joined,
+            "has_password_set": self.has_usable_password(),
+            "has_social_auth": self.social_auth.exists(),  # type: ignore
+            "social_providers": list(self.social_auth.values_list("provider", flat=True)),  # type: ignore
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")

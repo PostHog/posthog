@@ -3,7 +3,8 @@ import { inBounds } from '~/toolbar/utils'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import { toolbarButtonLogicType } from 'types/toolbar/button/toolbarButtonLogicType'
+import { toolbarButtonLogicType } from './toolbarButtonLogicType'
+
 
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
     actions: () => ({

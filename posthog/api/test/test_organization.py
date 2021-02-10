@@ -9,10 +9,48 @@ from posthog.test.base import APIBaseTest
 
 
 class TestOrganizationAPI(APIBaseTest):
-    def test_no_create_organization_without_license_selfhosted(self):
+
+    # Retrieving organization
+
+    def test_get_current_organization(self):
+        response_data = self.client.get("/api/organizations/@current").json()
+
+        self.assertEqual(response_data["id"], str(self.organization.id))
+        # By default, setup state is marked as completed
+        self.assertEqual(response_data["setup"], {"is_active": False, "current_section": None})
+
+    def test_current_organization_on_setup_mode(self):
+
+        self.organization.setup_section_2_completed = False
+        self.organization.save()
+
+        response_data = self.client.get("/api/organizations/@current").json()
+        self.assertEqual(response_data["setup"]["is_active"], True)
+        self.assertEqual(response_data["setup"]["current_section"], 1)
+        self.assertEqual(response_data["setup"]["any_project_completed_snippet_onboarding"], False)
+        self.assertEqual(response_data["setup"]["non_demo_team_id"], self.team.id)
+
+    def test_get_current_team_fields(self):
+        self.organization.setup_section_2_completed = False
+        self.organization.save()
+        Team.objects.create(organization=self.organization, is_demo=True, ingested_event=True)
+        team2 = Team.objects.create(organization=self.organization, completed_snippet_onboarding=True)
+        self.team.is_demo = True
+        self.team.save()
+
+        response_data = self.client.get("/api/organizations/@current").json()
+
+        self.assertEqual(response_data["id"], str(self.organization.id))
+        self.assertEqual(response_data["setup"]["any_project_ingested_events"], False)
+        self.assertEqual(response_data["setup"]["any_project_completed_snippet_onboarding"], True)
+        self.assertEqual(response_data["setup"]["non_demo_team_id"], team2.id)
+
+    # Creating organizations
+
+    def test_cant_create_organization_without_valid_license_on_self_hosted(self):
         with self.settings(MULTI_TENANCY=False):
             response = self.client.post("/api/organizations/", {"name": "Test"})
-            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertEqual(
                 response.data,
                 {
@@ -26,15 +64,80 @@ class TestOrganizationAPI(APIBaseTest):
             response = self.client.post("/api/organizations/", {"name": "Test"})
             self.assertEqual(Organization.objects.count(), 1)
 
+    # Updating organizations
+
     def test_rename_organization_without_license_if_admin(self):
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "QWERTY"})
         self.assertEqual(response.status_code, 200)
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "QWERTY")
+
+        # Member (non-admin, non-owner) cannot update organization's name
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "ASDFG"})
         self.assertEqual(response.status_code, 403)
+
+    @patch("posthoganalytics.capture")
+    def test_member_can_complete_onboarding_setup(self, mock_capture):
+        non_admin = User.objects.create(email="non_admin@posthog.com")
+        non_admin.join(organization=self.organization)
+
+        for user in [self.user, non_admin]:
+            # Any user should be able to complete the onboarding
+            self.client.force_login(user)
+
+            self.organization.setup_section_2_completed = False
+            self.organization.save()
+
+            response = self.client.post(f"/api/organizations/@current/onboarding")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["setup"], {"is_active": False, "current_section": None})
+            self.organization.refresh_from_db()
+            self.assertEqual(self.organization.setup_section_2_completed, True)
+
+            # Assert the event was reported
+            mock_capture.assert_called_with(
+                user.distinct_id, "onboarding completed", properties={"team_members_count": 2},
+            )
+
+    def test_cannot_complete_onboarding_for_another_org(self):
+        _, _, user = User.objects.bootstrap(
+            company_name="Evil, Inc", email="another_one@posthog.com", password="12345678",
+        )
+
+        self.client.force_login(user)
+
+        self.organization.setup_section_2_completed = False
+        self.organization.save()
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/onboarding")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
+
+        # Object did not change
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.setup_section_2_completed, False)
+
+    @patch("posthoganalytics.capture")
+    def test_cannot_complete_already_completed_onboarding(self, mock_capture):
+        self.organization.setup_section_2_completed = True
+        self.organization.save()
+
+        response = self.client.post(f"/api/organizations/@current/onboarding")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Onboarding already completed.",
+                "attr": None,
+            },
+        )
+
+        # Assert nothing was reported
+        mock_capture.assert_not_called()
 
 
 class TestSignup(APIBaseTest):
@@ -61,7 +164,13 @@ class TestSignup(APIBaseTest):
         organization = cast(Organization, user.organization)
         self.assertEqual(
             response.data,
-            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "John", "email": "hedgehog@posthog.com"},
+            {
+                "id": user.pk,
+                "distinct_id": user.distinct_id,
+                "first_name": "John",
+                "email": "hedgehog@posthog.com",
+                "redirect_url": "/ingestion",
+            },
         )
 
         # Assert that the user was properly created
@@ -77,7 +186,15 @@ class TestSignup(APIBaseTest):
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
-            user.distinct_id, "user signed up", properties={"is_first_user": True, "is_organization_first_user": True},
+            user.distinct_id,
+            "user signed up",
+            properties={
+                "is_first_user": True,
+                "is_organization_first_user": True,
+                "new_onboarding_enabled": False,
+                "signup_backend_processor": "OrganizationSignupSerializer",
+                "signup_social_provider": "",
+            },
         )
 
         # Assert that the user is logged in
@@ -111,7 +228,8 @@ class TestSignup(APIBaseTest):
 
     @tag("skip_on_multitenancy")
     @patch("posthog.api.organization.posthoganalytics.capture")
-    def test_signup_minimum_attrs(self, mock_capture):
+    @patch("posthoganalytics.identify")
+    def test_signup_minimum_attrs(self, mock_identify, mock_capture):
         response = self.client.post(
             "/api/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"},
         )
@@ -121,18 +239,33 @@ class TestSignup(APIBaseTest):
         organization = cast(Organization, user.organization)
         self.assertEqual(
             response.data,
-            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog2@posthog.com"},
+            {
+                "id": user.pk,
+                "distinct_id": user.distinct_id,
+                "first_name": "Jane",
+                "email": "hedgehog2@posthog.com",
+                "redirect_url": "/ingestion",
+            },
         )
 
-        # Assert that the user was properly created
+        # Assert that the user & org were properly created
         self.assertEqual(user.first_name, "Jane")
         self.assertEqual(user.email, "hedgehog2@posthog.com")
         self.assertEqual(user.email_opt_in, True)  # Defaults to True
         self.assertEqual(organization.name, "Jane")
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
+        mock_identify.assert_called_once()
         mock_capture.assert_called_once_with(
-            user.distinct_id, "user signed up", properties={"is_first_user": True, "is_organization_first_user": True},
+            user.distinct_id,
+            "user signed up",
+            properties={
+                "is_first_user": True,
+                "is_organization_first_user": True,
+                "new_onboarding_enabled": False,
+                "signup_backend_processor": "OrganizationSignupSerializer",
+                "signup_social_provider": "",
+            },
         )
 
         # Assert that the user is logged in
@@ -198,27 +331,38 @@ class TestSignup(APIBaseTest):
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
 
-    @patch("posthog.models.team.posthoganalytics.feature_enabled")
+    @patch("posthoganalytics.feature_enabled", side_effect=lambda feature, *args: feature == "1694-dashboards")
     def test_default_dashboard_is_created_on_signup(self, mock_feature_enabled):
         """
         Tests that the default web app dashboard is created on signup.
         Note: This feature is currently behind a feature flag.
         """
 
-        mock_feature_enabled.return_value = True
-
         response = self.client.post(
-            "/api/signup/", {"first_name": "Jane", "email": "hedgehog75@posthog.com", "password": "notsecure"},
+            "/api/signup/",
+            {
+                "first_name": "Jane",
+                "email": "hedgehog75@posthog.com",
+                "password": "notsecure",
+                "redirect_url": "/ingestion",
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         user: User = User.objects.order_by("-pk").get()
 
-        mock_feature_enabled.assert_called_with("1694-dashboards", user.distinct_id)
+        mock_feature_enabled.assert_any_call("new-onboarding-2822", user.distinct_id)
+        mock_feature_enabled.assert_any_call("1694-dashboards", user.distinct_id)
 
         self.assertEqual(
             response.data,
-            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog75@posthog.com"},
+            {
+                "id": user.pk,
+                "distinct_id": user.distinct_id,
+                "first_name": "Jane",
+                "email": "hedgehog75@posthog.com",
+                "redirect_url": "/ingestion",
+            },
         )
 
         dashboard: Dashboard = Dashboard.objects.last()  # type: ignore

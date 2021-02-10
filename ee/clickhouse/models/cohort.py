@@ -1,6 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+
+from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
@@ -26,14 +28,21 @@ def format_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
             {"cohort_id": cohort.pk, "team_id": cohort.team_id},
         )
 
+    or_queries = []
     for group_idx, group in enumerate(cohort.groups):
         if group.get("action_id"):
             action = Action.objects.get(pk=group["action_id"], team_id=cohort.team.pk)
             action_filter_query, action_params = format_action_filter(action, prepend="_{}_action".format(group_idx))
-            extract_person = "SELECT distinct_id FROM events WHERE team_id = %(team_id)s AND {query}".format(
-                query=action_filter_query
+
+            date_query: str = ""
+            date_params: Dict[str, str] = {}
+            if group.get("days"):
+                date_query, date_params = parse_action_timestamps(int(group.get("days")))
+
+            extract_person = "SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND {query}".format(
+                query=action_filter_query, date_query=date_query
             )
-            params = {**params, **action_params}
+            params = {**params, **action_params, **date_params}
             filters.append("distinct_id IN (" + extract_person + ")")
 
         elif group.get("properties"):
@@ -46,11 +55,24 @@ def format_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
                     prop=prop, idx=idx, prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx)
                 )
                 params = {**params, **filter_params}
-                query += " {}".format(filter_query)
-            filters.append("person_id IN {}".format(GET_LATEST_PERSON_ID_SQL.format(query=query)))
+                query += filter_query
+            or_queries.append(query.replace("AND ", "", 1))
+    if len(or_queries) > 0:
+        query = "AND ({})".format(" OR ".join(or_queries))
+        filters.append("person_id IN {}".format(GET_LATEST_PERSON_ID_SQL.format(query=query)))
 
     joined_filter = " OR ".join(filters)
     return joined_filter, params
+
+
+def parse_action_timestamps(days: int) -> Tuple[str, Dict[str, str]]:
+    curr_time = timezone.now()
+    start_time = curr_time - timedelta(days=days)
+
+    return (
+        "and timestamp >= %(date_from)s AND timestamp <= %(date_to)s",
+        {"date_from": start_time.strftime("%Y-%m-%d %H:%M:%S"), "date_to": curr_time.strftime("%Y-%m-%d %H:%M:%S")},
+    )
 
 
 def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:

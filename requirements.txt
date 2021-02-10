@@ -32,13 +32,11 @@ cffi==1.14.0
     # via cryptography
 chardet==3.0.4
     # via requests
-clickhouse-driver==0.1.4
+clickhouse-driver==0.2.0
     # via
     #   -r requirements.in
     #   aioch
     #   clickhouse-pool
-clickhouse-pool==0.4.0
-    # via -r requirements.in
 cryptography==3.2
     # via
     #   kafka-helper

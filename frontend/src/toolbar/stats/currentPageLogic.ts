@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { currentPageLogicType } from 'types/toolbar/stats/currentPageLogicType'
+import { currentPageLogicType } from './currentPageLogicType'
 
 export const currentPageLogic = kea<currentPageLogicType>({
     actions: () => ({

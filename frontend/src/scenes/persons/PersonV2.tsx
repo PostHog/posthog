@@ -111,7 +111,6 @@ function _PersonV2(): JSX.Element {
                                         cancelText="No"
                                     >
                                         <Button
-                                            onClick={() => console.log(1)}
                                             className="text-danger"
                                             disabled={deletedPersonLoading}
                                             data-attr="delete-person"
@@ -148,7 +147,7 @@ function _PersonV2(): JSX.Element {
                     </Card>
                 </Col>
             </Row>
-            {mergeModalOpen && (
+            {mergeModalOpen && person && (
                 <MergePerson person={person} onPersonChange={setPerson} closeModal={() => setMergeModalOpen(false)} />
             )}
         </div>

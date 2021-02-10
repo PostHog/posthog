@@ -79,6 +79,12 @@ PLUGINS_CONFIGURE_VIA_API = PLUGINS_INSTALL_VIA_API or get_bool_from_env("PLUGIN
 PLUGINS_CELERY_QUEUE = os.environ.get("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.environ.get("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
+# Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
+# Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.
+GITLAB_TOKEN = os.environ.get("GITLAB_TOKEN", None)
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", None)
+NPM_TOKEN = os.environ.get("NPM_TOKEN", None)
+
 # This is set as a cross-domain cookie with a random value.
 # Its existence is used by the toolbar to see that we are logged in.
 TOOLBAR_COOKIE_NAME = "phtoolbar"
@@ -113,11 +119,6 @@ if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
 if get_bool_from_env("IS_BEHIND_PROXY", False):
     USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-
-ASYNC_EVENT_ACTION_MAPPING = False
-
-if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
-    ASYNC_EVENT_ACTION_MAPPING = True
 
 
 # Clickhouse Settings
@@ -154,12 +155,19 @@ PRIMARY_DB = os.environ.get("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
 EE_AVAILABLE = False
 
-PLUGIN_SERVER_INGESTION_HANDOFF = get_bool_from_env("PLUGIN_SERVER_INGESTION_HANDOFF", False)
+PLUGIN_SERVER_INGESTION = get_bool_from_env("PLUGIN_SERVER_INGESTION", False)
 
 if PRIMARY_DB == RDBMS.CLICKHOUSE:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
 else:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
+
+
+ASYNC_EVENT_ACTION_MAPPING = get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False)
+
+# Enable if ingesting with the plugin server into postgres, as it's not able to calculate the mapping on the fly
+if PLUGIN_SERVER_INGESTION and PRIMARY_DB == RDBMS.POSTGRES:
+    ASYNC_EVENT_ACTION_MAPPING = True
 
 
 # IP block settings
@@ -569,5 +577,6 @@ LOGGING = {
     "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING")},
     "loggers": {
         "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
+        "axes": {"handlers": ["console"], "level": "WARNING", "propagate": False},
     },
 }

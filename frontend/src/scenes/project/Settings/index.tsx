@@ -1,9 +1,9 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { Card, Divider, Tag } from 'antd'
+import { Button, Card, Divider, Input, Tag } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
-import { OptInSessionRecording } from './OptInSessionRecording'
+import { SessionRecording } from './SessionRecording'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
 import { WebhookIntegration } from './WebhookIntegration'
 import { useAnchor } from 'lib/hooks/useAnchor'
@@ -21,8 +21,46 @@ import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPalett
 import { userLogic } from 'scenes/userLogic'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 
-export const Setup = hot(_Setup)
-function _Setup(): JSX.Element {
+function DisplayName(): JSX.Element {
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { renameCurrentTeam } = useActions(teamLogic)
+
+    const [name, setName] = useState(currentTeam?.name || '')
+
+    if (currentTeam?.is_demo) {
+        return (
+            <p>
+                <i>The demo project cannot be renamed.</i>
+            </p>
+        )
+    }
+
+    return (
+        <div>
+            <Input
+                value={name}
+                onChange={(event) => {
+                    setName(event.target.value)
+                }}
+                style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
+            />
+            <Button
+                type="primary"
+                onClick={(e) => {
+                    e.preventDefault()
+                    renameCurrentTeam(name)
+                }}
+                disabled={!name || !currentTeam || name === currentTeam.name}
+                loading={currentTeamLoading}
+            >
+                Rename Project
+            </Button>
+        </div>
+    )
+}
+
+export const ProjectSettings = hot(_ProjectSettings)
+function _ProjectSettings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
@@ -34,8 +72,13 @@ function _Setup(): JSX.Element {
 
     return (
         <div style={{ marginBottom: 128 }}>
-            <PageHeader title={`Project Settings${user ? `– ${user.team?.name}` : ''}`} />
+            <PageHeader title="Project Settings" />
             <Card>
+                <h2 id="name" className="subtitle">
+                    Display Name
+                </h2>
+                <DisplayName />
+                <Divider />
                 <h2 id="snippet" className="subtitle">
                     Website Event Autocapture
                 </h2>
@@ -131,7 +174,7 @@ function _Setup(): JSX.Element {
                     </a>{' '}
                     installed.
                 </p>
-                <OptInSessionRecording />
+                <SessionRecording />
                 <p>
                     This is a new feature of PostHog. Please{' '}
                     <a onClick={() => shareFeedbackCommand('How can we improve session recording?')}>share feedback</a>{' '}

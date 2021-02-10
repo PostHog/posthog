@@ -1,4 +1,5 @@
 import { kea } from 'kea'
+import { insightLogic, ViewType } from 'scenes/insights/insightLogic'
 import { cleanFunnelParams } from './funnelLogic'
 import { pollFunnel } from './funnelLogic'
 
@@ -7,7 +8,7 @@ export const funnelVizLogic = kea({
     loaders: ({ props }) => ({
         results: {
             __default: [],
-            loadResults: async (refresh = false) => {
+            loadResults: async (refresh = true) => {
                 if (!refresh && props.cachedResults) {
                     return props.cachedResults
                 }
@@ -18,7 +19,17 @@ export const funnelVizLogic = kea({
                     ...(from_dashboard ? { from_dashboard } : {}),
                     ...cleanedParams,
                 }
-                return await pollFunnel(params)
+                let result
+
+                insightLogic.actions.startQuery()
+                try {
+                    result = await pollFunnel(params)
+                } catch (e) {
+                    insightLogic.actions.endQuery(ViewType.FUNNELS, e)
+                    return []
+                }
+                insightLogic.actions.endQuery(ViewType.FUNNELS)
+                return result
             },
         },
     }),

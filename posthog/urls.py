@@ -31,14 +31,16 @@ from posthog.api import (
 )
 from posthog.demo import demo
 from posthog.email import is_email_available
+from posthog.event_usage import report_user_signed_up
 from posthog.models.organization import Organization
 
+from .api.organization import OrganizationSignupSerializer
 from .models import OrganizationInvite, Team, User
 from .utils import render_template
 from .views import health, preflight_check, stats, system_status
 
 
-def home(request, **kwargs):
+def home(request, *args, **kwargs):
     return render_template("index.html", request)
 
 
@@ -158,9 +160,15 @@ def signup_to_organization_view(request, invite_id):
             user = User.objects.create_user(email, password, first_name=first_name, email_opt_in=email_opt_in)
             invite.use(user, prevalidated=True)
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-            posthoganalytics.capture(
-                user.distinct_id, "user signed up", properties={"is_first_user": False, "first_team_user": False},
+
+            report_user_signed_up(
+                user.distinct_id,
+                is_instance_first_user=False,
+                is_organization_first_user=False,
+                new_onboarding_enabled=(not organization.setup_section_2_completed),
+                backend_processor="signup_to_organization_view",
             )
+
             return redirect("/")
     return render_template(
         "signup_to_organization.html",
@@ -187,7 +195,7 @@ def finish_social_signup(request):
 
 
 @partial
-def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *args, **kwargs):
+def social_create_user(strategy: DjangoStrategy, details, backend, request, user=None, *args, **kwargs):
     if user:
         return {"is_new": False}
     user_email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
@@ -201,14 +209,25 @@ def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *a
         email_opt_in = strategy.session_get("email_opt_in", None)
         if not company_name or email_opt_in is None:
             return redirect(finish_social_signup)
-        _, _, user = User.objects.bootstrap(
-            company_name=company_name, first_name=user_name, email=user_email, email_opt_in=email_opt_in, password=None
+
+        serializer = OrganizationSignupSerializer(
+            data=dict(
+                company_name=company_name,
+                email_opt_in=email_opt_in,
+                first_name=user_name,
+                email=user_email,
+                password=None,
+            ),
+            context={"request": request},
         )
+
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
     else:
         from_invite = True
         try:
             invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
-                "organization"
+                "organization",
             ).get(id=invite_id)
         except (OrganizationInvite.DoesNotExist, ValidationError):
             try:
@@ -236,14 +255,13 @@ def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *a
             return HttpResponse(processed, status=401)
         invite.use(user, prevalidated=True)
 
-    posthoganalytics.capture(
-        user.distinct_id,
-        "user signed up",
-        properties={
-            "is_first_user": User.objects.count() == 1,
-            "is_first_team_user": not from_invite,
-            "login_provider": backend.name,
-        },
+    report_user_signed_up(
+        distinct_id=user.distinct_id,
+        is_instance_first_user=User.objects.count() == 1,
+        is_organization_first_user=not from_invite,
+        new_onboarding_enabled=False,
+        backend_processor="social_create_user",
+        social_provider=backend.name,
     )
 
     return {"is_new": True, "user": user}
@@ -365,6 +383,17 @@ if settings.DEBUG:
         assert False, locals()
 
     urlpatterns.append(path("debug/", debug))
+
+if settings.TEST:
+
+    @csrf_exempt
+    def delete_events(request):
+        from posthog.models import Event
+
+        Event.objects.all().delete()
+        return HttpResponse()
+
+    urlpatterns.append(path("delete_events/", delete_events))
 
 # Routes added individually to remove login requirement
 frontend_unauthenticated_routes = ["preflight", "signup"]

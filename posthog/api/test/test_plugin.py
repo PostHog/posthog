@@ -127,6 +127,7 @@ class TestPluginAPI(APIBaseTest):
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "source": None,
+                    "latest_tag": None,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
@@ -161,24 +162,28 @@ class TestPluginAPI(APIBaseTest):
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "source": None,
+                    "latest_tag": None,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
             self.assertEqual(mock_reload.call_count, 1)
 
-            response2 = self.client.patch(
-                "/api/organizations/@current/plugins/{}".format(response.data["id"]),  # type: ignore
+    def test_create_plugin_other_commit_url(self, mock_get, mock_reload):
+        with self.settings(PLUGINS_INSTALL_VIA_API=True):
+            self.assertEqual(mock_reload.call_count, 0)
+            response2 = self.client.post(
+                "/api/organizations/@current/plugins/",
                 {
                     "url": "https://github.com/PostHog/helloworldplugin/commit/{}".format(
                         HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0]
                     )
                 },
             )
-            self.assertEqual(response2.status_code, 200)
+            self.assertEqual(response2.status_code, 201)
             self.assertEqual(
                 response2.data,
                 {
-                    "id": response.data["id"],  # type: ignore
+                    "id": response2.data["id"],  # type: ignore
                     "plugin_type": "custom",
                     "name": "helloworldplugin",
                     "description": "Greet the World and Foo a Bar, JS edition, vol 2!",
@@ -189,10 +194,11 @@ class TestPluginAPI(APIBaseTest):
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0],
                     "source": None,
+                    "latest_tag": None,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
-            self.assertEqual(mock_reload.call_count, 2)
+            self.assertEqual(mock_reload.call_count, 1)
 
     def test_create_plugin_source(self, mock_get, mock_reload):
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
@@ -213,6 +219,7 @@ class TestPluginAPI(APIBaseTest):
                     "config_schema": {},
                     "tag": None,
                     "source": "const processEvent = e => e",
+                    "latest_tag": None,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)

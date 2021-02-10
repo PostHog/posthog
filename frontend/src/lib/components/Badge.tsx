@@ -10,7 +10,7 @@ interface BadgeProps {
     tooltip?: string
 }
 
-export function Badge({ icon, type, className, onClick, tooltip }: BadgeProps): JSX.Element {
+export function Badge({ icon, type, className, onClick, tooltip, ...props }: BadgeProps): JSX.Element {
     const getTypeIcon: JSX.Element | undefined = useMemo(() => {
         // By default the badge has no icon unless it's a badge of a specific type.
         if (type === 'success') {
@@ -23,11 +23,12 @@ export function Badge({ icon, type, className, onClick, tooltip }: BadgeProps): 
     }, [type])
 
     return (
-        <Tooltip title={tooltip} color={type ? `var(--${type})` : undefined}>
+        <Tooltip title={tooltip} color={type ? `var(--${type})` : undefined} placement="bottom">
             <div
                 className={`badge${className ? ` ${className}` : ''}${onClick ? ' cursor-pointer' : ''}`}
                 style={type ? { backgroundColor: `var(--${type})` } : {}}
                 onClick={onClick}
+                {...props}
             >
                 {icon || getTypeIcon}
             </div>

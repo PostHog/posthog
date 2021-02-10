@@ -20,6 +20,7 @@
 .navigation-main {
     // General navigation bar styles (defaults to wide 180px)
     background-color: $bg_menu !important;
+    z-index: $z_main_nav;
 
     .navigation-inner {
         background-color: $bg_menu;
@@ -218,7 +219,7 @@
     @extend .mixin-elevated;
     position: fixed;
     top: 0;
-    z-index: 1000;
+    z-index: $z_top_navigation;
     color: $text_default;
 
     &.full-width {
@@ -371,5 +372,20 @@
         background-color: $border_light;
         height: 1px;
         width: 100%;
+    }
+}
+
+.demo-warning {
+    display: flex;
+    align-items: center;
+
+    .ant-alert-message {
+        font-weight: bold;
+    }
+
+    .ant-alert-close-icon .anticon-close svg {
+        height: 14px;
+        width: 14px;
+        margin-left: $default_spacing;
     }
 }

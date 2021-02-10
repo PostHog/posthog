@@ -50,15 +50,15 @@ class TestCohort(BaseTest):
         self.assertCountEqual([p for p in cohort.people.all()], [person1, person2])
 
     def test_insert_by_distinct_id_or_email(self):
-        Person.objects.create(team=self.team, properties={"email": "email@example.org"})
+        Person.objects.create(team=self.team, distinct_ids=["000"])
         Person.objects.create(team=self.team, distinct_ids=["123"])
         Person.objects.create(team=self.team)
         # Team leakage
         team2 = Team.objects.create(organization=self.organization)
-        Person.objects.create(team=team2, properties={"email": "email@example.org"})
+        Person.objects.create(team=team2, distinct_ids=["123"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
-        cohort.insert_users_by_list(["email@example.org", "123", "123", "email@example.org"])
+        cohort.insert_users_by_list(["a header or something", "123", "000", "email@example.org"])
         cohort = Cohort.objects.get()
         self.assertEqual(cohort.people.count(), 2)
         self.assertEqual(cohort.is_calculating, False)

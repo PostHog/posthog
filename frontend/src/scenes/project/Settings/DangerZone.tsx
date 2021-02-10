@@ -1,12 +1,13 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { ExclamationCircleOutlined, LockOutlined } from '@ant-design/icons'
+import { ExclamationCircleOutlined, LockOutlined, DeleteOutlined } from '@ant-design/icons'
 import { red } from '@ant-design/colors'
 import { Button } from 'antd'
 import { teamLogic } from 'scenes/teamLogic'
 import confirm from 'antd/lib/modal/confirm'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import Paragraph from 'antd/lib/typography/Paragraph'
 
 export function DangerZone(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -15,19 +16,22 @@ export function DangerZone(): JSX.Element {
 
     function confirmDeleteProject(): void {
         confirm({
-            title: currentTeam ? `Delete project ${currentTeam.name}?` : <i>Loading current project…</i>,
-            content: 'Project deletion cannot be undone. You will lose all data within your project.',
+            title: 'Delete the entire project?',
+            content: (
+                <>
+                    Project deletion <b>cannot be undone</b>. You will lose all data, <b>including events</b>, related
+                    to the project.
+                </>
+            ),
             icon: <ExclamationCircleOutlined color={red.primary} />,
             okText: currentTeam ? `Delete ${currentTeam.name}` : <i>Loading current project…</i>,
             okType: 'danger',
             okButtonProps: {
+                // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
                 'data-attr': 'delete-project-ok',
             },
             cancelText: 'Cancel',
-            onOk() {
-                deleteCurrentTeam()
-                location.reload()
-            },
+            onOk: deleteCurrentTeam,
         })
     }
 
@@ -36,23 +40,26 @@ export function DangerZone(): JSX.Element {
         accessRestrictionReason = 'This section is restricted to administrators.'
     }
 
-    return accessRestrictionReason ? (
+    return !currentTeam || accessRestrictionReason ? (
         <div className="access-restricted">
             <LockOutlined className="text-warning" />
             {accessRestrictionReason}
         </div>
     ) : (
         <div className="mt">
+            <Paragraph type="danger">
+                This is <b>irreversible</b>. Please be certain.
+            </Paragraph>
             <Button
-                type="primary"
+                type="default"
                 danger
                 onClick={confirmDeleteProject}
                 className="mr-05"
                 data-attr="delete-project-button"
+                icon={<DeleteOutlined />}
             >
-                Delete Project
+                Delete {currentTeam.name}
             </Button>
-            This will <b>permanently delete</b> your project and data associated to it. Please be certain.
         </div>
     )
 }

@@ -15,7 +15,7 @@ import {
 } from 'scenes/ingestion/frameworks'
 import { Row } from 'antd'
 import React from 'react'
-import { API, MOBILE, PURE_JS, WEB } from 'scenes/ingestion/constants'
+import { API, MOBILE, BACKEND } from 'scenes/ingestion/constants'
 import { useActions, useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 
@@ -64,26 +64,6 @@ export function InstructionsPanel(): JSX.Element {
         )
     }
 
-    if (framework === PURE_JS) {
-        return (
-            <CardContainer
-                index={index}
-                totalSteps={totalSteps}
-                nextButton={true}
-                onSubmit={() => setVerify(true)}
-                onBack={() => setFramework(null)}
-            >
-                <h2>posthog-js</h2>
-                <p className="prompt-text">
-                    {
-                        'posthog-js will automatically capture page views, page leaves, and interactions with specific elements (<a>, <button>, <input>, <textarea>, <form>)'
-                    }
-                </p>
-                <FrameworkSnippet />
-            </CardContainer>
-        )
-    }
-
     return (
         <CardContainer
             index={index}
@@ -92,14 +72,14 @@ export function InstructionsPanel(): JSX.Element {
             onSubmit={() => setVerify(true)}
             onBack={() => setFramework(null)}
         >
-            {platform === WEB ? (
+            {platform === BACKEND ? (
                 <Row style={{ marginLeft: -5 }} justify="space-between" align="middle">
                     <h2 style={{ color: 'black', marginLeft: 8 }}>{'Custom Capture'}</h2>
                 </Row>
             ) : (
                 <h2>Setup</h2>
             )}
-            {platform === WEB ? (
+            {platform === BACKEND ? (
                 <>
                     <p className="prompt-text">
                         {

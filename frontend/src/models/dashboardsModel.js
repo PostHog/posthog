@@ -18,8 +18,12 @@ export const dashboardsModel = kea({
             {},
             {
                 loadDashboards: async () => {
-                    const { results } = await api.get('api/dashboard')
-                    return idToKey(results)
+                    try {
+                        const { results } = await api.get('api/dashboard')
+                        return idToKey(results)
+                    } catch {
+                        return {}
+                    }
                 },
             },
         ],

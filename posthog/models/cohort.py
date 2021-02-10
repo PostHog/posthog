@@ -108,11 +108,11 @@ class Cohort(models.Model):
                 self.last_calculation = timezone.now()
                 self.errors_calculating = 0
                 self.save()
-        except Exception:
+        except Exception as err:
             self.is_calculating = False
             self.errors_calculating = F("errors_calculating") + 1
             self.save()
-            capture_exception()
+            capture_exception(err)
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """
@@ -128,7 +128,7 @@ class Cohort(models.Model):
                 batch = items[i : i + batchsize]
                 persons_query = (
                     Person.objects.filter(team_id=self.team_id)
-                    .filter(Q(persondistinctid__distinct_id__in=batch) | Q(properties__email__in=batch))
+                    .filter(Q(persondistinctid__team_id=self.team_id, persondistinctid__distinct_id__in=batch))
                     .exclude(cohort__id=self.id)
                 )
                 if use_clickhouse:
@@ -144,11 +144,11 @@ class Cohort(models.Model):
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
             self.save()
-        except Exception:
+        except Exception as err:
             self.is_calculating = False
             self.errors_calculating = F("errors_calculating") + 1
             self.save()
-            capture_exception()
+            capture_exception(err)
 
     def __str__(self):
         return self.name

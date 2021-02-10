@@ -1,11 +1,11 @@
-from typing import Any, Dict
+from typing import Any, ClassVar, Dict, List, Optional
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 from posthog.models.utils import generate_random_token
 from posthog.permissions import (
     CREATE_METHODS,
@@ -13,8 +13,6 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
 )
-
-from .organization import OrganizationSignupSerializer, OrganizationSignupViewset
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -26,7 +24,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
         if request.method in CREATE_METHODS and (
             (request.user.organization is None)
             or (
-                request.user.organization.teams.count() >= 1
+                request.user.organization.teams.exclude(is_demo=True).count() >= 1
                 and not request.user.organization.is_feature_available("organizations_projects")
             )
         ):
@@ -54,6 +52,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "ingested_event",
             "uuid",
             "opt_out_capture",
+            "is_demo",
         )
         read_only_fields = (
             "id",
@@ -72,11 +71,8 @@ class TeamSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
-        organization = request.user.organization
-        if organization is None:
-            raise exceptions.ValidationError("You need to belong to an organization first!")
+        organization = self.context["view"].organization  # use the org we used to validate permissions
         with transaction.atomic():
-            validated_data.setdefault("completed_snippet_onboarding", True)
             team = Team.objects.create_with_data(**validated_data, organization=organization)
             request.user.current_team = team
             request.user.save()
@@ -95,10 +91,35 @@ class TeamViewSet(viewsets.ModelViewSet):
     ]
     lookup_field = "id"
     ordering = "-created_by"
+    organization: Optional[Organization] = None
 
     def get_queryset(self):
         queryset = super().get_queryset().filter(organization__in=self.request.user.organizations.all())
         return queryset
+
+    def get_permissions(self) -> List[permissions.BasePermission]:
+        """
+        Special permissions handling for create requests as the organization is inferred from the current user.
+        """
+        if self.request.method == "POST":
+            organization = self.request.user.organization
+
+            if not organization:
+                raise exceptions.ValidationError("You need to belong to an organization.")
+            self.organization = (
+                organization  # to be used later by `OrganizationAdminWritePermissions` and `TeamSerializer`
+            )
+
+            return [
+                permission()
+                for permission in [
+                    permissions.IsAuthenticated,
+                    PremiumMultiprojectPermissions,
+                    OrganizationAdminWritePermissions,  # Using current org so we don't need to validate membership
+                ]
+            ]
+
+        return super().get_permissions()
 
     def get_object(self):
         lookup_value = self.kwargs[self.lookup_field]

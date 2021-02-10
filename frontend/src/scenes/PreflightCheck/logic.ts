@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { preflightLogicType } from 'types/scenes/PreflightCheck/logicType'
+import { preflightLogicType } from './logicType'
 
 interface PreflightStatus {
     django?: boolean

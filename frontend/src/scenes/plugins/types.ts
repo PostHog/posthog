@@ -6,10 +6,19 @@ export interface PluginRepositoryEntry {
     description: string
     tag: string
     config?: Record<string, PluginConfigType>
+    maintainer?: string
 }
 
 export interface PluginTypeWithConfig extends PluginType {
     pluginConfig: PluginConfigType
+    updateStatus: PluginUpdateStatusType
+    hasMoved?: boolean
+}
+
+export interface PluginUpdateStatusType {
+    upToDate?: boolean
+    error?: boolean
+    updated?: boolean
 }
 
 export enum PluginInstallationType {
@@ -22,5 +31,5 @@ export enum PluginInstallationType {
 export enum PluginTab {
     Installed = 'installed',
     Repository = 'repository',
-    Custom = 'custom',
+    Advanced = 'advanced',
 }

@@ -3,7 +3,7 @@ import api from 'lib/api'
 import moment from 'moment'
 import equal from 'fast-deep-equal'
 import { toParams } from 'lib/utils'
-import { sessionsTableLogicType } from 'types/scenes/sessions/sessionsTableLogicType'
+import { sessionsTableLogicType } from './sessionsTableLogicType'
 import { EventType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
@@ -130,6 +130,7 @@ export const sessionsTableLogic = kea<
                 date_to: values.selectedDateURLparam,
                 pagination: values.pagination,
                 distinct_id: props.personIds ? props.personIds[0] : '',
+                filters: values.filters,
                 properties: values.properties,
             })
             const response = await api.get(`api/event/sessions/?${params}`)
@@ -192,7 +193,7 @@ export const sessionsTableLogic = kea<
         }
     },
     urlToAction: ({ actions, values }) => ({
-        '*': (_: any, params: Params) => {
+        '/sessions': (_: any, params: Params) => {
             const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
 
             if (
@@ -201,7 +202,7 @@ export const sessionsTableLogic = kea<
                 values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD')
             ) {
                 actions.setFilters(params.properties || [], newDate)
-            } else if (values.sessions.length === 0) {
+            } else if (values.sessions.length === 0 && !values.sessionsLoading) {
                 actions.loadSessions(true)
             }
 

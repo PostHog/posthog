@@ -223,7 +223,7 @@ export function LineGraph({
                                           (percentage ? '%' : '')
                                       )
                                   },
-                                  footer: () => 'Click to see users related to the datapoint',
+                                  footer: () => (dashboardItemId ? '' : 'Click to see users related to the datapoint'),
                               },
                               itemSort: (a, b) => b.yLabel - a.yLabel,
                           },
@@ -243,7 +243,7 @@ export function LineGraph({
                           scales: {
                               xAxes: [
                                   type === 'bar'
-                                      ? { stacked: true }
+                                      ? { stacked: true, ticks: { fontColor: axisLabelColor } }
                                       : {
                                             display: true,
                                             gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
@@ -259,7 +259,7 @@ export function LineGraph({
                               ],
                               yAxes: [
                                   type === 'bar'
-                                      ? { stacked: true }
+                                      ? { stacked: true, ticks: { fontColor: axisLabelColor } }
                                       : {
                                             display: true,
                                             gridLines: { color: axisLineColor, zeroLineColor: axisColor },
