@@ -458,6 +458,7 @@ export const pluginsLogic = kea<
                 return Object.keys(repository)
                     .filter((url) => !installedPluginUrls[url.replace(/\/+$/, '')])
                     .map((url) => repository[url.replace(/\/+$/, '')])
+                    .sort((p1, p2) => p1.name.toUpperCase().localeCompare(p2.name.toUpperCase()))
             },
         ],
         editingPlugin: [
