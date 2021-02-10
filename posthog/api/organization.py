@@ -5,17 +5,11 @@ from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.db import transaction
 from django.db.models import QuerySet
-from django.shortcuts import get_object_or_404
-from rest_framework import (
-    exceptions,
-    generics,
-    permissions,
-    request,
-    response,
-    serializers,
-    status,
-    viewsets,
-)
+from django.shortcuts import get_object_or_404, redirect
+from django.urls.base import reverse
+from rest_framework import exceptions, generics, permissions, response, serializers, status, viewsets
+from rest_framework.request import Request
+from social_core.backends.utils import load_backends
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
@@ -37,7 +31,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
     message = "You must upgrade your PostHog plan to be able to create and manage multiple organizations."
 
-    def has_permission(self, request: request.Request, view) -> bool:
+    def has_permission(self, request: Request, view) -> bool:
         if (
             # make multiple orgs only premium on self-hosted, since enforcement of this is not possible on Cloud
             not getattr(settings, "MULTI_TENANCY", False)
@@ -128,8 +122,8 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self) -> List[permissions.BasePermission]:
         if self.request.method == "POST":
-            # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions` because they require an existing org,
-            # unneded anyways because permissions are organization-based
+            # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
+            # because they require an existing org, unneded anyways because permissions are organization-based
             return [permission() for permission in [permissions.IsAuthenticated, PremiumMultiorganizationPermissions]]
         return super().get_permissions()
 
@@ -218,8 +212,42 @@ class OrganizationSignupSerializer(serializers.Serializer):
         return posthoganalytics.feature_enabled("new-onboarding-2822", user.distinct_id) or settings.DEBUG
 
 
+class OrganizationSocialSignupSerializer(serializers.Serializer):
+    """
+    Signup serializer when the account is created using social authentication.
+    Pre-processes information not obtained from SSO provider to create organization.
+    """
+
+    organization_name: serializers.Field = serializers.CharField(max_length=128)
+    email_opt_in: serializers.Field = serializers.BooleanField(default=True)
+
+    def create(self, validated_data, **kwargs):
+        request = self.context["request"]
+
+        active_social_session = False
+        for backend in list(load_backends(settings.AUTHENTICATION_BACKENDS).keys()):
+            if request.session.get(f"{backend}_state"):
+                active_social_session = True
+                break
+
+        if not active_social_session:
+            raise serializers.ValidationError(
+                "Inactive social login session. Go to /login and log in before continuing.",
+            )
+
+        request.session["company_name"] = validated_data["organization_name"]
+        request.session["email_opt_in"] = validated_data["email_opt_in"]
+        request.session.set_expiry(3600)  # 1 hour to complete process
+        return {"continue_url": redirect(reverse("social:complete", args=[request.session["backend"]]))}
+
+
 class OrganizationSignupViewset(generics.CreateAPIView):
     serializer_class = OrganizationSignupSerializer
+    permission_classes = (UninitiatedOrCloudOnly,)
+
+
+class OrganizationSocialSignupViewset(generics.CreateAPIView):
+    serializer_class = OrganizationSocialSignupSerializer
     permission_classes = (UninitiatedOrCloudOnly,)
 
 
