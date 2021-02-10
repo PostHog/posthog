@@ -46,18 +46,18 @@ class SessionsList:
             filter = filter.with_data({"pagination": pagination})
 
     def fetch_page(self) -> Tuple[List[Session], Optional[Dict]]:
-        offset = int(self.filter.pagination.get("offset", 0))
+        distinct_id_offset = self.filter.pagination.get("distinct_id_offset", 0)
         start_timestamp = self.filter.pagination.get("start_timestamp")
         date_filter = self.date_filter()
 
-        # :TRICKY: Query one extra person so we know when to stop pagination if all users on page are unique
-        person_emails = self.query_people_in_range(date_filter, limit=self.limit + offset + 1)
+        person_emails = self.query_people_in_range(date_filter, limit=self.limit + distinct_id_offset + 1)
 
         sessions_builder = SessionListBuilder(
             self.events_query(date_filter, list(person_emails.keys()), start_timestamp).iterator(),
             emails=person_emails,
             action_filter_count=len(self.filter.action_filters),
-            offset=offset,
+            distinct_id_offset=distinct_id_offset,
+            start_timestamp=start_timestamp,
             limit=self.limit,
             last_page_last_seen=self.filter.pagination.get("last_seen", {}),
         )
