@@ -7,6 +7,9 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { personsLogic } from './personsLogic'
 import { Link } from 'lib/components/Link'
 import { CohortType } from '~/types'
+import { LinkButton } from 'lib/components/LinkButton'
+import { ClockCircleFilled } from '@ant-design/icons'
+import { toParams } from 'lib/utils'
 
 export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
@@ -56,23 +59,37 @@ export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
                         buttonStyle="solid"
                         onChange={(e) => {
                             const key = e.target.value
-                            console.log(key)
                             setListFilters({ is_identified: key === 'all' ? undefined : key })
                             loadPersons()
                         }}
                         value={listFilters.is_identified !== undefined ? listFilters.is_identified.toString() : 'all'}
                     >
-                        <Radio.Button value="all">All users</Radio.Button>
-                        <Radio.Button value="true">Identified</Radio.Button>
-                        <Radio.Button value="false">Anonymous</Radio.Button>
+                        <Radio.Button data-attr="people-types-tab-all" value="all">
+                            All users
+                        </Radio.Button>
+                        <Radio.Button data-attr="people-types-tab-identified" value="true">
+                            Identified
+                        </Radio.Button>
+                        <Radio.Button data-attr="people-types-tab-anonymous" value="false">
+                            Anonymous
+                        </Radio.Button>
                     </Radio.Group>
                 </div>
             </Row>
             <div className="mb text-right">
+                {cohort ? (
+                    <LinkButton
+                        to={`/sessions?${toParams({ properties: [{ key: 'id', value: cohort.id, type: 'cohort' }] })}`}
+                        target="_blank"
+                    >
+                        <ClockCircleFilled /> View sessions
+                    </LinkButton>
+                ) : null}
                 <Button
                     type="default"
                     icon={<ExportOutlined />}
                     href={'/api/person.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')}
+                    style={{ marginLeft: 8 }}
                 >
                     Export
                 </Button>

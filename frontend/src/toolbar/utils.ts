@@ -1,8 +1,8 @@
-import Simmer from '@mariusandra/simmerjs'
+import Simmer from '@posthog/simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, ElementType } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
-import { querySelectorAllDeep } from '@mariusandra/query-selector-shadow-dom'
+import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 // these plus any element with cursor:pointer will be click targets
 const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
@@ -246,7 +246,7 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
         elements = [...((querySelectorAllDeep(selector || '*', document, allElements) as unknown) as HTMLElement[])]
     } catch (e) {
         console.error('Can not use selector:', selector)
-        throw e
+        return null
     }
 
     if (hasText && step?.text) {

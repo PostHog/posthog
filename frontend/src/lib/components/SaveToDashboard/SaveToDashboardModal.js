@@ -63,7 +63,6 @@ const radioStyle = {
 export function SaveToDashboardModal({
     closeModal,
     name: initialName,
-    type,
     filters,
     fromItem,
     fromDashboard,
@@ -82,9 +81,8 @@ export function SaveToDashboardModal({
     async function save(event) {
         event.preventDefault()
         if (newItem) {
-            const response = await api.create('api/dashboard_item', {
+            const response = await api.create('api/insight', {
                 filters,
-                type,
                 name,
                 dashboard: dashboardId,
             })
@@ -100,7 +98,7 @@ export function SaveToDashboardModal({
                 }
             }
         } else {
-            await api.update(`api/dashboard_item/${fromItem}`, { filters, type })
+            await api.update(`api/insight/${fromItem}`, { filters })
         }
         toast(
             <div data-attr="success-toast">

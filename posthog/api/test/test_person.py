@@ -1,5 +1,7 @@
 import json
+from uuid import uuid4
 
+from django.test.utils import freeze_time
 from django.utils import timezone
 from rest_framework import status
 
@@ -277,6 +279,44 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json(), response_uuid.json())
             self.assertEqual(len(response.json()["results"]), 2)
+
+        def test_merge_people(self) -> None:
+            # created first
+            person3 = person_factory(team=self.team, distinct_ids=["3"], properties={"oh": "hello"})
+            person1 = person_factory(
+                team=self.team, distinct_ids=["1"], properties={"$browser": "whatever", "$os": "Mac OS X"}
+            )
+            person2 = person_factory(team=self.team, distinct_ids=["2"], properties={"random_prop": "asdf"})
+
+            response = self.client.post(
+                "/api/person/%s/merge/" % person1.pk,
+                data=json.dumps({"ids": [person2.pk, person3.pk]}),
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 201)
+            self.assertEqual(response.json()["created_at"].replace("Z", "+00:00"), person3.created_at.isoformat())
+            self.assertEqual(response.json()["distinct_ids"], ["3", "1", "2"])
+
+            person = get_people()
+            self.assertEqual(len(person), 1)
+            self.assertEqual(
+                person[0].properties, {"$browser": "whatever", "$os": "Mac OS X", "random_prop": "asdf", "oh": "hello"}
+            )
+            self.assertEqual(person[0].created_at, person3.created_at)
+
+        def test_return_non_anonymous_name(self) -> None:
+            person_factory(
+                team=self.team,
+                distinct_ids=["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
+            )
+            person_factory(
+                team=self.team, distinct_ids=["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"],
+            )
+
+            response = self.client.get("/api/person/").json()
+
+            self.assertEqual(response["results"][0]["name"], "distinct_id2")
+            self.assertEqual(response["results"][1]["name"], "distinct_id1")
 
     return TestPerson
 

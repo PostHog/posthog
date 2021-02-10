@@ -11,7 +11,7 @@ from posthog.models.entity import Entity
 from posthog.models.event import Event
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.queries.base import filter_events
+from posthog.queries.base import TIME_IN_SECONDS, filter_events
 from posthog.utils import queryset_to_named_query
 
 LIFECYCLE_SQL = """
@@ -347,18 +347,11 @@ def get_time_diff(
 
     _end_time = end_time or timezone.now()
 
-    time_diffs: Dict[str, Any] = {
-        "minute": 60,
-        "hour": 3600,
-        "day": 3600 * 24,
-        "week": 3600 * 24 * 7,
-        "month": 3600 * 24 * 30,
-    }
     interval_diff = get_interval(interval)
 
     diff = _end_time - _start_time
     return (
-        int(diff.total_seconds() / time_diffs[interval]) + 1,
+        int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + 1,
         _start_time - interval_diff,
         _start_time,
         _end_time,
@@ -391,8 +384,8 @@ class LifecycleTrend:
         interval_trunc, sub_interval = get_trunc_func(period=period)
 
         # include the before and after when filteirng all events
-        filter._date_from = prev_date_from.isoformat()
-        filter._date_to = after_date_to.isoformat()
+
+        filter = filter.with_data({"date_from": prev_date_from.isoformat(), "date_to": after_date_to.isoformat()})
 
         filtered_events = Event.objects.filter(team_id=team_id).filter(filter_events(team_id, filter, entity))
         event_query, event_params = queryset_to_named_query(filtered_events, "events")
@@ -448,8 +441,7 @@ class LifecycleTrend:
         interval_trunc, sub_interval = get_trunc_func(period=period)
 
         # include the before and after when filteirng all events
-        filter._date_from = prev_date_from.isoformat()
-        filter._date_to = after_date_to.isoformat()
+        filter = filter.with_data({"date_from": prev_date_from.isoformat(), "date_to": after_date_to.isoformat()})
 
         filtered_events = Event.objects.filter(team_id=team_id).filter(filter_events(team_id, filter, entity))
         event_query, event_params = queryset_to_named_query(filtered_events)

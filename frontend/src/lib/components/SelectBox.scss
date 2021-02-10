@@ -1,6 +1,6 @@
 .select-box {
     position: absolute;
-    min-width: 620px;
+    width: 620px;
     box-shadow: 0 0 8px rgba(0, 0, 0, 0.4);
     border-radius: 2px;
     border: 1px solid rgba(0, 0, 0, 0.1);
@@ -8,6 +8,7 @@
     background: #fff;
     z-index: 999;
     overflow: visible;
+    outline: none;
     .ant-input {
         border-width: 0 0 1px 0;
         outline: none;

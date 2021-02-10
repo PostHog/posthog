@@ -22,6 +22,16 @@ class ErrorResponsesMixin:
         "attr": None,
     }
 
+    def permission_denied_response(
+        self, message: str = "You do not have permission to perform this action.",
+    ) -> Dict[str, Optional[str]]:
+        return {
+            "type": "authentication_error",
+            "code": "permission_denied",
+            "detail": message,
+            "attr": None,
+        }
+
 
 class TestMixin(ErrorResponsesMixin):
     TESTS_API: bool = False
@@ -92,4 +102,8 @@ class APIBaseTest(APITestMixin, APITestCase):
 
 
 class APITransactionBaseTest(APITestMixin, APITransactionTestCase):
+    """
+    Test class using Django REST Framework test suite.
+    """
+
     pass

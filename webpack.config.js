@@ -4,14 +4,10 @@ const path = require('path')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
+const MonacoWebpackPlugin = require('monaco-editor-webpack-plugin')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 const webpackDevServerFrontendAddr = webpackDevServerHost === '0.0.0.0' ? '127.0.0.1' : webpackDevServerHost
-
-// main = app
-// toolbar = toolbar
-// shared_dashboard = publicly available dashboard
-module.exports = () => [createEntry('main'), createEntry('toolbar'), createEntry('shared_dashboard')]
 
 function createEntry(entry) {
     const commonLoadersForSassAndLess = [
@@ -31,6 +27,10 @@ function createEntry(entry) {
                           }
                       },
                   },
+              }
+            : entry === 'cypress'
+            ? {
+                  loader: 'style-loader',
               }
             : {
                   // After all CSS loaders we use plugin to do his work.
@@ -54,7 +54,7 @@ function createEntry(entry) {
         devtool: process.env.NODE_ENV === 'production' ? 'source-map' : 'inline-source-map',
         entry: {
             [entry]:
-                entry === 'main'
+                entry === 'main' || entry === 'cypress'
                     ? './frontend/src/index.tsx'
                     : entry === 'toolbar'
                     ? './frontend/src/toolbar/index.tsx'
@@ -84,6 +84,7 @@ function createEntry(entry) {
                 scenes: path.resolve(__dirname, 'frontend', 'src', 'scenes'),
                 types: path.resolve(__dirname, 'frontend', 'types'),
                 public: path.resolve(__dirname, 'frontend', 'public'),
+                cypress: path.resolve(__dirname, 'cypress'),
                 ...(process.env.NODE_ENV !== 'production'
                     ? {
                           'react-dom': '@hot-loader/react-dom',
@@ -195,6 +196,10 @@ function createEntry(entry) {
             },
         },
         plugins: [
+            new MonacoWebpackPlugin({
+                languages: ['json', 'javascript'],
+            }),
+
             // common plugins for all entrypoints
         ].concat(
             entry === 'main'
@@ -234,7 +239,15 @@ function createEntry(entry) {
                       }),
                       new HtmlWebpackHarddiskPlugin(),
                   ]
+                : entry === 'cypress'
+                ? [new HtmlWebpackHarddiskPlugin()]
                 : []
         ),
     }
 }
+
+// main = app
+// toolbar = toolbar
+// shared_dashboard = publicly available dashboard
+module.exports = () => [createEntry('main'), createEntry('toolbar'), createEntry('shared_dashboard')]
+module.exports.createEntry = createEntry

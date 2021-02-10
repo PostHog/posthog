@@ -49,7 +49,7 @@ def system_status(request):
     if is_multitenancy and not request.user.is_staff:
         raise AuthenticationFailed(detail="You're not authorized.")
 
-    from .models import Element, Event
+    from .models import Element, Event, SessionRecordingEvent
 
     redis_alive = is_redis_alive()
     postgres_alive = is_postgres_alive()
@@ -80,11 +80,22 @@ def system_status(request):
         element_table_count = get_table_approx_count(Element._meta.db_table)[0]["approx_count"]
         element_table_size = get_table_size(Element._meta.db_table)[0]["size"]
 
+        session_recording_event_table_count = get_table_approx_count(SessionRecordingEvent._meta.db_table)[0][
+            "approx_count"
+        ]
+        session_recording_event_table_size = get_table_size(SessionRecordingEvent._meta.db_table)[0]["size"]
+
         metrics.append(
             {"metric": "Postgres elements table size", "value": f"~{element_table_count} rows (~{element_table_size})"}
         )
         metrics.append(
             {"metric": "Postgres events table size", "value": f"~{event_table_count} rows (~{event_table_size})"}
+        )
+        metrics.append(
+            {
+                "metric": "Postgres session recording table size",
+                "value": f"~{session_recording_event_table_count} rows (~{session_recording_event_table_size})",
+            }
         )
 
     metrics.append({"key": "redis_alive", "metric": "Redis alive", "value": redis_alive})

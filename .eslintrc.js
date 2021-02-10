@@ -42,6 +42,8 @@ module.exports = {
         '@typescript-eslint/explicit-module-boundary-types': 'off',
         '@typescript-eslint/no-empty-function': 'off',
         '@typescript-eslint/no-inferrable-types': 'off',
+        '@typescript-eslint/ban-ts-comment': 'off',
+        'no-shadow': 'warn',
         curly: 'error',
     },
     overrides: [
@@ -75,7 +77,7 @@ module.exports = {
         {
             files: ['*.js'],
             rules: {
-                'typescript/no-var-requires': 'off',
+                '@typescript-eslint/no-var-requires': 'off',
             },
         },
     ],

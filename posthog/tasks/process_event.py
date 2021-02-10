@@ -1,6 +1,7 @@
 import datetime
+import json
 from numbers import Number
-from typing import Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 import posthoganalytics
 from celery import shared_task
@@ -62,6 +63,16 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
 
     if old_person and new_person and old_person != new_person:
         new_person.merge_people([old_person])
+
+
+def sanitize_event_name(event: Any) -> str:
+    if isinstance(event, str):
+        return event[0:200]
+    else:
+        try:
+            return json.dumps(event)[0:200]
+        except TypeError:
+            return str(event)[0:200]
 
 
 def store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
@@ -130,6 +141,8 @@ def _capture(
     if not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
 
+    event = sanitize_event_name(event)
+
     Event.objects.create(
         event=event,
         distinct_id=distinct_id,
@@ -171,7 +184,7 @@ def get_or_create_person(team_id: int, distinct_id: str) -> Tuple[Person, bool]:
     return person, created
 
 
-def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
+def _update_person_properties(team_id: int, distinct_id: str, properties: Dict, set_once: bool = False) -> None:
     try:
         person = Person.objects.get(
             team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
@@ -180,11 +193,18 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
         try:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
         # Catch race condition where in between getting and creating, another request already created this person
-        except:
+        except Exception:
             person = Person.objects.get(
                 team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
             )
-    person.properties.update(properties)
+    if set_once:
+        # Set properties on a user record, only if they do not yet exist.
+        # Unlike $set, this will not overwrite existing people property values.
+        new_properties = properties.copy()
+        new_properties.update(person.properties)
+        person.properties = new_properties
+    else:
+        person.properties.update(properties)
     person.save()
 
 
@@ -248,6 +268,10 @@ def handle_identify_or_alias(event: str, properties: dict, distinct_id: str, tea
             )
         if properties.get("$set"):
             _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=properties["$set"])
+        if properties.get("$set_once"):
+            _update_person_properties(
+                team_id=team_id, distinct_id=distinct_id, properties=properties["$set_once"], set_once=True
+            )
         _set_is_identified(team_id=team_id, distinct_id=distinct_id)
 
 
@@ -258,6 +282,8 @@ def process_event(
     properties = data.get("properties", {})
     if data.get("$set"):
         properties["$set"] = data["$set"]
+    if data.get("$set_once"):
+        properties["$set_once"] = data["$set_once"]
 
     handle_identify_or_alias(data["event"], properties, distinct_id, team_id)
 

@@ -1,17 +1,23 @@
 import json
 
-from django.core.cache import cache
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.models import Dashboard, DashboardItem, Filter, User
-from posthog.test.base import BaseTest, TransactionBaseTest
+from posthog.test.base import TransactionBaseTest
 from posthog.utils import generate_cache_key
 
 
 class TestDashboard(TransactionBaseTest):
     TESTS_API = True
+
+    def test_get_dashboard(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        response = self.client.get(f"/api/dashboard/{dashboard.id}", content_type="application/json",)
+        self.assertEqual(response.json()["name"], "private dashboard")
+        self.assertEqual(response.json()["created_by"]["distinct_id"], self.user.distinct_id)
+        self.assertEqual(response.json()["created_by"]["first_name"], self.user.first_name)
 
     def test_create_dashboard_item(self):
         dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")
@@ -53,6 +59,15 @@ class TestDashboard(TransactionBaseTest):
         )
         dashboard = Dashboard.objects.get(pk=dashboard.pk)
         self.assertIsNotNone(dashboard.share_token)
+
+    def test_no_team_dashboards_list(self):
+        self.team.delete()
+
+        response = self.client.get("/api/dashboard/")
+        self.assertDictEqual(
+            response.json(), {"attr": None, "code": "not_found", "detail": "Not found.", "type": "invalid_request",},
+        )
+        self.assertEqual(response.status_code, 404)
 
     def test_return_cached_results(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
@@ -199,3 +214,10 @@ class TestDashboard(TransactionBaseTest):
         )
         items_response = self.client.get("/api/dashboard_item/{}/".format(response["id"])).json()
         self.assertTrue("lg" in items_response["layouts"])
+
+    def test_dashboard_from_template(self):
+        response = self.client.post(
+            "/api/dashboard/", data={"name": "another", "use_template": "DEFAULT_APP"}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertGreater(DashboardItem.objects.count(), 1)

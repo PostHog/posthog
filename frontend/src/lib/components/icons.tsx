@@ -1,5 +1,5 @@
 // Loads custom icons (some icons may come from a third-party library)
-import React from 'react'
+import React, { CSSProperties } from 'react'
 
 export function IconMenu(): JSX.Element {
     // FontAwesome
@@ -27,7 +27,7 @@ export function IconBuilding(): JSX.Element {
 
 export function IconDashboard(): JSX.Element {
     return (
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
@@ -116,7 +116,7 @@ export function IconEvents(): JSX.Element {
 
 export function IconActions(): JSX.Element {
     return (
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
             <g clipPath="url(#clip0)">
                 <path
                     d="M30.803 14.6555H27.7336C27.1042 9.10778 22.6342 4.72775 17.0465 4.23671V1.19932C17.0465 0.882019 16.9204 0.577712 16.6961 0.353344C16.4717 0.128977 16.1674 0.00292969 15.8501 0.00292969C15.5328 0.00292969 15.2285 0.128977 15.0041 0.353344C14.7798 0.577712 14.6537 0.882019 14.6537 1.19932V4.26821C12.0035 4.57282 9.5344 5.76528 7.6481 7.65159C5.76179 9.53789 4.56933 12.007 4.26472 14.6572H1.19639C1.03928 14.6572 0.883706 14.6881 0.738553 14.7483C0.5934 14.8084 0.461512 14.8965 0.350417 15.0076C0.239321 15.1187 0.151194 15.2506 0.0910699 15.3958C0.0309455 15.5409 0 15.6965 0 15.8536C0 16.0107 0.0309455 16.1663 0.0910699 16.3114C0.151194 16.4566 0.239321 16.5885 0.350417 16.6996C0.461512 16.8107 0.5934 16.8988 0.738553 16.9589C0.883706 17.019 1.03928 17.05 1.19639 17.05H4.23378C4.47502 19.7584 5.64328 22.3006 7.54138 24.2476C9.43949 26.1946 11.9512 27.4271 14.6526 27.7371V30.8065C14.6526 31.1238 14.7786 31.4281 15.003 31.6525C15.2274 31.8769 15.5317 32.0029 15.849 32.0029C16.1663 32.0029 16.4706 31.8769 16.695 31.6525C16.9193 31.4281 17.0454 31.1238 17.0454 30.8065V27.7691C19.8061 27.5238 22.3927 26.3155 24.3525 24.3556C26.3123 22.3957 27.5205 19.8091 27.7657 17.0483H30.803C31.1204 17.0483 31.4247 16.9222 31.649 16.6979C31.8734 16.4735 31.9994 16.1692 31.9994 15.8519C31.9994 15.5346 31.8734 15.2303 31.649 15.0059C31.4247 14.7816 31.1204 14.6555 30.803 14.6555ZM15.2842 24.7953C11.0094 24.4578 7.54285 20.9935 7.20592 16.717C7.1024 15.4418 7.27737 14.1594 7.71871 12.9586C8.16005 11.7578 8.85721 10.6673 9.76187 9.7627C10.6665 8.85809 11.7571 8.161 12.9579 7.71973C14.1587 7.27846 15.4412 7.10356 16.7163 7.20716C20.9912 7.54465 24.4572 11.009 24.7946 15.2855C24.8981 16.5606 24.723 17.843 24.2817 19.0438C23.8403 20.2445 23.1431 21.335 22.2385 22.2396C21.3338 23.1442 20.2433 23.8412 19.0426 24.2826C17.8418 24.7239 16.5594 24.8988 15.2842 24.7953Z"
@@ -274,6 +274,48 @@ export function IconExternalLink(): JSX.Element {
                     <rect width="32" height="32" fill="none" />
                 </clipPath>
             </defs>
+        </svg>
+    )
+}
+
+export function IconText({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
+            <g clipPath="url(#clip0)">
+                <path d="M0 7.76876V3H21.2892V7.76876H13.5025V28.7966H7.78895V7.76876H0Z" fill="currentColor" />
+                <path d="M0 7.76876V3H21.2892V7.76876H13.5025V28.7966H7.78895V7.76876H0Z" fill="currentColor" />
+                <path
+                    d="M22.8694 18.382H26.7333V18.3797H32.0001V16.3069H17.6038V18.3797H22.8694V18.382Z"
+                    fill="currentColor"
+                />
+                <path
+                    d="M22.8694 23.632H26.7333V23.6297H32.0001V21.5569H17.6038V23.6297H22.8694V23.632Z"
+                    fill="currentColor"
+                />
+                <path
+                    d="M22.8694 28.8825H26.7333V28.8802H32.0001V26.8074H17.6038V28.8802H22.8694V28.8825Z"
+                    fill="currentColor"
+                />
+            </g>
+            <defs>
+                <clipPath id="clip0">
+                    <rect width="1em" height="1em" fill="white" />
+                </clipPath>
+            </defs>
+        </svg>
+    )
+}
+
+export function IllustrationDanger({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M16 2.11495C8.33206 2.11495 2.1157 8.33095 2.1157 16C2.1157 23.6691 8.33206 29.8851 16 29.8851C23.6679 29.8851 29.8843 23.6691 29.8843 16C29.8843 8.33095 23.6679 2.11495 16 2.11495ZM0 16C0 7.16367 7.16282 0 16 0C24.8372 0 32 7.16367 32 16C32 24.8363 24.8372 32 16 32C7.16282 32 0 24.8363 0 16Z"
+                fill="currentcolor"
+            />
+            <path d="M14 6H17.7025V20.3251H14V6ZM17.7025 22.6171V25.4821H14V22.6171H17.7025Z" fill="currentcolor" />
         </svg>
     )
 }

@@ -4,8 +4,9 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog.models import Action, ActionStep, Element, Event, Person, Team
-from posthog.test.base import BaseTest, TransactionBaseTest
+from posthog.models import Action, ActionStep, Element, Event, Organization, Person, Team
+from posthog.test.base import TransactionBaseTest
+from posthog.utils import relative_date_parse
 
 
 def test_event_api_factory(event_factory, person_factory, action_factory):
@@ -127,42 +128,91 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             )
             return sign_up
 
+        def test_custom_event_values(self):
+            events = ["test", "new event", "another event"]
+            for event in events:
+                event_factory(
+                    distinct_id="bla",
+                    event=event,
+                    team=self.team,
+                    properties={"random_prop": "don't include", "some other prop": "with some text"},
+                )
+            response = self.client.get("/api/event/values/?key=custom_event").json()
+            self.assertListEqual(sorted(events), sorted([event["name"] for event in response]))
+
         def test_event_property_values(self):
-            event_factory(
-                distinct_id="bla",
-                event="random event",
-                team=self.team,
-                properties={"random_prop": "asdf", "some other prop": "with some text"},
-            )
-            event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": "asdf"})
-            event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": "qwerty"})
-            event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": True})
-            event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": False})
-            event_factory(
-                distinct_id="bla",
-                event="random event",
-                team=self.team,
-                properties={"random_prop": {"first_name": "Mary", "last_name": "Smith"}},
-            )
-            event_factory(
-                distinct_id="bla", event="random event", team=self.team, properties={"something_else": "qwerty"}
-            )
-            event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": 565})
-            team2 = Team.objects.create()
-            event_factory(distinct_id="bla", event="random event", team=team2, properties={"random_prop": "abcd"})
-            response = self.client.get("/api/event/values/?key=random_prop").json()
 
-            keys = [resp["name"].replace(" ", "") for resp in response]
-            self.assertCountEqual(
-                keys, ["asdf", "qwerty", "565", "false", "true", '{"first_name":"Mary","last_name":"Smith"}']
-            )
-            self.assertEqual(len(response), 6)
+            with freeze_time("2020-01-10"):
+                event_factory(
+                    distinct_id="bla",
+                    event="random event",
+                    team=self.team,
+                    properties={"random_prop": "don't include", "some other prop": "with some text"},
+                )
 
-            response = self.client.get("/api/event/values/?key=random_prop&value=qw").json()
-            self.assertEqual(response[0]["name"], "qwerty")
+            with freeze_time("2020-01-20 20:00:00"):
+                event_factory(
+                    distinct_id="bla",
+                    event="random event",
+                    team=self.team,
+                    properties={"random_prop": "asdf", "some other prop": "with some text"},
+                )
+                event_factory(
+                    distinct_id="bla", event="random event", team=self.team, properties={"random_prop": "asdf"}
+                )
+                event_factory(
+                    distinct_id="bla", event="random event", team=self.team, properties={"random_prop": "qwerty"}
+                )
+                event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": True})
+                event_factory(
+                    distinct_id="bla", event="random event", team=self.team, properties={"random_prop": False}
+                )
+                event_factory(
+                    distinct_id="bla",
+                    event="random event",
+                    team=self.team,
+                    properties={"random_prop": {"first_name": "Mary", "last_name": "Smith"}},
+                )
+                event_factory(
+                    distinct_id="bla", event="random event", team=self.team, properties={"something_else": "qwerty"}
+                )
+                event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": 565})
+                event_factory(
+                    distinct_id="bla",
+                    event="random event",
+                    team=self.team,
+                    properties={"random_prop": ["item1", "item2"]},
+                )
+                event_factory(
+                    distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item3"]}
+                )
 
-            response = self.client.get("/api/event/values/?key=random_prop&value=6").json()
-            self.assertEqual(response[0]["name"], "565")
+                team2 = Organization.objects.bootstrap(None)[2]
+                event_factory(distinct_id="bla", event="random event", team=team2, properties={"random_prop": "abcd"})
+                response = self.client.get("/api/event/values/?key=random_prop").json()
+
+                keys = [resp["name"].replace(" ", "") for resp in response]
+                self.assertCountEqual(
+                    keys,
+                    [
+                        "asdf",
+                        "qwerty",
+                        "565",
+                        "false",
+                        "true",
+                        '{"first_name":"Mary","last_name":"Smith"}',
+                        "item1",
+                        "item2",
+                        "item3",
+                    ],
+                )
+                self.assertEqual(len(response), 9)
+
+                response = self.client.get("/api/event/values/?key=random_prop&value=qw").json()
+                self.assertEqual(response[0]["name"], "qwerty")
+
+                response = self.client.get("/api/event/values/?key=random_prop&value=6").json()
+                self.assertEqual(response[0]["name"], "565")
 
         def test_before_and_after(self):
             user = self._create_user("tim")
@@ -207,8 +257,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                     team=self.team,
                     event="some event",
                     distinct_id="1",
-                    timestamp=timezone.datetime(2019, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-                    + relativedelta(days=idx, seconds=idx),
+                    timestamp=timezone.now() - relativedelta(months=11) + relativedelta(days=idx, seconds=idx),
                 )
             response = self.client.get("/api/event/?distinct_id=1").json()
             self.assertEqual(len(response["results"]), 100)
@@ -238,6 +287,78 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["event"], "sign up")
             self.assertEqual(response.json()["properties"], {"key": "test_val"})
+
+        def test_events_sessions_basic(self):
+            with freeze_time("2012-01-14T03:21:34.000Z"):
+                event_factory(team=self.team, event="1st action", distinct_id="1")
+                event_factory(team=self.team, event="1st action", distinct_id="2")
+            with freeze_time("2012-01-14T03:25:34.000Z"):
+                event_factory(team=self.team, event="2nd action", distinct_id="1")
+                event_factory(team=self.team, event="2nd action", distinct_id="2")
+            with freeze_time("2012-01-15T03:59:34.000Z"):
+                event_factory(team=self.team, event="3rd action", distinct_id="2")
+            with freeze_time("2012-01-15T03:59:35.000Z"):
+                event_factory(team=self.team, event="3rd action", distinct_id="1")
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                event_factory(team=self.team, event="4th action", distinct_id="1", properties={"$os": "Mac OS X"})
+                event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
+
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                response = self.client.get("/api/event/sessions/",).json()
+
+            self.assertEqual(len(response["result"]), 2)
+
+            response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-15",).json()
+            self.assertEqual(len(response["result"]), 4)
+
+            for i in range(46):
+                with freeze_time(relative_date_parse("2012-01-15T04:01:34.000Z") + relativedelta(hours=i)):
+                    event_factory(team=self.team, event="action {}".format(i), distinct_id=str(i + 3))
+
+            response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-17",).json()
+            self.assertEqual(len(response["result"]), 50)
+            self.assertIsNone(response.get("pagination"))
+
+            for i in range(2):
+                with freeze_time(relative_date_parse("2012-01-15T04:01:34.000Z") + relativedelta(hours=i + 46)):
+                    event_factory(team=self.team, event="action {}".format(i), distinct_id=str(i + 49))
+
+            response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-17",).json()
+            self.assertEqual(len(response["result"]), 50)
+            self.assertIsNotNone(response["pagination"])
+
+        def test_event_sessions_by_id(self):
+            another_team = Team.objects.create(organization=self.organization)
+
+            Person.objects.create(team=self.team, distinct_ids=["1"])
+            Person.objects.create(team=another_team, distinct_ids=["1"])
+            with freeze_time("2012-01-14T03:21:34.000Z"):
+                event_factory(team=self.team, event="1st action", distinct_id="1")
+                event_factory(team=self.team, event="1st action", distinct_id="2")
+            with freeze_time("2012-01-14T03:25:34.000Z"):
+                event_factory(team=self.team, event="2nd action", distinct_id="1")
+                event_factory(team=another_team, event="2nd action", distinct_id="1")
+                event_factory(team=self.team, event="2nd action", distinct_id="2")
+            with freeze_time("2012-01-15T03:59:35.000Z"):
+                event_factory(team=self.team, event="3rd action", distinct_id="1")
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                event_factory(team=self.team, event="4th action", distinct_id="1", properties={"$os": "Mac OS X"})
+                event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
+
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                response_person_1 = self.client.get("/api/event/sessions/?distinct_id=1",).json()
+
+            self.assertEqual(len(response_person_1["result"]), 1)
+
+        def test_events_in_future(self):
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                event_factory(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
+            # Don't show events more than 5 seconds in the future
+            with freeze_time("2012-01-15T04:01:44.000Z"):
+                event_factory(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                response = self.client.get("/api/event/").json()
+            self.assertEqual(len(response["results"]), 1)
 
     return TestEvents
 

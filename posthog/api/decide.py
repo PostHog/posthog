@@ -1,13 +1,14 @@
 import json
 import secrets
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-from posthog.models import FeatureFlag, Team, User
+from posthog.models import Team, User
+from posthog.models.feature_flag import get_active_feature_flags
 from posthog.utils import cors_response, load_data_from_request
 
 from .capture import _get_project_id, _get_token
@@ -27,6 +28,9 @@ def on_permitted_domain(team: Team, request: HttpRequest) -> bool:
 
 
 def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
+    if request.user.is_anonymous:
+        return {}, False
+
     team = request.user.team
     if team and on_permitted_domain(team, request):
         response: Dict[str, Any] = {"isAuthenticated": True}
@@ -42,16 +46,6 @@ def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
         return response, not request.user.temporary_token
     else:
         return {}, False
-
-
-def feature_flags(request: HttpRequest, team: Team, data: Dict[str, Any]) -> List[str]:
-    flags_enabled = []
-    feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False)
-    for feature_flag in feature_flags:
-        # distinct_id will always be a string, but data can have non-string values ("Any")
-        if feature_flag.distinct_id_matches(data["distinct_id"]):
-            flags_enabled.append(feature_flag.key)
-    return flags_enabled
 
 
 def parse_domain(url: Any) -> Optional[str]:
@@ -98,14 +92,27 @@ def get_decide(request: HttpRequest):
         team = Team.objects.get_team_from_token(token)
         if team is None and token:
             project_id = _get_project_id(data, request)
+
+            if not project_id:
+                return cors_response(
+                    request,
+                    JsonResponse(
+                        {
+                            "code": "validation",
+                            "message": "Project API key invalid. You can find your project API key in PostHog project settings.",
+                        },
+                        status=401,
+                    ),
+                )
+
             user = User.objects.get_from_personal_api_key(token)
             if user is None:
                 return cors_response(
-                    request, JsonResponse({"code": "validation", "message": "Invalid personal API key.",}, status=400,),
+                    request, JsonResponse({"code": "validation", "message": "Personal API key invalid.",}, status=401,),
                 )
             team = user.teams.get(id=project_id)
         if team:
-            response["featureFlags"] = feature_flags(request, team, data_from_request["data"])
+            response["featureFlags"] = get_active_feature_flags(team, data_from_request["data"]["distinct_id"])
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
                 response["sessionRecording"] = {"endpoint": "/s/"}
     return cors_response(request, JsonResponse(response))

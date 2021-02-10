@@ -1,25 +1,40 @@
 import { kea } from 'kea'
 import { eventWithTime } from 'rrweb/typings/types'
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
-import { sessionsPlayLogicType } from 'types/scenes/sessions/sessionsPlayLogicType'
-import { PersonType } from '~/types'
+import { eventToName, toParams } from 'lib/utils'
+import { sessionsPlayLogicType } from './sessionsPlayLogicType'
+import { PersonType, SessionType } from '~/types'
 import moment from 'moment'
 import { EventIndex } from 'posthog-react-rrweb-player'
+import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
+import { toast } from 'react-toastify'
+
+type SessionRecordingId = string
 
 interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
+    start_time: string
 }
 
-export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, EventIndex>>({
+export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, EventIndex, SessionType>>({
+    connect: {
+        values: [sessionsTableLogic, ['sessions', 'pagination', 'orderedSessionRecordingIds', 'loadedSessionEvents']],
+        actions: [
+            sessionsTableLogic,
+            ['fetchNextSessions', 'appendNewSessions', 'closeSessionPlayer', 'loadSessionEvents'],
+        ],
+    },
     actions: {
         toggleAddingTagShown: () => {},
         setAddingTag: (payload: string) => ({ payload }),
+        goToNext: true,
+        goToPrevious: true,
+        openNextRecordingOnLoad: true,
     },
     reducers: {
         sessionRecordingId: [
-            null as string | null,
+            null as SessionRecordingId | null,
             {
                 loadRecording: (_, sessionRecordingId) => sessionRecordingId,
             },
@@ -42,6 +57,14 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
                 setAddingTag: (_, { payload }) => payload,
             },
         ],
+        loadingNextRecording: [
+            false,
+            {
+                openNextRecordingOnLoad: () => true,
+                loadRecording: () => false,
+                closeSessionPlayer: () => false,
+            },
+        ],
     },
     listeners: ({ values, actions }) => ({
         toggleAddingTagShown: () => {
@@ -50,11 +73,32 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
                 actions.setAddingTag('')
             }
         },
+        goToNext: () => {
+            if (values.recordingIndex < values.orderedSessionRecordingIds.length - 1) {
+                const id = values.orderedSessionRecordingIds[values.recordingIndex + 1]
+                actions.loadRecording(id)
+            } else if (values.pagination) {
+                // :TRICKY: Load next page of sessions, which will call appendNewSessions which will call goToNext again
+                actions.openNextRecordingOnLoad()
+                actions.fetchNextSessions()
+            } else {
+                toast('Found no more recordings.', { type: 'info' })
+            }
+        },
+        goToPrevious: () => {
+            const id = values.orderedSessionRecordingIds[values.recordingIndex - 1]
+            actions.loadRecording(id)
+        },
+        appendNewSessions: () => {
+            if (values.sessionRecordingId && values.loadingNextRecording) {
+                actions.goToNext()
+            }
+        },
     }),
     urlToAction: ({ actions, values }) => ({
-        '*': (_: any, params: { sessionRecordingId: string }) => {
+        '/sessions': (_: any, params: { sessionRecordingId: SessionRecordingId }) => {
             const sessionRecordingId = params.sessionRecordingId
-            if (sessionRecordingId !== values.sessionRecordingId && sessionRecordingId) {
+            if (values && sessionRecordingId !== values.sessionRecordingId && sessionRecordingId) {
                 actions.loadRecording(sessionRecordingId)
             }
         },
@@ -75,7 +119,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
         ],
         sessionPlayerData: {
             loadRecording: async (sessionRecordingId: string): Promise<SessionPlayerData> => {
-                const params = toParams({ session_recording_id: sessionRecordingId })
+                const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
                 const response = await api.get(`api/event/session_recording?${params}`)
                 return response.result
             },
@@ -85,17 +129,70 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
         sessionDate: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData: SessionPlayerData): string | null => {
-                if (!sessionPlayerData?.snapshots.length || !sessionPlayerData.snapshots[0].timestamp) {
+                if (!sessionPlayerData?.start_time) {
                     return null
                 }
-                // :KLUDGE: This is not using the session timestamp but client-side timestamp
-                return moment(sessionPlayerData.snapshots[0].timestamp).format('MMM Do')
+                return moment(sessionPlayerData.start_time).format('MMM Do')
             },
         ],
         eventIndex: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData: SessionPlayerData): EventIndex => new EventIndex(sessionPlayerData?.snapshots || []),
         ],
-        pageVisitEvents: [(selectors) => [selectors.eventIndex], (eventIndex) => eventIndex.pageChangeEvents()],
+        recordingIndex: [
+            (selectors) => [selectors.orderedSessionRecordingIds, selectors.sessionRecordingId],
+            (recordingIds: SessionRecordingId[], id: SessionRecordingId): number => recordingIds.indexOf(id),
+        ],
+        showPrev: [(selectors) => [selectors.recordingIndex], (index: number): boolean => index > 0],
+        showNext: [
+            (selectors) => [selectors.recordingIndex, selectors.orderedSessionRecordingIds, selectors.pagination],
+            (index: number, ids: SessionRecordingId[], pagination: Record<string, any> | null) =>
+                index > -1 && (index < ids.length - 1 || pagination !== null),
+        ],
+        session: [
+            (selectors) => [selectors.sessionRecordingId, selectors.sessions],
+            (id: SessionRecordingId, sessions: Array<SessionType>): SessionType | null => {
+                const [session] = sessions.filter(
+                    (s) => s.session_recordings.filter((recording) => id === recording.id).length > 0
+                )
+                return session
+            },
+        ],
+        shouldLoadSessionEvents: [
+            (selectors) => [selectors.session, selectors.loadedSessionEvents],
+            (session, sessionEvents) => session && !session.events && !sessionEvents[session.global_session_id],
+        ],
+        highlightedSessionEvents: [
+            (selectors) => [selectors.session, selectors.loadedSessionEvents],
+            (session, sessionEvents) => {
+                if (!session) {
+                    return []
+                }
+                const events = session.events || sessionEvents[session.global_session_id] || []
+                return events.filter((e) => (session.matching_events || []).includes(e.id))
+            },
+        ],
+        shownPlayerEvents: [
+            (selectors) => [selectors.sessionPlayerData, selectors.eventIndex, selectors.highlightedSessionEvents],
+            (sessionPlayerData, eventIndex, events) => {
+                if (!sessionPlayerData) {
+                    return []
+                }
+                const startTime = +moment(sessionPlayerData.start_time)
+
+                const pageChangeEvents = eventIndex.pageChangeEvents().map(({ playerTime, href }) => ({
+                    playerTime,
+                    text: href,
+                    color: 'blue',
+                }))
+                const highlightedEvents = events.map((event) => ({
+                    playerTime: +moment(event.timestamp) - startTime,
+                    text: eventToName(event),
+                    color: 'orange',
+                }))
+
+                return pageChangeEvents.concat(highlightedEvents).sort((a, b) => a.playerTime - b.playerTime)
+            },
+        ],
     },
 })

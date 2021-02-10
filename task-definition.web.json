@@ -79,16 +79,32 @@
                     "value": "True"
                 },
                 {
-                    "name": "LOG_TO_WAL",
-                    "value": "True"
-                },
-                {
                     "name": "PRIMARY_DB",
                     "value": "clickhouse"
                 },
                 {
                     "name": "SITE_URL",
                     "value": "https://app.posthog.com"
+                },
+                {
+                    "name": "PLUGINS_CLOUD_WHITELISTED_ORG_IDS",
+                    "value": "4dc8564d-bd82-1065-2f40-97f7c50f67cf,2f3a6d88-4789-027b-6205-7b9a0e12217d"
+                },
+                {
+                    "name": "EMAIL_DEFAULT_FROM",
+                    "value": "hey@posthog.com"
+                },
+                {
+                    "name": "DEPLOYMENT",
+                    "value": "Posthog Cloud"
+                },
+                {
+                    "name": "CLICKHOUSE_DENORMALIZED_PROPERTIES",
+                    "value": "issampledevent,currentscreen,objectname"
+                },
+                {
+                    "name": "PLUGIN_SERVER_INGESTION",
+                    "value": "true"
                 }
             ],
             "secrets": [

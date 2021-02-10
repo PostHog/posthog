@@ -9,7 +9,16 @@ import subprocess
 import time
 import uuid
 from itertools import count
-from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    Generator,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    Union,
+)
 from urllib.parse import urljoin, urlparse
 
 import lzstring
@@ -17,6 +26,7 @@ import pytz
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models.query import QuerySet
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
@@ -27,6 +37,21 @@ from sentry_sdk import capture_exception, push_scope
 
 from posthog.redis import get_client
 from posthog.settings import print_warning
+
+DATERANGE_MAP = {
+    "minute": datetime.timedelta(minutes=1),
+    "hour": datetime.timedelta(hours=1),
+    "day": datetime.timedelta(days=1),
+    "week": datetime.timedelta(weeks=1),
+    "month": datetime.timedelta(days=31),
+}
+
+
+def format_label_date(date: datetime.datetime, interval: str) -> str:
+    labels_format = "%a. {day} %B"
+    if interval == "hour" or interval == "minute":
+        labels_format += ", %H:%M"
+    return date.strftime(labels_format.format(day=date.day))
 
 
 def absolute_uri(url: Optional[str] = None) -> str:
@@ -166,7 +191,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     # Get the current user's team (or first team in the instance) to set opt out capture & self capture configs
     team: Optional[Team] = None
     try:
-        team = request.user.team
+        team = request.user.team  # type: ignore
     except (Team.DoesNotExist, AttributeError):
         team = Team.objects.first()
 
@@ -236,18 +261,16 @@ def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]
     append["labels"] = []
     append["days"] = []
 
-    labels_format = "%a. {day} %B"
     days_format = "%Y-%m-%d"
 
     if interval == "hour" or interval == "minute":
-        labels_format += ", %H:%M"
         days_format += " %H:%M:%S"
 
     for item in dates_filled:
         date = item[0]
         value = item[1]
         append["days"].append(date.strftime(days_format))
-        append["labels"].append(date.strftime(labels_format.format(day=date.day)))
+        append["labels"].append(format_label_date(date, interval))
         append["data"].append(value)
     if math == "sum":
         append["count"] = sum(append["data"])
@@ -330,7 +353,7 @@ def load_data_from_request(request):
                 data_res["body"] = {**json.loads(request.body)}
             except:
                 pass
-        elif request.content_type == "text/plain":
+        elif request.content_type == "text/plain" or request.content_type == "":
             data = request.body
         else:
             data = request.POST.get("data")
@@ -469,3 +492,67 @@ def get_instance_realm() -> str:
     Returns the realm for the current instance. `cloud` or `hosted`.
     """
     return "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
+
+
+def flatten(l: Union[List, Tuple]) -> Generator:
+    for el in l:
+        if isinstance(el, list):
+            yield from flatten(el)
+        else:
+            yield el
+
+
+def get_daterange(
+    start_date: Optional[datetime.datetime], end_date: Optional[datetime.datetime], frequency: str
+) -> List[Any]:
+    """
+    Returns list of a fixed frequency Datetime objects between given bounds.
+
+    Parameters:
+        start_date: Left bound for generating dates.
+        end_date: Right bound for generating dates.
+        frequency: Possible options => minute, hour, day, week, month
+    """
+
+    delta = DATERANGE_MAP[frequency]
+
+    if not start_date or not end_date:
+        return []
+
+    time_range = []
+    if frequency != "minute" and frequency != "hour":
+        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    if frequency == "week":
+        start_date += datetime.timedelta(days=6 - start_date.weekday())
+    if frequency != "month":
+        while start_date <= end_date:
+            time_range.append(start_date)
+            start_date += delta
+    else:
+        if start_date.day != 1:
+            start_date = (start_date.replace(day=1) + delta).replace(day=1)
+        while start_date <= end_date:
+            time_range.append(start_date)
+            start_date = (start_date.replace(day=1) + delta).replace(day=1)
+    return time_range
+
+
+def get_safe_cache(cache_key: str):
+    try:
+        cached_result = cache.get(cache_key)  # cache.get is safe in most cases
+        return cached_result
+    except:  # if it errors out, the cache is probably corrupted
+        try:
+            cache.delete(cache_key)  # in that case, try to delete the cache
+        except:
+            pass
+    return None
+
+
+ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
+
+
+def is_anonymous_id(distinct_id: str) -> bool:
+    # Our anonymous ids are _not_ uuids, but a random collection of strings
+    return bool(re.match(ANONYMOUS_REGEX, distinct_id))

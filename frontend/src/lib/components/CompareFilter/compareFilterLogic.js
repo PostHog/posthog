@@ -1,22 +1,30 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
+import { ShownAsValue } from 'lib/constants'
 import { objectsEqual } from 'lib/utils'
 
 export const compareFilterLogic = kea({
     actions: () => ({
         setCompare: (compare) => ({ compare }),
+        setDisabled: (disabled) => ({ disabled }),
         toggleCompare: true,
     }),
-    reducers: ({ actions }) => ({
+    reducers: () => ({
         compare: [
             false,
             {
-                [actions.setCompare]: (_, { compare }) => compare,
+                setCompare: (_, { compare }) => compare,
+            },
+        ],
+        disabled: [
+            false,
+            {
+                setDisabled: (_, { disabled }) => disabled,
             },
         ],
     }),
     listeners: ({ actions, values }) => ({
-        [actions.setCompare]: () => {
+        setCompare: () => {
             const { compare, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
 
@@ -26,14 +34,19 @@ export const compareFilterLogic = kea({
                 router.actions.push(pathname, searchParams)
             }
         },
-        [actions.toggleCompare]: () => {
+        toggleCompare: () => {
             actions.setCompare(!values.compare)
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_, { compare }) => {
-            if (compare) {
+        '/insights': (_, { compare, shown_as, date_from }) => {
+            if (compare != null) {
                 actions.setCompare(compare)
+            }
+            if (shown_as === ShownAsValue.LIFECYCLE || date_from === 'all') {
+                actions.setDisabled(true)
+            } else {
+                actions.setDisabled(false)
             }
         },
     }),

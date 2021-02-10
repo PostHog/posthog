@@ -1,7 +1,7 @@
 RETENTION_SQL = """
 SELECT
-    datediff(%(period)s, {trunc_func}(toDateTime(%(start_date)s)), reference_event.event_date) as period_to_event_days,
-    datediff(%(period)s, reference_event.event_date, {trunc_func}(toDateTime(event_date))) as period_between_events_days,
+    datediff(%(period)s, {trunc_func}(toDateTime(%(start_date)s)), reference_event.event_date) as base_interval,
+    datediff(%(period)s, reference_event.event_date, {trunc_func}(toDateTime(event_date))) as intervals_from_base,
     COUNT(DISTINCT event.person_id) count
 FROM (
     SELECT 
@@ -18,8 +18,8 @@ JOIN (
 ) reference_event
     ON (event.person_id = reference_event.person_id)
 WHERE {trunc_func}(event.event_date) > {trunc_func}(reference_event.event_date)
-GROUP BY period_to_event_days, period_between_events_days
-ORDER BY period_to_event_days, period_between_events_days
+GROUP BY base_interval, intervals_from_base
+ORDER BY base_interval, intervals_from_base
 """
 
 REFERENCE_EVENT_SQL = """
@@ -47,15 +47,13 @@ event_date >= toDateTime(%(reference_start_date)s) AND event_date <= toDateTime(
 
 
 RETENTION_PEOPLE_SQL = """
-SELECT * FROM person WHERE id IN (
-    SELECT DISTINCT person_id 
-    FROM events e join (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
-    where toDateTime(e.timestamp) >= toDateTime(%(start_date)s) AND toDateTime(e.timestamp) <= toDateTime(%(end_date)s)
-    AND e.team_id = %(team_id)s AND person_id IN (
-        SELECT person_id FROM ({reference_event_query}) as persons
-    ) {target_query} {filters}
-    LIMIT 100 OFFSET %(offset)s
-)
+SELECT DISTINCT person_id 
+FROM events e join (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
+where toDateTime(e.timestamp) >= toDateTime(%(start_date)s) AND toDateTime(e.timestamp) <= toDateTime(%(end_date)s)
+AND e.team_id = %(team_id)s AND person_id IN (
+    SELECT person_id FROM ({reference_event_query}) as persons
+) {target_query} {filters}
+LIMIT 100 OFFSET %(offset)s
 """
 
 INITIAL_INTERVAL_SQL = """

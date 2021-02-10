@@ -5,6 +5,13 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch
+from ee.clickhouse.sql.retention.people_in_period import (
+    DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL,
+    DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL,
+    REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL,
+    REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL,
+    RETENTION_PEOPLE_PER_PERIOD_SQL,
+)
 from ee.clickhouse.sql.retention.retention import (
     INITIAL_INTERVAL_SQL,
     REFERENCE_EVENT_SQL,
@@ -16,6 +23,7 @@ from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, T
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter, RetentionFilter
+from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.retention import Retention
 
@@ -170,5 +178,70 @@ class ClickhouseRetention(Retention):
                 **prop_filter_params,
             },
         )
-        serialized = ClickhousePersonSerializer(result, many=True).data
-        return serialized
+        people = Person.objects.filter(team_id=team.pk, uuid__in=[val[0] for val in result])
+
+        from posthog.api.person import PersonSerializer
+
+        return PersonSerializer(people, many=True).data
+
+    def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
+        period = filter.period
+        is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
+        trunc_func = get_trunc_func_ch(period)
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+
+        returning_entity = filter.returning_entity if filter.selected_interval > 0 else filter.target_entity
+        target_query, target_params = self._get_condition(filter.target_entity, table="e")
+        target_query_formatted = "AND {target_query}".format(target_query=target_query)
+        return_query, return_params = self._get_condition(returning_entity, table="e", prepend="returning")
+        return_query_formatted = "AND {return_query}".format(return_query=return_query)
+
+        first_event_sql = (
+            REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL
+            if is_first_time_retention
+            else REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL
+        ).format(target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,)
+        default_event_query = (
+            DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL
+            if is_first_time_retention
+            else DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL
+        ).format(target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,)
+
+        date_from = filter.date_from + filter.selected_interval * filter.period_increment
+        date_to = filter.date_to
+
+        filter = filter.with_data({"total_intervals": filter.total_intervals - filter.selected_interval})
+
+        query_result = sync_execute(
+            RETENTION_PEOPLE_PER_PERIOD_SQL.format(
+                returning_query=return_query_formatted,
+                filters=prop_filters,
+                first_event_sql=first_event_sql,
+                first_event_default_sql=default_event_query,
+                trunc_func=trunc_func,
+            ),
+            {
+                "team_id": team.pk,
+                "start_date": date_from.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "end_date": date_to.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "offset": filter.offset,
+                "limit": 100,
+                "period": period,
+                **target_params,
+                **return_params,
+                **prop_filter_params,
+            },
+        )
+        people_dict = {}
+
+        from posthog.api.person import PersonSerializer
+
+        for person in Person.objects.filter(team_id=team.pk, uuid__in=[val[0] for val in query_result]):
+            people_dict.update({str(person.uuid): PersonSerializer(person).data})
+
+        result = self.process_people_in_period(filter, query_result, people_dict)
+        return result

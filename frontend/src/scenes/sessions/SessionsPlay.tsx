@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Player, PlayerRef } from 'posthog-react-rrweb-player'
+import { Player, PlayerRef, findCurrent } from 'posthog-react-rrweb-player'
 import { Card, Col, Input, Row, Skeleton, Tag } from 'antd'
 import {
     UserOutlined,
@@ -49,23 +49,34 @@ function DeviceIcon({ width }: { width: number }): JSX.Element {
 export const SessionsPlay = hot(_SessionsPlay)
 function _SessionsPlay(): JSX.Element {
     const {
+        session,
         sessionPlayerData,
         sessionPlayerDataLoading,
+        loadingNextRecording,
         sessionDate,
         addingTagShown,
         addingTag,
         tags,
         tagsLoading,
         eventIndex,
-        pageVisitEvents,
+        showNext,
+        showPrev,
+        shownPlayerEvents,
+        shouldLoadSessionEvents,
     } = useValues(sessionsPlayLogic)
-    const { toggleAddingTagShown, setAddingTag, createTag } = useActions(sessionsPlayLogic)
+    const { toggleAddingTagShown, setAddingTag, createTag, goToNext, goToPrevious, loadSessionEvents } = useActions(
+        sessionsPlayLogic
+    )
     const addTagInput = useRef<Input>(null)
 
     const [playerTime, setCurrentPlayerTime] = useState(0)
     const playerRef = useRef<PlayerRef>(null)
-    const [pageEvent, atPageIndex] = useMemo(() => eventIndex.getPageMetadata(playerTime), [eventIndex, playerTime])
+    const [pageEvent] = useMemo(() => eventIndex.getPageMetadata(playerTime), [eventIndex, playerTime])
     const [recordingMetadata] = useMemo(() => eventIndex.getRecordingMetadata(playerTime), [eventIndex, playerTime])
+    const activeIndex = useMemo(() => findCurrent(playerTime, shownPlayerEvents), [shownPlayerEvents, playerTime])[1]
+
+    const isLoadingSession = sessionPlayerDataLoading || loadingNextRecording
+    const isLoadingEvents = isLoadingSession || shouldLoadSessionEvents
 
     useEffect(() => {
         if (addingTagShown && addTagInput.current) {
@@ -73,9 +84,15 @@ function _SessionsPlay(): JSX.Element {
         }
     }, [addingTagShown])
 
-    const seekEvent = (playerTime: number): void => {
-        setCurrentPlayerTime(playerTime)
-        playerRef.current?.seek(playerTime)
+    useEffect(() => {
+        if (shouldLoadSessionEvents && session) {
+            loadSessionEvents(session)
+        }
+    }, [session])
+
+    const seekEvent = (time: number): void => {
+        setCurrentPlayerTime(time)
+        playerRef.current?.seek(time)
     }
 
     return (
@@ -83,9 +100,9 @@ function _SessionsPlay(): JSX.Element {
             <Row gutter={16} style={{ height: '100%' }}>
                 <Col span={18} style={{ paddingRight: 0 }}>
                     <div className="mb-05" style={{ display: 'flex' }}>
-                        {sessionPlayerDataLoading && <Skeleton paragraph={{ rows: 0 }} active />}
-
-                        {!sessionPlayerDataLoading && (
+                        {isLoadingSession ? (
+                            <Skeleton paragraph={{ rows: 0 }} active />
+                        ) : (
                             <>
                                 {pageEvent ? (
                                     <>
@@ -106,13 +123,15 @@ function _SessionsPlay(): JSX.Element {
                         )}
                     </div>
                     <div className="ph-no-capture player-container">
-                        {sessionPlayerDataLoading ? (
+                        {isLoadingSession ? (
                             <Loading />
                         ) : (
                             <Player
                                 ref={playerRef}
                                 events={sessionPlayerData?.snapshots || []}
                                 onPlayerTimeChange={setCurrentPlayerTime}
+                                onNext={showNext ? goToNext : undefined}
+                                onPrevious={showPrev ? goToPrevious : undefined}
                             />
                         )}
                     </div>
@@ -120,7 +139,7 @@ function _SessionsPlay(): JSX.Element {
                 <Col span={6} className="sidebar" style={{ paddingLeft: 16 }}>
                     <Card className="card-elevated">
                         <h3 className="l3">Session Information</h3>
-                        {sessionPlayerDataLoading ? (
+                        {isLoadingSession ? (
                             <div>
                                 <Skeleton paragraph={{ rows: 3 }} active />
                             </div>
@@ -196,7 +215,7 @@ function _SessionsPlay(): JSX.Element {
                         <p className="text-muted text-small">
                             Click on an item to jump to that point in the recording.
                         </p>
-                        {sessionPlayerDataLoading ? (
+                        {isLoadingEvents ? (
                             <div>
                                 <Skeleton paragraph={{ rows: 6 }} active />
                             </div>
@@ -204,9 +223,11 @@ function _SessionsPlay(): JSX.Element {
                             <div className="timeline">
                                 <div className="line" />
                                 <div className="timeline-items">
-                                    {pageVisitEvents.map(({ href, playerTime }, index) => (
-                                        <div className={index === atPageIndex ? 'current' : undefined} key={index}>
-                                            <Tag onClick={() => seekEvent(playerTime)}>{href}</Tag>
+                                    {shownPlayerEvents.map(({ playerTime: time, color, text }, index) => (
+                                        <div className={index == activeIndex ? 'current' : undefined} key={index}>
+                                            <Tag onClick={() => seekEvent(time)} color={color}>
+                                                {text}
+                                            </Tag>
                                         </div>
                                     ))}
                                 </div>

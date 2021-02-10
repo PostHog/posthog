@@ -10,7 +10,7 @@
             width: 100vw;
             min-height: 100vh;
             background: rgba(0, 0, 0, 0.3);
-            z-index: 1031;
+            z-index: $z_mobile_nav_overlay;
             opacity: 100;
         }
         transition: opacity 0.3s;
@@ -20,6 +20,7 @@
 .navigation-main {
     // General navigation bar styles (defaults to wide 180px)
     background-color: $bg_menu !important;
+    z-index: $z_main_nav;
 
     .navigation-inner {
         background-color: $bg_menu;
@@ -67,6 +68,7 @@
         svg {
             max-height: 28px;
             max-width: 28px;
+            font-size: 28px;
         }
 
         .menu-title {
@@ -156,6 +158,58 @@
     }
 }
 
+.pinned-dashboards-popover {
+    z-index: $z_pinned_dashboards_popup;
+    &.ant-popover-placement-right {
+        padding-left: 0;
+    }
+    .ant-popover-arrow {
+        display: none;
+    }
+}
+
+.pinned-dashboards {
+    border: 0;
+
+    .ant-menu-item-group-title {
+        padding-left: 0px;
+    }
+
+    .ant-menu-item {
+        border-radius: $radius;
+        padding-left: 8px;
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+        }
+
+        svg {
+            margin-right: 10px;
+            font-size: 16px;
+        }
+
+        &.ant-menu-item-active {
+            background-color: $bg_mid;
+        }
+    }
+
+    .pinned-empty-state {
+        height: initial;
+        padding-left: 16px;
+        text-align: left;
+
+        span {
+            color: $text_muted;
+            max-width: 200px;
+            display: inline-block;
+            text-align: left;
+            line-height: 1.5em;
+            white-space: initial;
+        }
+    }
+}
+
 .navigation-top {
     background-color: $bg_light;
     width: calc(100% - 80px);
@@ -165,7 +219,7 @@
     @extend .mixin-elevated;
     position: fixed;
     top: 0;
-    z-index: 1000;
+    z-index: $z_top_navigation;
     color: $text_default;
 
     &.full-width {
@@ -318,5 +372,20 @@
         background-color: $border_light;
         height: 1px;
         width: 100%;
+    }
+}
+
+.demo-warning {
+    display: flex;
+    align-items: center;
+
+    .ant-alert-message {
+        font-weight: bold;
+    }
+
+    .ant-alert-close-icon .anticon-close svg {
+        height: 14px;
+        width: 14px;
+        margin-left: $default_spacing;
     }
 }

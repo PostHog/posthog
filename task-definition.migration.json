@@ -73,16 +73,16 @@
                     "value": "True"
                 },
                 {
-                    "name": "LOG_TO_WAL",
-                    "value": "True"
-                },
-                {
                     "name": "PRIMARY_DB",
                     "value": "clickhouse"
                 },
                 {
                     "name": "SITE_URL",
                     "value": "https://app.posthog.com"
+                },
+                {
+                    "name": "DEPLOYMENT",
+                    "value": "Posthog Cloud"
                 }
             ],
             "secrets": [

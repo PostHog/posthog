@@ -1,11 +1,11 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { posthogEvents } from 'lib/utils'
-import { userLogicType } from 'types/scenes/userLogicType'
+import { userLogicType } from './userLogicType'
 import { UserType, UserUpdateType } from '~/types'
 import posthog from 'posthog-js'
 
-interface EventProperty {
+export interface EventProperty {
     value: string
     label: string
 }
@@ -20,6 +20,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
         userUpdateRequest: (update: UserUpdateType, updateKey?: string) => ({ update, updateKey }),
         userUpdateSuccess: (user: UserType, updateKey?: string) => ({ user, updateKey }),
         userUpdateFailure: (error: string, updateKey?: string) => ({ updateKey, error }),
+        userUpdateLoading: (loading: boolean) => ({ loading }),
         currentTeamUpdateRequest: (teamId: number) => ({ teamId }),
         currentOrganizationUpdateRequest: (organizationId: string) => ({ organizationId }),
         completedOnboarding: true,
@@ -32,6 +33,14 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
             {
                 setUser: (_, payload) => payload.user,
                 userUpdateSuccess: (_, payload) => payload.user,
+            },
+        ],
+        userUpdateLoading: [
+            false,
+            {
+                userUpdateRequest: () => true,
+                userUpdateSuccess: () => false,
+                userUpdateFailure: () => false,
             },
         ],
     },
@@ -85,6 +94,11 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                 return data
             },
         ],
+        demoOnlyProject: [
+            () => [selectors.user],
+            (user): boolean =>
+                (user?.team?.is_demo && user?.organization?.teams && user.organization.teams.length == 1) || false,
+        ],
     }),
 
     listeners: ({ actions }) => ({
@@ -115,6 +129,9 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                         posthog.register({
                             posthog_version: user.posthog_version,
                             has_slack_webhook: !!user.team?.slack_incoming_webhook,
+                            is_demo_project: user.team?.is_demo,
+                            has_billing_plan: !!user.billing?.plan,
+                            // :TODO: Add percentage usage logic
                         })
                     }
                 }

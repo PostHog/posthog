@@ -1,9 +1,9 @@
-from datetime import datetime
 from distutils.util import strtobool
 from typing import Any, Dict, List
 
 from django.core.cache import cache
 from django.db.models import QuerySet
+from django.db.models.query_utils import Q
 from django.utils.timezone import now
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
@@ -11,20 +11,24 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.user import UserSerializer
 from posthog.celery import update_cache_item_task
-from posthog.constants import DATE_FROM, FROM_DASHBOARD, INSIGHT, OFFSET, TRENDS_STICKINESS
+from posthog.constants import FROM_DASHBOARD, INSIGHT, INSIGHT_FUNNELS, INSIGHT_PATHS, TRENDS_STICKINESS
 from posthog.decorators import CacheType, cached_function
-from posthog.models import DashboardItem, Event, Filter, Person, Team
-from posthog.models.action import Action
-from posthog.models.filters import RetentionFilter
+from posthog.models import DashboardItem, Event, Filter, Team
+from posthog.models.filters import Filter, RetentionFilter
+from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.queries import paths, retention, sessions, stickiness, trends
-from posthog.utils import generate_cache_key
+from posthog.queries import paths, retention, stickiness, trends
+from posthog.queries.sessions.sessions import Sessions
+from posthog.utils import generate_cache_key, get_safe_cache
 
 
 class InsightSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
+    created_by = serializers.SerializerMethodField()
 
     class Meta:
         model = DashboardItem
@@ -32,8 +36,8 @@ class InsightSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "filters",
+            "filters_hash",
             "order",
-            "type",
             "deleted",
             "dashboard",
             "layouts",
@@ -45,6 +49,10 @@ class InsightSerializer(serializers.ModelSerializer):
             "saved",
             "created_by",
         ]
+        read_only_fields = (
+            "created_by",
+            "created_at",
+        )
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
         request = self.context["request"]
@@ -66,12 +74,14 @@ class InsightSerializer(serializers.ModelSerializer):
     def get_result(self, dashboard_item: DashboardItem):
         if not dashboard_item.filters:
             return None
-        filter = Filter(data=dashboard_item.filters)
-        cache_key = generate_cache_key(filter.toJSON() + "_" + str(dashboard_item.team_id))
-        result = cache.get(cache_key)
+        result = get_safe_cache(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
         return result["result"]
+
+    def get_created_by(self, dashboard_item: DashboardItem):
+        if dashboard_item.created_by:
+            return UserSerializer(dashboard_item.created_by).data
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -100,7 +110,10 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         for key in filters:
             if key == "saved":
-                queryset = queryset.filter(saved=bool(strtobool(str(request.GET["saved"]))))
+                if strtobool(str(request.GET["saved"])):
+                    queryset = queryset.filter(Q(saved=True) | Q(dashboard__isnull=False))
+                else:
+                    queryset = queryset.filter(Q(saved=False))
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == INSIGHT:
@@ -132,15 +145,16 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_trends(request)
         return Response(result)
 
-    @cached_function(cache_type=CacheType.TRENDS)
+    @cached_function()
     def calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request)
         if filter.shown_as == TRENDS_STICKINESS:
-            filter = StickinessFilter(
-                request=request, team=team, get_earliest_timestamp=Event.objects.earliest_timestamp
+            earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
+            stickiness_filter = StickinessFilter(
+                request=request, team=team, get_earliest_timestamp=earliest_timestamp_func
             )
-            result = stickiness.Stickiness().run(filter, team)
+            result = stickiness.Stickiness().run(stickiness_filter, team)
         else:
             result = trends.Trends().run(filter, team)
 
@@ -153,57 +167,17 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     #
     # params:
     # - session: (string: avg, dist) specifies session type
-    # - offset: (number) offset query param for paginated list of user sessions
     # - **shared filter types
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
-
-        team = self.team
-
-        filter = Filter(request=request)
-        limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
-        result: Dict[str, Any] = {"result": sessions.Sessions().run(filter=filter, team=team, limit=limit)}
-
-        if "distinct_id" in request.GET and request.GET["distinct_id"]:
-            result = self._filter_sessions_by_distinct_id(request.GET["distinct_id"], result)
-
-        if filter.session_type is None:
-            offset = filter.offset + limit - 1
-            if len(result["result"]) > SESSIONS_LIST_DEFAULT_LIMIT:
-                result["result"].pop()
-                date_from = result["result"][0]["start_time"].isoformat()
-                result.update({OFFSET: offset})
-                result.update({DATE_FROM: date_from})
+        result: Dict[str, Any] = {"result": self.calculate_session(request)}
 
         return Response(result)
 
-    def calculate_session(self, request: request.Request) -> Dict[str, Any]:
-        team = self.team
-
-        filter = Filter(request=request)
-        result: Dict[str, Any] = {"result": sessions.Sessions().run(filter, team)}
-
-        if "distinct_id" in request.GET and request.GET["distinct_id"]:
-            result = self._filter_sessions_by_distinct_id(request.GET["distinct_id"], result)
-
-        # add pagination
-        if filter.session_type is None:
-            offset = filter.offset + 50
-            if len(result["result"]) > 49:
-                date_from = result["result"][0]["start_time"].isoformat()
-                result.update({OFFSET: offset})
-                result.update({DATE_FROM: date_from})
-
-        return result
-
-    def _filter_sessions_by_distinct_id(self, distinct_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
-        person_ids = Person.objects.get(persondistinctid__distinct_id=distinct_id).distinct_ids
-        result["result"] = [
-            session for i, session in enumerate(result["result"]) if result["result"][i]["distinct_id"] in person_ids
-        ]
-        return result
+    @cached_function()
+    def calculate_session(self, request: request.Request) -> List[Dict[str, Any]]:
+        return Sessions().run(filter=SessionsFilter(request=request), team=self.team)
 
     # ******************************************
     # /insight/funnel
@@ -221,18 +195,19 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return Response(result)
 
+    @cached_function()
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         refresh = request.GET.get("refresh", None)
 
-        filter = Filter(request=request)
+        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
         result = {"loading": True}
 
         if refresh:
             cache.delete(cache_key)
         else:
-            cached_result = cache.get(cache_key)
+            cached_result = get_safe_cache(cache_key)
             if cached_result:
                 task_id = cached_result.get("task_id", None)
                 if not task_id:
@@ -241,7 +216,6 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     return result
 
         payload = {"filter": filter.toJSON(), "team_id": team.pk}
-
         task = update_cache_item_task.delay(cache_key, CacheType.FUNNEL, payload)
         task_id = task.id
         cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
@@ -260,11 +234,13 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_retention(request)
         return Response({"data": result})
 
+    @cached_function()
     def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
-        filter = RetentionFilter(request=request)
-        if not filter.date_from:
-            filter._date_from = "-11d"
+        data = {}
+        if not request.GET.get("date_from"):
+            data.update({"date_from": "-11d"})
+        filter = RetentionFilter(data=data, request=request)
         result = retention.Retention().run(filter, team)
         return result
 
@@ -280,9 +256,10 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_path(request)
         return Response(result)
 
+    @cached_function()
     def calculate_path(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
-        filter = Filter(request=request)
+        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
         resp = paths.Paths().run(filter=filter, team=team)
         return resp
 

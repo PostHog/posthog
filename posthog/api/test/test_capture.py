@@ -7,11 +7,11 @@ from unittest.mock import patch
 from urllib.parse import quote
 
 import lzstring
-import numpy as np
 from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.models import PersonalAPIKey
+from posthog.models.feature_flag import FeatureFlag
 
 from .base import BaseTest
 
@@ -175,6 +175,26 @@ class TestCapture(BaseTest):
 
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
+    def test_js_gzip_with_no_content_type(self, patch_process_event_with_plugins):
+        "IE11 sometimes does not send content_type"
+
+        self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
+        self.team.save()
+
+        self.client.post(
+            "/track?compression=gzip-js",
+            data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\xadRKn\xdb0\x10\xbdJ@xi\xd9CY\xd6o[\xf7\xb3\xe8gS4\x8b\xa2\x10(r$\x11\xa6I\x81\xa2\xe4\x18A.\xd1\x0b\xf4 \xbdT\x8f\xd0a\x93&mQt\xd5\x15\xc9\xf7\xde\xbc\x19\xf0\xcd-\xc3\x05m`5;]\x92\xfb\xeb\x9a\x8d\xde\x8d\xe8\x83\xc6\x89\xd5\xb7l\xe5\xe8`\xaf\xb5\x9do\x88[\xb5\xde\x9d'\xf4\x04=\x1b\xbc;a\xc4\xe4\xec=\x956\xb37\x84\x0f!\x8c\xf5vk\x9c\x14fpS\xa8K\x00\xbeUNNQ\x1b\x11\x12\xfd\xceFb\x14a\xb0\x82\x0ck\xf6(~h\xd6,\xe8'\xed,\xab\xcb\x82\xd0IzD\xdb\x0c\xa8\xfb\x81\xbc8\x94\xf0\x84\x9e\xb5\n\x03\x81U\x1aA\xa3[\xf2;c\x1b\xdd\xe8\xf1\xe4\xc4\xf8\xa6\xd8\xec\x92\x16\x83\xd8T\x91\xd5\x96:\x85F+\xe2\xaa\xb44Gq\xe1\xb2\x0cp\x03\xbb\x1f\xf3\x05\x1dg\xe39\x14Y\x9a\xf3|\xb7\xe1\xb0[3\xa5\xa7\xa0\xad|\xa8\xe3E\x9e\xa5P\x89\xa2\xecv\xb2H k1\xcf\xabR\x08\x95\xa7\xfb\x84C\n\xbc\x856\xe1\x9d\xc8\x00\x92Gu\x05y\x0e\xb1\x87\xc2EK\xfc?^\xda\xea\xa0\x85i<vH\xf1\xc4\xc4VJ{\x941\xe2?Xm\xfbF\xb9\x93\xd0\xf1c~Q\xfd\xbd\xf6\xdf5B\x06\xbd`\xd3\xa1\x08\xb3\xa7\xd3\x88\x9e\x16\xe8#\x1b)\xec\xc1\xf5\x89\xf7\x14G2\x1aq!\xdf5\xebfc\x92Q\xf4\xf8\x13\xfat\xbf\x80d\xfa\xed\xcb\xe7\xafW\xd7\x9e\x06\xb5\xfd\x95t*\xeeZpG\x8c\r\xbd}n\xcfo\x97\xd3\xabqx?\xef\xfd\x8b\x97Y\x7f}8LY\x15\x00>\x1c\xf7\x10\x0e\xef\xf0\xa0P\xbdi3vw\xf7\x1d\xccN\xdf\x13\xe7\x02\x00\x00",
+            content_type="",
+        )
+
+        self.assertEqual(patch_process_event_with_plugins.call_count, 1)
+        self.assertEqual(patch_process_event_with_plugins.call_args[1]["args"][3]["event"], "my-event")
+        self.assertEqual(
+            patch_process_event_with_plugins.call_args[1]["args"][3]["properties"]["prop"], "💻 Writing code",
+        )
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_incorrect_padding(self, patch_process_event_with_plugins):
         response = self.client.get(
             "/e/?data=eyJldmVudCI6IndoYXRldmVmciIsInByb3BlcnRpZXMiOnsidG9rZW4iOiJ0b2tlbjEyMyIsImRpc3RpbmN0X2lkIjoiYXNkZiJ9fQ",
@@ -217,7 +237,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": data,
+                "data": {**data, "properties": {}},
                 "team_id": self.team.pk,
             },
         )
@@ -247,7 +267,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": data["batch"][0],
+                "data": {**data["batch"][0], "properties": {}},
                 "team_id": self.team.pk,
             },
         )
@@ -276,7 +296,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": data["batch"][0],
+                "data": {**data["batch"][0], "properties": {}},
                 "team_id": self.team.pk,
             },
         )
@@ -306,7 +326,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": data["batch"][0],
+                "data": {**data["batch"][0], "properties": {}},
                 "team_id": self.team.pk,
             },
         )
@@ -335,7 +355,7 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 401)
         self.assertEqual(
             response.json()["message"],
             "Project API key invalid. You can find your project API key in PostHog project settings.",
@@ -348,7 +368,7 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 401)
         self.assertEqual(
             response.json()["message"],
             "API key not provided. You can find your project API key in PostHog project settings.",
@@ -520,9 +540,23 @@ class TestCapture(BaseTest):
         self.client.post(
             "/track/",
             data={
-                "data": json.dumps([{"event": "beep", "properties": {"distinct_id": np.nan}}]),
+                "data": json.dumps([{"event": "beep", "properties": {"distinct_id": float("nan")}}]),
                 "api_key": self.team.api_token,
             },
         )
         arguments = self._to_arguments(patch_process_event_with_plugins)
         self.assertEqual(arguments["data"]["properties"]["distinct_id"], None)
+
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_add_feature_flags_if_missing(self, patch_process_event_with_plugins) -> None:
+        self.assertListEqual(self.team.event_properties_numerical, [])
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test-ff", rollout_percentage=100)
+        self.client.post(
+            "/track/",
+            data={
+                "data": json.dumps([{"event": "purchase", "properties": {"distinct_id": "xxx", "$lib": "web"}}]),
+                "api_key": self.team.api_token,
+            },
+        )
+        arguments = self._to_arguments(patch_process_event_with_plugins)
+        self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])

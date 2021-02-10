@@ -5,6 +5,7 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import celery
+from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.contrib.postgres.fields import JSONField
 from django.db import connection, models, transaction
@@ -30,6 +31,7 @@ LAST_UPDATED_TEAM_ACTION: Dict[int, datetime.datetime] = {}
 TEAM_EVENT_ACTION_QUERY_CACHE: Dict[int, Dict[str, tuple]] = defaultdict(dict)
 # TEAM_EVENT_ACTION_QUERY_CACHE looks like team_id -> event ex('$pageview') -> query
 TEAM_ACTION_QUERY_CACHE: Dict[int, str] = {}
+DEFAULT_EARLIEST_TIME_DELTA = relativedelta(weeks=1)
 
 
 class SelectorPart(object):
@@ -127,12 +129,11 @@ class EventManager(models.QuerySet):
         return (subqueries, filter)
 
     def earliest_timestamp(self, team_id: int):
-        return (
-            self.filter(team_id=team_id)
-            .order_by("timestamp")[0]
-            .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-            .isoformat()
-        )
+        timestamp = self.filter(team_id=team_id).order_by("timestamp").values_list("timestamp", flat=True).first()
+        if timestamp is None:
+            timestamp = timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
+
+        return timestamp.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
 
     def filter_by_element(self, filters: Dict, team_id: int):
         groups = ElementGroup.objects.filter(team_id=team_id)
@@ -189,6 +190,8 @@ class EventManager(models.QuerySet):
         )
 
     def query_db_by_action(self, action, order_by="-timestamp", start=None, end=None) -> models.QuerySet:
+        from posthog.queries.base import properties_to_Q
+
         events = self
         any_step = Q()
         steps = action.steps.all()
@@ -196,10 +199,12 @@ class EventManager(models.QuerySet):
             return self.none()
 
         for step in steps:
+            step_filter = Filter(data={"properties": step.properties})
+
             subquery = (
                 Event.objects.add_person_id(team_id=action.team_id)
                 .filter(
-                    Filter(data={"properties": step.properties}).properties_to_Q(team_id=action.team_id),
+                    properties_to_Q(step_filter.properties, team_id=action.team_id),
                     pk=OuterRef("id"),
                     **self.filter_by_event(step),
                     **self.filter_by_element(model_to_dict(step), team_id=action.team_id),
@@ -249,6 +254,8 @@ class EventManager(models.QuerySet):
                 relations = []
                 for action in event.actions:
                     relations.append(action.events.through(action_id=action.pk, event_id=event.pk))
+                    if is_ee_enabled():
+                        continue  # avoiding duplication here - in EE hooks are handled by webhooks_ee.py
                     action.on_perform(event)
                     if action.post_to_slack:
                         should_post_webhook = True

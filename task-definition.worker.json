@@ -73,16 +73,24 @@
                     "value": "True"
                 },
                 {
-                    "name": "LOG_TO_WAL",
-                    "value": "True"
-                },
-                {
                     "name": "PRIMARY_DB",
                     "value": "clickhouse"
                 },
                 {
                     "name": "SITE_URL",
                     "value": "https://app.posthog.com"
+                },
+                {
+                    "name": "EMAIL_DEFAULT_FROM",
+                    "value": "hey@posthog.com"
+                },
+                {
+                    "name": "DEPLOYMENT",
+                    "value": "Posthog Cloud"
+                },
+                {
+                    "name": "CLICKHOUSE_DENORMALIZED_PROPERTIES",
+                    "value": "issampledevent,currentscreen,objectname"
                 }
             ],
             "secrets": [
@@ -204,7 +212,7 @@
                 }
             ],
             "entryPoint": ["sh", "-c"],
-            "command": ["./bin/docker-worker"]
+            "command": ["./bin/docker-worker-celery --with-scheduler"]
         }
     ],
     "requiresCompatibilities": ["FARGATE"],

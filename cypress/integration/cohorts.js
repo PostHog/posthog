@@ -1,6 +1,5 @@
 describe('Cohorts', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-people]').click() // TODO: Remove when releasing navigation-1775
         cy.get('[data-attr=menu-item-cohorts]').click()
     })
     it('Cohorts new and list', () => {
@@ -10,6 +9,7 @@ describe('Cohorts', () => {
 
         // go to create a new cohort
         cy.get('[data-attr="create-cohort"]').click()
+        cy.get('[data-attr="cohort-choice-definition"]').click()
         cy.get('[data-attr="cohort-name"]').type('Test Cohort')
 
         // select "add filter" and "property"

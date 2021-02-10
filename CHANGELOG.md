@@ -1,5 +1,105 @@
 # Changelog
 
+### 1.20.0 - Tuesday 19 January 2021
+
+- [Plugins, Plugins, and more Plugins](/plugins)
+
+![Plugin Library Screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/plugin-library.png)
+
+A lot has been happening on our Plugins front. 
+
+Besides a whole bunch work to deliver performance improvements and mature the PostHog Plugins ecosystem, we have two major changes being introduced with this new PostHog version:
+
+**A shiny new plugin library**
+
+We have released a [plugin library](/plugins) where you can browse through all the plugins built by our core team and community, and made sure the library is populated with plugins! Thus, we now have integrations that support getting data from GitHub and GitLab, or sending data over to BigQuery and Hubspot, for example. 
+
+We're working to make plugins available on Cloud, but, in the meanwhile, if you're self-hosting, do check out our plugins and let us know what you think!
+
+**Plugins can now access persistent storage**
+
+Up until now, plugin builders would have noticed that the `cache` could have been used to store data in-memory using Redis, but we now also support `storage`, which allows plugins to store data in a persistent form, opening up a lot of new use cases for you to explore.
+
+- [Static Cohorts](https://github.com/PostHog/posthog/pull/2932)
+
+![Static Cohorts Screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/static-cohorts.png)
+
+In addition to our standard dynamic cohorts (periodically updated based on the definition), PostHog now support static cohorts - groups of users that don't update. 
+
+To create a static cohort, head over to 'People' -> 'Cohorts' and, when creating a new cohort, select 'Upload CSV'. This CSV file should have a single column with either the user's `distinct_id` or `email`. 
+
+This way, you can import data from outside sources into a PostHog cohort more easily, as well as turn your dynamic cohorts into static ones by first exporting them. You could, for example, add your Mailchimp subscribers list as a static cohort.
+
+- [Sortable Funnel Steps](https://github.com/PostHog/posthog/pull/2862)
+
+![Sortable Funnels Screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/funnel-step-reordering.png)
+
+As of this new release, when you head over to Funnels in PostHog, you will see 3 dots next to each funnel step. By dragging these 3 dots up and down you can now re-order your funnel's steps, for example if you made a mistake, or want to explore different funnel structures. 
+
+This was a feature that was consistently requested by the PostHog community, and we'd like to also shoutout [@glmaljkovich](https://github.com/glmaljkovich) for helping us build it!
+
+- [PostHog Bookmarklet](https://github.com/PostHog/posthog/pull/2774)
+
+![Bookmarklet Gif](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/bookmarklet.gif)
+
+To try out the PostHog snippet without having to update anything on your codebase, you can make use of our bookmarklet, which you can find over in 'Project Settings'.
+
+This lets you capture events in your website without any code, and we've been using it actively during our demos!
+
+- [Sessions List now loads 10x faster](https://github.com/PostHog/posthog/pull/2934)
+
+Since joining us, Karl has been submitting performance improvement after performance improvement.
+
+This time, as session recordings are being used more and more by our users, it was time to speed up the loading of the sessions list, which now loads 10x faster!
+
+### 1.19.0 - Tuesday 15 December 2020
+
+- [Scheduled Plugins and Editor](https://github.com/PostHog/posthog/pull/2743)
+
+![Plugin Editor Screenshot](https://posthog.com/static/f4aae550d6d85f934877d6e2c9e787c8/8c557/plugin-editor.png)
+
+We now support scheduled plugins that run periodically on a specified time cycle (e.g. minute, hour, day), as well as have a built-in code editor for plugins right into the PostHog UI.
+
+With the ability to run tasks in specified time intervals, you can now setup plugins that, for example, keep track of external metrics and add this data to PostHog via new events. This is possible because we now [support `posthog.capture` calls inside plugins as well](https://github.com/PostHog/posthog-plugin-server/pull/67). 
+
+Some metrics you might want to keep track of are, for example, server performance, GitHub activities (e.g. stars ⭐ ), engagement with your project's social media profiles, and anything else you can think of!
+
+You can learn more about scheduled plugins on the [PR that created them](https://github.com/PostHog/posthog-plugin-server/pull/63), as well as our docs for [building your own plugin](https://posthog.com/docs/plugins/build).
+
+> **Note:** Plugins are a Beta feature currently only available on self-hosted instances. We are working to make it available on PostHog Cloud soon.
+
+- [Lifecycle Analysis](https://github.com/PostHog/posthog/pull/2460)
+
+![Lifecycle Screenshot](https://posthog.com/static/b577dd0e4d2817e816ba602e5ef94e1d/8c557/lifecycle.png)
+
+Our 'Trends' tab just got an awesome new feature: lifecycle graphs!
+
+Lifecycle analysis digs deeper into your events and shows you a breakdown of the users who performed the event into new, returning, and resurrecting users. In addition, it also shows you the churn on for the specified time period. 
+
+To use it, select 'Shown As' -> 'Lifecycle' when in the 'Trends' tab.  
+
+- [New Session Recording Compression Scheme](https://github.com/PostHog/posthog/pull/2578)
+
+![Gzip Session Recording Screenshot](https://posthog.com/static/fe91676a24a8c70a017fafe2ab68f63e/8c557/session-recording-gzip.png)
+
+See the image above? That's our event processing time before and after the new compression scheme!
+
+By using gzip-based compression, we have now significantly improved performance both on the client and server, making event processing faster, as well as decreasing the number of session recordings that are lost. Be on the lookout for more green play buttons on your 'Sessions' page now.
+
+> If you installed `posthog-js` via `npm`, you should update to version 1.8.0 to get access to this update. Snippet users have access to the latest version by default.
+
+- [New Actions UX](https://github.com/PostHog/posthog/pull/2615)
+
+![New Actions UX Screenshot](https://posthog.com/static/1f931cd359d1238e8ecba8d72a0be0c4/8c557/actions-ux.png)
+
+This might not be news to all of you, since we have been experimenting with our actions UX using [feature flags](/docs/features/feature-flags). However, we're now rolling out a new UX for creating actions to all PostHog users, so try it out let us know what you think!
+
+- [New operations for numerical properties](https://github.com/PostHog/posthog/pull/2630)
+
+In addition to the average, sum, maximum, and minimum operations available to numerical properties in trends, we now also support median, and 90th, 95th, and 99th percentiles.
+
+#### [Full Release Notes](https://posthog.com/blog/the-posthog-array-1-19-0)
+
 ### 1.18.0 - Monday 30 November 2020
 
 Our primary goals for this release were to iron out bugs and improve the user experience of our Beta features.
@@ -22,7 +122,7 @@ R.I.P. to the hundreds of lines of JavaScript that were removed - you will not b
 
 - [Plugins are now available on Kubernetes deployments](https://github.com/PostHog/charts/pull/24)
 
-Following feedback from a user, we have now added support for [PostHog Plugins](/docs/plugins/overview) to our Helm chart. 
+Following feedback from a user, we have now added support for [PostHog Plugins](https://posthog.com/docs/plugins/overview) to our Helm chart. 
 
 If you're using the chart to deploy PostHog, upgrading to the latest version will give you access to the new plugin server (Beta).
 
@@ -1299,7 +1399,7 @@ Important! We've added Celery workers. We'll move tasks to workers to speed up a
 ![graph show numbers](https://posthog.com/wp-content/uploads/2020/03/image-1.png)
 - Allow multiple URLS when creating actions
 
-![multiple urls when creating actions](https://user-images.githubusercontent.com/53387/76166375-54751200-615e-11ea-889f-d0ec93356cf2.gif)
+![Multiple urls when creating actions](https://user-images.githubusercontent.com/53387/76166375-54751200-615e-11ea-889f-d0ec93356cf2.gif)
 - Better property filters
 
 ![image](https://user-images.githubusercontent.com/1727427/76364411-5831a180-62e2-11ea-81f1-f0c1832b7927.png)

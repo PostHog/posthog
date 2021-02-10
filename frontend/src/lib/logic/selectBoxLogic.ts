@@ -1,6 +1,6 @@
 import { kea } from 'kea'
-import { SelectedItem } from 'lib/components/SelectBox'
-import { EntityTypes } from 'scenes/insights/trendsLogic'
+import { SelectBoxItem, SelectedItem } from 'lib/components/SelectBox'
+import { selectBoxLogicType } from './selectBoxLogicType'
 import Fuse from 'fuse.js'
 
 const scrollUpIntoView = (key: string): void => {
@@ -35,19 +35,23 @@ export const searchItems = (sources: SelectedItem[], search: string): SelectedIt
         .map((result) => result.item)
 }
 
-export const selectBoxLogic = kea({
+export const selectBoxLogic = kea<selectBoxLogicType<SelectedItem, SelectBoxItem>>({
+    props: {} as {
+        items: SelectBoxItem[]
+        updateFilter: (type: any, id: string | number, name: string) => void
+    },
     actions: {
-        setSelectedItem: (item: SelectedItem) => ({ item }),
+        setSelectedItem: (item: SelectedItem | null) => ({ item }),
         setSearch: (search: string) => ({ search }),
-        clickSelectedItem: (item: SelectedItem) => ({ item }),
+        clickSelectedItem: (item: SelectedItem, group: SelectBoxItem) => ({ item, group }),
         setBlockMouseOver: (block: boolean) => ({ block }),
         onKeyDown: (e) => ({ e }),
     },
-    reducers: ({ props }) => ({
+    reducers: {
         selectedItem: [
-            false,
+            null as SelectedItem | null,
             {
-                setSelectedItem: (_, { item }: { item: SelectedItem }) => item,
+                setSelectedItem: (_, { item }: { item: SelectedItem | null }) => item,
             },
         ],
         blockMouseOver: [
@@ -62,23 +66,25 @@ export const selectBoxLogic = kea({
                 setSearch: (_, { search }: { search: string }) => search,
             },
         ],
-        RenderInfo: [
-            null,
-            {
-                setSelectedItem: (_, { item }: { item: SelectedItem }) =>
-                    props.items.filter((i) => i.dataSource.filter((i) => i.key === item.key).length > 0)[0]
-                        ?.renderInfo || false,
+    },
+    selectors: ({ selectors, props }) => ({
+        selectedGroup: [
+            () => [selectors.selectedItem],
+            (item: SelectedItem | null): SelectBoxItem | null => {
+                if (!item) {
+                    return null
+                }
+                return (
+                    props.items.filter(
+                        (boxItem) => boxItem.dataSource.filter((i) => i.key === item.key).length > 0
+                    )[0] || null
+                )
             },
         ],
     }),
     listeners: ({ props, values, actions }) => ({
-        clickSelectedItem: ({ item }: { item: SelectedItem }) => {
-            if (item.event) {
-                props.updateFilter(EntityTypes.EVENTS, item.event, item.event)
-            }
-            if (item.action) {
-                props.updateFilter(EntityTypes.ACTIONS, item.action.id, item.action.name)
-            }
+        clickSelectedItem: ({ item, group }: { item: SelectedItem; group: SelectBoxItem }) => {
+            props.updateFilter(group.type, group.getValue(item), group.getLabel(item))
         },
         setBlockMouseOver: ({ block }: { block: boolean }) => {
             if (block) {
@@ -88,7 +94,8 @@ export const selectBoxLogic = kea({
         onKeyDown: ({ e }: { e: React.KeyboardEvent }) => {
             let allSources = props.items.map((item) => item.dataSource).flat()
             allSources = !values.search ? allSources : searchItems(allSources, values.search)
-            const currentIndex = allSources.findIndex((item: SelectedItem) => item.key === values.selectedItem.key) || 0
+            const currentIndex =
+                allSources.findIndex((item: SelectedItem) => item.key === values.selectedItem?.key) || 0
 
             if (e.key === 'ArrowDown') {
                 const item = allSources[currentIndex + 1]
@@ -104,8 +111,8 @@ export const selectBoxLogic = kea({
                     scrollUpIntoView(item.key)
                     actions.setBlockMouseOver(true)
                 }
-            } else if (e.key === 'Enter') {
-                actions.clickSelectedItem(values.selectedItem)
+            } else if (e.key === 'Enter' && values.selectedItem && values.selectedGroup) {
+                actions.clickSelectedItem(values.selectedItem, values.selectedGroup)
             } else {
                 return
             }

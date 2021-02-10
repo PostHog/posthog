@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { dateOptions, retentionTableLogic } from './retentionTableLogic'
+import { retentionTableLogic } from './retentionTableLogic'
 import { LineGraph } from '../insights/LineGraph'
 import { useActions, useValues } from 'kea'
 import { Loading } from '../../lib/utils'
@@ -7,6 +7,8 @@ import { router } from 'kea-router'
 import { LineGraphEmptyState } from '../insights/EmptyStates'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
+import { PersonType } from '~/types'
+import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null
@@ -20,31 +22,36 @@ export function RetentionLineGraph({
     color = 'white',
     inSharedMode = false,
     filters: filtersParams = {},
-}: RetentionLineGraphProps): JSX.Element {
+}: RetentionLineGraphProps): JSX.Element | null {
     const logic = retentionTableLogic({ dashboardItemId: dashboardItemId, filters: filtersParams })
-    const { filters, retention, retentionLoading, people, peopleLoading } = useValues(logic)
-    const { loadPeople, loadMoreGraphPeople } = useActions(logic)
+    const { filters, results: _results, resultsLoading, people: _people, peopleLoading, loadingMore } = useValues(logic)
+    const results = _results as RetentionTrendPayload[]
+    const people = _people as RetentionTrendPeoplePayload
+
+    const { loadPeople, loadMorePeople } = useActions(logic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const [modalVisible, setModalVisible] = useState(false)
     const [day, setDay] = useState(0)
     function closeModal(): void {
         setModalVisible(false)
     }
-    const peopleData = people?.result
+    const peopleData = people?.result as PersonType[]
     const peopleNext = people?.next
+    if (results.length === 0) {
+        return null
+    }
 
-    return retentionLoading ? (
+    return resultsLoading ? (
         <Loading />
-    ) : retention && retention.data && !retentionLoading ? (
+    ) : results && !resultsLoading ? (
         <>
             <LineGraph
-                pageKey={'trends-annotations'}
                 data-attr="trend-line-graph"
                 type="line"
                 color={color}
-                datasets={retention.data}
-                labels={(retention.data[0] && retention.data[0].labels) || []}
-                isInProgress={!filters.selectedDate}
+                datasets={results}
+                labels={(results[0] && results[0].labels) || []}
+                isInProgress={!filters.date_to}
                 dashboardItemId={dashboardItemId || fromItem}
                 inSharedMode={inSharedMode}
                 percentage={true}
@@ -60,7 +67,7 @@ export function RetentionLineGraph({
                 }
             />
             <Modal
-                title={dateOptions[filters.period] + ' ' + day + ' people'}
+                title={filters.period + ' ' + day + ' people'}
                 visible={modalVisible}
                 onOk={closeModal}
                 onCancel={closeModal}
@@ -84,8 +91,8 @@ export function RetentionLineGraph({
                     }}
                 >
                     {peopleNext && (
-                        <Button type="primary" onClick={loadMoreGraphPeople}>
-                            {people?.loadingMore ? <Spin /> : 'Load more people'}
+                        <Button type="primary" onClick={loadMorePeople}>
+                            {loadingMore ? <Spin /> : 'Load more people'}
                         </Button>
                     )}
                 </div>

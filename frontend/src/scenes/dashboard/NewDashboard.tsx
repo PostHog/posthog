@@ -27,12 +27,12 @@ export function NewDashboard(): JSX.Element {
                 <Input
                     autoFocus={true}
                     onChange={(e) => form.setFieldsValue({ key: slugify(e.target.value) })}
-                    data-attr="dashboard-name"
+                    data-attr="dashboard-name-input"
                 />
             </Form.Item>
 
             <Form.Item name="useTemplate" label="Start from" className={rrwebBlockClass}>
-                <Select data-attr="copy-from-template" style={{ width: '100%' }} defaultValue={''}>
+                <Select data-attr="copy-from-template" style={{ width: '100%' }}>
                     <Select.Option data-attr="dashboard-select-empty" value="">
                         Empty Dashboard
                     </Select.Option>

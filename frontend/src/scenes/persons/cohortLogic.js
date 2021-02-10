@@ -46,19 +46,37 @@ export const cohortLogic = kea({
         ],
     }),
 
-    listeners: ({ sharedListeners }) => ({
-        saveCohort: async ({ cohort }) => {
+    listeners: ({ sharedListeners, actions }) => ({
+        saveCohort: async ({ cohort }, breakpoint) => {
+            const cohortFormData = new FormData()
+            for (const [key, value] of Object.entries(cohort)) {
+                if (key === 'groups') {
+                    if (!cohort.csv) {
+                        cohortFormData.append(key, JSON.stringify(value))
+                    } else {
+                        // If we have a static cohort uploaded by CSV we don't need to send groups
+                        cohortFormData.append(key, '[]')
+                    }
+                } else {
+                    cohortFormData.append(key, value)
+                }
+            }
+
             if (cohort.id !== 'new') {
-                cohort = await api.update('api/cohort/' + cohort.id, cohort)
+                cohort = await api.update('api/cohort/' + cohort.id, cohortFormData)
                 cohortsModel.actions.updateCohort(cohort)
             } else {
-                cohort = await api.create('api/cohort', cohort)
+                cohort = await api.create('api/cohort', cohortFormData)
                 cohortsModel.actions.createCohort(cohort)
             }
+            breakpoint()
+            delete cohort['csv']
+            actions.setCohort(cohort)
             sharedListeners.pollIsFinished(cohort)
         },
-        checkIsFinished: async ({ cohort }) => {
+        checkIsFinished: async ({ cohort }, breakpoint) => {
             cohort = await api.get('api/cohort/' + cohort.id)
+            breakpoint()
             sharedListeners.pollIsFinished(cohort)
         },
     }),

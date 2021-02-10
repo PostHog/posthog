@@ -1,16 +1,15 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { funnelsModel } from '~/models/funnelsModel'
-import { List, Col, Row, Spin, Button } from 'antd'
+import { List, Col, Row, Button, Popconfirm } from 'antd'
+import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { red } from '@ant-design/colors'
 import { Link } from 'lib/components/Link'
 import { toParams } from 'lib/utils'
-import { determineFilters } from '../InsightHistoryPanel'
-import { cohortsModel } from '~/models'
 
-export const SavedFunnels: React.FC = () => {
+export function SavedFunnels(): JSX.Element {
     const { funnels, funnelsLoading, next, loadingMore } = useValues(funnelsModel)
-    const { loadNext } = useActions(funnelsModel)
-    const { cohorts } = useValues(cohortsModel)
+    const { deleteFunnel, loadNext } = useActions(funnelsModel)
 
     const loadMoreFunnels = next ? (
         <div
@@ -21,7 +20,9 @@ export const SavedFunnels: React.FC = () => {
                 lineHeight: '32px',
             }}
         >
-            {loadingMore ? <Spin /> : <Button onClick={loadNext}>Load more</Button>}
+            <Button onClick={loadNext} loading={loadingMore}>
+                Load more
+            </Button>
         </div>
     ) : null
 
@@ -30,15 +31,27 @@ export const SavedFunnels: React.FC = () => {
             loading={funnelsLoading}
             dataSource={funnels}
             loadMore={loadMoreFunnels}
-            pagination={{ pageSize: 5, hideOnSinglePage: true }}
             renderItem={(funnel) => {
                 return (
                     <List.Item>
                         <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
                             <Row justify="space-between" align="middle">
-                                <Link to={'/insights?' + toParams(funnel.filters)}>{funnel.name}</Link>
+                                <Link to={'/insights?' + toParams(funnel.filters)} style={{ flex: 1 }}>
+                                    {funnel.name}
+                                </Link>
+                                <Popconfirm
+                                    title={`Delete saved funnel "${funnel.name}"?`}
+                                    okText="Delete Funnel"
+                                    okType="danger"
+                                    icon={<ExclamationCircleOutlined style={{ color: red.primary }} />}
+                                    placement="left"
+                                    onConfirm={() => {
+                                        deleteFunnel(funnel.id)
+                                    }}
+                                >
+                                    <DeleteOutlined className="text-danger" />
+                                </Popconfirm>
                             </Row>
-                            <span>{determineFilters(funnel.type, funnel.filters, cohorts)}</span>
                         </Col>
                     </List.Item>
                 )

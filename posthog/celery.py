@@ -30,7 +30,7 @@ app.autodiscover_tasks()
 app.conf.broker_pool_limit = 0
 
 # How frequently do we want to calculate action -> event relationships if async is enabled
-ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
+ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 5
 
 if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
@@ -49,7 +49,7 @@ def setup_periodic_tasks(sender, **kwargs):
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s(),  # check twice a week
     )
 
-    if getattr(settings, "MULTI_TENANCY", False) or os.environ.get("SESSION_RECORDING_RETENTION_CRONJOB", False):
+    if getattr(settings, "MULTI_TENANCY", False) and not is_ee_enabled():
         sender.add_periodic_task(crontab(minute=0, hour="*/12"), run_session_recording_retention.s())
 
     # send weekly status report on non-PostHog Cloud instances
@@ -65,12 +65,12 @@ def setup_periodic_tasks(sender, **kwargs):
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    if not is_ee_enabled():
-        sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
-    else:
-        # ee enabled scheduled tasks
+    sender.add_periodic_task(90, check_cached_items.s(), name="check dashboard items")
+
+    if is_ee_enabled():
         sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
         sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
+        sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
 
     sender.add_periodic_task(60, calculate_cohort.s(), name="recalculate cohorts")
 
@@ -88,7 +88,16 @@ def redis_heartbeat():
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id", "session_recording_events"]
+CLICKHOUSE_TABLES = [
+    "events",
+    "sharded_events",
+    "person",
+    "sharded_person",
+    "person_distinct_id",
+    "sharded_person_distinct_id",
+    "session_recording_events",
+    "sharded_session_recording_events",
+]
 
 
 @app.task(ignore_result=True)
@@ -97,11 +106,16 @@ def clickhouse_lag():
         from ee.clickhouse.client import sync_execute
 
         for table in CLICKHOUSE_TABLES:
-            QUERY = """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
-            query = QUERY.format(table=table)
-            lag = sync_execute(query)[0][2]
-            g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-            g.send("clickhouse_{table}_table_lag_seconds".format(table=table), lag)
+            try:
+                QUERY = (
+                    """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
+                )
+                query = QUERY.format(table=table)
+                lag = sync_execute(query)[0][2]
+                g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
+                g.send("clickhouse_{table}_table_lag_seconds".format(table=table), lag)
+            except:
+                pass
     else:
         pass
 
@@ -112,11 +126,33 @@ def clickhouse_row_count():
         from ee.clickhouse.client import sync_execute
 
         for table in CLICKHOUSE_TABLES:
-            QUERY = """select count(1) freq from {table};"""
-            query = QUERY.format(table=table)
-            rows = sync_execute(query)[0][0]
+            try:
+                QUERY = """select count(1) freq from {table};"""
+                query = QUERY.format(table=table)
+                rows = sync_execute(query)[0][0]
+                g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
+                g.send("clickhouse_{table}_table_row_count".format(table=table), rows)
+            except:
+                pass
+    else:
+        pass
+
+
+@app.task(ignore_result=True)
+def clickhouse_part_count():
+    if is_ee_enabled() and settings.EE_AVAILABLE:
+        from ee.clickhouse.client import sync_execute
+
+        QUERY = """
+            select table, count(1) freq
+            from system.parts
+            group by table
+            order by freq desc; 
+        """
+        rows = sync_execute(QUERY)
+        for (table, parts) in rows:
             g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-            g.send("clickhouse_{table}_table_row_count".format(table=table), rows)
+            g.send("clickhouse_{table}_table_parts_count".format(table=table), parts)
     else:
         pass
 
@@ -185,7 +221,7 @@ def check_cached_items():
 
 
 @app.task(ignore_result=True)
-def update_cache_item_task(key: str, cache_type: str, payload: dict) -> None:
+def update_cache_item_task(key: str, cache_type, payload: dict) -> None:
     from posthog.tasks.update_cache import update_cache_item
 
     update_cache_item(key, cache_type, payload)

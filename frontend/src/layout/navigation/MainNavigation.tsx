@@ -1,6 +1,15 @@
 import React, { useRef, useState, useEffect } from 'react'
-import { Layout, Modal } from 'antd'
-import { ProjectFilled, ApiFilled, ClockCircleFilled, DownOutlined } from '@ant-design/icons'
+import { Layout, Menu, Modal, Popover } from 'antd'
+import {
+    ProjectFilled,
+    ApiFilled,
+    ClockCircleFilled,
+    DownOutlined,
+    MessageOutlined,
+    PushpinFilled,
+    PlusOutlined,
+    SettingOutlined,
+} from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -21,6 +30,10 @@ import {
 } from 'lib/components/icons'
 import { navigationLogic } from './navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
+import { dashboardsModel } from '~/models'
+import { DashboardType } from '~/types'
+import { userLogic } from 'scenes/userLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 // to show the right page in the sidebar
 const sceneOverride: Record<string, string> = {
@@ -41,18 +54,14 @@ const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.
     const { scene, loadingScene } = useValues(sceneLogic)
     const { collapseMenu } = useActions(navigationLogic)
 
-    const activeScene = (): string => {
+    function activeScene(): string {
         const nominalScene = loadingScene || scene
-
         // Scenes with special handling can go here
-
         return sceneOverride[nominalScene] || nominalScene
     }
 
-    const handleClick = (): void => {
-        if (onClick) {
-            onClick()
-        }
+    function handleClick(): void {
+        onClick?.()
         collapseMenu()
     }
 
@@ -69,10 +78,74 @@ const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.
     )
 }
 
+function PinnedDashboards(): JSX.Element {
+    const { pinnedDashboards, dashboards } = useValues(dashboardsModel)
+    const { setPinnedDashboardsVisible } = useActions(navigationLogic)
+
+    return (
+        <Menu className="pinned-dashboards">
+            {dashboards.length ? (
+                <>
+                    {pinnedDashboards.length && (
+                        <Menu.ItemGroup title="Pinned dashboards" key="pinned">
+                            {pinnedDashboards.map((item: DashboardType, index: number) => (
+                                <Menu.Item key={`pinned-${item.id}`} style={{ margin: 0 }}>
+                                    <MenuItem
+                                        title={item.name}
+                                        icon={<PushpinFilled />}
+                                        identifier={`dashboard-${index}`}
+                                        to={`/dashboard/${item.id}`}
+                                        onClick={() => setPinnedDashboardsVisible(false)}
+                                    />
+                                </Menu.Item>
+                            ))}
+                        </Menu.ItemGroup>
+                    )}
+                    {dashboards.length > pinnedDashboards.length && (
+                        <Menu.ItemGroup title="All dashboards" key="all" className="all-dashboard-list">
+                            {dashboards
+                                .filter((item: DashboardType) => !item.pinned)
+                                .map((item: DashboardType) => (
+                                    <Menu.Item key={`dashboard-${item.id}`} style={{ margin: 0 }}>
+                                        <MenuItem
+                                            title={item.name}
+                                            icon={<IconDashboard />}
+                                            identifier={`dashboard-${item.id}`}
+                                            to={`/dashboard/${item.id}`}
+                                            onClick={() => setPinnedDashboardsVisible(false)}
+                                        />
+                                    </Menu.Item>
+                                ))}
+                        </Menu.ItemGroup>
+                    )}
+                </>
+            ) : (
+                <Menu.Item className="text-center" style={{ height: 'initial' }}>
+                    <span className="text-muted">You don't have any dashboards yet.</span>
+                    <div>
+                        <Link
+                            to="/dashboard?new"
+                            style={{ color: 'var(--primary)' }}
+                            data-attr="create-dashboard-pinned-overlay"
+                        >
+                            <PlusOutlined />
+                            Create your first dashboard now
+                        </Link>
+                    </div>
+                </Menu.Item>
+            )}
+        </Menu>
+    )
+}
+
 export const MainNavigation = hot(_MainNavigation)
 function _MainNavigation(): JSX.Element {
-    const { menuCollapsed, toolbarModalOpen } = useValues(navigationLogic)
-    const { setMenuCollapsed, collapseMenu, setToolbarModalOpen } = useActions(navigationLogic)
+    const { user } = useValues(userLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { menuCollapsed, toolbarModalOpen, pinnedDashboardsVisible } = useValues(navigationLogic)
+    const { setMenuCollapsed, collapseMenu, setToolbarModalOpen, setPinnedDashboardsVisible } = useActions(
+        navigationLogic
+    )
     const navRef = useRef<HTMLDivElement | null>(null)
     const [canScroll, setCanScroll] = useState(false)
 
@@ -117,7 +190,28 @@ function _MainNavigation(): JSX.Element {
                             <img src={lgLogo} className="logo-lg" alt="" />
                         </Link>
                     </div>
-                    <MenuItem title="Dashboards" icon={<IconDashboard />} identifier="dashboards" to="/dashboard" />
+                    {currentOrganization?.setup.is_active && (
+                        <MenuItem title="Setup" icon={<SettingOutlined />} identifier="onboardingSetup" to="/setup" />
+                    )}
+                    <Popover
+                        content={PinnedDashboards}
+                        placement="right"
+                        trigger="hover"
+                        arrowPointAtCenter
+                        overlayClassName="pinned-dashboards-popover"
+                        onVisibleChange={(visible) => setPinnedDashboardsVisible(visible)}
+                        visible={pinnedDashboardsVisible}
+                    >
+                        <div>
+                            <MenuItem
+                                title="Dashboards"
+                                icon={<IconDashboard />}
+                                identifier="dashboards"
+                                to="/dashboard"
+                                onClick={() => setPinnedDashboardsVisible(false)}
+                            />
+                        </div>
+                    </Popover>
                     <MenuItem
                         title="Insights"
                         icon={<IconInsights />}
@@ -138,7 +232,15 @@ function _MainNavigation(): JSX.Element {
                         to="/feature_flags"
                     />
                     <div className="divider" />
-                    <MenuItem title="Plugins" icon={<ApiFilled />} identifier="plugins" to="/project/plugins" />
+                    {user?.plugin_access.configure ? (
+                        <MenuItem title="Plugins" icon={<ApiFilled />} identifier="plugins" to="/project/plugins" />
+                    ) : null}
+                    <MenuItem
+                        title="Annotations"
+                        icon={<MessageOutlined />}
+                        identifier="annotations"
+                        to="/annotations"
+                    />
                     <MenuItem
                         title="Project"
                         icon={<ProjectFilled />}

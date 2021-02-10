@@ -1,9 +1,9 @@
 import React from 'react'
-import { disableMinuteFor, disableHourFor } from 'scenes/insights/trendsLogic'
 import { Select } from 'antd'
 import { intervalFilterLogic } from './intervalFilterLogic'
 import { useValues, useActions } from 'kea'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { disableHourFor, disableMinuteFor } from 'lib/utils'
 
 let intervalMapping = {
     minute: 'Minute',

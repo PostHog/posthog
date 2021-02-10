@@ -10,6 +10,7 @@ SESSION_SQL = """
         groupArray(timestamp) timestamps,
         groupArray(elements_chain) elements_chain,
         arrayReduce('max', groupArray(timestamp)) as end_time
+        {filters_select_clause}
     FROM (
         SELECT
             distinct_id,
@@ -19,6 +20,7 @@ SESSION_SQL = """
             properties,
             elements_chain,
             arraySum(arraySlice(gids, 1, idx)) AS gid
+            {filters_timestamps_clause}
         FROM (
             SELECT
                 groupArray(timestamp) as timestamps,
@@ -90,7 +92,8 @@ SESSION_SQL = """
     GROUP BY
         distinct_id,
         gid
+    {filters_having}
     ORDER BY
-        start_time DESC
+        end_time DESC
     {sessions_limit}
 """

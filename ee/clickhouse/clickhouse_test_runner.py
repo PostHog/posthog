@@ -6,7 +6,7 @@ from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
     CLICKHOUSE_PASSWORD,
-    CLICKHOUSE_USERNAME,
+    CLICKHOUSE_USER,
     CLICKHOUSE_VERIFY,
 )
 
@@ -16,7 +16,7 @@ class ClickhouseTestRunner(DiscoverRunner):
         return Database(
             CLICKHOUSE_DATABASE,
             db_url=CLICKHOUSE_HTTP_URL,
-            username=CLICKHOUSE_USERNAME,
+            username=CLICKHOUSE_USER,
             password=CLICKHOUSE_PASSWORD,
             verify_ssl_cert=CLICKHOUSE_VERIFY,
         )

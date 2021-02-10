@@ -97,7 +97,12 @@ function CohortFilter({ breakdown, onChange }) {
 
 function Content({ breakdown, breakdown_type, onChange }) {
     return (
-        <Tabs defaultActiveKey={breakdown_type} tabPosition="top" style={{ minWidth: 350 }}>
+        <Tabs
+            defaultActiveKey={breakdown_type}
+            tabPosition="top"
+            style={{ minWidth: 350 }}
+            data-attr="breakdown-filter-content"
+        >
             <TabPane tab="Property" key="property">
                 <PropertyFilter
                     breakdown={(!breakdown_type || breakdown_type == 'property') && breakdown}

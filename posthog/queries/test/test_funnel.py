@@ -2,11 +2,14 @@ from unittest.mock import patch
 
 from freezegun import freeze_time
 
+from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
 from posthog.models import Action, ActionStep, Element, Event, Person
 from posthog.models.filters import Filter
+from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
+from posthog.queries.abstract_test.test_timerange import AbstractTimerangeTest
 from posthog.queries.funnel import Funnel
 from posthog.tasks.update_cache import update_cache_item
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 
 
 def funnel_test_factory(Funnel, event_factory, person_factory):
@@ -37,6 +40,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             if filters is None:
                 filters = {
                     "events": [{"id": "user signed up", "type": "events", "order": 0},],
+                    "insight": INSIGHT_FUNNELS,
                 }
 
             if properties is not None:
@@ -65,6 +69,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             if properties is not None:
                 filters.update({"properties": properties})
 
+            filters["insight"] = INSIGHT_FUNNELS
             filter = Filter(data=filters)
             return Funnel(filter=filter, team=self.team)
 
@@ -164,10 +169,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 funnel.run()
 
         def test_funnel_no_events(self):
-            funnel = self._basic_funnel()
-
-            # with self.assertNumQueries(3):
-            funnel.run()
+            funnel = Funnel(filter=Filter(data={"some": "prop"}), team=self.team)
+            self.assertEqual(funnel.run(), [])
 
         def test_funnel_skipped_step(self):
             funnel = self._basic_funnel()
@@ -299,8 +302,219 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 1)
 
+        def test_funnel_multiple_actions(self):
+            # we had an issue on clickhouse where multiple actions with different property filters would incorrectly grab only the last
+            # properties.
+            # This test prevents a regression
+            person_factory(distinct_ids=["person1"], team_id=self.team.pk)
+            event_factory(distinct_id="person1", event="event1", team=self.team)
+            event_factory(distinct_id="person1", event="event2", properties={"test_prop": "a"}, team=self.team)
+
+            action1 = Action.objects.create(team_id=self.team.pk, name="event2")
+            ActionStep.objects.create(action=action1, event="event2", properties=[{"key": "test_prop", "value": "a"}])
+            action1.calculate_events()
+            action2 = Action.objects.create(team_id=self.team.pk, name="event2")
+            ActionStep.objects.create(action=action2, event="event2", properties=[{"key": "test_prop", "value": "c"}])
+            action2.calculate_events()
+
+            result = Funnel(
+                filter=Filter(
+                    data={
+                        "events": [{"id": "event1", "order": 0}],
+                        "actions": [{"id": action1.pk, "order": 1,}, {"id": action2.pk, "order": 2,},],
+                        "insight": INSIGHT_FUNNELS,
+                    }
+                ),
+                team=self.team,
+            ).run()
+            self.assertEqual(result[0]["count"], 1)
+            self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[2]["count"], 0)
+
     return TestGetFunnel
 
 
-class DjangoFunnelTest(funnel_test_factory(Funnel, Event.objects.create, Person.objects.create)):  # type: ignore
+class TestFunnel(funnel_test_factory(Funnel, Event.objects.create, Person.objects.create)):  # type: ignore
+    pass
+
+
+@patch("posthog.celery.update_cache_item_task.delay", update_cache_item)
+def funnel_trends_test_factory(Funnel, event_factory, person_factory):
+    class TestFunnelTrends(AbstractTimerangeTest, AbstractIntervalTest, APIBaseTest):
+        def _create_events(self):
+            # test person created way before funnel events happened
+            with freeze_time("2020-12-02T01:01:01.000Z"):
+                dropped_1 = person_factory(distinct_ids=["dropped_1"], team=self.team)
+            with freeze_time("2021-01-01T03:21:34.000Z"):
+                dropped_2 = person_factory(distinct_ids=["dropped_2"], team=self.team)
+                completed_1 = person_factory(distinct_ids=["completed_1"], team=self.team)
+                across_days = person_factory(distinct_ids=["across_days"], team=self.team)
+                event_factory(event="sign up", distinct_id="dropped_1", team=self.team)
+                event_factory(event="sign up", distinct_id="dropped_2", team=self.team)
+                event_factory(event="sign up", distinct_id="completed_1", team=self.team)
+                event_factory(event="sign up", distinct_id="across_days", team=self.team)
+            with freeze_time("2021-01-01T03:31:34.000Z"):
+                event_factory(event="pay", distinct_id="completed_1", team=self.team)
+
+            with freeze_time("2021-01-02T03:21:34.000Z"):
+                dropped_3 = person_factory(distinct_ids=["dropped_3"], team=self.team)
+                completed_2 = person_factory(distinct_ids=["completed_2"], team=self.team)
+                event_factory(event="sign up", distinct_id="dropped_3", team=self.team)
+                event_factory(event="sign up", distinct_id="completed_2", team=self.team)
+            with freeze_time("2021-01-02T03:21:35.000Z"):
+                event_factory(event="pay", distinct_id="completed_2", team=self.team)
+                event_factory(event="pay", distinct_id="across_days", team=self.team)
+
+        def _run(self, date_from=None, date_to=None, interval=None):
+            self._create_events()
+            return Funnel(
+                team=self.team,
+                filter=Filter(
+                    data={
+                        "insight": INSIGHT_FUNNELS,
+                        "display": TRENDS_LINEAR,
+                        "interval": interval if interval else "day",
+                        "date_from": date_from,
+                        **({"date_to": date_to} if date_to else {}),
+                        "events": [{"id": "sign up", "order": 0}, {"id": "pay", "order": 1},],
+                    }
+                ),
+            ).run()
+
+        def test_one_step(self):
+            self._create_events()
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                result = Funnel(
+                    team=self.team,
+                    filter=Filter(
+                        data={
+                            "insight": INSIGHT_FUNNELS,
+                            "display": TRENDS_LINEAR,
+                            "interval": "day",
+                            "events": [{"id": "sign up", "order": 0}],
+                        }
+                    ),
+                ).run()
+            self.assertEqual(result[0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
+
+        def test_all_time_timerange(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run("all", interval="month")
+            self.assertEqual(response[0]["data"][0], 33)
+            self.assertEqual(response[0]["labels"][0], "Fri. 1 January")
+
+        def test_custom_range_timerange(self):
+            response = self._run("2020-12-01T00:00:00.000Z", "2021-01-02T00:00:00.000Z")
+            # across_days not completed yet hence 25%
+            self.assertEqual(response[0]["data"][31], 25)
+            self.assertEqual(response[0]["labels"][31], "Fri. 1 January")
+
+        def test_day_interval(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run()
+            self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 0, 25, 50])
+
+        def test_hour_interval(self):
+            with freeze_time("2021-01-02T04:20:01.000Z"):
+                response = self._run(interval="hour")
+            self.assertEqual(response[0]["data"][147], 25)
+            self.assertEqual(response[0]["labels"][147], "Fri. 1 January, 03:00")
+
+            self.assertEqual(response[0]["data"][171], 50)
+            self.assertEqual(response[0]["labels"][171], "Sat. 2 January, 03:00")
+
+        def test_interval_rounding(self):
+            pass
+
+        def test_last14days_timerange(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run("-14d")
+            self.assertEqual(response[0]["data"][13], 25)
+            self.assertEqual(response[0]["labels"][13], "Fri. 1 January")
+
+            self.assertEqual(response[0]["data"][14], 50)
+            self.assertEqual(response[0]["labels"][14], "Sat. 2 January")
+
+        def test_last24hours_timerange(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run("-24h")
+            self.assertEqual(response[0]["data"][1], 50)
+            self.assertEqual(response[0]["labels"][1], "Sat. 2 January")
+
+        def test_last30days_timerange(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run("-30d")
+            self.assertEqual(response[0]["data"][30], 50)
+            self.assertEqual(response[0]["labels"][30], "Sat. 2 January")
+
+        def test_last48hours_timerange(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run("-24h")
+            self.assertEqual(response[0]["data"][1], 50)
+            self.assertEqual(response[0]["labels"][1], "Sat. 2 January")
+
+        def test_last7days_timerange(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run("-7d")
+            self.assertEqual(response[0]["data"][7], 50)
+            self.assertEqual(response[0]["labels"][7], "Sat. 2 January")
+
+        def test_last90days_timerange(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run("-90d")
+            self.assertEqual(response[0]["data"][90], 50)
+            self.assertEqual(response[0]["labels"][90], "Sat. 2 January")
+
+        def test_minute_interval(self):
+            with freeze_time("2021-01-02T04:00:01.000Z"):
+                response = self._run("-1h", interval="minute")
+            self.assertEqual(response[0]["data"][21], 50)
+            self.assertEqual(response[0]["labels"][21], "Sat. 2 January, 03:21")
+
+        def test_month_interval(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run("-90d", interval="month")
+            self.assertEqual(response[0]["data"][2], 33)
+            self.assertEqual(response[0]["labels"][2], "Fri. 1 January")
+
+        def test_previous_month_timerange(self):
+            with freeze_time("2021-02-10T04:00:00.000Z"):
+                response = self._run("-1mStart", "-1mEnd", interval="month")
+            self.assertEqual(response[0]["data"][0], 33)
+            self.assertEqual(response[0]["labels"][0], "Fri. 1 January")
+
+        def test_this_month_timerange(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run("mStart", interval="day")
+            self.assertEqual(response[0]["data"][1], 50)
+            self.assertEqual(response[0]["labels"][1], "Sat. 2 January")
+
+        def test_today_timerange(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run("dStart")
+            self.assertEqual(response[0]["data"][0], 50)
+            self.assertEqual(response[0]["labels"][0], "Sat. 2 January")
+
+        def test_week_interval(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run("dStart")
+            self.assertEqual(response[0]["data"][0], 50)
+            self.assertEqual(response[0]["labels"][0], "Sat. 2 January")
+
+        def test_year_to_date_timerange(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run("yStart")
+            self.assertEqual(response[0]["data"][1], 50)
+            self.assertEqual(response[0]["labels"][1], "Sat. 2 January")
+
+        def test_yesterday_timerange(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run("-1d", "dStart")
+            self.assertEqual(response[0]["data"][0], 25)
+            self.assertEqual(response[0]["labels"][0], "Fri. 1 January")
+
+    return TestFunnelTrends
+
+
+class TestFunnelTrends(funnel_trends_test_factory(Funnel, Event.objects.create, Person.objects.create)):  # type: ignore
     pass

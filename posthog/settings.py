@@ -79,6 +79,12 @@ PLUGINS_CONFIGURE_VIA_API = PLUGINS_INSTALL_VIA_API or get_bool_from_env("PLUGIN
 PLUGINS_CELERY_QUEUE = os.environ.get("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.environ.get("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
+# Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
+# Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.
+GITLAB_TOKEN = os.environ.get("GITLAB_TOKEN", None)
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", None)
+NPM_TOKEN = os.environ.get("NPM_TOKEN", None)
+
 # This is set as a cross-domain cookie with a random value.
 # Its existence is used by the toolbar to see that we are logged in.
 TOOLBAR_COOKIE_NAME = "phtoolbar"
@@ -104,6 +110,7 @@ if not TEST:
             integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration()],
             request_bodies="always",
             send_default_pii=True,
+            environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
         )
 
 if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
@@ -113,17 +120,12 @@ if get_bool_from_env("IS_BEHIND_PROXY", False):
     USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-ASYNC_EVENT_ACTION_MAPPING = False
-
-if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
-    ASYNC_EVENT_ACTION_MAPPING = True
-
 
 # Clickhouse Settings
 CLICKHOUSE_TEST_DB = "posthog_test"
 
 CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
-CLICKHOUSE_USERNAME = os.environ.get("CLICKHOUSE_USERNAME", "default")
+CLICKHOUSE_USER = os.environ.get("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", None)
@@ -142,31 +144,30 @@ if CLICKHOUSE_SECURE:
 CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
 
 IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
+
+# Kafka configs
 KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
-
-LOG_TO_WAL = get_bool_from_env("LOG_TO_WAL", True)
-
-
-# Kafka Configs
-
-_kafka_hosts = KAFKA_URL.split(",")
-
-KAFKA_HOSTS_LIST = []
-for host in _kafka_hosts:
-    url = urlparse(host)
-    KAFKA_HOSTS_LIST.append(url.netloc)
+KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
-
 KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
 
 PRIMARY_DB = os.environ.get("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
 EE_AVAILABLE = False
 
+PLUGIN_SERVER_INGESTION = get_bool_from_env("PLUGIN_SERVER_INGESTION", False)
+
 if PRIMARY_DB == RDBMS.CLICKHOUSE:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
 else:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
+
+
+ASYNC_EVENT_ACTION_MAPPING = get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False)
+
+# Enable if ingesting with the plugin server into postgres, as it's not able to calculate the mapping on the fly
+if PLUGIN_SERVER_INGESTION and PRIMARY_DB == RDBMS.POSTGRES:
+    ASYNC_EVENT_ACTION_MAPPING = True
 
 
 # IP block settings
@@ -323,6 +324,10 @@ SOCIAL_AUTH_GITLAB_KEY = os.environ.get("SOCIAL_AUTH_GITLAB_KEY")
 SOCIAL_AUTH_GITLAB_SECRET = os.environ.get("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL = os.environ.get("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
+
+# See https://docs.djangoproject.com/en/3.1/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
+DISABLE_SERVER_SIDE_CURSORS = get_bool_from_env("USING_PGBOUNCER", False)
+
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
@@ -333,6 +338,8 @@ else:
 
 if DATABASE_URL:
     DATABASES = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=600)}
+    if DISABLE_SERVER_SIDE_CURSORS:
+        DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 elif os.environ.get("POSTHOG_DB_NAME"):
     DATABASES = {
         "default": {
@@ -343,23 +350,40 @@ elif os.environ.get("POSTHOG_DB_NAME"):
             "HOST": os.environ.get("POSTHOG_POSTGRES_HOST", "localhost"),
             "PORT": os.environ.get("POSTHOG_POSTGRES_PORT", "5432"),
             "CONN_MAX_AGE": 0,
+            "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
+            "SSL_OPTIONS": {
+                "sslmode": os.environ.get("POSTHOG_POSTGRES_SSL_MODE", None),
+                "sslrootcert": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_CA", None),
+                "sslcert": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_CRT", None),
+                "sslkey": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_KEY", None),
+            },
         }
     }
-    DATABASE_URL = "postgres://{}{}{}{}:{}/{}".format(
+
+    ssl_configurations = []
+    for ssl_option, value in DATABASES["default"]["SSL_OPTIONS"].items():
+        if value:
+            ssl_configurations.append("{}={}".format(ssl_option, value))
+
+    if ssl_configurations:
+        ssl_configuration = "?{}".format("&".join(ssl_configurations))
+    else:
+        ssl_configuration = ""
+
+    DATABASE_URL = "postgres://{}{}{}{}:{}/{}{}".format(
         DATABASES["default"]["USER"],
         ":" + DATABASES["default"]["PASSWORD"] if DATABASES["default"]["PASSWORD"] else "",
         "@" if DATABASES["default"]["USER"] or DATABASES["default"]["PASSWORD"] else "",
         DATABASES["default"]["HOST"],
         DATABASES["default"]["PORT"],
         DATABASES["default"]["NAME"],
+        ssl_configuration,
     )
 else:
     raise ImproperlyConfigured(
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
 
-# See https://docs.djangoproject.com/en/3.1/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
-DISABLE_SERVER_SIDE_CURSORS = get_bool_from_env("USING_PGBOUNCER", False)
 
 # Broker
 
@@ -403,7 +427,8 @@ CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
 CELERY_IGNORE_RESULT = True  # only applies to delay(), must do @shared_task(ignore_result=True) for apply_async
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
-CACHED_RESULTS_TTL = 24 * 60 * 60  # how long to keep cached results for
+CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
+TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached results for
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
@@ -453,8 +478,8 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
-    "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "PAGE_SIZE": 100,
+    "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
 }
 
 EXCEPTIONS_HOG = {
@@ -470,6 +495,7 @@ EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
 EMAIL_USE_TLS = get_bool_from_env("EMAIL_USE_TLS", False)
 EMAIL_USE_SSL = get_bool_from_env("EMAIL_USE_SSL", False)
 DEFAULT_FROM_EMAIL = os.environ.get("EMAIL_DEFAULT_FROM", os.environ.get("DEFAULT_FROM_EMAIL", "root@localhost"))
+EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO")
 
 MULTI_TENANCY = False  # overriden by posthog-production
 
@@ -548,8 +574,9 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler",},},
-    "root": {"handlers": ["console"], "level": "WARNING",},
+    "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING")},
     "loggers": {
         "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
+        "axes": {"handlers": ["console"], "level": "WARNING", "propagate": False},
     },
 }

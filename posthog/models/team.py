@@ -5,7 +5,7 @@ from django.contrib.postgres.fields import ArrayField, JSONField
 from django.db import models
 from django.utils import timezone
 
-from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
+from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_TABLE
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 
 from .dashboard import Dashboard
@@ -34,7 +34,6 @@ class TeamManager(models.Manager):
                 team=team,
                 dashboard=dashboard,
                 name="Pageviews this week",
-                type=TRENDS_LINEAR,
                 filters={TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}]},
                 last_refresh=timezone.now(),
             )
@@ -42,10 +41,9 @@ class TeamManager(models.Manager):
                 team=team,
                 dashboard=dashboard,
                 name="Most popular browsers this week",
-                type="ActionsTable",
                 filters={
                     TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}],
-                    "display": "ActionsTable",
+                    "display": TRENDS_TABLE,
                     "breakdown": "$browser",
                 },
                 last_refresh=timezone.now(),
@@ -54,7 +52,6 @@ class TeamManager(models.Manager):
                 team=team,
                 dashboard=dashboard,
                 name="Daily Active Users",
-                type=TRENDS_LINEAR,
                 filters={
                     TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}]
                 },
@@ -62,6 +59,11 @@ class TeamManager(models.Manager):
             )
 
         return team
+
+    def create(self, *args, **kwargs) -> "Team":
+        if kwargs.get("organization") is None and kwargs.get("organization_id") is None:
+            raise ValueError("Creating organization-less projects is prohibited")
+        return super().create(*args, **kwargs)
 
     def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
         if not token:
@@ -94,6 +96,8 @@ class Team(models.Model):
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     uuid: models.UUIDField = models.UUIDField(default=UUIDT, editable=False, unique=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
+    session_recording_retention_period_days: models.IntegerField = models.IntegerField(null=True, default=None)
+
     plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
 
     # DEPRECATED: replaced with env variable OPT_OUT_CAPTURE and User field anonymized_data
@@ -106,6 +110,7 @@ class Team(models.Model):
         "User", blank=True, related_name="teams_deprecated_relationship"
     )
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    is_demo: models.BooleanField = models.BooleanField(default=False)
 
     objects = TeamManager()
 
