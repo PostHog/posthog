@@ -1,6 +1,6 @@
 import math
 from itertools import accumulate
-from typing import List
+from typing import Any, Dict, List
 
 from clickhouse_driver import Client as SyncClient
 
@@ -71,7 +71,7 @@ class ClickhouseTrendsFormula:
         result = sync_execute(sql, {"formula": filter.formula})
         response = []
         for item in result:
-            additional_values = {
+            additional_values: Dict[str, Any] = {
                 "label": self._label(filter, item, team_id),
             }
             if is_aggregate:
