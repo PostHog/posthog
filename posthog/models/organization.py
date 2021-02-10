@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from django.conf import settings
 from django.contrib.postgres.fields import JSONField
 from django.db import models, transaction
+from django.db.models.query import QuerySet
 from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
@@ -13,6 +14,9 @@ try:
     from ee.models.license import License
 except ImportError:
     License = None  # type: ignore
+
+
+INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
 
 
 class OrganizationManager(models.Manager):
@@ -95,6 +99,10 @@ class Organization(UUIDModel):
     @property
     def is_onboarding_active(self) -> bool:
         return not self.setup_section_2_completed
+
+    @property
+    def active_invites(self) -> QuerySet:
+        return self.invites.filter(created_at__gte=timezone.now() - timezone.timedelta(days=INVITE_DAYS_VALIDITY))
 
     def complete_onboarding(self) -> "Organization":
         self.setup_section_2_completed = True
@@ -203,8 +211,8 @@ class OrganizationInvite(UUIDModel):
         OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
 
     def is_expired(self) -> bool:
-        """Check if invite is older than 3 days."""
-        return self.created_at < timezone.now() - timezone.timedelta(3)
+        """Check if invite is older than INVITE_DAYS_VALIDITY days."""
+        return self.created_at < timezone.now() - timezone.timedelta(INVITE_DAYS_VALIDITY)
 
     def __str__(self):
         return f"{settings.SITE_URL}/signup/{self.id}"

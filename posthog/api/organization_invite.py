@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, cast
 
 from django.db import transaction
 from rest_framework import exceptions, mixins, serializers, viewsets
@@ -9,6 +9,7 @@ from posthog.api.user import UserSerializer
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.models import OrganizationInvite, OrganizationMembership
+from posthog.models.organization import Organization
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
 from posthog.tasks.email import send_invite
 
@@ -54,10 +55,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             report_team_member_invited(
                 self.context["request"].user.distinct_id,
                 name_provided=bool(validated_data.get("first_name")),
-                current_invite_count=OrganizationInvite.objects.filter(
-                    organization_id=self.context["organization_id"],
-                ).count()
-                - 1,
+                current_invite_count=invite.organization.active_invites.count(),
                 current_member_count=OrganizationMembership.objects.filter(
                     organization_id=self.context["organization_id"],
                 ).count(),
@@ -79,9 +77,7 @@ class BulkCreateOrganizationSerializer(serializers.Serializer):
 
     def create(self, validated_data: Dict[str, Any]) -> Dict[str, Any]:
         output = []
-        current_invite_count = OrganizationInvite.objects.filter(
-            organization_id=self.context["organization_id"],
-        ).count()
+        organization = cast(self.context["organization"], Organization)
 
         with transaction.atomic():
             for invite in validated_data["invites"]:
@@ -94,10 +90,8 @@ class BulkCreateOrganizationSerializer(serializers.Serializer):
             self.context["request"].user.distinct_id,
             invitee_count=len(validated_data["invites"]),
             name_count=sum(1 for invite in validated_data["invites"] if invite["first_name"]),
-            current_invite_count=current_invite_count,
-            current_member_count=OrganizationMembership.objects.filter(
-                organization_id=self.context["organization_id"],
-            ).count(),
+            current_invite_count=organization.active_invites.count(),
+            current_member_count=organization.memberships.count(),
             email_available=is_email_available(),
         )
 

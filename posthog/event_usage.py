@@ -43,7 +43,7 @@ def report_user_joined_organization(organization: Organization, current_user: Us
         properties={
             "organization_id": str(organization.id),
             "user_number_of_org_membership": current_user.organization_memberships.count(),
-            "org_current_invite_count": organization.invites.filter(),
+            "org_current_invite_count": organization.active_invites.count(),
             "org_current_project_count": organization.teams.count(),
             "org_current_members_count": organization.memberships.count(),
         },
@@ -76,7 +76,7 @@ def report_team_member_invited(
         "team invite executed",
         properties={
             "name_provided": name_provided,
-            "current_invite_count": current_invite_count,
+            "current_invite_count": current_invite_count,  # number of invites including this one
             "current_member_count": current_member_count,
             "email_available": email_available,
         },
@@ -100,7 +100,7 @@ def report_bulk_invited(
         properties={
             "invitee_count": invitee_count,
             "name_count": name_count,
-            "current_invite_count": current_invite_count,
+            "current_invite_count": current_invite_count,  # number of invites including this set
             "current_member_count": current_member_count,
             "email_available": email_available,
         },
