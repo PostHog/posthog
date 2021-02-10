@@ -54,9 +54,18 @@ export function PluginDrawer(): JSX.Element {
     }, [editingPlugin?.id])
 
     const isValidChoiceConfig = (configField: PluginConfigChoice): boolean => {
+        /*
+            Checks, in order, that `choices`:
+            1. Exists   
+            2. Is an array or object
+            3. Is not an object 
+            4. Is not an empty array
+            5. Is an array of strings only
+        */
         const invalid =
             !configField.choices ||
-            !(configField.choices instanceof Array) ||
+            typeof configField.choices !== 'object' ||
+            JSON.stringify(configField.choices)[0] === '{' ||
             !configField.choices.length ||
             [...configField.choices].filter((choice) => typeof choice === 'string').length != configField.choices.length
         return !invalid
@@ -196,10 +205,7 @@ export function PluginDrawer(): JSX.Element {
                                                 <Input />
                                             ) : fieldConfig.type === 'choice' ? (
                                                 isValidChoiceConfig(fieldConfig) ? (
-                                                    <Select
-                                                        defaultValue={fieldConfig.choices?.[0]}
-                                                        dropdownMatchSelectWidth={false}
-                                                    >
+                                                    <Select dropdownMatchSelectWidth={false}>
                                                         {fieldConfig.choices.map((choice) => (
                                                             <Select.Option value={choice} key={choice}>
                                                                 {choice}
