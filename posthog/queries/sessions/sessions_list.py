@@ -9,7 +9,7 @@ from django.db.models.expressions import ExpressionWrapper
 from django.db.models.fields import BooleanField
 from django.utils.timezone import now
 
-from posthog.models import Event, Team
+from posthog.models import Event, Person, Team
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.base import entity_to_Q, properties_to_Q
@@ -48,12 +48,11 @@ class SessionsList:
     def fetch_page(self) -> Tuple[List[Session], Optional[Dict]]:
         distinct_id_offset = self.filter.pagination.get("distinct_id_offset", 0)
         start_timestamp = self.filter.pagination.get("start_timestamp")
-        date_filter = self.date_filter()
 
-        person_emails = self.query_people_in_range(date_filter, limit=self.limit + distinct_id_offset)
+        person_emails = self.query_people_in_range(limit=self.limit + distinct_id_offset)
 
         sessions_builder = SessionListBuilder(
-            self.events_query(date_filter, list(person_emails.keys()), start_timestamp).iterator(),
+            self.events_query(list(person_emails.keys()), start_timestamp).iterator(),
             emails=person_emails,
             action_filter_count=len(self.filter.action_filters),
             distinct_id_offset=distinct_id_offset,
@@ -68,10 +67,10 @@ class SessionsList:
             sessions_builder.pagination,
         )
 
-    def events_query(self, date_filter: Q, distinct_ids: List[str], start_timestamp: Optional[str],) -> QuerySet:
+    def events_query(self, distinct_ids: List[str], start_timestamp: Optional[str],) -> QuerySet:
         events = (
             Event.objects.filter(team=self.team)
-            .filter(date_filter)
+            .filter(self.date_filter())
             .filter(distinct_id__in=distinct_ids)
             .order_by("-timestamp")
             .only("distinct_id", "timestamp")
@@ -90,12 +89,20 @@ class SessionsList:
 
         return events.values_list("distinct_id", "timestamp", "id", "current_url", *keys)
 
-    def query_people_in_range(self, date_filter: Q, limit: int) -> Dict[str, Optional[str]]:
+    def query_people_in_range(self, limit: int) -> Dict[str, Optional[str]]:
+        if self.filter.distinct_id:
+            person = Person.objects.filter(
+                team=self.team, persondistinctid__distinct_id=self.filter.distinct_id
+            ).first()
+            return (
+                {distinct_id: person.properties.get("email") for distinct_id in person.distinct_ids} if person else {}
+            )
+
         events_query = (
             Event.objects.filter(team=self.team)
             .add_person_id(self.team.pk)
             .filter(properties_to_Q(self.filter.person_filter_properties, team_id=self.team.pk))
-            .filter(date_filter)
+            .filter(self.date_filter())
             .order_by("-timestamp")
         )
         sql, params = events_query.query.sql_with_params()

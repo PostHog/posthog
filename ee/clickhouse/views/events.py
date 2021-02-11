@@ -133,14 +133,6 @@ class ClickhouseEventsViewSet(EventViewSet):
         filter = SessionsFilter(request=request)
 
         sessions, pagination = ClickhouseSessionsList.run(team=self.team, filter=filter)
-
-        if filter.distinct_id:
-            try:
-                person_ids = get_persons_by_distinct_ids(self.team.pk, [filter.distinct_id])[0].distinct_ids
-                sessions = [session for i, session in enumerate(sessions) if session["distinct_id"] in person_ids]
-            except IndexError:
-                sessions = []
-
         return Response({"result": sessions, "pagination": pagination})
 
     # ******************************************

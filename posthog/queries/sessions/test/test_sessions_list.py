@@ -42,6 +42,17 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
                 self.assertEqual(len(response), 1)
 
         @freeze_time("2012-01-15T04:01:34.000Z")
+        def test_sessions_by_distinct_id(self):
+            self.create_large_testset()
+
+            sessions, _ = self.run_query(SessionsFilter(data={"distinct_id": "88"}))
+            self.assertLength(sessions, 1)
+            self.assertEqual(sessions[0]["distinct_id"], "88")
+
+            sessions, _ = self.run_query(SessionsFilter(data={"distinct_id": "foobar"}))
+            self.assertLength(sessions, 0)
+
+        @freeze_time("2012-01-15T04:01:34.000Z")
         def test_filter_by_entity_event(self):
             self.create_test_data()
 
