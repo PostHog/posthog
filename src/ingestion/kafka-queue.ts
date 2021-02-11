@@ -4,7 +4,7 @@ import { Consumer, EachBatchPayload, Kafka, Message } from 'kafkajs'
 import { PluginsServer, Queue, RawEventMessage } from 'types'
 
 import { status } from '../status'
-import { killGracefully } from '../utils'
+import { killGracefully, runInParallelBatches } from '../utils'
 
 export class KafkaQueue implements Queue {
     private pluginsServer: PluginsServer
@@ -51,7 +51,16 @@ export class KafkaQueue implements Queue {
             }
         })
 
-        const processedEvents = await this.processEventBatch(pluginEvents)
+        const maxBatchSize = Math.max(
+            1,
+            Math.min(
+                100,
+                Math.ceil(
+                    pluginEvents.length / this.pluginsServer.WORKER_CONCURRENCY / this.pluginsServer.TASKS_PER_WORKER
+                )
+            )
+        )
+        const processedEvents = await runInParallelBatches(pluginEvents, maxBatchSize, this.processEventBatch)
 
         // Sort in the original order that the events came in, putting any randomly added events to the end.
         // This is so we would resolve the correct kafka offsets in order.
@@ -59,27 +68,39 @@ export class KafkaQueue implements Queue {
             (a, b) => (uuidOrder.get(a.uuid!) || pluginEvents.length) - (uuidOrder.get(b.uuid!) || pluginEvents.length)
         )
 
-        for (const event of processedEvents) {
-            if (!isRunning()) {
-                status.info('😮', 'Consumer not running anymore, canceling batch processing!')
-                return
+        // TODO: add chunking into groups of 500 or so. Might start too many promises at once now
+        if (this.pluginsServer.KAFKA_BATCH_PARALELL_PROCESSING) {
+            const ingestOneEvent = async (event: PluginEvent) => {
+                const singleIngestionTimer = new Date()
+                await this.saveEvent(event)
+                this.pluginsServer.statsd?.timing('kafka_queue.single_ingestion', singleIngestionTimer)
             }
-            if (isStale()) {
-                status.info('😮', 'Batch stale, canceling batch processing!')
-                return
+            await Promise.all(processedEvents.map((event) => ingestOneEvent(event)))
+        } else {
+            for (const event of processedEvents) {
+                if (!isRunning()) {
+                    status.info('😮', 'Consumer not running anymore, canceling batch processing!')
+                    return
+                }
+                if (isStale()) {
+                    status.info('😮', 'Batch stale, canceling batch processing!')
+                    return
+                }
+
+                const singleIngestionTimer = new Date()
+                await this.saveEvent(event)
+                const offset = uuidOffset.get(event.uuid!)
+                if (offset) {
+                    resolveOffset(offset)
+                }
+                await heartbeat()
+                await commitOffsetsIfNecessary()
+                this.pluginsServer.statsd?.timing('kafka_queue.single_ingestion', singleIngestionTimer)
             }
-            const singleIngestionTimer = new Date()
-            await this.saveEvent(event)
-            const offset = uuidOffset.get(event.uuid!)
-            if (offset) {
-                resolveOffset(offset)
-            }
-            await heartbeat()
-            await commitOffsetsIfNecessary()
-            this.pluginsServer.statsd?.timing('kafka_queue.single_ingestion', singleIngestionTimer)
         }
         this.pluginsServer.statsd?.timing('kafka_queue.each_batch', batchProcessingTimer)
         resolveOffset(batch.lastOffset())
+        await heartbeat()
         await commitOffsetsIfNecessary()
     }
 

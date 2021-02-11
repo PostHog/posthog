@@ -2,12 +2,12 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import * as os from 'os'
 import { performance } from 'perf_hooks'
 
-import { defaultConfig } from '../src/config'
-import { LogLevel } from '../src/types'
-import { makePiscina } from '../src/worker/piscina'
-import { resetTestDatabase } from '../tests/helpers/sql'
+import { defaultConfig } from '../../src/config'
+import { LogLevel } from '../../src/types'
+import { makePiscina } from '../../src/worker/piscina'
+import { resetTestDatabase } from '../../tests/helpers/sql'
 
-jest.mock('../src/sql')
+jest.mock('../../src/sql')
 jest.setTimeout(600000) // 600 sec timeout
 
 function processOneEvent(
@@ -111,7 +111,7 @@ test('piscina worker benchmark', async () => {
                 async function processEvent (event, meta) {
                     await new Promise(resolve => __jestSetTimeout(() => resolve(), 100))
                     event.properties = { "somewhere": "over the rainbow" };
-                    return event             
+                    return event
                 }
             `,
         },

@@ -1,5 +1,4 @@
-import { Team } from '../../src/types'
-import { createUserTeamAndOrganization } from '../helpers/sql'
+import { createUserTeamAndOrganization, getTeams } from '../helpers/sql'
 import { createProcessEventTests } from '../shared/process-event'
 
 jest.setTimeout(600000) // 600 sec timeout.
@@ -37,7 +36,7 @@ describe('process event (postgresql)', () => {
                 '0174f81e-36f5-0000-7ef8-cc26c1fbab1c'
             )
 
-            const teams = (await server!.db.postgresQuery('SELECT * FROM posthog_team ORDER BY id')).rows as Team[]
+            const teams = await getTeams(server!)
 
             // # Test no team leakage
             const team2 = teams[1]

@@ -3,7 +3,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import Client from '../../src/celery/client'
 import { startPluginsServer } from '../../src/server'
 import { LogLevel } from '../../src/types'
-import { delay } from '../../src/utils'
+import { delay, UUIDT } from '../../src/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { resetTestDatabase } from '../helpers/sql'
 import { setupPiscina } from '../helpers/worker'
@@ -41,6 +41,7 @@ test('piscina worker test', async () => {
     const processEventBatch = (batch: PluginEvent[]) => piscina.runTask({ task: 'processEventBatch', args: { batch } })
     const runEveryDay = (pluginConfigId: number) => piscina.runTask({ task: 'runEveryDay', args: { pluginConfigId } })
     const getPluginSchedule = () => piscina.runTask({ task: 'getPluginSchedule' })
+    const ingestEvent = (event: PluginEvent) => piscina.runTask({ task: 'ingestEvent', args: { event } })
 
     const pluginSchedule = await getPluginSchedule()
     expect(pluginSchedule).toEqual({ runEveryDay: [39], runEveryHour: [], runEveryMinute: [] })
@@ -53,6 +54,12 @@ test('piscina worker test', async () => {
 
     const everyDayReturn = await runEveryDay(39)
     expect(everyDayReturn).toBe(4)
+
+    const ingestResponse1 = await ingestEvent(createEvent())
+    expect(ingestResponse1).toEqual({ error: 'Not a valid UUID: "undefined"' })
+
+    const ingestResponse2 = await ingestEvent({ ...createEvent(), uuid: new UUIDT().toString() })
+    expect(ingestResponse2).toEqual({ success: true })
 
     await piscina.destroy()
 })

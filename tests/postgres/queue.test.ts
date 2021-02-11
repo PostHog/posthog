@@ -68,11 +68,11 @@ test('worker and task passing via redis', async () => {
     expect(args2).toEqual(args)
     expect(kwargs2).toEqual({})
 
-    const queue = await startQueue(
-        server,
-        (event) => runPlugins(server, event),
-        (events) => Promise.all(events.map((event) => runPlugins(server, event)))
-    )
+    const queue = await startQueue(server, undefined, {
+        processEvent: (event) => runPlugins(server, event),
+        processEventBatch: (events) => Promise.all(events.map((event) => runPlugins(server, event))),
+        ingestEvent: () => Promise.resolve({ success: true }),
+    })
     await advanceOneTick()
     await advanceOneTick()
 
@@ -133,11 +133,11 @@ test('process multiple tasks', async () => {
     expect(await server.redis.llen(server.PLUGINS_CELERY_QUEUE)).toBe(3)
     expect(await server.redis.llen(server.CELERY_DEFAULT_QUEUE)).toBe(0)
 
-    const queue = await startQueue(
-        server,
-        (event) => runPlugins(server, event),
-        (events) => Promise.all(events.map((event) => runPlugins(server, event)))
-    )
+    const queue = await startQueue(server, undefined, {
+        processEvent: (event) => runPlugins(server, event),
+        processEventBatch: (events) => Promise.all(events.map((event) => runPlugins(server, event))),
+        ingestEvent: () => Promise.resolve({ success: true }),
+    })
     await advanceOneTick()
 
     expect(await server.redis.llen(server.PLUGINS_CELERY_QUEUE)).toBe(2)
@@ -200,11 +200,11 @@ test('pause and resume queue', async () => {
     expect(await server.redis.llen(server.PLUGINS_CELERY_QUEUE)).toBe(6)
     expect(await server.redis.llen(server.CELERY_DEFAULT_QUEUE)).toBe(0)
 
-    const queue = await startQueue(
-        server,
-        (event) => runPlugins(server, event),
-        (events) => Promise.all(events.map((event) => runPlugins(server, event)))
-    )
+    const queue = await startQueue(server, undefined, {
+        processEvent: (event) => runPlugins(server, event),
+        processEventBatch: (events) => Promise.all(events.map((event) => runPlugins(server, event))),
+        ingestEvent: () => Promise.resolve({ success: true }),
+    })
     await advanceOneTick()
 
     expect(await server.redis.llen(server.PLUGINS_CELERY_QUEUE)).toBe(5)

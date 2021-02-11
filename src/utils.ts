@@ -335,3 +335,16 @@ export function escapeClickHouseString(string: string): string {
     // https://clickhouse.tech/docs/en/sql-reference/syntax/
     return string.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 }
+
+export async function runInParallelBatches<T, R extends (batch: T[]) => Promise<any> = (batch: T[]) => Promise<any>>(
+    array: T[],
+    batchSize: number,
+    callback: R
+): Promise<ReturnType<R>> {
+    const arrays = []
+    for (let i = 0; i < array.length; i += batchSize) {
+        arrays.push(array.slice(i, i + batchSize))
+    }
+    const responses = await Promise.all(arrays.map(callback))
+    return responses.flat()
+}
