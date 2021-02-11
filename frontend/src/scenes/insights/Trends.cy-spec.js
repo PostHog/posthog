@@ -40,7 +40,7 @@ describe('<Insights /> trends', () => {
         mount()
         cy.wait('@api_insight')
             .map(helpers.getSearchParameters)
-            .should('include', {
+            .should('eq', {
                 insight: 'TRENDS',
                 interval: 'day',
                 display: 'ActionsLineGraph',
@@ -85,9 +85,6 @@ describe('<Insights /> trends', () => {
         cy.get('@api_insight')
             .map(helpers.getSearchParameters)
             .should('include', {
-                insight: 'TRENDS',
-                interval: 'day',
-                display: 'ActionsLineGraph',
                 events: JSON.stringify([
                     {
                         id: '$pageview',
@@ -97,7 +94,6 @@ describe('<Insights /> trends', () => {
                         math: 'dau',
                     },
                 ]),
-                properties: '[]',
             })
         cy.get('[data-attr="trend-line-graph"]').should('be.visible')
     })
@@ -131,9 +127,6 @@ describe('<Insights /> trends', () => {
             cy.wait('@api_insight')
                 .map(helpers.getSearchParameters)
                 .should('include', {
-                    insight: 'TRENDS',
-                    interval: 'day',
-                    display: 'ActionsLineGraph',
                     events: JSON.stringify([
                         {
                             id: '$pageview',
@@ -150,7 +143,6 @@ describe('<Insights /> trends', () => {
                             order: 1,
                         },
                     ]),
-                    properties: '[]',
                 })
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
         })
@@ -182,17 +174,6 @@ describe('<Insights /> trends', () => {
             cy.wait('@api_insight')
                 .map(helpers.getSearchParameters)
                 .should('include', {
-                    insight: 'TRENDS',
-                    interval: 'day',
-                    display: 'ActionsLineGraph',
-                    events: JSON.stringify([
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            type: 'events',
-                            order: 0,
-                        },
-                    ]),
                     properties: JSON.stringify([
                         {
                             key: '$browser',
@@ -240,17 +221,6 @@ describe('<Insights /> trends', () => {
             cy.wait('@api_insight')
                 .map(helpers.getSearchParameters)
                 .should('include', {
-                    insight: 'TRENDS',
-                    interval: 'day',
-                    display: 'ActionsLineGraph',
-                    events: JSON.stringify([
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            type: 'events',
-                            order: 0,
-                        },
-                    ]),
                     properties: JSON.stringify([
                         {
                             key: '$browser',
@@ -288,23 +258,9 @@ describe('<Insights /> trends', () => {
                 shown_as: 'Stickiness',
             })
             mount()
-            cy.wait('@api_insight')
-                .map(helpers.getSearchParameters)
-                .should('include', {
-                    insight: 'TRENDS',
-                    interval: 'day',
-                    display: 'ActionsLineGraph',
-                    events: JSON.stringify([
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            type: 'events',
-                            order: 0,
-                        },
-                    ]),
-                    properties: '[]',
-                    shown_as: 'Stickiness',
-                })
+            cy.wait('@api_insight').map(helpers.getSearchParameters).should('include', {
+                shown_as: 'Stickiness',
+            })
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
             cy.contains('Stickiness').should('be.visible')
         })
@@ -328,24 +284,10 @@ describe('<Insights /> trends', () => {
             })
             mount()
 
-            cy.wait('@api_insight')
-                .map(helpers.getSearchParameters)
-                .should('include', {
-                    insight: 'TRENDS',
-                    interval: 'day',
-                    display: 'ActionsLineGraph',
-                    events: JSON.stringify([
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            type: 'events',
-                            order: 0,
-                        },
-                    ]),
-                    properties: '[]',
-                    breakdown: '$browser',
-                    breakdown_type: 'event',
-                })
+            cy.wait('@api_insight').map(helpers.getSearchParameters).should('include', {
+                breakdown: '$browser',
+                breakdown_type: 'event',
+            })
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
             cy.contains('$browser').should('be.visible')
         })
