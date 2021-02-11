@@ -29,9 +29,11 @@ from sentry_sdk.integrations.redis import RedisIntegration
 from posthog.constants import RDBMS
 
 
-def get_from_env(key: str, default: Any = None, *, type_cast: Optional[Callable] = None) -> Any:
+def get_from_env(key: str, default: Any = None, *, optional: bool = False, type_cast: Optional[Callable] = None) -> Any:
     value = os.getenv(key)
     if value is None:
+        if optional:
+            return None
         if default is not None:
             return default
         else:
