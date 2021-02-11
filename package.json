@@ -19,7 +19,7 @@
         "build": "yarn clean && yarn compile",
         "clean": "rimraf dist/*",
         "compile:protobuf": "cd src/idl/ && rimraf protos.* && pbjs -t static-module -w commonjs -o protos.js *.proto && pbts -o protos.d.ts protos.js && eslint --fix . && prettier --write .",
-        "compile:typescript": "tsc",
+        "compile:typescript": "tsc -b",
         "compile": "yarn compile:protobuf && yarn compile:typescript",
         "lint": "eslint .",
         "lint:fix": "eslint --fix .",

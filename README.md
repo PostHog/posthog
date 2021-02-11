@@ -60,7 +60,6 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | STATSD_PORT                   | StatsD port                                                         | `8125`                                |
 | STATSD_PREFIX                 | StatsD prefix                                                       | `'plugin-server.'`                    |
 
-
 ## Releasing a new version
 
 It's magic! Just bump up `version` in `package.json` on the main branch and the new version will be published automatically, on GitHub and on npm. Courtesy of GitHub Actions.
