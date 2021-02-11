@@ -175,7 +175,12 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         <div className="events" data-attr="events-table">
             <Space className="mb-05">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} data-attr="sessions-prev-date" />
-                <DatePicker value={selectedDate} onChange={(date) => setFilters(properties, date)} allowClear={false} />
+                <DatePicker
+                    value={selectedDate}
+                    onChange={(date) => setFilters(properties, date)}
+                    allowClear={false}
+                    data-attr="sessions-date-picker"
+                />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} data-attr="sessions-next-date" />
             </Space>
 
