@@ -2,6 +2,7 @@ from typing import Any, Callable, Dict, List, Tuple
 
 from django.db.models.query import Prefetch
 from django.utils import timezone
+from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.trends.breakdown import ClickhouseTrendsBreakdown
@@ -46,7 +47,8 @@ class ClickhouseTrends(
         sql, params, parse_function = self._get_sql_for_entity(filter, entity, team_id)
         try:
             result = sync_execute(sql, params)
-        except:
+        except Exception as e:
+            capture_exception(e)
             result = []
         result = parse_function(result)
         serialized_data = self._format_serialized(entity, result)
