@@ -179,12 +179,23 @@ export const funnelLogic = kea({
             insightLogic.actions.setAllFilters({})
         },
     }),
-    actionToUrl: ({ actions, values }) => ({
-        [actions.setSteps]: () => ['/insights', values.propertiesForUrl],
-        [actions.clearFunnel]: () => ['/insights', { insight: ViewType.FUNNELS }],
+    actionToUrl: ({ actions, values, props }) => ({
+        [actions.setSteps]: () => {
+            if (!props.dashboardItemId) {
+                return ['/insights', values.propertiesForUrl]
+            }
+        },
+        [actions.clearFunnel]: () => {
+            if (!props.dashboardItemId) {
+                return ['/insights', { insight: ViewType.FUNNELS }]
+            }
+        },
     }),
-    urlToAction: ({ actions, values }) => ({
+    urlToAction: ({ actions, values, props }) => ({
         '/insights': (_, searchParams) => {
+            if (props.dashboardItemId) {
+                return
+            }
             if (searchParams.insight === ViewType.FUNNELS) {
                 const paramsToCheck = {
                     date_from: searchParams.date_from,
