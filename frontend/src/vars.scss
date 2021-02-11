@@ -53,6 +53,9 @@ $purple_700: #7c4286;
 $purple_500: #c278cf;
 $purple_300: #dcb1e3;
 
+// Gradients
+$night_sky: linear-gradient(180deg, #200c39 0%, #373088 75%, #4a3587 100%);
+
 // Additional style configurations
 .mixin-elevated {
     box-shadow: 0px 80px 80px rgba(0, 0, 0, 0.075), 0px 10px 10px rgba(0, 0, 0, 0.035) !important;
@@ -68,6 +71,8 @@ $z_main_nav: 948;
 $z_pinned_dashboards_popup: 962;
 $z_drawer: 1000;
 $z_command_palette: 1875;
+$z_starry_background_content: 1;
+$z_starry_background_stars: 0;
 
 // Export variables for TS access
 :export {
