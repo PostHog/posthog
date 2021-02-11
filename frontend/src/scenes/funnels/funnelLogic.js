@@ -53,7 +53,6 @@ export const funnelLogic = kea({
         setSteps: (steps) => ({ steps }),
         clearFunnel: true,
         setFilters: (filters, refresh = false) => ({ filters, refresh }),
-        loadFunnel: true,
         saveFunnelInsight: (name) => ({ name }),
     }),
 
@@ -61,7 +60,7 @@ export const funnelLogic = kea({
         actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
     },
 
-    loaders: ({ props, values }) => ({
+    loaders: ({ props, values, actions }) => ({
         results: {
             loadResults: async (refresh = false, breakpoint) => {
                 if (!refresh && props.cachedResults) {
@@ -85,6 +84,7 @@ export const funnelLogic = kea({
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(ViewType.FUNNELS, result.last_refresh)
+                actions.setSteps(result.result)
                 return result.result
             },
         },
@@ -114,7 +114,6 @@ export const funnelLogic = kea({
         stepsWithCountLoading: [
             false,
             {
-                loadFunnel: () => true,
                 setSteps: () => false,
             },
         ],
@@ -154,7 +153,7 @@ export const funnelLogic = kea({
         ],
     }),
 
-    listeners: ({ actions, values, props }) => ({
+    listeners: ({ actions, values }) => ({
         setSteps: async () => {
             if (values.stepsWithCount[0]?.people?.length > 0) {
                 actions.loadPeople(values.stepsWithCount)
@@ -162,31 +161,11 @@ export const funnelLogic = kea({
         },
         setFilters: ({ refresh }) => {
             if (refresh) {
-                actions.loadFunnel()
+                actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)
             insightLogic.actions.setAllFilters(cleanedParams)
             insightLogic.actions.setLastRefresh(false)
-        },
-        loadFunnel: async (_, breakpoint) => {
-            const cleanedParams = cleanFunnelParams(values.filters)
-
-            insightLogic.actions.setAllFilters(cleanedParams)
-            if (!props.dashboardItemId) {
-                actions.createInsight({ ...cleanedParams, insight: ViewType.FUNNELS })
-            }
-
-            let result
-            insightLogic.actions.startQuery()
-            try {
-                result = await pollFunnel(cleanedParams)
-            } catch (e) {
-                insightLogic.actions.endQuery(ViewType.FUNNELS, false, e)
-                return []
-            }
-            insightLogic.actions.endQuery(ViewType.FUNNELS, result.last_refresh)
-            breakpoint()
-            actions.setSteps(result.result)
         },
         saveFunnelInsight: async ({ name }) => {
             await api.create('api/insight', {

@@ -14,7 +14,7 @@ import { funnelCommandLogic } from './funnelCommandLogic'
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
     const { isStepsEmpty, filters, stepsWithCount } = useValues(funnelLogic())
-    const { loadFunnel, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
+    const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
     const { actions, actionsLoading } = useValues(actionsModel)
     const [savingModal, setSavingModal] = useState<boolean>(false)
 
@@ -30,7 +30,7 @@ export function FunnelTab(): JSX.Element {
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
-                    loadFunnel()
+                    loadResults()
                 }}
             >
                 {!actionsLoading && actions.length === 0 && (
