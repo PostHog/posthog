@@ -104,7 +104,7 @@
                 },
                 {
                     "name": "PLUGIN_SERVER_INGESTION",
-                    "value": "true"
+                    "value": "false"
                 },
                 {
                     "name": "BILLING_TRIAL_DAYS",
