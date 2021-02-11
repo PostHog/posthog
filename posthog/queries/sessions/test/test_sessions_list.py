@@ -1,6 +1,8 @@
 from datetime import datetime
 
 import pytz
+from dateutil.relativedelta import relativedelta
+from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Event, Organization, Person
@@ -146,6 +148,21 @@ def sessions_list_test_factory(sessions, event_factory):
 
             self.assertLength(sessions, 1)
             self.assertLength(sessions[0]["matching_events"], 3)
+
+        @freeze_time("2012-01-15T20:00:00.000Z")
+        def test_person_filter_pagination(self):
+            for i in range(100):
+                event_factory(
+                    team=self.team, event="$pageview", distinct_id=str(i), timestamp=now() - relativedelta(minutes=i)
+                )
+                Person.objects.create(
+                    team=self.team, distinct_ids=[str(i)], properties={"email": f"person{i}@example.com"}
+                )
+
+            sessions = self.run_query(
+                SessionsFilter(data={"filters": [{"type": "person", "key": "email", "value": "person99@example.com"}]})
+            )
+            self.assertLength(sessions, 1)
 
         def run_query(self, sessions_filter):
             return sessions().run(sessions_filter, self.team)[0]

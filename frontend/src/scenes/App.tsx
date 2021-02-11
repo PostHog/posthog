@@ -1,13 +1,11 @@
 import { hot } from 'react-hot-loader/root'
-
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { Alert, Layout } from 'antd'
+import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
-import { MainNavigation, TopNavigation } from '~/layout/navigation'
-import { BillingToolbar } from 'lib/components/BillingToolbar'
-
+import { MainNavigation, TopNavigation, DemoWarnings } from '~/layout/navigation'
+import { BillingAlerts } from 'lib/components/BillingAlerts'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic, Scene } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
@@ -18,10 +16,8 @@ import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/logic'
-import { Link } from 'lib/components/Link'
 import { BackTo } from 'lib/components/BackTo'
 import { Papercups } from 'lib/components/Papercups'
-import { DemoWarning } from '~/layout/navigation/DemoWarning'
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
@@ -98,7 +94,7 @@ function _App(): JSX.Element | null {
         ) : null
     }
 
-    if (!scene || sceneConfig.plain) {
+    if (sceneConfig.plain) {
         return (
             <Layout style={{ minHeight: '100vh' }}>
                 {!sceneConfig.hideTopNav && <TopNavigation />}
@@ -119,25 +115,15 @@ function _App(): JSX.Element | null {
                 <MainNavigation />
                 <Layout className={`${sceneConfig.dark ? 'bg-mid' : ''}`} style={{ minHeight: '100vh' }}>
                     {!sceneConfig.hideTopNav && <TopNavigation />}
-                    <Layout.Content className="main-app-content" data-attr="layout-content">
-                        {!sceneConfig.hideDemoWarnings && <DemoWarning />}
+                    {scene ? (
+                        <Layout.Content className="main-app-content" data-attr="layout-content">
+                            {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
 
-                        {!featureFlags['hide-billing-toolbar'] && <BillingToolbar />}
-                        <BackTo />
-                        {currentTeam && !sceneConfig.hideDemoWarnings && !currentTeam.ingested_event && (
-                            <Alert
-                                type="warning"
-                                style={{ marginTop: '1rem' }}
-                                message={
-                                    <>
-                                        You haven't sent any events to this project yet. Grab{' '}
-                                        <Link to="/project/settings">a snippet or library</Link> to get started!
-                                    </>
-                                }
-                            />
-                        )}
-                        <SceneComponent user={user} {...params} />
-                    </Layout.Content>
+                            <BillingAlerts />
+                            <BackTo />
+                            <SceneComponent user={user} {...params} />
+                        </Layout.Content>
+                    ) : null}
                 </Layout>
                 {essentialElements}
             </Layout>

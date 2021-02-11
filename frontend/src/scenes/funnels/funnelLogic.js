@@ -12,10 +12,10 @@ function wait(ms = 1000) {
 }
 const SECONDS_TO_POLL = 3 * 60
 
-async function pollFunnel(params = {}) {
+export async function pollFunnel(params = {}) {
     let result = await api.get('api/insight/funnel/?' + toParams(params))
     let start = window.performance.now()
-    while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
+    while (result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
         await wait()
         const { refresh: _, ...restParams } = params // eslint-disable-line
         result = await api.get('api/insight/funnel/?' + toParams(restParams))
@@ -27,7 +27,7 @@ async function pollFunnel(params = {}) {
     return result
 }
 
-const cleanFunnelParams = (filters) => {
+export const cleanFunnelParams = (filters) => {
     return {
         ...filters,
         ...(filters.date_from ? { date_from: filters.date_from } : {}),
@@ -54,35 +54,17 @@ export const funnelLogic = kea({
     }),
 
     connect: {
-        actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
+        actions: [
+            insightLogic,
+            ['setAllFilters'],
+            insightHistoryLogic,
+            ['createInsight'],
+            funnelsModel,
+            ['loadFunnels'],
+        ],
     },
 
-    loaders: ({ props, values }) => ({
-        results: {
-            loadResults: async (refresh = false) => {
-                if (!refresh && props.cachedResults) {
-                    return props.cachedResults
-                }
-                const { from_dashboard } = values.filters
-                const cleanedParams = cleanFunnelParams(values.filters)
-                const params = {
-                    ...(refresh ? { refresh: true } : {}),
-                    ...(from_dashboard ? { from_dashboard } : {}),
-                    ...cleanedParams,
-                }
-                let result
-
-                insightLogic.actions.startQuery()
-                try {
-                    result = await pollFunnel(params)
-                } catch (e) {
-                    insightLogic.actions.endQuery(ViewType.FUNNELS, false, e)
-                    return []
-                }
-                insightLogic.actions.endQuery(ViewType.FUNNELS, result.last_refresh)
-                return result.result
-            },
-        },
+    loaders: () => ({
         people: {
             loadPeople: async (steps) => {
                 return (await api.get('api/person/?uuid=' + steps[0].people.join(','))).results
@@ -160,12 +142,12 @@ export const funnelLogic = kea({
                 actions.loadFunnel()
             }
             const cleanedParams = cleanFunnelParams(values.filters)
-            insightLogic.actions.setAllFilters(cleanedParams)
+            actions.setAllFilters(cleanedParams)
         },
         loadFunnel: async () => {
             const cleanedParams = cleanFunnelParams(values.filters)
 
-            insightLogic.actions.setAllFilters(cleanedParams)
+            actions.setAllFilters(cleanedParams)
             if (!props.dashboardItemId) {
                 actions.createInsight({ ...cleanedParams, insight: ViewType.FUNNELS })
             }
@@ -175,11 +157,11 @@ export const funnelLogic = kea({
             try {
                 result = await pollFunnel(cleanedParams)
             } catch (e) {
-                insightLogic.actions.endQuery(ViewType.FUNNELS, false, e)
+                insightLogic.actions.endQuery(ViewType.FUNNELS, e)
                 return []
             }
-            insightLogic.actions.endQuery(ViewType.FUNNELS, result.last_refresh)
-            actions.setSteps(result.result)
+            insightLogic.actions.endQuery(ViewType.FUNNELS)
+            actions.setSteps(result)
         },
         saveFunnelInsight: async ({ name }) => {
             await api.create('api/insight', {
@@ -190,7 +172,7 @@ export const funnelLogic = kea({
             actions.loadFunnels()
         },
         clearFunnel: async () => {
-            insightLogic.actions.setAllFilters({})
+            actions.setAllFilters({})
         },
     }),
     actionToUrl: ({ actions, values }) => ({

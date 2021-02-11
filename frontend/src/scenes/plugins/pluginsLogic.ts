@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
-import { PluginConfigType, PluginType } from '~/types'
+import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
 import {
     PluginInstallationType,
     PluginRepositoryEntry,
@@ -10,8 +10,7 @@ import {
     PluginUpdateStatusType,
 } from './types'
 import { userLogic } from 'scenes/userLogic'
-import { getConfigSchemaObject, getPluginConfigFormData, getConfigSchemaArray } from 'scenes/plugins/utils'
-import { PersonalAPIKeyType } from '~/types'
+import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 import posthog from 'posthog-js'
 import { FormInstance } from 'antd/lib/form'
 
@@ -137,17 +136,10 @@ export const pluginsLogic = kea<
             {
                 loadPluginConfigs: async () => {
                     const pluginConfigs: Record<string, PluginConfigType> = {}
-
-                    const [{ results }, globalResults] = await Promise.all([
-                        api.get('api/plugin_config'),
-                        api.get('api/plugin_config/global_plugins/'),
-                    ])
+                    const { results } = await api.get('api/plugin_config')
 
                     for (const pluginConfig of results as PluginConfigType[]) {
-                        pluginConfigs[pluginConfig.plugin] = { ...pluginConfig, global: false }
-                    }
-                    for (const pluginConfig of globalResults as PluginConfigType[]) {
-                        pluginConfigs[pluginConfig.plugin] = { ...pluginConfig, global: true }
+                        pluginConfigs[pluginConfig.plugin] = { ...pluginConfig }
                     }
 
                     return pluginConfigs
@@ -395,8 +387,7 @@ export const pluginsLogic = kea<
                         }
                         return { ...plugin, pluginConfig, updateStatus: updateStatus[plugin.id] }
                     })
-                    .sort((a, b) => a.pluginConfig.order - b.pluginConfig.order)
-                    .map((plugin, index) => ({ ...plugin, order: index + 1 }))
+                    .sort((p1, p2) => p1.name.toUpperCase().localeCompare(p2.name.toUpperCase()))
             },
         ],
         enabledPlugins: [
@@ -459,6 +450,7 @@ export const pluginsLogic = kea<
                 return Object.keys(repository)
                     .filter((url) => !installedPluginUrls[url.replace(/\/+$/, '')])
                     .map((url) => repository[url.replace(/\/+$/, '')])
+                    .sort((p1, p2) => p1.name.toUpperCase().localeCompare(p2.name.toUpperCase()))
             },
         ],
         editingPlugin: [
@@ -500,7 +492,12 @@ export const pluginsLogic = kea<
                     initialUpdateStatus[id] = { upToDate: plugin.tag === plugin.latest_tag }
                 }
             }
-            actions.checkForUpdates(false, initialUpdateStatus)
+            if (userLogic.values.user?.plugin_access.install) {
+                actions.checkForUpdates(false, initialUpdateStatus)
+            }
+            if (Object.keys(values.plugins).length === 0 && userLogic.values.user?.plugin_access.install) {
+                actions.setPluginTab(PluginTab.Repository)
+            }
         },
         generateApiKeysIfNeeded: async ({ form }, breakpoint) => {
             const { editingPlugin } = values

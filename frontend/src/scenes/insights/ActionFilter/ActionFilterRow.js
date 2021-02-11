@@ -5,8 +5,7 @@ import { EntityTypes } from '../trendsLogic'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { userLogic } from 'scenes/userLogic'
-import { DownOutlined } from '@ant-design/icons'
-import { CloseButton } from 'lib/components/CloseButton'
+import { DownOutlined, DeleteOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import './ActionFilterRow.scss'
 
@@ -214,7 +213,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
     return (
         <div>
             <Row gutter={8} className="mt">
-                <Col>
+                <Col style={{ maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}>
                     <Button
                         data-attr={'trend-element-subject-' + index}
                         ref={node}
@@ -233,7 +232,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
                         onClose={() => selectFilter(null)}
                     />
                 </Col>
-                <Col>
+                <Col style={{ maxWidth: 'calc(50% - 16px)' }}>
                     {!hideMathSelector && (
                         <MathSelector
                             math={math}
@@ -242,9 +241,24 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
                             areEventPropertiesNumericalAvailable={
                                 eventPropertiesNumerical && eventPropertiesNumerical.length > 0
                             }
+                            style={{ maxWidth: '100%', width: 'initial' }}
                         />
                     )}
                 </Col>
+                {!singleFilter && (
+                    <Col>
+                        <Button
+                            type="link"
+                            onClick={onClose}
+                            style={{
+                                padding: 0,
+                                paddingLeft: 8,
+                            }}
+                        >
+                            <DeleteOutlined />
+                        </Button>
+                    </Col>
+                )}
             </Row>
             {!hideMathSelector && MATHS[math]?.onProperty && (
                 <MathPropertySelector
@@ -265,17 +279,6 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
                 >
                     {determineFilterLabel(visible, filter)}
                 </Button>
-                {!singleFilter && (
-                    <CloseButton
-                        onClick={onClose}
-                        style={{
-                            float: 'none',
-                            position: 'absolute',
-                            marginTop: 3,
-                            marginLeft: 4,
-                        }}
-                    />
-                )}
             </div>
 
             {visible && (
@@ -293,14 +296,14 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
     )
 }
 
-function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAvailable }) {
-    const numericalNotice = `This can only be used on on properties that have at least one number type occurence in your events.${
+function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAvailable, style }) {
+    const numericalNotice = `This can only be used on properties that have at least one number type occurence in your events.${
         areEventPropertiesNumericalAvailable ? '' : ' None have been found yet!'
     }`
 
     return (
         <Select
-            style={{ width: 150 }}
+            style={{ width: 150, ...style }}
             value={math || 'total'}
             onChange={(value) => onMathSelect(index, value)}
             data-attr={`math-selector-${index}`}
@@ -324,7 +327,17 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
                                 }
                                 placement="right"
                             >
-                                <div style={{ height: '100%', width: '100%' }}>{name}</div>
+                                <div
+                                    style={{
+                                        height: '100%',
+                                        width: '100%',
+                                        paddingRight: 8,
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                    }}
+                                >
+                                    {name}
+                                </div>
                             </Tooltip>
                         </Select.Option>
                     )

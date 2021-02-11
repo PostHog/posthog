@@ -23,14 +23,14 @@ class ClickhouseSessionsList:
         offset = filter.pagination.get("offset", 0)
         filter = set_default_dates(filter)
 
-        filters, params = parse_prop_clauses(filter.person_filter_properties, team.pk)
+        person_filters, person_filter_params = parse_prop_clauses(filter.person_filter_properties, team.pk)
         filters_select_clause, filters_timestamps_clause, filters_having, action_filter_params = format_action_filters(
             filter
         )
 
         date_from, date_to, _ = parse_timestamps(filter, team.pk)
         params = {
-            **params,
+            **person_filter_params,
             **action_filter_params,
             "team_id": team.pk,
             "limit": limit,
@@ -40,7 +40,7 @@ class ClickhouseSessionsList:
         query = SESSION_SQL.format(
             date_from=date_from,
             date_to=date_to,
-            filters=filters,
+            person_filters=person_filters,
             filters_select_clause=filters_select_clause,
             filters_timestamps_clause=filters_timestamps_clause,
             filters_having=filters_having,
