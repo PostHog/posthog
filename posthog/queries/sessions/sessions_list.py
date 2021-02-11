@@ -50,7 +50,7 @@ class SessionsList:
         start_timestamp = self.filter.pagination.get("start_timestamp")
         date_filter = self.date_filter()
 
-        person_emails = self.query_people_in_range(date_filter, limit=self.limit + distinct_id_offset + 1)
+        person_emails = self.query_people_in_range(date_filter, limit=self.limit + distinct_id_offset)
 
         sessions_builder = SessionListBuilder(
             self.events_query(date_filter, list(person_emails.keys()), start_timestamp).iterator(),
@@ -97,16 +97,17 @@ class SessionsList:
             .filter(properties_to_Q(self.filter.person_filter_properties, team_id=self.team.pk))
             .filter(date_filter)
             .order_by("-timestamp")
-            .only("distinct_id")
         )
         sql, params = events_query.query.sql_with_params()
         query = f"""
-            SELECT DISTINCT ON(distinct_id) events.distinct_id, posthog_person.properties->>'email'
+            SELECT events.distinct_id, MIN(posthog_person.properties->>'email')
             FROM ({sql}) events
             LEFT OUTER JOIN
                 posthog_persondistinctid ON posthog_persondistinctid.distinct_id = events.distinct_id AND posthog_persondistinctid.team_id = {self.team.pk}
             LEFT OUTER JOIN
                 posthog_person ON posthog_person.id = posthog_persondistinctid.person_id
+            GROUP BY events.distinct_id
+            ORDER BY MAX(events.timestamp) DESC
             LIMIT {limit}
         """
         with connection.cursor() as cursor:

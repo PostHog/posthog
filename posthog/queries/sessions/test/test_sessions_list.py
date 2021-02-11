@@ -23,12 +23,12 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
             self.create_test_data()
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
-                response = self.run_query(SessionsFilter(data={"properties": []}))
+                response, _ = self.run_query(SessionsFilter(data={"properties": []}))
 
                 self.assertEqual(len(response), 2)
                 self.assertEqual(response[0]["distinct_id"], "2")
 
-                response = self.run_query(SessionsFilter(data={"properties": [{"key": "$os", "value": "Mac OS X"}]}))
+                response, _ = self.run_query(SessionsFilter(data={"properties": [{"key": "$os", "value": "Mac OS X"}]}))
                 self.assertEqual(len(response), 1)
 
         def test_sessions_and_cohort(self):
@@ -36,7 +36,7 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
             cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"email": "bla"}}])
             cohort.calculate_people()
             with freeze_time("2012-01-15T04:01:34.000Z"):
-                response = self.run_query(
+                response, _ = self.run_query(
                     SessionsFilter(data={"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],})
                 )
                 self.assertEqual(len(response), 1)
@@ -48,13 +48,13 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
             self.assertLength(
                 self.run_query(
                     SessionsFilter(data={"filters": [{"type": "event_type", "key": "id", "value": "custom-event"}]})
-                ),
+                )[0],
                 2,
             )
             self.assertLength(
                 self.run_query(
                     SessionsFilter(data={"filters": [{"type": "event_type", "key": "id", "value": "another-event"}]})
-                ),
+                )[0],
                 1,
             )
 
@@ -68,7 +68,7 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
                             ]
                         }
                     )
-                ),
+                )[0],
                 1,
             )
 
@@ -86,7 +86,7 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
                             ]
                         }
                     )
-                ),
+                )[0],
                 1,
             )
 
@@ -100,13 +100,13 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
             self.assertLength(
                 self.run_query(
                     SessionsFilter(data={"filters": [{"type": "action_type", "key": "id", "value": action1.id}]})
-                ),
+                )[0],
                 2,
             )
             self.assertLength(
                 self.run_query(
                     SessionsFilter(data={"filters": [{"type": "action_type", "key": "id", "value": action2.id}]})
-                ),
+                )[0],
                 1,
             )
 
@@ -124,7 +124,7 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
                             ]
                         }
                     )
-                ),
+                )[0],
                 1,
             )
 
@@ -132,7 +132,7 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
         def test_match_multiple_action_filters(self):
             self.create_test_data()
 
-            sessions = self.run_query(
+            sessions, _ = self.run_query(
                 SessionsFilter(
                     data={
                         "filters": [
@@ -150,16 +150,14 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
         def test_filter_with_pagination(self):
             self.create_large_testset()
 
-            sessions = self.run_query(
+            sessions, pagination = self.run_query(
                 SessionsFilter(data={"filters": [{"type": "person", "key": "email", "value": "person99@example.com"}]})
             )
             self.assertLength(sessions, 1)
             self.assertEqual(sessions[0]["distinct_id"], "99")
+            self.assertIsNone(pagination)
 
-            sessions = self.run_query(SessionsFilter(data={"filters": [{"type": "person", "key": "n", "value": 10}]}))
-            self.assertEqual([session["distinct_id"] for session in sessions], ["10", "25", "40", "55", "70", "85"])
-
-            sessions = self.run_query(
+            sessions, pagination = self.run_query(
                 SessionsFilter(
                     data={
                         "filters": [
@@ -175,8 +173,9 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
             )
             self.assertLength(sessions, 1)
             self.assertEqual(sessions[0]["distinct_id"], "88")
+            self.assertIsNone(pagination)
 
-            sessions = self.run_query(
+            sessions, pagination = self.run_query(
                 SessionsFilter(
                     data={"filters": [{"type": "recording", "key": "duration", "operator": "gt", "value": 0}]}
                 )
@@ -184,9 +183,22 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
 
             self.assertLength(sessions, 1)
             self.assertEqual(sessions[0]["distinct_id"], "77")
+            self.assertIsNone(pagination)
+
+            sessions, pagination = self.run_query(
+                SessionsFilter(data={"filters": [{"type": "person", "key": "mod15", "value": 10}]})
+            )
+            self.assertEqual([session["distinct_id"] for session in sessions], ["10", "25", "40", "55", "70", "85"])
+            self.assertIsNone(pagination)
+
+            sessions, pagination = self.run_query(
+                SessionsFilter(data={"filters": [{"type": "person", "key": "mod4", "value": 3}]})
+            )
+            self.assertEqual([session["distinct_id"] for session in sessions], list(map(str, range(3, 42, 4))))
+            self.assertIsNotNone(pagination)
 
         def run_query(self, sessions_filter):
-            return sessions.run(sessions_filter, self.team, limit=10)[0]
+            return sessions.run(sessions_filter, self.team, limit=10)
 
         def assertLength(self, value, expected):
             self.assertEqual(len(value), expected)
@@ -224,7 +236,9 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
                     properties={"$some_property": i},
                 )
                 Person.objects.create(
-                    team=self.team, distinct_ids=[str(i)], properties={"email": f"person{i}@example.com", "n": i % 15}
+                    team=self.team,
+                    distinct_ids=[str(i)],
+                    properties={"email": f"person{i}@example.com", "mod15": i % 15, "mod4": i % 4},
                 )
 
             session_recording_event_factory(
