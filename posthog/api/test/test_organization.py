@@ -464,7 +464,7 @@ class TestInviteSignup(APIBaseTest):
             response.data,
             {
                 "type": "validation_error",
-                "code": "invalid_input",
+                "code": "invalid_recipient",
                 "detail": "This invite is intended for another email address.",
                 "attr": None,
             },
@@ -483,7 +483,7 @@ class TestInviteSignup(APIBaseTest):
             response.data,
             {
                 "type": "validation_error",
-                "code": "invalid_input",
+                "code": "expired",
                 "detail": "This invite has expired. Please ask your admin for a new one.",
                 "attr": None,
             },
@@ -700,7 +700,7 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "123"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "type": "validation_error",
                 "code": "password_too_short",
@@ -723,7 +723,7 @@ class TestInviteSignup(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "type": "validation_error",
                 "code": "invalid_input",
@@ -750,10 +750,10 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "test_password"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "type": "validation_error",
-                "code": "invalid_input",
+                "code": "expired",
                 "detail": "This invite has expired. Please ask your admin for a new one.",
                 "attr": None,
             },

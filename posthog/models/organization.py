@@ -191,18 +191,26 @@ class OrganizationInvite(UUIDModel):
         _email = email or (hasattr(user, "email") and user.email)
 
         if _email and _email != self.target_email:
-            raise ValueError("This invite is intended for another email address.")
+            raise exceptions.ValidationError(
+                "This invite is intended for another email address.", code="invalid_recipient"
+            )
 
         if self.is_expired():
-            raise ValueError("This invite has expired. Please ask your admin for a new one.")
+            raise exceptions.ValidationError(
+                "This invite has expired. Please ask your admin for a new one.", code="expired",
+            )
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
-            raise ValueError("User already is a member of the organization.")
+            raise exceptions.ValidationError(
+                "User already is a member of the organization.", code="user_already_member",
+            )
 
         if OrganizationMembership.objects.filter(
             organization=self.organization, user__email=self.target_email,
         ).exists():
-            raise ValueError("A user with this email address already belongs to the organization.")
+            raise exceptions.ValidationError(
+                "A user with this email address already belongs to the organization.", code="existing_email_address",
+            )
 
     def use(self, user: Any, *, prevalidated: bool = False) -> None:
         if not prevalidated:

@@ -348,10 +348,7 @@ class OrganizationInviteSignupViewset(generics.CreateAPIView):
 
         user = request.user if request.user.is_authenticated else None
 
-        try:
-            invite.validate(user=user)
-        except ValueError as e:
-            raise serializers.ValidationError(str(e))
+        invite.validate(user=user)
 
         return response.Response(
             {

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, cast
+from typing import Any, Dict, List
 
 from django.db import transaction
 from rest_framework import exceptions, mixins, serializers, viewsets
