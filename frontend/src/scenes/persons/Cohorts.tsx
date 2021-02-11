@@ -57,7 +57,7 @@ function _Cohorts(): JSX.Element {
     const { loadCohorts } = useActions(cohortsModel)
     const { openCohort } = useValues(cohortsUrlLogic)
     const { setOpenCohort } = useActions(cohortsUrlLogic)
-    const [searchTerm, setSearchTerm] = useState(false)
+    const [searchTerm, setSearchTerm] = useState(false as string | false)
 
     const columns = [
         {

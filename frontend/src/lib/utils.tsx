@@ -118,7 +118,7 @@ export function DeleteWithUndo(
     props: PropsWithChildren<{
         endpoint: string
         object: {
-            name: string
+            name?: string
             id: number
         }
         className: string
