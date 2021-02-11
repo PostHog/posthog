@@ -69,7 +69,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType<PrevalidatedInvite, E
                         return null
                     }
 
-                    return await api.create(`api/signup/${values.inviteId}/`)
+                    return await api.create(`api/signup/${values.inviteId}/`, {})
                 },
             },
         ],

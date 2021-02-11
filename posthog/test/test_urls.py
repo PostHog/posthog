@@ -9,10 +9,6 @@ from posthog.test.base import BaseTest
 class TestUrls(BaseTest):
     TESTS_API = True
 
-    def assert_react_frontend_view_loaded(self, response):
-        # <div id="root"> is where React gets mounted
-        self.assertIn('div id="root"', response.content.decode())
-
     def test_logout_temporary_token_reset(self):
 
         # update temporary token
@@ -31,6 +27,10 @@ class TestUrls(BaseTest):
     def test_logged_out_user_is_redirected_to_login(self):
         self.client.logout()
 
+        response = self.client.get("/events")
+        self.assertRedirects(response, "/login?next=/events")
+
+        # Complex URL
         response = self.client.get(
             '/insights?interval=day&display=ActionsLineGraph&events=[{"id":"$pageview","name":"$pageview","type":"events","order":0}]&properties=[]',
         )
@@ -67,13 +67,10 @@ class TestUrls(BaseTest):
         self.client.logout()
 
         response = self.client.get("/signup")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assert_react_frontend_view_loaded(response)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # no redirect
 
         response = self.client.get(f"/signup/{uuid.uuid4()}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assert_react_frontend_view_loaded(response)
 
         response = self.client.get(f"/preflight")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assert_react_frontend_view_loaded(response)
