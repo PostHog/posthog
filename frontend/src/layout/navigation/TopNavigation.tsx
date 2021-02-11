@@ -226,7 +226,9 @@ export function _TopNavigation(): JSX.Element {
                 </div>
                 <div>
                     <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
-                        <WhoAmI />
+                        <div>
+                            <WhoAmI />
+                        </div>
                     </Dropdown>
                 </div>
             </div>

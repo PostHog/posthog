@@ -7,7 +7,7 @@ import './InviteSignup.scss'
 import { StarryBackground } from 'lib/components/StarryBackground'
 import { userLogic } from 'scenes/userLogic'
 import { Button, Row, Col } from 'antd'
-import { ArrowLeftOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { PrevalidatedInvite } from '~/types'
 import { Link } from 'lib/components/Link'
@@ -96,6 +96,9 @@ function ErrorView(): JSX.Element | null {
 
 function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): JSX.Element {
     const { user } = useValues(userLogic)
+    const { acceptInvite } = useActions(inviteSignupLogic)
+    const { acceptedInviteLoading, acceptedInvite } = useValues(inviteSignupLogic)
+
     return (
         <div className="authenticated-invite">
             <div className="inner">
@@ -119,14 +122,22 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                     </Col>
                 </Row>
                 <div>
-                    <Button type="primary" block>
-                        Accept invite
-                    </Button>
-                    <div className="mt">
-                        <Link to="/">
-                            <ArrowLeftOutlined /> Go back to PostHog
-                        </Link>
-                    </div>
+                    {!acceptedInvite ? (
+                        <>
+                            <Button type="primary" block onClick={acceptInvite} disabled={acceptedInviteLoading}>
+                                Accept invite
+                            </Button>
+                            <div className="mt">
+                                <Link to="/">
+                                    <ArrowLeftOutlined /> Go back to PostHog
+                                </Link>
+                            </div>
+                        </>
+                    ) : (
+                        <Button block onClick={() => (window.location.href = '/')}>
+                            Go to PostHog <ArrowRightOutlined />
+                        </Button>
+                    )}
                 </div>
             </div>
         </div>
@@ -145,7 +156,7 @@ function _InviteSignup(): JSX.Element {
     return (
         <div className={`invite-signup${user ? ' authenticated' : ''}`}>
             <ErrorView />
-            {invite && (user ? <AuthenticatedAcceptInvite invite={invite} /> : 'Hola!')}
+            {invite && (user ? <AuthenticatedAcceptInvite invite={invite} /> : 'TBD')}
         </div>
     )
 }

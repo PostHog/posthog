@@ -574,7 +574,7 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(user.organization_memberships.count(), 2)
         self.assertTrue(user.organization_memberships.filter(organization=new_org).exists())
 
-        # Defaults are set correctly
+        # User is now changed to the new organization
         self.assertEqual(user.organization, new_org)
         self.assertEqual(user.team, new_team)
 
