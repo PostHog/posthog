@@ -20,6 +20,9 @@ const columns = [
             if (typeof value === 'boolean') {
                 return <Tag color={value ? 'success' : 'error'}>{value ? 'Yes' : 'No'}</Tag>
             }
+            if (value === null || value === undefined) {
+                return <Tag>Unknown</Tag>
+            }
             return value.toString()
         },
     },

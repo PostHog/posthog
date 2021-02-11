@@ -13,6 +13,7 @@ interface RadioSelectProps {
     options: RadioSelectType[]
     selectedOption: null | string | string[]
     onOptionChanged: (key: string | string[] | null) => void
+    identifier: string // main identifier for the component (to support autocapture)
     multipleSelection?: boolean
     focusSelection?: boolean // will hide other choices after making a selection
 }
@@ -21,6 +22,7 @@ export function RadioSelect({
     options,
     selectedOption,
     onOptionChanged,
+    identifier,
     multipleSelection,
     focusSelection,
 }: RadioSelectProps): JSX.Element {
@@ -72,6 +74,8 @@ export function RadioSelect({
                                 className={`radio-option${isSelected(option) ? ' active' : ''}`}
                                 key={option.key}
                                 onClick={() => handleClick(option)}
+                                data-attr={`radio-select-${identifier}`}
+                                data-detail={`radio-select-${identifier}-${option.key}`}
                             >
                                 <div className="graphic">{option.icon}</div>
                                 <div className="label">{option.label}</div>

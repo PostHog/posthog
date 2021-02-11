@@ -90,8 +90,8 @@ def insight_test_factory(event_factory, person_factory):
                     "/api/insight/trend/?events={}".format(json.dumps([{"id": "$pageview"}]))
                 ).json()
 
-            self.assertEqual(response["result"][0]["count"], 2)
-            self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
+            self.assertEqual(response[0]["count"], 2)
+            self.assertEqual(response[0]["action"]["name"], "$pageview")
 
         def test_insight_paths_basic(self):
             person1 = person_factory(team=self.team, distinct_ids=["person_1"])
@@ -103,7 +103,7 @@ def insight_test_factory(event_factory, person_factory):
             )
 
             response = self.client.get("/api/insight/path",).json()
-            self.assertEqual(len(response["result"]), 1)
+            self.assertEqual(len(response), 1)
 
         # TODO: remove this check
         if not is_ee_enabled():
@@ -116,7 +116,7 @@ def insight_test_factory(event_factory, person_factory):
                         json.dumps([{"id": "user signed up", "type": "events", "order": 0},])
                     )
                 ).json()
-                self.assertEqual(response["result"]["loading"], True)
+                self.assertEqual(response["loading"], True)
 
             # TODO: remove this check
             def test_insight_retention_basic(self):
@@ -138,7 +138,7 @@ def insight_test_factory(event_factory, person_factory):
                 )
                 response = self.client.get("/api/insight/retention/",).json()
 
-                self.assertEqual(len(response["result"]), 11)
+                self.assertEqual(len(response["data"]), 11)
 
     return TestInsightApi
 

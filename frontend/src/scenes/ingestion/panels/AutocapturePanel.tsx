@@ -16,6 +16,15 @@ export function AutocapturePanel(): JSX.Element {
     const { setPlatform, setVerify } = useActions(ingestionLogic)
     const { user } = useValues(userLogic)
     const { reportIngestionBookmarkletCollapsible } = useActions(eventUsageLogic)
+
+    const handlePanelChange = (shownPanels: string | string[]): void => {
+        if (typeof shownPanels === 'string') {
+            reportIngestionBookmarkletCollapsible([shownPanels])
+        } else {
+            reportIngestionBookmarkletCollapsible(shownPanels)
+        }
+    }
+
     return (
         <CardContainer
             index={index}
@@ -25,7 +34,7 @@ export function AutocapturePanel(): JSX.Element {
             onBack={() => setPlatform(null)}
         >
             {user?.team && (
-                <Collapse onChange={(shownPanels) => reportIngestionBookmarkletCollapsible(shownPanels)}>
+                <Collapse onChange={handlePanelChange}>
                     <Collapse.Panel
                         header={
                             <>

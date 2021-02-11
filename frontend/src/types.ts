@@ -80,6 +80,7 @@ export interface OrganizationType {
     teams?: TeamType[]
     membership_level: OrganizationMembershipLevel | null
     setup: SetupState
+    personalization: PersonalizationData
 }
 
 export interface OrganizationMemberType {
@@ -268,6 +269,12 @@ export interface PersonType {
     created_at?: string
 }
 
+export interface CohortGroupType {
+    days?: string
+    action_id?: number
+    properties?: Record<string, any>
+}
+
 export interface CohortType {
     count?: number
     created_by?: Record<string, any>
@@ -276,9 +283,10 @@ export interface CohortType {
     id: number
     is_calculating?: boolean
     last_calculation?: string
+    is_static?: boolean
     name?: string
     csv?: File
-    groups: Record<string, any>[]
+    groups: CohortGroupType[]
 }
 
 export interface InsightHistory {
@@ -318,12 +326,18 @@ export interface SessionType {
     matching_events: Array<number | string>
 }
 
+export interface FormattedNumber {
+    value: number
+    formatted: string
+}
+
 export interface OrganizationBilling {
-    plan: PlanInterface
+    plan: PlanInterface | null
     current_usage: { value: number; formatted: string } | null
-    should_setup_billing: boolean
-    stripe_checkout_session: string
-    subscription_url: string
+    should_setup_billing?: boolean
+    stripe_checkout_session?: string
+    subscription_url?: string
+    event_allocation: FormattedNumber | null
 }
 
 export interface PlanInterface {
@@ -332,7 +346,9 @@ export interface PlanInterface {
     custom_setup_billing_message: string
     image_url: string
     self_serve: boolean
-    allowance: { value: number; formatted: string } | null
+    is_metered_billing: boolean
+    allowance: FormattedNumber | null
+    price_string: string
 }
 
 export interface BillingSubscription {
@@ -389,7 +405,6 @@ export interface PluginType {
     latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
-    error?: PluginErrorType
     maintainer?: string
 }
 
@@ -399,7 +414,6 @@ export interface PluginConfigType {
     enabled: boolean
     order: number
     config: Record<string, any>
-    global?: boolean
     error?: PluginErrorType
 }
 
@@ -476,9 +490,10 @@ export type PersonalizationData = Record<string, string | string[] | null>
 interface EnabledSetupState {
     is_active: true // Whether the onbarding setup is currently active
     current_section: number
-    any_project_ingested_events?: boolean
-    any_project_completed_snippet_onboarding?: boolean
-    non_demo_team_id?: number | null
+    any_project_ingested_events: boolean
+    any_project_completed_snippet_onboarding: boolean
+    non_demo_team_id: number | null
+    has_invited_team_members: boolean
 }
 
 interface DisabledSetupState {

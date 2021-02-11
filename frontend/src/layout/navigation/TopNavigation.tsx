@@ -192,13 +192,15 @@ export function _TopNavigation(): JSX.Element {
                                 className="mr"
                             />
                         )}
-                        <Badge
-                            data-attr="update-indicator-badge"
-                            type={updateAvailable ? 'warning' : undefined}
-                            tooltip={updateAvailable ? 'New version available' : undefined}
-                            icon={<UpOutlined />}
-                            onClick={() => setChangelogModalOpen(true)}
-                        />
+                        {!user?.is_multi_tenancy && (
+                            <Badge
+                                data-attr="update-indicator-badge"
+                                type={updateAvailable ? 'warning' : undefined}
+                                tooltip={updateAvailable ? 'New version available' : 'PostHog is up-to-date'}
+                                icon={<UpOutlined />}
+                                onClick={() => setChangelogModalOpen(true)}
+                            />
+                        )}
                     </div>
                 </div>
                 <div className="project-chooser">

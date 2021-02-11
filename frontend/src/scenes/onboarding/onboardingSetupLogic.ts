@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { OrganizationType } from '~/types'
+import { OrganizationType, UserType } from '~/types'
 import { onboardingSetupLogicType } from './onboardingSetupLogicType'
 
 export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
@@ -11,6 +11,8 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
         switchToNonDemoProject: (dest) => ({ dest }),
         setProjectModalShown: (shown) => ({ shown }),
         setInviteTeamModalShown: (shown) => ({ shown }),
+        completeOnboarding: true,
+        callSlack: true,
     },
     reducers: {
         projectModalShown: [
@@ -23,6 +25,12 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
             false,
             {
                 setInviteTeamModalShown: (_, { shown }) => shown,
+            },
+        ],
+        slackCalled: [
+            false,
+            {
+                callSlack: () => true,
             },
         ],
     },
@@ -40,6 +48,9 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
                     navigationLogic.actions.updateCurrentProject(teamId, dest)
                 }
             }
+        },
+        completeOnboarding: () => {
+            organizationLogic.actions.completeOnboarding()
         },
     },
     selectors: {
@@ -66,6 +77,36 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
         currentSection: [
             () => [organizationLogic.selectors.currentOrganization],
             (organization: OrganizationType): number | null => organization.setup.current_section,
+        ],
+        teamInviteAvailable: [
+            () => [userLogic.selectors.user],
+            (user: UserType): boolean => user.email_service_available,
+        ],
+        progressPercentage: [
+            (s) => [
+                s.teamInviteAvailable,
+                userLogic.selectors.user,
+                organizationLogic.selectors.currentOrganization,
+                s.stepProjectSetup,
+                s.stepInstallation,
+                s.stepVerification,
+                s.slackCalled,
+            ],
+            (
+                teamInviteAvailable: boolean,
+                user: UserType,
+                currentOrganization: OrganizationType,
+                ...steps: boolean[]
+            ): number => {
+                if (teamInviteAvailable) {
+                    steps.push(
+                        currentOrganization.setup.is_active && currentOrganization.setup.has_invited_team_members
+                    )
+                }
+                steps.push(user.team ? user.team.session_recording_opt_in : false)
+                const completed_steps = steps.reduce((acc, step) => acc + (step ? 1 : 0), 0)
+                return Math.round((completed_steps / steps.length) * 100)
+            },
         ],
     },
 })

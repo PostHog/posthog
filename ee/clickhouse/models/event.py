@@ -61,27 +61,23 @@ def create_event(
     p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
 
     if team.slack_incoming_webhook or team.organization.is_feature_available("zapier"):
-        # Do a little bit of pre-filtering
-        if event in ActionStep.objects.filter(action__team_id=team.pk, action__post_to_slack=True).values_list(
-            "event", flat=True
-        ):
-            try:
-                celery.current_app.send_task(
-                    "ee.tasks.webhooks_ee.post_event_to_webhook_ee",
-                    (
-                        {
-                            "event": event,
-                            "properties": properties,
-                            "distinct_id": distinct_id,
-                            "timestamp": timestamp,
-                            "elements_list": elements,
-                        },
-                        team.pk,
-                        site_url,
-                    ),
-                )
-            except:
-                capture_exception()
+        try:
+            celery.current_app.send_task(
+                "ee.tasks.webhooks_ee.post_event_to_webhook_ee",
+                (
+                    {
+                        "event": event,
+                        "properties": properties,
+                        "distinct_id": distinct_id,
+                        "timestamp": timestamp,
+                        "elements_chain": elements_chain,
+                    },
+                    team.pk,
+                    site_url,
+                ),
+            )
+        except:
+            capture_exception()
 
     return str(event_uuid)
 
