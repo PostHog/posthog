@@ -29,13 +29,13 @@ from sentry_sdk.integrations.redis import RedisIntegration
 from posthog.constants import RDBMS
 
 
-def get_from_env(key: str, default: Any = None, *, type_cast: Optional[Callable]) -> Any:
+def get_from_env(key: str, default: Any = None, *, type_cast: Optional[Callable] = None) -> Any:
     value = os.getenv(key)
     if value is None:
         if default is not None:
             return default
         else:
-            raise ImproperlyConfigured(f'The environment var "{key}" is absolutely required to run this software')
+            raise ImproperlyConfigured(f'The environment variable "{key}" is required to run PostHog!')
     if type_cast is not None:
         return type_cast(value)
     return value
