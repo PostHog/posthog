@@ -582,25 +582,28 @@ export function sampleSingle<T>(items: T[]): T[] {
 export function identifierToHuman(identifier: string | number): string {
     const words: string[] = []
     let currentWord: string = ''
-    for (const character of String(identifier).trim()) {
-        if (character === '_' || character === '-') {
-            if (currentWord) {
-                words.push(currentWord)
+    String(identifier)
+        .trim()
+        .split('')
+        .forEach((character) => {
+            if (character === '_' || character === '-') {
+                if (currentWord) {
+                    words.push(currentWord)
+                }
+                currentWord = ''
+            } else if (
+                character === character.toLowerCase() &&
+                (!'0123456789'.includes(character) ||
+                    (currentWord && '0123456789'.includes(currentWord[currentWord.length - 1])))
+            ) {
+                currentWord += character
+            } else {
+                if (currentWord) {
+                    words.push(currentWord)
+                }
+                currentWord = character.toLowerCase()
             }
-            currentWord = ''
-        } else if (
-            character === character.toLowerCase() &&
-            (!'0123456789'.includes(character) ||
-                (currentWord && '0123456789'.includes(currentWord[currentWord.length - 1])))
-        ) {
-            currentWord += character
-        } else {
-            if (currentWord) {
-                words.push(currentWord)
-            }
-            currentWord = character.toLowerCase()
-        }
-    }
+        })
     if (currentWord) {
         words.push(currentWord)
     }
