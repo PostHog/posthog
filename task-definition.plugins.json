@@ -38,7 +38,7 @@
                 },
                 {
                     "name": "PLUGIN_SERVER_INGESTION",
-                    "value": "true"
+                    "value": "false"
                 }
             ],
             "secrets": [
