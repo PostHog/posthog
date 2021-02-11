@@ -1,0 +1,53 @@
+@import '~/vars';
+
+.login-signup {
+    height: 100vh;
+    overflow: hidden;
+    .ant-row {
+        height: 100%;
+    }
+    .image-showcase {
+        height: 100%;
+        background: $sky;
+        position: relative;
+
+        .the-mountains {
+            z-index: $z_city_background_image;
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 180px;
+            background: url('./mountains.svg');
+            background-size: cover;
+        }
+
+        .main-logo {
+            padding-top: $default_spacing;
+            padding-left: $default_spacing * 2;
+            img {
+                height: 60px;
+            }
+        }
+
+        .showcase-content {
+            z-index: $z_city_background_content;
+            color: $text_light;
+            height: calc(100% - 100px);
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 0 $default_spacing * 2;
+            position: relative;
+
+            h1,
+            h2,
+            h3 {
+                color: $text_light;
+            }
+        }
+    }
+}

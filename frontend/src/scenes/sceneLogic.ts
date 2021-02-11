@@ -167,7 +167,7 @@ export const routes: Record<string, Scene> = {
     // Onboarding / setup routes
     '/preflight': Scene.PreflightCheck,
     '/signup': Scene.Signup,
-    '/signup/*': Scene.InviteSignup,
+    '/signup/:id': Scene.InviteSignup,
     '/personalization': Scene.Personalization,
     '/ingestion': Scene.Ingestion,
     '/ingestion/*': Scene.Ingestion,

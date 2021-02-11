@@ -5,7 +5,7 @@
     background: $night_sky;
 
     .stars {
-        z-index: $z_starry_background_stars;
+        z-index: $z_city_background_image;
         position: absolute;
         top: 0;
         left: 0;
@@ -17,6 +17,6 @@
     .children {
         height: 100%;
         position: relative;
-        z-index: $z_starry_background_content;
+        z-index: $z_city_background_content;
     }
 }
