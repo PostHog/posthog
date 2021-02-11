@@ -437,17 +437,19 @@ class TestInviteSignup(APIBaseTest):
         )
 
     def test_api_invite_sign_up_prevalidate_invalid_invite(self):
-        response = self.client.get(f"/api/signup/{uuid.uuid4()}/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.data,
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "The provided invite ID is not valid.",
-                "attr": None,
-            },
-        )
+
+        for invalid_invite in [uuid.uuid4(), "abc", "1234"]:
+            response = self.client.get(f"/api/signup/{invalid_invite}/")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.data,
+                {
+                    "type": "validation_error",
+                    "code": "invalid_input",
+                    "detail": "The provided invite ID is not valid.",
+                    "attr": None,
+                },
+            )
 
     def test_existing_user_cant_claim_invite_if_it_doesnt_match_target_email(self):
         user = self._create_user("test+39@posthog.com", "test_password")
