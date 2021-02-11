@@ -18,7 +18,6 @@ def setup_test(team: Team, payload):
                 Person.objects.create(team=team, **person_data)
 
 
-# ref: https://stackoverflow.com/questions/32899/how-do-you-generate-dynamic-parameterized-unit-tests-in-python
 # need to generate tests without using subtest so that the transactions will be cleared after each test
 class TestSequenceMeta(type):
     def __new__(mcs, name, bases, dict):
