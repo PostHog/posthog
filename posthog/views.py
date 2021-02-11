@@ -66,12 +66,11 @@ def system_status(request):
         }
     )
 
-    plugin_server_ingestion = getattr(settings, "PLUGIN_SERVER_INGESTION", False)
     metrics.append(
         {
             "key": "ingestion_server",
             "metric": "Event ingestion via",
-            "value": "Plugin Server" if plugin_server_ingestion else "Django",
+            "value": "Plugin Server" if settings.PLUGIN_SERVER_INGESTION else "Django",
         }
     )
 
