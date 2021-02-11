@@ -105,6 +105,14 @@
                 {
                     "name": "PLUGIN_SERVER_INGESTION",
                     "value": "true"
+                },
+                {
+                    "name": "BILLING_TRIAL_DAYS",
+                    "value": "0"
+                },
+                {
+                    "name": "BILLING_NO_PLAN_EVENT_ALLOCATION",
+                    "value": "10000"
                 }
             ],
             "secrets": [
