@@ -26,6 +26,19 @@ import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPalett
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
 
+export function WhoAmI(): JSX.Element {
+    const { user } = useValues(userLogic)
+    return (
+        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
+            <div className="pp">{user?.name[0]?.toUpperCase()}</div>
+            <div className="details hide-lte-lg">
+                <span>{user?.name}</span>
+                <span>{user?.organization?.name}</span>
+            </div>
+        </div>
+    )
+}
+
 export const TopNavigation = hot(_TopNavigation)
 export function _TopNavigation(): JSX.Element {
     const { setMenuCollapsed, setChangelogModalOpen, updateCurrentOrganization, updateCurrentProject } = useActions(
@@ -213,13 +226,7 @@ export function _TopNavigation(): JSX.Element {
                 </div>
                 <div>
                     <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
-                        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
-                            <div className="pp">{user?.name[0]?.toUpperCase()}</div>
-                            <div className="details hide-lte-lg">
-                                <span>{user?.name}</span>
-                                <span>{user?.organization?.name}</span>
-                            </div>
-                        </div>
+                        <WhoAmI />
                     </Dropdown>
                 </div>
             </div>

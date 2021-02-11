@@ -6,9 +6,12 @@ import { SceneLoading } from 'lib/utils'
 import './InviteSignup.scss'
 import { StarryBackground } from 'lib/components/StarryBackground'
 import { userLogic } from 'scenes/userLogic'
-import { Button } from 'antd'
+import { Button, Row, Col } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
+import { PrevalidatedInvite } from '~/types'
+import { Link } from 'lib/components/Link'
+import { WhoAmI } from '~/layout/navigation/TopNavigation'
 
 const UTM_TAGS = 'utm_medium=in-product&utm_campaign=invite-signup'
 
@@ -79,32 +82,70 @@ function ErrorView(): JSX.Element | null {
     }
 
     return (
-        <div className={`error-view${user ? ' authenticated' : ''}`}>
-            <StarryBackground>
-                <div className="error-view-container">
-                    <div className="inner">
-                        <h1 className="page-title">{ErrorMessages[error.code].title}</h1>
-                        <div className="error-message">{ErrorMessages[error.code].detail}</div>
-                        <div className="actions">{ErrorMessages[error.code].actions}</div>
+        <StarryBackground>
+            <div className="error-view-container">
+                <div className="inner">
+                    <h1 className="page-title">{ErrorMessages[error.code].title}</h1>
+                    <div className="error-message">{ErrorMessages[error.code].detail}</div>
+                    <div className="actions">{ErrorMessages[error.code].actions}</div>
+                </div>
+            </div>
+        </StarryBackground>
+    )
+}
+
+function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): JSX.Element {
+    const { user } = useValues(userLogic)
+    return (
+        <div className="authenticated-invite">
+            <div className="inner">
+                <div>
+                    <h1 className="page-title">You have been invited to join {invite.organization_name}</h1>
+                </div>
+                <div>
+                    You will accept the invite under your <b>existing PostHog account</b> ({user?.email})
+                </div>
+                <Row className="mt text-muted">
+                    <Col span={24} md={12} style={{ textAlign: 'left' }}>
+                        You can change organizations at any time by clicking on the dropdown at the top right corner of
+                        the navigation bar.
+                    </Col>
+                    <Col md={12} span={0}>
+                        <div className="whoami-mock">
+                            <div className="whoami-inner-container">
+                                <WhoAmI />
+                            </div>
+                        </div>
+                    </Col>
+                </Row>
+                <div>
+                    <Button type="primary" block>
+                        Accept invite
+                    </Button>
+                    <div className="mt">
+                        <Link to="/">
+                            <ArrowLeftOutlined /> Go back to PostHog
+                        </Link>
                     </div>
                 </div>
-            </StarryBackground>
+            </div>
         </div>
     )
 }
 
 export const InviteSignup = hot(_InviteSignup)
 function _InviteSignup(): JSX.Element {
-    const { invite, inviteLoading, error } = useValues(inviteSignupLogic)
+    const { invite, inviteLoading } = useValues(inviteSignupLogic)
+    const { user } = useValues(userLogic)
 
     if (inviteLoading) {
         return <SceneLoading />
     }
 
     return (
-        <div className="invite-signup">
+        <div className={`invite-signup${user ? ' authenticated' : ''}`}>
             <ErrorView />
-            {!error && <div className="invite-signup-form">Hello there! {invite?.target_email}</div>}
+            {invite && (user ? <AuthenticatedAcceptInvite invite={invite} /> : 'Hola!')}
         </div>
     )
 }
