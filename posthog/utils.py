@@ -487,6 +487,13 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
     return new_string, named_params
 
 
+def get_instance_realm() -> str:
+    """
+    Returns the realm for the current instance. `cloud` or `hosted`.
+    """
+    return "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
+
+
 def flatten(l: Union[List, Tuple]) -> Generator:
     for el in l:
         if isinstance(el, list):
@@ -549,3 +556,20 @@ ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
 def is_anonymous_id(distinct_id: str) -> bool:
     # Our anonymous ids are _not_ uuids, but a random collection of strings
     return bool(re.match(ANONYMOUS_REGEX, distinct_id))
+
+
+def mask_email_address(email_address: str) -> str:
+    """
+    Grabs an email address and returns it masked in a human-friendly way to protect PII.
+        Example: testemail@posthog.com -> t********l@posthog.com
+    """
+    index = email_address.find("@")
+
+    if index == -1:
+        raise ValueError("Please provide a valid email address.")
+
+    if index == 1:
+        # Username is one letter, mask it differently
+        return f"*{email_address[index:]}"
+
+    return f"{email_address[0]}{'*' * (index - 2)}{email_address[index-1:]}"
