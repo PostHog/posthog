@@ -206,8 +206,10 @@ def get_event(request):
 
         if is_ee_enabled():
             log_topics = [KAFKA_EVENTS_WAL]
+            # TODO: remove below condition to enable plugin server ingestion for all events
+            is_session_recording_event = event["event"] == "$snapshot"
 
-            if settings.PLUGIN_SERVER_INGESTION:
+            if settings.PLUGIN_SERVER_INGESTION and is_session_recording_event:
                 log_topics.append(KAFKA_EVENTS_PLUGIN_INGESTION)
                 statsd.Counter("%s_posthog_cloud_plugin_server_ingestion" % (settings.STATSD_PREFIX,)).increment()
 
@@ -224,7 +226,7 @@ def get_event(request):
             )
 
             # must done after logging because process_event_ee modifies the event, e.g. by removing $elements
-            if not settings.PLUGIN_SERVER_INGESTION:
+            if not settings.PLUGIN_SERVER_INGESTION or is_session_recording_event:
                 process_event_ee(
                     distinct_id=distinct_id,
                     ip=get_ip_address(request),
