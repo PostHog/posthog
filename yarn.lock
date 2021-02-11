@@ -2063,10 +2063,10 @@
     theme-ui "^0.3.1"
     tinycolor2 "^1.4.1"
 
-"@posthog/plugin-scaffold@0.2.6":
-  version "0.2.6"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.2.6.tgz#5e27067e19ce42a78b67fbbafc001f816ccb0c70"
-  integrity sha512-W4Ata+n1Zsb+yAVlAQv3OEuHOmwz3Fp6en9iXq5dNNM0gxFoYtKAhzITvz7idAvIy15sa2244E8itSTbqEzzKA==
+"@posthog/plugin-scaffold@0.2.12":
+  version "0.2.12"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.2.12.tgz#3fc54881030ad6a51549e04f1d725644a1d1e0d5"
+  integrity sha512-MhTK21NvIokMCo4MdJ4iEwjRj/vMG73ucRQtpBmBqZNd1wvy9C7HMFyHmR0uxz1RsT3SCPWuuj1HDvoJsb+QQw==
 
 "@posthog/simmerjs@0.7.2-posthog.2":
   version "0.7.2-posthog.2"
