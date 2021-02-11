@@ -99,7 +99,10 @@ export function PluginDrawer(): JSX.Element {
                                 </div>
                                 <div style={{ flexGrow: 1, paddingLeft: 16 }}>
                                     {editingPlugin.description}
-                                    {editingPlugin.description?.substr(-1) !== '.' ? '.' : ''}
+                                    {(editingPlugin.description?.length || 0) > 0 &&
+                                    editingPlugin.description?.substr(-1) !== '.'
+                                        ? '.'
+                                        : ''}
                                     {editingPlugin.url ? (
                                         <span>
                                             {editingPlugin.description ? ' ' : ''}
