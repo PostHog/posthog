@@ -4,6 +4,10 @@
     .error-view {
         height: 100vh;
 
+        &.authenticated {
+            height: calc(100vh - #{$top_nav_height});
+        }
+
         .error-view-container {
             display: flex;
             align-items: center;

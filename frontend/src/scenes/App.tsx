@@ -86,7 +86,7 @@ function _App(): JSX.Element | null {
     )
 
     if (!user) {
-        return sceneConfig.onlyUnauthenticated ? (
+        return sceneConfig.onlyUnauthenticated || sceneConfig.allowUnauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
                 <SceneComponent {...params} />
                 {essentialElements}

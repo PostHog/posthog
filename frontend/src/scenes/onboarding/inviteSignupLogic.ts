@@ -5,20 +5,24 @@ import { inviteSignupLogicType } from './inviteSignupLogicType'
 
 export enum ErrorCodes {
     InvalidInvite = 'invalidInvite',
+    InvalidRecipient = 'invalidRecepient',
     Unknown = 'unknown',
 }
 
-type ErrorType = ErrorCodes | null
+interface ErrorInterface {
+    code: ErrorCodes
+    detail?: string
+}
 
-export const inviteSignupLogic = kea<inviteSignupLogicType<PrevalidatedInvite, ErrorType>>({
+export const inviteSignupLogic = kea<inviteSignupLogicType<PrevalidatedInvite, ErrorInterface>>({
     actions: {
-        setError: (errorCode: ErrorType) => ({ errorCode }),
+        setError: (payload: ErrorInterface) => ({ payload }),
     },
     reducers: {
         error: [
-            null as ErrorType,
+            null as ErrorInterface | null,
             {
-                setError: (_, { errorCode }) => errorCode,
+                setError: (_, { payload }) => payload,
             },
         ],
     },
@@ -31,9 +35,13 @@ export const inviteSignupLogic = kea<inviteSignupLogicType<PrevalidatedInvite, E
                         return await api.get(`api/signup/${id}/`)
                     } catch (e) {
                         if (e.status === 400) {
-                            actions.setError(ErrorCodes.InvalidInvite)
+                            if (e.code === 'invalid_recipient') {
+                                actions.setError({ code: ErrorCodes.InvalidRecipient, detail: e.detail })
+                            } else {
+                                actions.setError({ code: ErrorCodes.InvalidInvite, detail: e.detail })
+                            }
                         } else {
-                            actions.setError(ErrorCodes.Unknown)
+                            actions.setError({ code: ErrorCodes.Unknown })
                         }
                         return null
                     }

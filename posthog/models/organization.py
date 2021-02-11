@@ -8,6 +8,8 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
+from posthog.utils import mask_email_address
+
 from .utils import UUIDModel, sane_repr
 
 try:
@@ -192,7 +194,8 @@ class OrganizationInvite(UUIDModel):
 
         if _email and _email != self.target_email:
             raise exceptions.ValidationError(
-                "This invite is intended for another email address.", code="invalid_recipient"
+                f"This invite is intended for another email address ({mask_email_address(self.target_email)}).",
+                code="invalid_recipient",
             )
 
         if self.is_expired():

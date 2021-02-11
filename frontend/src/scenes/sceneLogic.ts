@@ -83,10 +83,11 @@ export const scenes: Record<Scene, () => any> = {
 
 interface SceneConfig {
     onlyUnauthenticated?: boolean // Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too)
+    allowUnauthenticated?: boolean // Route **can** be accessed when logged out (i.e. can be accessed when logged in too)
     dark?: boolean // Background is $bg_mid
     plain?: boolean // Only keeps the main content and the top navigation bar
     hideTopNav?: boolean // Hides the top navigation bar (regardless of whether `plain` is `true` or not)
-    hideDemoWarnings?: boolean // Hides demo project (DemoWarning.tsx) or project has no events (App.tsx) warnings
+    hideDemoWarnings?: boolean // Hides demo project (DemoWarning.tsx)
 }
 
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
@@ -113,7 +114,8 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         onlyUnauthenticated: true,
     },
     [Scene.InviteSignup]: {
-        onlyUnauthenticated: true,
+        allowUnauthenticated: true,
+        plain: true,
     },
     [Scene.Personalization]: {
         plain: true,
