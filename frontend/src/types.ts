@@ -283,6 +283,7 @@ export interface CohortType {
     id: number
     is_calculating?: boolean
     last_calculation?: string
+    is_static?: boolean
     name?: string
     csv?: File
     groups: CohortGroupType[]

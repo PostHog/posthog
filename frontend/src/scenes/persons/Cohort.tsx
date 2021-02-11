@@ -145,7 +145,7 @@ function CohortChoice({ setCohort, cohort }: { setCohort: CallableFunction; coho
     )
 }
 
-export function Cohort(props: { onChange: CallableFunction; cohort: CohortType }): JSX.Element {
+export function Cohort(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
     const { setCohort, saveCohort } = useActions(logic)
     const { cohort, lastSavedAt } = useValues(logic)
