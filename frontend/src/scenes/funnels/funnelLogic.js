@@ -63,7 +63,7 @@ export const funnelLogic = kea({
 
     loaders: ({ props, values }) => ({
         results: {
-            loadResults: async (refresh = false) => {
+            loadResults: async (refresh = false, breakpoint) => {
                 if (!refresh && props.cachedResults) {
                     return props.cachedResults
                 }
@@ -83,6 +83,7 @@ export const funnelLogic = kea({
                     insightLogic.actions.endQuery(ViewType.FUNNELS, false, e)
                     return []
                 }
+                breakpoint()
                 insightLogic.actions.endQuery(ViewType.FUNNELS, result.last_refresh)
                 return result.result
             },
@@ -167,7 +168,7 @@ export const funnelLogic = kea({
             insightLogic.actions.setAllFilters(cleanedParams)
             insightLogic.actions.setLastRefresh(false)
         },
-        loadFunnel: async (breakpoint) => {
+        loadFunnel: async (_, breakpoint) => {
             const cleanedParams = cleanFunnelParams(values.filters)
 
             insightLogic.actions.setAllFilters(cleanedParams)
