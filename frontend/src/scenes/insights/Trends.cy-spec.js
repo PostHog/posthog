@@ -176,7 +176,7 @@ describe('<Insights /> trends', () => {
                 })
 
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
-            cy.contains('Chrome').should('be.visible')
+            cy.get('[data-attr="property-filter-0"]').should('contain', 'Chrome')
         })
 
         it('responds to multiple props', () => {
@@ -229,7 +229,8 @@ describe('<Insights /> trends', () => {
                 })
 
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
-            cy.contains('http://posthog.com').should('be.visible')
+            cy.get('[data-attr="property-filter-0"]').should('contain', 'Chrome')
+            cy.get('[data-attr="property-filter-1"]').should('contain', 'http://posthog.com')
         })
 
         it('reponds to shown as parameter', () => {
@@ -253,7 +254,7 @@ describe('<Insights /> trends', () => {
                 shown_as: 'Stickiness',
             })
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
-            cy.contains('Stickiness').should('be.visible')
+            cy.get('[data-attr="shownas-filter"]').should('contain', 'Stickiness')
         })
 
         it('responds to breakdown paramters', () => {
@@ -280,7 +281,7 @@ describe('<Insights /> trends', () => {
                 breakdown_type: 'event',
             })
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
-            cy.contains('$browser').should('be.visible')
+            cy.get('[data-attr="add-breakdown-button"]').should('contain', '$browser')
         })
     })
 })
