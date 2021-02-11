@@ -1,3 +1,4 @@
+import { ingestEvent } from '../ingestion/ingest-event'
 import { initApp } from '../init'
 import { runPlugins, runPluginsOnBatch, runPluginTask, setupPlugins } from '../plugins'
 import { createServer } from '../server'
@@ -41,6 +42,9 @@ export async function createWorker(config: PluginsServerConfig, threadId: number
         }
         if (task === 'getPluginSchedule') {
             response = cloneObject(server.pluginSchedule)
+        }
+        if (task === 'ingestEvent') {
+            response = cloneObject(await ingestEvent(server, args.event))
         }
         if (task.startsWith('runEvery')) {
             const { pluginConfigId } = args

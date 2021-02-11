@@ -244,25 +244,12 @@ export async function startPluginsServer(
         ;[server, closeServer] = await createServer(serverConfig, null)
 
         piscina = makePiscina(serverConfig)
-        const processEvent = (event: PluginEvent) => {
-            if ((piscina?.queueSize || 0) > (server?.WORKER_CONCURRENCY || 4) * (server?.WORKER_CONCURRENCY || 4)) {
-                queue?.pause()
-            }
-            return piscina!.runTask({ task: 'processEvent', args: { event } })
-        }
-        const processEventBatch = (batch: PluginEvent[]) => {
-            if ((piscina?.queueSize || 0) > (server?.WORKER_CONCURRENCY || 4) * (server?.WORKER_CONCURRENCY || 4)) {
-                queue?.pause()
-            }
-            return piscina!.runTask({ task: 'processEventBatch', args: { batch } })
-        }
-
         if (!server.DISABLE_WEB) {
             fastifyInstance = await startFastifyInstance(server)
         }
 
         stopSchedule = await startSchedule(server, piscina)
-        queue = await startQueue(server, processEvent, processEventBatch)
+        queue = await startQueue(server, piscina)
         piscina.on('drain', () => {
             queue?.resume()
         })
@@ -278,7 +265,7 @@ export async function startPluginsServer(
                     await stopPiscina(piscina)
                 }
                 piscina = makePiscina(serverConfig!)
-                queue = await startQueue(server!, processEvent, processEventBatch)
+                queue = await startQueue(server!, piscina)
                 stopSchedule = await startSchedule(server!, piscina)
             }
         })
