@@ -13,8 +13,8 @@ import { funnelCommandLogic } from './funnelCommandLogic'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
-    const { isStepsEmpty, filters, stepsWithCount } = useValues(funnelLogic)
-    const { loadFunnel, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic)
+    const { isStepsEmpty, filters, stepsWithCount } = useValues(funnelLogic())
+    const { loadFunnel, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
     const { actions, actionsLoading } = useValues(actionsModel)
     const [savingModal, setSavingModal] = useState<boolean>(false)
 
