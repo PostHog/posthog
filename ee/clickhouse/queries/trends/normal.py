@@ -1,8 +1,8 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from django.utils import timezone
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.client import format_sql, sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import parse_response, process_math
@@ -28,7 +28,7 @@ from posthog.models.filters import Filter
 
 
 class ClickhouseTrendsNormal:
-    def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
+    def _normal_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
 
         interval_annotation = get_trunc_func_ch(filter.interval)
         num_intervals, seconds_in_interval, round_interval = get_time_diff(
@@ -62,12 +62,11 @@ class ClickhouseTrendsNormal:
             agg_query = self._determine_single_aggregate_query(filter, entity)
             content_sql = agg_query.format(**content_sql_params)
 
-            try:
-                result = sync_execute(content_sql, params)
-            except:
-                result = []
-
-            return [{"aggregated_value": result[0][0] if result and len(result) else 0}]
+            return (
+                content_sql,
+                params,
+                lambda result: [{"aggregated_value": result[0][0] if result and len(result) else 0}],
+            )
         else:
             content_sql = self._determine_trend_aggregate_query(filter, entity)
             content_sql = content_sql.format(**content_sql_params)
@@ -79,16 +78,18 @@ class ClickhouseTrendsNormal:
                 date_to=filter.date_to.strftime("%Y-%m-%d %H:%M:%S"),
             )
             final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
-            try:
-                result = sync_execute(final_query, params)
-            except:
-                result = []
+            return final_query, params, self._parse_normal_result(filter)
+
+    def _parse_normal_result(self, filter: Filter) -> Callable:
+        def _parse(result: List) -> List:
             parsed_results = []
             for _, stats in enumerate(result):
                 parsed_result = parse_response(stats, filter)
                 parsed_results.append(parsed_result)
 
             return parsed_results
+
+        return _parse
 
     def _populate_entity_params(self, entity: Entity) -> Tuple[Dict, Dict]:
         params, content_sql_params = {}, {}

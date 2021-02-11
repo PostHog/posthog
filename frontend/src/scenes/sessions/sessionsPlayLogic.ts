@@ -95,14 +95,6 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
             }
         },
     }),
-    urlToAction: ({ actions, values }) => ({
-        '/sessions': (_: any, params: { sessionRecordingId: SessionRecordingId }) => {
-            const sessionRecordingId = params.sessionRecordingId
-            if (values && sessionRecordingId !== values.sessionRecordingId && sessionRecordingId) {
-                actions.loadRecording(sessionRecordingId)
-            }
-        },
-    }),
     loaders: ({ values, actions }) => ({
         tags: [
             ['activating', 'watched', 'deleted'] as string[], // TODO: Temp values for testing
@@ -194,5 +186,18 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
                 return pageChangeEvents.concat(highlightedEvents).sort((a, b) => a.playerTime - b.playerTime)
             },
         ],
+    },
+    urlToAction: ({ actions, values }) => {
+        const urlToAction = (_: any, params: { sessionRecordingId?: SessionRecordingId }): void => {
+            const sessionRecordingId = params.sessionRecordingId
+            if (values && sessionRecordingId !== values.sessionRecordingId && sessionRecordingId) {
+                actions.loadRecording(sessionRecordingId)
+            }
+        }
+
+        return {
+            '/sessions': urlToAction,
+            '/person/*': urlToAction,
+        }
     },
 })
