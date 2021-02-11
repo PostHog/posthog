@@ -167,7 +167,7 @@ export const funnelLogic = kea({
             insightLogic.actions.setAllFilters(cleanedParams)
             insightLogic.actions.setLastRefresh(false)
         },
-        loadFunnel: async () => {
+        loadFunnel: async (breakpoint) => {
             const cleanedParams = cleanFunnelParams(values.filters)
 
             insightLogic.actions.setAllFilters(cleanedParams)
@@ -184,6 +184,7 @@ export const funnelLogic = kea({
                 return []
             }
             insightLogic.actions.endQuery(ViewType.FUNNELS, result.last_refresh)
+            breakpoint()
             actions.setSteps(result.result)
         },
         saveFunnelInsight: async ({ name }) => {
