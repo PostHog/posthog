@@ -149,9 +149,9 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
         pass
 
     def test_formula(self):
-        # self.assertEqual(self._run({"formula": "A - B"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 600.0, 450.0, 0.0])
-        # self.assertEqual(self._run({"formula": "A * B"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 270000.0, 405000.0, 0.0])
-        # self.assertEqual(self._run({"formula": "A / B"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 3.0, 2.0, 0.0])
+        self.assertEqual(self._run({"formula": "A - B"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 600.0, 450.0, 0.0])
+        self.assertEqual(self._run({"formula": "A * B"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 270000.0, 405000.0, 0.0])
+        self.assertEqual(self._run({"formula": "A / B"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 3.0, 2.0, 0.0])
         self.assertEqual(self._run({"formula": "(A/3600)/B"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.assertEqual(self._run({"formula": "(A/3600)/B"})[0]["count"], 0)
 
