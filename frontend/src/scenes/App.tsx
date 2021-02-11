@@ -44,8 +44,8 @@ function _App(): JSX.Element | null {
 
     useEffect(() => {
         if (user) {
-            // If user is already logged in, redirect away from unauthenticated routes like signup
-            if (sceneConfig.unauthenticated) {
+            // If user is already logged in, redirect away from unauthenticated-only routes like signup
+            if (sceneConfig.onlyUnauthenticated) {
                 replace('/')
                 return
             }
@@ -86,7 +86,7 @@ function _App(): JSX.Element | null {
     )
 
     if (!user) {
-        return sceneConfig.unauthenticated ? (
+        return sceneConfig.onlyUnauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
                 <SceneComponent {...params} />
                 {essentialElements}
