@@ -85,6 +85,9 @@ function _Cohorts(): JSX.Element {
                 </span>
             ),
             render: function RenderCalculation(_, cohort: CohortType) {
+                if (cohort.is_static) {
+                    return '-'
+                }
                 return cohort.is_calculating ? (
                     <span>
                         Calculating <Spin />
