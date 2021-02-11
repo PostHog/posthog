@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 from clickhouse_driver import Client as SyncClient
 
-from ee.clickhouse.client import ch_client, format_sql, substitute_params, sync_execute
+from ee.clickhouse.client import substitute_params, sync_execute
 from ee.clickhouse.queries.trends import breakdown
 from ee.clickhouse.queries.trends.util import parse_response
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE, TRENDS_TABLE
@@ -68,7 +68,7 @@ class ClickhouseTrendsFormula:
                 ["CROSS JOIN ({}) as sub_{}".format(query, letters[i + 1]) for i, query in enumerate(queries[1:])]
             ),
         )
-        result = sync_execute(sql, {"formula": filter.formula})
+        result = sync_execute(sql)
         response = []
         for item in result:
             additional_values: Dict[str, Any] = {

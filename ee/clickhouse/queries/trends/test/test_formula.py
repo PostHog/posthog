@@ -176,6 +176,22 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
             [0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 0.0, 0.0],
         )
 
+    def test_properties_with_escape_params(self):
+        # regression test
+        self.assertEqual(
+            self._run(
+                {
+                    "properties": [
+                        {
+                            "key": "$current_url",
+                            "value": "http://localhost:8000/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&actions=%5B%5D&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%2C%7B%22id%22%3A%22%24pageview%2",
+                        }
+                    ]
+                }
+            )[0]["data"],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        )
+
     def test_event_properties(self):
         self.assertEqual(
             self._run(
