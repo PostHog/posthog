@@ -4,13 +4,13 @@ import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from './navigation/navigationLogic'
 
-export function ChangelogModal({ onDismiss }: { onDismiss: () => void }): JSX.Element {
+export function ChangelogModal({ onDismiss }: { onDismiss: () => void }): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { latestVersion } = useValues(navigationLogic)
 
     if (user?.is_multi_tenancy) {
         // The changelog is not available on cloud
-        return <></>
+        return null
     }
 
     return (

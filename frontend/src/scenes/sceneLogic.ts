@@ -100,6 +100,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.ProjectCreateFirst]: {
         plain: true,
     },
+    [Scene.Billing]: {
+        hideDemoWarnings: true,
+    },
     // Onboarding / setup routes
     [Scene.PreflightCheck]: {
         unauthenticated: true,

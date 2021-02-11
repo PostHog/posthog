@@ -58,8 +58,8 @@ class UUIDModel(models.Model):
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
 
-def sane_repr(*attrs: str) -> Callable[[object], str]:
-    if "id" not in attrs and "pk" not in attrs:
+def sane_repr(*attrs: str, include_id=True) -> Callable[[object], str]:
+    if "id" not in attrs and "pk" not in attrs and include_id:
         attrs = ("id",) + attrs
 
     def _repr(self):

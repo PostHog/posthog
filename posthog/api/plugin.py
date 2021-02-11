@@ -29,6 +29,7 @@ from posthog.plugins import (
 )
 from posthog.plugins.utils import load_json_file
 from posthog.redis import get_client
+from posthog.utils import is_plugin_server_alive
 
 
 class PluginSerializer(serializers.ModelSerializer):
@@ -158,14 +159,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def status(self, request: request.Request, **kwargs):
         if not can_install_plugins_via_api(self.organization):
             raise ValidationError("Plugin installation via the web is disabled!")
-
-        ping = get_client().get("@posthog-plugin-server/ping")
-        if ping:
-            ping_datetime = parser.isoparse(ping)
-            if ping_datetime > now() - relativedelta(seconds=30):
-                return Response({"status": "online"})
-
-        return Response({"status": "offline"})
+        return Response({"status": "online" if is_plugin_server_alive() else "offline"})
 
     @action(methods=["GET"], detail=True)
     def check_for_updates(self, request: request.Request, **kwargs):

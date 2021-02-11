@@ -234,10 +234,7 @@ class Retention(BaseQuery):
         return results
 
     def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
-
-        new_data = filter._data
-        new_data.update({"total_intervals": filter.total_intervals - filter.selected_interval})
-        filter = RetentionFilter(data=new_data)
+        filter = filter.with_data({"total_intervals": filter.total_intervals - filter.selected_interval})
 
         format_fields, params = self._determine_query_params(filter, team)
 

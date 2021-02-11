@@ -40,7 +40,11 @@ export function PersonsTable({
 
     const topRef = useRef<HTMLSpanElement>(null)
 
-    const columns = [
+    const columns: {
+        title: string
+        key: string
+        render: (_: string, person: PersonType, index: number) => JSX.Element
+    }[] = [
         {
             title: 'Email',
             key: 'email',
@@ -87,10 +91,10 @@ export function PersonsTable({
     columns.push({
         key: 'actions',
         title: '',
-        render: function Render(_: string, person: PersonType) {
+        render: function Render(_: string, person: PersonType, index: number) {
             return (
                 <>
-                    <Link to={linkToPerson(person)} data-attr="goto-person-arrow">
+                    <Link to={linkToPerson(person)} data-attr={'goto-person-arrow-' + index}>
                         <ArrowRightOutlined />
                         {allColumns ? ' view' : ''}
                     </Link>

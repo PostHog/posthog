@@ -169,10 +169,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 funnel.run()
 
         def test_funnel_no_events(self):
-            funnel = self._basic_funnel()
-
-            # with self.assertNumQueries(3):
-            funnel.run()
+            funnel = Funnel(filter=Filter(data={"some": "prop"}), team=self.team)
+            self.assertEqual(funnel.run(), [])
 
         def test_funnel_skipped_step(self):
             funnel = self._basic_funnel()

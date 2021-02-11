@@ -70,7 +70,7 @@ class ClickhouseFunnel(Funnel):
             data.update({"date_from": relative_date_parse("-7d")})
         if not self._filter._date_to:
             data.update({"date_to": timezone.now()})
-        self._filter = Filter(data={**self._filter._data, **data})
+        self._filter = self._filter.with_data(data)
 
         parsed_date_from, parsed_date_to, _ = parse_timestamps(
             filter=self._filter, table="events.", team_id=self._team.pk
@@ -162,6 +162,9 @@ class ClickhouseFunnel(Funnel):
         return [serialized]
 
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
+        if len(self._filter.entities) == 0:
+            return []
+
         if self._filter.display == TRENDS_LINEAR:
             return self._get_trends()
 

@@ -1,0 +1,60 @@
+name: Cypress Component
+
+on:
+    - pull_request
+
+jobs:
+    cypress-component:
+        name: Cypress component tests
+        runs-on: ubuntu-18.04
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v1
+            - uses: actions/setup-node@v1
+              with:
+                  node-version: 14
+            - name: Get yarn cache directory path
+              id: yarn-dep-cache-dir-path
+              run: echo "::set-output name=dir::$(yarn cache dir)"
+            - uses: actions/cache@v1
+              name: Setup Yarn dep cache
+              id: yarn-dep-cache
+              with:
+                  path: ${{ steps.yarn-dep-cache-dir-path.outputs.dir }}
+                  key: ${{ runner.os }}-yarn-dep-${{ hashFiles('**/yarn.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-yarn-dep-
+            - name: Yarn install deps
+              run: |
+                  yarn install --frozen-lockfile; yarn add cypress@6.4.0
+            - uses: actions/cache@v1
+              name: Setup Yarn build cache
+              id: yarn-build-cache
+              with:
+                  path: frontend/dist
+                  key: ${{ runner.os }}-yarn-build-${{ hashFiles('frontend/src/') }}
+                  restore-keys: |
+                      ${{ runner.os }}-yarn-build-
+            - name: Yarn build
+              run: |
+                  yarn build
+              if: steps.yarn-build-cache.outputs.cache-hit != 'true'
+            - name: Cypress run
+              uses: cypress-io/github-action@v2
+              with:
+                  config-file: cypress.json
+                  record: true
+                  parallel: true
+                  group: 'PostHog Component'
+              env:
+                  # pass the Dashboard record key as an environment variable
+                  CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
+                  # Recommended: pass the GitHub token lets this action correctly
+                  # determine the unique run id necessary to re-run the checks
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            - name: Archive test screenshots
+              uses: actions/upload-artifact@v1
+              with:
+                  name: screenshots
+                  path: cypress/screenshots
+              if: ${{ failure() }}

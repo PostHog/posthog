@@ -1,5 +1,5 @@
 import { MainNavigation } from './MainNavigation'
 import { TopNavigation } from './TopNavigation'
-import { DemoWarning } from './DemoWarning'
+import { DemoWarnings } from './DemoWarnings'
 
-export { MainNavigation, TopNavigation, DemoWarning }
+export { MainNavigation, TopNavigation, DemoWarnings }

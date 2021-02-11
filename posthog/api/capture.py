@@ -206,23 +206,16 @@ def get_event(request):
 
         if is_ee_enabled():
             log_topics = [KAFKA_EVENTS_WAL]
+
             # TODO: remove team.organization_id in ... for full rollout of Plugins on EE/Cloud
-            if settings.PLUGIN_SERVER_INGESTION and str(team.organization_id) in getattr(
+            ingest_via_plugin_server = settings.PLUGIN_SERVER_INGESTION and str(team.organization_id) in getattr(
                 settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", []
-            ):
+            )
+
+            if ingest_via_plugin_server:
                 log_topics.append(KAFKA_EVENTS_PLUGIN_INGESTION)
                 statsd.Counter("%s_posthog_cloud_plugin_server_ingestion" % (settings.STATSD_PREFIX,)).increment()
-            else:
-                process_event_ee(
-                    distinct_id=distinct_id,
-                    ip=get_ip_address(request),
-                    site_url=request.build_absolute_uri("/")[:-1],
-                    data=event,
-                    team_id=team.id,
-                    now=now,
-                    sent_at=sent_at,
-                    event_uuid=event_uuid,
-                )
+
             log_event(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),
@@ -234,6 +227,19 @@ def get_event(request):
                 event_uuid=event_uuid,
                 topics=log_topics,
             )
+
+            # must done after logging because process_event_ee modifies the event, e.g. by removing $elements
+            if not ingest_via_plugin_server:
+                process_event_ee(
+                    distinct_id=distinct_id,
+                    ip=get_ip_address(request),
+                    site_url=request.build_absolute_uri("/")[:-1],
+                    data=event,
+                    team_id=team.id,
+                    now=now,
+                    sent_at=sent_at,
+                    event_uuid=event_uuid,
+                )
         else:
             task_name = "posthog.tasks.process_event.process_event"
             if settings.PLUGIN_SERVER_INGESTION or team.plugins_opt_in:
