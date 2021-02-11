@@ -15,7 +15,7 @@ import shutil
 import sys
 from datetime import timedelta
 from distutils.util import strtobool
-from typing import Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -29,11 +29,16 @@ from sentry_sdk.integrations.redis import RedisIntegration
 from posthog.constants import RDBMS
 
 
-def get_env(key):
-    try:
-        return os.environ[key]
-    except KeyError:
-        raise ImproperlyConfigured(f'The environment var "{key}" is absolutely required to run this software')
+def get_from_env(key: str, default: Any = None, *, type_cast: Optional[Callable]) -> Any:
+    value = os.getenv(key)
+    if value is None:
+        if default is not None:
+            return default
+        else:
+            raise ImproperlyConfigured(f'The environment var "{key}" is absolutely required to run this software')
+    if type_cast is not None:
+        return type_cast(value)
+    return value
 
 
 def get_list(text: str) -> List[str]:
@@ -347,7 +352,7 @@ elif os.environ.get("POSTHOG_DB_NAME"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql_psycopg2",
-            "NAME": get_env("POSTHOG_DB_NAME"),
+            "NAME": get_from_env("POSTHOG_DB_NAME"),
             "USER": os.environ.get("POSTHOG_DB_USER", "postgres"),
             "PASSWORD": os.environ.get("POSTHOG_DB_PASSWORD", ""),
             "HOST": os.environ.get("POSTHOG_POSTGRES_HOST", "localhost"),
