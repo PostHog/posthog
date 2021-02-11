@@ -207,7 +207,6 @@ def get_event(request):
         if is_ee_enabled():
             log_topics = [KAFKA_EVENTS_WAL]
 
-
             if settings.PLUGIN_SERVER_INGESTION:
                 log_topics.append(KAFKA_EVENTS_PLUGIN_INGESTION)
                 statsd.Counter("%s_posthog_cloud_plugin_server_ingestion" % (settings.STATSD_PREFIX,)).increment()
