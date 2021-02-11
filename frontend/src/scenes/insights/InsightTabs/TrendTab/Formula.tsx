@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Input } from 'antd'
 import { FilterType } from '~/types'
 import { LIFECYCLE, STICKINESS } from 'lib/constants'
@@ -11,6 +11,9 @@ export function Formula({
     onChange: CallableFunction
 }): JSX.Element {
     const [value, setValue] = useState(filters.formula)
+    useEffect(() => {
+        setValue(filters.formula)
+    }, [filters.formula])
     return (
         <div style={{ maxWidth: 300 }}>
             <Input.Search
