@@ -13,7 +13,7 @@ import { defaultConfigForPlugin, getConfigSchemaArray } from 'scenes/plugins/uti
 import Markdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from './PluginSource'
-import { PluginConfigChoice } from '@posthog/plugin-scaffold'
+import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
 
 function EnabledDisabledSwitch({
     value,
@@ -53,23 +53,16 @@ export function PluginDrawer(): JSX.Element {
         }
     }, [editingPlugin?.id])
 
-    const isValidChoiceConfig = (configField: PluginConfigChoice): boolean => {
-        /*
-            Checks, in order, that `choices`:
-            1. Exists   
-            2. Is an array or object
-            3. Is not an object 
-            4. Is not an empty array
-            5. Is an array of strings only
-        */
-        const invalid =
-            !configField.choices ||
-            typeof configField.choices !== 'object' ||
-            JSON.stringify(configField.choices)[0] === '{' ||
-            !configField.choices.length ||
-            [...configField.choices].filter((choice) => typeof choice === 'string').length != configField.choices.length
-        return !invalid
+    const isValidChoiceConfig = (fieldConfig: PluginConfigChoice): boolean => {
+        return (
+            Array.isArray(fieldConfig.choices) &&
+            !!fieldConfig.choices.length &&
+            !fieldConfig.choices.find((c) => typeof c !== 'string')
+        )
     }
+
+    const isValidField = (fieldConfig: PluginConfigSchema): boolean =>
+        fieldConfig.type !== 'choice' || isValidChoiceConfig(fieldConfig)
 
     return (
         <>
@@ -174,21 +167,13 @@ export function PluginDrawer(): JSX.Element {
                                 <React.Fragment key={fieldConfig.key || `__key__${index}`}>
                                     {fieldConfig.markdown ? (
                                         <Markdown source={fieldConfig.markdown} linkTarget="_blank" />
-                                    ) : null}
-                                    {fieldConfig.type ? (
+                                    ) : fieldConfig.type && isValidField(fieldConfig) ? (
                                         <Form.Item
-                                            label={
-                                                fieldConfig.type !== 'choice' || isValidChoiceConfig(fieldConfig)
-                                                    ? fieldConfig.name || fieldConfig.key
-                                                    : ''
-                                            }
+                                            label={fieldConfig.name || fieldConfig.key}
                                             extra={
-                                                fieldConfig.hint &&
-                                                (fieldConfig.type === 'choice'
-                                                    ? isValidChoiceConfig(fieldConfig)
-                                                    : true) ? (
+                                                fieldConfig.hint && (
                                                     <Markdown source={fieldConfig.hint} linkTarget="_blank" />
-                                                ) : null
+                                                )
                                             }
                                             name={fieldConfig.key}
                                             required={fieldConfig.required}
@@ -204,22 +189,13 @@ export function PluginDrawer(): JSX.Element {
                                             ) : fieldConfig.type === 'string' ? (
                                                 <Input />
                                             ) : fieldConfig.type === 'choice' ? (
-                                                isValidChoiceConfig(fieldConfig) ? (
-                                                    <Select dropdownMatchSelectWidth={false}>
-                                                        {fieldConfig.choices.map((choice) => (
-                                                            <Select.Option value={choice} key={choice}>
-                                                                {choice}
-                                                            </Select.Option>
-                                                        ))}
-                                                    </Select>
-                                                ) : (
-                                                    <p style={{ color: 'var(--danger)' }}>
-                                                        <i>
-                                                            Plugin contains invalid configuration. Please contact the
-                                                            plugin author.
-                                                        </i>
-                                                    </p>
-                                                )
+                                                <Select dropdownMatchSelectWidth={false}>
+                                                    {fieldConfig.choices.map((choice) => (
+                                                        <Select.Option value={choice} key={choice}>
+                                                            {choice}
+                                                        </Select.Option>
+                                                    ))}
+                                                </Select>
                                             ) : (
                                                 <strong style={{ color: 'var(--danger)' }}>
                                                     Unknown field type "<code>{fieldConfig.type}</code>".
@@ -228,7 +204,11 @@ export function PluginDrawer(): JSX.Element {
                                                 </strong>
                                             )}
                                         </Form.Item>
-                                    ) : null}
+                                    ) : (
+                                        <p style={{ color: 'var(--danger)' }}>
+                                            Invalid config field <i>{fieldConfig.name || fieldConfig.key}</i>.
+                                        </p>
+                                    )}
                                 </React.Fragment>
                             ))}
                         </div>
