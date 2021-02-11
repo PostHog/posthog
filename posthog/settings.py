@@ -395,7 +395,7 @@ if TEST or DEBUG or (len(sys.argv) > 1 and sys.argv[1] == "collectstatic"):
 else:
     REDIS_URL = os.getenv("REDIS_URL", "")
 
-if not REDIS_URL and os.getenv("POSTHOG_REDIS_HOST", ""):  # type: str
+if not REDIS_URL and get_from_env("POSTHOG_REDIS_HOST", ""):
     REDIS_URL = "redis://:{}@{}:{}/".format(
         os.getenv("POSTHOG_REDIS_PASSWORD", ""),
         os.getenv("POSTHOG_REDIS_HOST", ""),
