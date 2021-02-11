@@ -165,6 +165,7 @@ export const funnelLogic = kea({
             }
             const cleanedParams = cleanFunnelParams(values.filters)
             insightLogic.actions.setAllFilters(cleanedParams)
+            insightLogic.actions.setLastRefresh(false)
         },
         loadFunnel: async () => {
             const cleanedParams = cleanFunnelParams(values.filters)
