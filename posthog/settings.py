@@ -75,28 +75,28 @@ SHELL_PLUS_PRINT_SQL = get_bool_from_env("PRINT_SQL", False)
 SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
 if DEBUG:
-    JS_URL = os.environ.get("JS_URL", "http://localhost:8234/")
+    JS_URL = os.getenv("JS_URL", "http://localhost:8234/")
 else:
-    JS_URL = os.environ.get("JS_URL", "")
+    JS_URL = os.getenv("JS_URL", "")
 
 PLUGINS_INSTALL_VIA_API = get_bool_from_env("PLUGINS_INSTALL_VIA_API", True)
 PLUGINS_CONFIGURE_VIA_API = PLUGINS_INSTALL_VIA_API or get_bool_from_env("PLUGINS_CONFIGURE_VIA_API", True)
 
-PLUGINS_CELERY_QUEUE = os.environ.get("PLUGINS_CELERY_QUEUE", "posthog-plugins")
-PLUGINS_RELOAD_PUBSUB_CHANNEL = os.environ.get("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
+PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
+PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
 # Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
 # Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.
-GITLAB_TOKEN = os.environ.get("GITLAB_TOKEN", None)
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", None)
-NPM_TOKEN = os.environ.get("NPM_TOKEN", None)
+GITLAB_TOKEN = os.getenv("GITLAB_TOKEN", None)
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", None)
+NPM_TOKEN = os.getenv("NPM_TOKEN", None)
 
 # This is set as a cross-domain cookie with a random value.
 # Its existence is used by the toolbar to see that we are logged in.
 TOOLBAR_COOKIE_NAME = "phtoolbar"
 
 # SSL & cookie defaults
-if os.environ.get("SECURE_COOKIES", None) is None:
+if os.getenv("SECURE_COOKIES", None) is None:
     # Default to True if in production
     secure_cookies = not DEBUG and not TEST
 else:
@@ -108,7 +108,7 @@ CSRF_COOKIE_SECURE = secure_cookies
 SECURE_SSL_REDIRECT = secure_cookies
 
 if not TEST:
-    if os.environ.get("SENTRY_DSN"):
+    if os.getenv("SENTRY_DSN"):
         sentry_sdk.utils.MAX_STRING_LENGTH = 10_000_000
         # https://docs.sentry.io/platforms/python/
         sentry_sdk.init(
@@ -116,7 +116,7 @@ if not TEST:
             integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration()],
             request_bodies="always",
             send_default_pii=True,
-            environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+            environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
         )
 
 if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
@@ -130,11 +130,11 @@ if get_bool_from_env("IS_BEHIND_PROXY", False):
 # Clickhouse Settings
 CLICKHOUSE_TEST_DB = "posthog_test"
 
-CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
-CLICKHOUSE_USER = os.environ.get("CLICKHOUSE_USER", "default")
-CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
-CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "default")
-CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", None)
+CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "localhost")
+CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
+CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
+CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
+CLICKHOUSE_CA = os.getenv("CLICKHOUSE_CA", None)
 CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG)
 CLICKHOUSE_VERIFY = get_bool_from_env("CLICKHOUSE_VERIFY", True)
 CLICKHOUSE_REPLICATION = get_bool_from_env("CLICKHOUSE_REPLICATION", False)
@@ -152,21 +152,21 @@ CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _click
 IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
 
 # Kafka configs
-KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
+KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka")
 KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
 
-PRIMARY_DB = os.environ.get("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
+PRIMARY_DB = os.getenv("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
 EE_AVAILABLE = False
 
 PLUGIN_SERVER_INGESTION = get_bool_from_env("PLUGIN_SERVER_INGESTION", False)
 
 if PRIMARY_DB == RDBMS.CLICKHOUSE:
-    TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
+    TEST_RUNNER = os.getenv("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
 else:
-    TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
+    TEST_RUNNER = os.getenv("TEST_RUNNER", "django.test.runner.DiscoverRunner")
 
 
 ASYNC_EVENT_ACTION_MAPPING = get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False)
@@ -177,9 +177,9 @@ if PLUGIN_SERVER_INGESTION and PRIMARY_DB == RDBMS.POSTGRES:
 
 
 # IP block settings
-ALLOWED_IP_BLOCKS = get_list(os.environ.get("ALLOWED_IP_BLOCKS", ""))
-TRUSTED_PROXIES = os.environ.get("TRUSTED_PROXIES", False)
-TRUST_ALL_PROXIES = os.environ.get("TRUST_ALL_PROXIES", False)
+ALLOWED_IP_BLOCKS = get_list(os.getenv("ALLOWED_IP_BLOCKS", ""))
+TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", False)
+TRUST_ALL_PROXIES = os.getenv("TRUST_ALL_PROXIES", False)
 
 
 # Quick-start development settings - unsuitable for production
@@ -188,18 +188,18 @@ TRUST_ALL_PROXIES = os.environ.get("TRUST_ALL_PROXIES", False)
 DEFAULT_SECRET_KEY = "<randomly generated secret key>"
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
+SECRET_KEY = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
 
-ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
+ALLOWED_HOSTS = get_list(os.getenv("ALLOWED_HOSTS", "*"))
 
 # Metrics - StatsD
-STATSD_HOST = os.environ.get("STATSD_HOST")
-STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
-STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "")
+STATSD_HOST = os.getenv("STATSD_HOST")
+STATSD_PORT = os.getenv("STATSD_PORT", 8125)
+STATSD_PREFIX = os.getenv("STATSD_PREFIX", "")
 
 # django-axes settings to lockout after too many attempts
 AXES_ENABLED = get_bool_from_env("AXES_ENABLED", True)
-AXES_FAILURE_LIMIT = int(os.environ.get("AXES_FAILURE_LIMIT", 5))
+AXES_FAILURE_LIMIT = int(os.getenv("AXES_FAILURE_LIMIT", 5))
 AXES_COOLOFF_TIME = timedelta(minutes=15)
 AXES_LOCKOUT_TEMPLATE = "too_many_failed_logins.html"
 AXES_META_PRECEDENCE_ORDER = [
@@ -326,13 +326,13 @@ SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
     "organization_name",
 ]
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
-SOCIAL_AUTH_GITHUB_KEY = os.environ.get("SOCIAL_AUTH_GITHUB_KEY")
-SOCIAL_AUTH_GITHUB_SECRET = os.environ.get("SOCIAL_AUTH_GITHUB_SECRET")
+SOCIAL_AUTH_GITHUB_KEY = os.getenv("SOCIAL_AUTH_GITHUB_KEY")
+SOCIAL_AUTH_GITHUB_SECRET = os.getenv("SOCIAL_AUTH_GITHUB_SECRET")
 
 SOCIAL_AUTH_GITLAB_SCOPE = ["read_user"]
-SOCIAL_AUTH_GITLAB_KEY = os.environ.get("SOCIAL_AUTH_GITLAB_KEY")
-SOCIAL_AUTH_GITLAB_SECRET = os.environ.get("SOCIAL_AUTH_GITLAB_SECRET")
-SOCIAL_AUTH_GITLAB_API_URL = os.environ.get("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
+SOCIAL_AUTH_GITLAB_KEY = os.getenv("SOCIAL_AUTH_GITLAB_KEY")
+SOCIAL_AUTH_GITLAB_SECRET = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
+SOCIAL_AUTH_GITLAB_API_URL = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
 
 # See https://docs.djangoproject.com/en/3.1/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
@@ -342,30 +342,30 @@ DISABLE_SERVER_SIDE_CURSORS = get_bool_from_env("USING_PGBOUNCER", False)
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
 if TEST or DEBUG:
-    DATABASE_URL = os.environ.get("DATABASE_URL", "postgres://localhost:5432/posthog")
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgres://localhost:5432/posthog")
 else:
-    DATABASE_URL = os.environ.get("DATABASE_URL", "")
+    DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if DATABASE_URL:
     DATABASES = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=600)}
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
-elif os.environ.get("POSTHOG_DB_NAME"):
+elif os.getenv("POSTHOG_DB_NAME"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql_psycopg2",
             "NAME": get_from_env("POSTHOG_DB_NAME"),
-            "USER": os.environ.get("POSTHOG_DB_USER", "postgres"),
-            "PASSWORD": os.environ.get("POSTHOG_DB_PASSWORD", ""),
-            "HOST": os.environ.get("POSTHOG_POSTGRES_HOST", "localhost"),
-            "PORT": os.environ.get("POSTHOG_POSTGRES_PORT", "5432"),
+            "USER": os.getenv("POSTHOG_DB_USER", "postgres"),
+            "PASSWORD": os.getenv("POSTHOG_DB_PASSWORD", ""),
+            "HOST": os.getenv("POSTHOG_POSTGRES_HOST", "localhost"),
+            "PORT": os.getenv("POSTHOG_POSTGRES_PORT", "5432"),
             "CONN_MAX_AGE": 0,
             "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
             "SSL_OPTIONS": {
-                "sslmode": os.environ.get("POSTHOG_POSTGRES_SSL_MODE", None),
-                "sslrootcert": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_CA", None),
-                "sslcert": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_CRT", None),
-                "sslkey": os.environ.get("POSTHOG_POSTGRES_CLI_SSL_KEY", None),
+                "sslmode": os.getenv("POSTHOG_POSTGRES_SSL_MODE", None),
+                "sslrootcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CA", None),
+                "sslcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CRT", None),
+                "sslkey": os.getenv("POSTHOG_POSTGRES_CLI_SSL_KEY", None),
             },
         }
     }
@@ -399,15 +399,15 @@ else:
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or (len(sys.argv) > 1 and sys.argv[1] == "collectstatic"):
-    REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost/")
+    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")
 else:
-    REDIS_URL = os.environ.get("REDIS_URL", "")
+    REDIS_URL = os.getenv("REDIS_URL", "")
 
-if not REDIS_URL and os.environ.get("POSTHOG_REDIS_HOST", ""):
+if not REDIS_URL and os.getenv("POSTHOG_REDIS_HOST", ""):
     REDIS_URL = "redis://:{}@{}:{}/".format(
-        os.environ.get("POSTHOG_REDIS_PASSWORD", ""),
-        os.environ.get("POSTHOG_REDIS_HOST", ""),
-        os.environ.get("POSTHOG_REDIS_PORT", "6379"),
+        os.getenv("POSTHOG_REDIS_PASSWORD", ""),
+        os.getenv("POSTHOG_REDIS_HOST", ""),
+        os.getenv("POSTHOG_REDIS_PORT", "6379"),
     )
 
 if not REDIS_URL:
@@ -498,14 +498,14 @@ EXCEPTIONS_HOG = {
 
 # Email
 EMAIL_ENABLED = get_bool_from_env("EMAIL_ENABLED", True)
-EMAIL_HOST = os.environ.get("EMAIL_HOST", None)
-EMAIL_PORT = os.environ.get("EMAIL_PORT", "25")
-EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
-EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
+EMAIL_HOST = os.getenv("EMAIL_HOST", None)
+EMAIL_PORT = os.getenv("EMAIL_PORT", "25")
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 EMAIL_USE_TLS = get_bool_from_env("EMAIL_USE_TLS", False)
 EMAIL_USE_SSL = get_bool_from_env("EMAIL_USE_SSL", False)
-DEFAULT_FROM_EMAIL = os.environ.get("EMAIL_DEFAULT_FROM", os.environ.get("DEFAULT_FROM_EMAIL", "root@localhost"))
-EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO")
+DEFAULT_FROM_EMAIL = os.getenv("EMAIL_DEFAULT_FROM", os.getenv("DEFAULT_FROM_EMAIL", "root@localhost"))
+EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO")
 
 MULTI_TENANCY = False  # overriden by posthog-production
 
