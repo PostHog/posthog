@@ -54,7 +54,7 @@ class CohortSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        if not request.FILES.get("csv"):
+        if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
