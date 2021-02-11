@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import celery
 import pytz
 from dateutil.parser import isoparse
+from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
 from sentry_sdk import capture_exception
@@ -60,7 +61,9 @@ def create_event(
 
     p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
 
-    if team.slack_incoming_webhook or team.organization.is_feature_available("zapier"):
+    if not settings.PLUGIN_SERVER_INGESTION and (
+        team.slack_incoming_webhook or team.organization.is_feature_available("zapier")
+    ):
         try:
             celery.current_app.send_task(
                 "ee.tasks.webhooks_ee.post_event_to_webhook_ee",
