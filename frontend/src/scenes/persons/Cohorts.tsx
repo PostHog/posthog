@@ -86,7 +86,7 @@ function _Cohorts(): JSX.Element {
             ),
             render: function RenderCalculation(_, cohort: CohortType) {
                 if (cohort.is_static) {
-                    return 'N/A'
+                    return <>N/A</>
                 }
                 return cohort.is_calculating ? (
                     <span>

@@ -123,7 +123,7 @@ export function DeleteWithUndo(
         }
         className: string
         style: CSSProperties
-        callback: CallableFunction
+        callback: () => void
     }>
 ): JSX.Element {
     const { className, style, children } = props
