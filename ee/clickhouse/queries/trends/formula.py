@@ -81,6 +81,6 @@ class ClickhouseTrendsFormula:
                 additional_values["data"] = [round(number, 2) if not math.isnan(number) else 0.0 for number in item[1]]
                 if filter.display == TRENDS_CUMULATIVE:
                     additional_values["data"] = list(accumulate(additional_values["data"]))
-
+            additional_values["count"] = float(sum(additional_values["data"]))
             response.append(parse_response(item, filter, additional_values))
         return response
