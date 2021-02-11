@@ -191,4 +191,4 @@ def log_event(
         "sent_at": sent_at.isoformat() if sent_at else "",
     }
     for topic in topics:
-        producer.produce(topic=topic, data=data)
+        producer.produce(topic=topic, data=data, key=team_id)

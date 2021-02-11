@@ -18,7 +18,7 @@ class TestKafkaProducer:
     def __init__(self):
         pass
 
-    def send(self, topic: str, data: Any):
+    def send(self, topic: str, data: Any, key: Any = None):
         return
 
     def flush(self):
@@ -41,11 +41,13 @@ class _KafkaProducer:
         b = json.dumps(d).encode("utf-8")
         return b
 
-    def produce(self, topic: str, data: Any, value_serializer: Optional[Callable[[Any], Any]] = None):
+    def produce(
+        self, topic: str, data: Any, value_serializer: Optional[Callable[[Any], Any]] = None, *, key: Any = None
+    ):
         if not value_serializer:
             value_serializer = self.json_serializer
         b = value_serializer(data)
-        self.producer.send(topic, b)
+        self.producer.send(topic, b, key=key)
 
     def close(self):
         self.producer.flush()
