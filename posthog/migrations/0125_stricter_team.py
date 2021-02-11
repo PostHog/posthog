@@ -16,7 +16,7 @@ def prepare_teams(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0123_organizationinvite_first_name"),
+        ("posthog", "0124_unset_is_calculating_static_cohorts"),
     ]
 
     operations = [
