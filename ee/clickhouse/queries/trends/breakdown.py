@@ -79,7 +79,6 @@ class ClickhouseTrendsBreakdown:
             "event_filter": "AND event = %(event)s" if not action_query else "",
             "filters": prop_filters if props_to_filter else "",
         }
-        breakdown_query = self._get_breakdown_query(filter)
 
         _params, _breakdown_filter_params = {}, {}
 
@@ -104,7 +103,7 @@ class ClickhouseTrendsBreakdown:
 
         if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
-            content_sql = breakdown_query.format(
+            content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
                 breakdown_filter=breakdown_filter,
                 event_join=join_condition,
                 aggregate_operation=aggregate_operation,
@@ -122,7 +121,7 @@ class ClickhouseTrendsBreakdown:
                 date_to=(filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
             )
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
-            breakdown_query = breakdown_query.format(
+            breakdown_query = BREAKDOWN_QUERY_SQL.format(
                 null_sql=null_sql,
                 breakdown_filter=breakdown_filter,
                 event_join=join_condition,
@@ -132,12 +131,6 @@ class ClickhouseTrendsBreakdown:
             )
 
             return breakdown_query, params, self._parse_trend_result(filter, entity)
-
-    def _get_breakdown_query(self, filter: Filter):
-        if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
-            return BREAKDOWN_AGGREGATE_QUERY_SQL
-
-        return BREAKDOWN_QUERY_SQL
 
     def _breakdown_cohort_params(self, team_id: int, filter: Filter, entity: Entity):
         cohort_queries, cohort_ids, cohort_params = self._format_breakdown_cohort_join_query(team_id, filter, entity)
