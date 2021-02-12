@@ -45,4 +45,4 @@ class RetentionFilter(
 ):
     def __init__(self, data: Dict[str, Any] = {}, request: Optional[HttpRequest] = None, **kwargs) -> None:
         data["insight"] = INSIGHT_RETENTION
-        super().__init__(data, request)
+        super().__init__(data, request, **kwargs)

@@ -17,15 +17,55 @@
             "essential": true,
             "environment": [
                 {
+                    "name": "CLICKHOUSE_DATABASE",
+                    "value": "posthog"
+                },
+                {
+                    "name": "CLICKHOUSE_SECURE",
+                    "value": "True"
+                },
+                {
+                    "name": "CLICKHOUSE_VERIFY",
+                    "value": "True"
+                },
+                {
                     "name": "KAFKA_ENABLED",
                     "value": "True"
                 },
                 {
                     "name": "SITE_URL",
                     "value": "https://app.posthog.com"
+                },
+                {
+                    "name": "PLUGIN_SERVER_INGESTION",
+                    "value": "true"
+                },
+                {
+                    "name": "KAFKA_BATCH_PARALELL_PROCESSING",
+                    "value": "true"
+                },
+                {
+                    "name": "BILLING_TRIAL_DAYS",
+                    "value": "0"
+                },
+                {
+                    "name": "BILLING_NO_PLAN_EVENT_ALLOCATION",
+                    "value": "10000"
                 }
             ],
             "secrets": [
+                {
+                    "name": "CLICKHOUSE_CA",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_CA::"
+                },
+                {
+                    "name": "CLICKHOUSE_HOST",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_HOST::"
+                },
+                {
+                    "name": "CLICKHOUSE_PASSWORD",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_PASSWORD::"
+                },
                 {
                     "name": "DATABASE_URL",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:DATABASE_URL::"
@@ -62,7 +102,8 @@
                     "name": "STATSD_HOST",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STATSD_HOST::"
                 }
-            ]
+            ],
+            "entryPoint": ["./bin/plugin-server"]
         }
     ],
     "requiresCompatibilities": ["FARGATE"],

@@ -71,7 +71,7 @@ function _PersonV2(): JSX.Element {
                     )}
                 </Col>
                 <Col span={8}>
-                    <Card className="card-elevated person-detail">
+                    <Card className="card-elevated person-detail" data-test-person-details>
                         {person && (
                             <>
                                 <PersonHeader person={person} />
@@ -147,7 +147,7 @@ function _PersonV2(): JSX.Element {
                     </Card>
                 </Col>
             </Row>
-            {mergeModalOpen && (
+            {mergeModalOpen && person && (
                 <MergePerson person={person} onPersonChange={setPerson} closeModal={() => setMergeModalOpen(false)} />
             )}
         </div>

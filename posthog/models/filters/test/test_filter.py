@@ -69,6 +69,12 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             events = filter_events(filter, self.team)
             self.assertEqual(len(events), 1)
 
+        def test_incomplete_data(self):
+            filter = Filter(
+                data={"properties": [{"key": "$current_url", "operator": "not_icontains", "type": "event"}]}
+            )
+            self.assertListEqual(filter.properties, [])
+
         def test_numerical(self):
             event1 = event_factory(team=self.team, distinct_id="test", event="$pageview", properties={"$a_number": 5})
             event2 = event_factory(team=self.team, event="$pageview", distinct_id="test", properties={"$a_number": 6},)
@@ -115,6 +121,21 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             events = filter_events(filter, self.team, order_by="timestamp")
             self.assertEqual(events[0]["id"], event1.pk)
             self.assertEqual(events[1]["id"], event2.pk)
+
+        def test_invalid_regex(self):
+            event_factory(team=self.team, distinct_id="test", event="$pageview")
+            event_factory(
+                team=self.team,
+                event="$pageview",
+                distinct_id="test",
+                properties={"$current_url": "https://whatever.com"},
+            )
+
+            filter = Filter(data={"properties": {"$current_url__regex": "?*"}})
+            self.assertEqual(len(filter_events(filter, self.team)), 0)
+
+            filter = Filter(data={"properties": {"$current_url__not_regex": "?*"}})
+            self.assertEqual(len(filter_events(filter, self.team)), 0)
 
         def test_is_not(self):
             event1 = event_factory(team=self.team, distinct_id="test", event="$pageview")

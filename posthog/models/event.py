@@ -5,6 +5,7 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import celery
+from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.contrib.postgres.fields import JSONField
 from django.db import connection, models, transaction
@@ -30,6 +31,7 @@ LAST_UPDATED_TEAM_ACTION: Dict[int, datetime.datetime] = {}
 TEAM_EVENT_ACTION_QUERY_CACHE: Dict[int, Dict[str, tuple]] = defaultdict(dict)
 # TEAM_EVENT_ACTION_QUERY_CACHE looks like team_id -> event ex('$pageview') -> query
 TEAM_ACTION_QUERY_CACHE: Dict[int, str] = {}
+DEFAULT_EARLIEST_TIME_DELTA = relativedelta(weeks=1)
 
 
 class SelectorPart(object):
@@ -127,12 +129,11 @@ class EventManager(models.QuerySet):
         return (subqueries, filter)
 
     def earliest_timestamp(self, team_id: int):
-        return (
-            self.filter(team_id=team_id)
-            .order_by("timestamp")[0]
-            .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-            .isoformat()
-        )
+        timestamp = self.filter(team_id=team_id).order_by("timestamp").values_list("timestamp", flat=True).first()
+        if timestamp is None:
+            timestamp = timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
+
+        return timestamp.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
 
     def filter_by_element(self, filters: Dict, team_id: int):
         groups = ElementGroup.objects.filter(team_id=team_id)

@@ -1,4 +1,12 @@
-import { formatLabel, identifierToHuman, midEllipsis, isURL } from './utils'
+import { formatLabel, identifierToHuman, midEllipsis, isURL, capitalizeFirstLetter } from './utils'
+
+describe('capitalizeFirstLetter()', () => {
+    it('returns the capitalized string', () => {
+        expect(capitalizeFirstLetter('jane')).toEqual('Jane')
+        expect(capitalizeFirstLetter('hello there!')).toEqual('Hello there!')
+        expect(capitalizeFirstLetter('underscores_make_no_difference')).toEqual('Underscores_make_no_difference')
+    })
+})
 
 describe('identifierToHuman()', () => {
     it('humanizes properly', () => {
@@ -24,22 +32,28 @@ describe('formatLabel()', () => {
         expect(given.subject).toEqual('some_event (Total) ')
     })
 
-    it('handles DAU queries', () => {
+    describe('DAU queries', () => {
         given('action', () => ({ math: 'dau' }))
 
-        expect(given.subject).toEqual('some_event (DAU) ')
+        it('is formatted', () => {
+            expect(given.subject).toEqual('some_event (DAU) ')
+        })
     })
 
-    it('handles summing by property', () => {
+    describe('summing by property', () => {
         given('action', () => ({ math: 'sum', math_property: 'event_property' }))
 
-        expect(given.subject).toEqual('some_event (sum of event_property) ')
+        it('is formatted', () => {
+            expect(given.subject).toEqual('some_event (sum of event_property) ')
+        })
     })
 
-    it('handles action with properties', () => {
+    describe('action with properties', () => {
         given('action', () => ({ properties: [{ value: 'hello' }, { operator: 'gt', value: 5 }] }))
 
-        expect(given.subject).toEqual('some_event (Total)  (= hello, > 5)')
+        it('is formatted', () => {
+            expect(given.subject).toEqual('some_event (Total)  (= hello, > 5)')
+        })
     })
 })
 

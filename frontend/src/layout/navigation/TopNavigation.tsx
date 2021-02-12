@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
-import { Button, Dropdown } from 'antd'
+import { Dropdown } from 'antd'
 import {
     ProjectOutlined,
     DownOutlined,
@@ -23,6 +23,8 @@ import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationM
 import { hot } from 'react-hot-loader/root'
 import { isMobile, platformCommandControlKey } from 'lib/utils'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
+import { Link } from 'lib/components/Link'
+import { LinkButton } from 'lib/components/LinkButton'
 
 export const TopNavigation = hot(_TopNavigation)
 export function _TopNavigation(): JSX.Element {
@@ -50,21 +52,27 @@ export function _TopNavigation(): JSX.Element {
             </div>
             <div className="text-center">
                 <div>
-                    <Button className="mt" onClick={() => push('/organization/members')}>
+                    <LinkButton className="mt" to="/organization/members" data-attr="top-menu-item-org-settings">
                         Org settings &amp; members
-                    </Button>
+                    </LinkButton>
                 </div>
                 {user?.is_multi_tenancy ? (
                     <div className="mt-05">
-                        <a onClick={() => push('/organization/billing')}>Billing</a>
+                        <Link to="/organization/billing" data-attr="top-menu-item-billing">
+                            Billing
+                        </Link>
                     </div>
                 ) : (
                     <div className="mt-05">
-                        <a onClick={() => push('/instance/licenses')}>Licenses</a>
+                        <Link to="/instance/licenses" data-attr="top-menu-item-licenses">
+                            Licenses
+                        </Link>
                     </div>
                 )}
                 <div className="mt-05">
-                    <a onClick={() => push('/me/settings')}>My account</a>
+                    <Link to="/me/settings" data-attr="top-menu-item-me">
+                        My account
+                    </Link>
                 </div>
             </div>
             <div className="divider mt-05" />
@@ -102,7 +110,9 @@ export function _TopNavigation(): JSX.Element {
             </div>
             <div className="divider mb-05" />
             <div className="text-center">
-                <a onClick={logout}>Log out</a>
+                <a onClick={logout} data-attr="top-menu-item-logout">
+                    Log out
+                </a>
             </div>
         </div>
     )
@@ -111,26 +121,27 @@ export function _TopNavigation(): JSX.Element {
         <div className="navigation-top-dropdown project-dropdown">
             <div className="dp-title">SELECT A PROJECT</div>
             <div className="projects">
-                {user?.organization?.teams.map((team) => {
-                    return (
-                        <a onClick={() => updateCurrentProject(team.id, '/')} key={team.id}>
-                            <span style={{ flexGrow: 1 }}>{team.name}</span>
-                            <span
-                                className="settings"
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    if (team.id === user?.team?.id) {
-                                        push('/project/settings')
-                                    } else {
-                                        updateCurrentProject(team.id, '/project/settings')
-                                    }
-                                }}
-                            >
-                                <ToolOutlined />
-                            </span>
-                        </a>
-                    )
-                })}
+                {user?.organization?.teams &&
+                    user.organization.teams.map((team) => {
+                        return (
+                            <a onClick={() => updateCurrentProject(team.id, '/')} key={team.id}>
+                                <span style={{ flexGrow: 1 }}>{team.name}</span>
+                                <span
+                                    className="settings"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (team.id === user?.team?.id) {
+                                            push('/project/settings')
+                                        } else {
+                                            updateCurrentProject(team.id, '/project/settings')
+                                        }
+                                    }}
+                                >
+                                    <ToolOutlined />
+                                </span>
+                            </a>
+                        )
+                    })}
             </div>
             <div className="divider mt mb-05" />
             <div className="text-center">
@@ -174,18 +185,22 @@ export function _TopNavigation(): JSX.Element {
                         )}
                         {(!user?.is_multi_tenancy || user.is_staff) && (
                             <Badge
+                                data-attr="system-status-badge"
                                 type={systemStatus ? 'success' : 'danger'}
                                 onClick={() => push('/instance/status')}
                                 tooltip={systemStatus ? 'All systems operational' : 'Potential system issue'}
                                 className="mr"
                             />
                         )}
-                        <Badge
-                            type={updateAvailable ? 'warning' : undefined}
-                            tooltip={updateAvailable ? 'New version available' : undefined}
-                            icon={<UpOutlined />}
-                            onClick={() => setChangelogModalOpen(true)}
-                        />
+                        {!user?.is_multi_tenancy && (
+                            <Badge
+                                data-attr="update-indicator-badge"
+                                type={updateAvailable ? 'warning' : undefined}
+                                tooltip={updateAvailable ? 'New version available' : 'PostHog is up-to-date'}
+                                icon={<UpOutlined />}
+                                onClick={() => setChangelogModalOpen(true)}
+                            />
+                        )}
                     </div>
                 </div>
                 <div className="project-chooser">
@@ -198,7 +213,7 @@ export function _TopNavigation(): JSX.Element {
                 </div>
                 <div>
                     <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
-                        <div className="whoami cursor-pointer">
+                        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
                             <div className="pp">{user?.name[0]?.toUpperCase()}</div>
                             <div className="details hide-lte-lg">
                                 <span>{user?.name}</span>

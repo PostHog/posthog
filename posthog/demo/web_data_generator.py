@@ -9,7 +9,7 @@ from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.demo.data_generator import DataGenerator
-from posthog.models import Action, ActionStep, Dashboard, DashboardItem, Element, Person
+from posthog.models import Action, ActionStep, Dashboard, DashboardItem, Person
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import UUIDT
 

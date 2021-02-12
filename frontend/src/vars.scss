@@ -62,5 +62,14 @@ $radius: 2px;
 $top_nav_height: 50px;
 
 // Z-indexes
-$z_mobile_nav_overlay: 1031;
-$z_pinned_dashboards_popup: 1062;
+$z_top_navigation: 800;
+$z_mobile_nav_overlay: 931;
+$z_main_nav: 948;
+$z_pinned_dashboards_popup: 962;
+$z_drawer: 1000;
+$z_command_palette: 1875;
+
+// Export variables for TS access
+:export {
+    zDrawer: $z_drawer;
+}

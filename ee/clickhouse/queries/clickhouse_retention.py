@@ -210,9 +210,7 @@ class ClickhouseRetention(Retention):
         date_from = filter.date_from + filter.selected_interval * filter.period_increment
         date_to = filter.date_to
 
-        new_data = filter._data
-        new_data.update({"total_intervals": filter.total_intervals - filter.selected_interval})
-        filter = RetentionFilter(data=new_data)
+        filter = filter.with_data({"total_intervals": filter.total_intervals - filter.selected_interval})
 
         query_result = sync_execute(
             RETENTION_PEOPLE_PER_PERIOD_SQL.format(

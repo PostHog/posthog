@@ -26,6 +26,7 @@ export function SessionsPlayerButton({ session }: SessionsPlayerButtonProps): JS
                     className={`sessions-player-button ${viewed ? 'viewed' : ''}`}
                     key={id}
                     onClick={(event) => event.stopPropagation()}
+                    data-attr="sessions-player-button"
                 >
                     <PlayCircleOutlined />
                 </Link>

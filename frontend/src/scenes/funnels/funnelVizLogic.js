@@ -8,7 +8,7 @@ export const funnelVizLogic = kea({
     loaders: ({ props }) => ({
         results: {
             __default: [],
-            loadResults: async (refresh = false) => {
+            loadResults: async (refresh = true) => {
                 if (!refresh && props.cachedResults) {
                     return props.cachedResults
                 }

@@ -192,8 +192,8 @@ export const sessionsTableLogic = kea<
             closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),
         }
     },
-    urlToAction: ({ actions, values }) => ({
-        '*': (_: any, params: Params) => {
+    urlToAction: ({ actions, values }) => {
+        const urlToAction = (_: any, params: Params): void => {
             const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
 
             if (
@@ -202,7 +202,7 @@ export const sessionsTableLogic = kea<
                 values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD')
             ) {
                 actions.setFilters(params.properties || [], newDate)
-            } else if (values.sessions.length === 0) {
+            } else if (values.sessions.length === 0 && !values.sessionsLoading) {
                 actions.loadSessions(true)
             }
 
@@ -214,6 +214,11 @@ export const sessionsTableLogic = kea<
                 actions.setAllFilters(params.filters || [])
                 actions.applyFilters()
             }
-        },
-    }),
+        }
+
+        return {
+            '/sessions': urlToAction,
+            '/person/*': urlToAction,
+        }
+    },
 })
