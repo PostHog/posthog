@@ -2,6 +2,7 @@ import hashlib
 from typing import Any, Dict, List
 
 import posthoganalytics
+from django.conf import settings
 from django.contrib.postgres.fields import JSONField
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL
@@ -151,4 +152,6 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
                 flags_enabled.append(feature_flag.key)
         except Exception as err:
             capture_exception(err)
+            if settings.TEST:
+                raise err
     return flags_enabled
