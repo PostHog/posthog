@@ -55,13 +55,6 @@ class ClickhouseTrendsBreakdown:
             action = Action.objects.get(pk=entity.id)
             action_query, action_params = format_action_filter(action)
 
-        null_sql = NULL_BREAKDOWN_SQL.format(
-            interval=interval_annotation,
-            seconds_in_interval=seconds_in_interval,
-            num_intervals=num_intervals,
-            date_to=(filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
-        )
-
         params = {
             **params,
             **math_params,
@@ -112,7 +105,7 @@ class ClickhouseTrendsBreakdown:
             return content_sql, params, self._parse_single_aggregate_result(filter, entity)
 
         else:
-            null_sql = null_sql.format(
+            null_sql = NULL_BREAKDOWN_SQL.format(
                 interval=interval_annotation,
                 seconds_in_interval=seconds_in_interval,
                 num_intervals=num_intervals,
