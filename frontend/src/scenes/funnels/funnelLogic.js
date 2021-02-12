@@ -12,10 +12,10 @@ function wait(ms = 1000) {
 }
 const SECONDS_TO_POLL = 3 * 60
 
-export async function pollFunnel(params = {}) {
+async function pollFunnel(params = {}) {
     let result = await api.get('api/insight/funnel/?' + toParams(params))
     let start = window.performance.now()
-    while (result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
+    while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
         await wait()
         const { refresh: _, ...restParams } = params // eslint-disable-line
         result = await api.get('api/insight/funnel/?' + toParams(restParams))
@@ -27,7 +27,7 @@ export async function pollFunnel(params = {}) {
     return result
 }
 
-export const cleanFunnelParams = (filters) => {
+const cleanFunnelParams = (filters) => {
     return {
         ...filters,
         ...(filters.date_from ? { date_from: filters.date_from } : {}),
@@ -45,26 +45,49 @@ export const cleanFunnelParams = (filters) => {
 const isStepsEmpty = (filters) => [...(filters.actions || []), ...(filters.events || [])].length === 0
 
 export const funnelLogic = kea({
+    key: (props) => {
+        return props.dashboardItemId || 'some_funnel'
+    },
+
     actions: () => ({
         setSteps: (steps) => ({ steps }),
         clearFunnel: true,
         setFilters: (filters, refresh = false) => ({ filters, refresh }),
-        loadFunnel: true,
         saveFunnelInsight: (name) => ({ name }),
     }),
 
     connect: {
-        actions: [
-            insightLogic,
-            ['setAllFilters'],
-            insightHistoryLogic,
-            ['createInsight'],
-            funnelsModel,
-            ['loadFunnels'],
-        ],
+        actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
     },
 
-    loaders: () => ({
+    loaders: ({ props, values, actions }) => ({
+        results: {
+            loadResults: async (refresh = false, breakpoint) => {
+                if (!refresh && props.cachedResults) {
+                    return props.cachedResults
+                }
+                const { from_dashboard } = values.filters
+                const cleanedParams = cleanFunnelParams(values.filters)
+                const params = {
+                    ...(refresh ? { refresh: true } : {}),
+                    ...(from_dashboard ? { from_dashboard } : {}),
+                    ...cleanedParams,
+                }
+                let result
+
+                insightLogic.actions.startQuery()
+                try {
+                    result = await pollFunnel(params)
+                } catch (e) {
+                    insightLogic.actions.endQuery(ViewType.FUNNELS, false, e)
+                    return []
+                }
+                breakpoint()
+                insightLogic.actions.endQuery(ViewType.FUNNELS, result.last_refresh)
+                actions.setSteps(result.result)
+                return result.result
+            },
+        },
         people: {
             loadPeople: async (steps) => {
                 return (await api.get('api/person/?uuid=' + steps[0].people.join(','))).results
@@ -91,7 +114,6 @@ export const funnelLogic = kea({
         stepsWithCountLoading: [
             false,
             {
-                loadFunnel: () => true,
                 setSteps: () => false,
             },
         ],
@@ -131,7 +153,7 @@ export const funnelLogic = kea({
         ],
     }),
 
-    listeners: ({ actions, values, props }) => ({
+    listeners: ({ actions, values }) => ({
         setSteps: async () => {
             if (values.stepsWithCount[0]?.people?.length > 0) {
                 actions.loadPeople(values.stepsWithCount)
@@ -139,29 +161,11 @@ export const funnelLogic = kea({
         },
         setFilters: ({ refresh }) => {
             if (refresh) {
-                actions.loadFunnel()
+                actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)
-            actions.setAllFilters(cleanedParams)
-        },
-        loadFunnel: async () => {
-            const cleanedParams = cleanFunnelParams(values.filters)
-
-            actions.setAllFilters(cleanedParams)
-            if (!props.dashboardItemId) {
-                actions.createInsight({ ...cleanedParams, insight: ViewType.FUNNELS })
-            }
-
-            let result
-            insightLogic.actions.startQuery()
-            try {
-                result = await pollFunnel(cleanedParams)
-            } catch (e) {
-                insightLogic.actions.endQuery(ViewType.FUNNELS, e)
-                return []
-            }
-            insightLogic.actions.endQuery(ViewType.FUNNELS)
-            actions.setSteps(result)
+            insightLogic.actions.setAllFilters(cleanedParams)
+            insightLogic.actions.setLastRefresh(false)
         },
         saveFunnelInsight: async ({ name }) => {
             await api.create('api/insight', {
@@ -172,15 +176,26 @@ export const funnelLogic = kea({
             actions.loadFunnels()
         },
         clearFunnel: async () => {
-            actions.setAllFilters({})
+            insightLogic.actions.setAllFilters({})
         },
     }),
-    actionToUrl: ({ actions, values }) => ({
-        [actions.setSteps]: () => ['/insights', values.propertiesForUrl],
-        [actions.clearFunnel]: () => ['/insights', { insight: ViewType.FUNNELS }],
+    actionToUrl: ({ actions, values, props }) => ({
+        [actions.setSteps]: () => {
+            if (!props.dashboardItemId) {
+                return ['/insights', values.propertiesForUrl]
+            }
+        },
+        [actions.clearFunnel]: () => {
+            if (!props.dashboardItemId) {
+                return ['/insights', { insight: ViewType.FUNNELS }]
+            }
+        },
     }),
-    urlToAction: ({ actions, values }) => ({
+    urlToAction: ({ actions, values, props }) => ({
         '/insights': (_, searchParams) => {
+            if (props.dashboardItemId) {
+                return
+            }
             if (searchParams.insight === ViewType.FUNNELS) {
                 const paramsToCheck = {
                     date_from: searchParams.date_from,
