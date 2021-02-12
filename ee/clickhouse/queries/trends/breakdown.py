@@ -35,7 +35,6 @@ from posthog.models.filters.mixins.utils import cached_property
 class ClickhouseTrendsBreakdown:
     def _format_breakdown_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
         # process params
-        params: Dict[str, Any] = {"team_id": team_id}
         interval_annotation = get_trunc_func_ch(filter.interval)
         num_intervals, seconds_in_interval, round_interval = get_time_diff(
             filter.interval or "day", filter.date_from, filter.date_to, team_id
@@ -50,9 +49,9 @@ class ClickhouseTrendsBreakdown:
         breakdown_filter = BreakdownFilterConstructor.for_entity(entity, filter, team_id, round_interval)
 
         params = {
-            **params,
             **math_params,
             **breakdown_filter.query_params,
+            "team_id": team_id,
             "event": entity.id,
             "key": filter.breakdown,
         }
@@ -144,18 +143,6 @@ class ClickhouseTrendsBreakdown:
                 return Cohort.objects.get(pk=breakdown_value).name
         else:
             return str(value) or ""
-
-
-def _get_top_elements(query: str, filter: Filter, team_id: int) -> List:
-    element_params = {"key": filter.breakdown, "limit": 20, "team_id": team_id}
-
-    try:
-        top_elements_array_result = sync_execute(query, element_params)
-        top_elements_array = top_elements_array_result[0][0]
-    except:
-        top_elements_array = []
-
-    return top_elements_array
 
 
 class BreakdownFilterConstructor:
@@ -308,3 +295,15 @@ class PropertyBreakdownFilterConstructor(BreakdownFilterConstructor):
         top_elements_array = _get_top_elements(elements_query, self.filter, self.team_id)
         formatting_params, _ = self.base_query_arguments()
         return BREAKDOWN_PROP_JOIN_SQL.format(**formatting_params), {"values": top_elements_array}
+
+
+def _get_top_elements(query: str, filter: Filter, team_id: int) -> List:
+    element_params = {"key": filter.breakdown, "limit": 20, "team_id": team_id}
+
+    try:
+        top_elements_array_result = sync_execute(query, element_params)
+        top_elements_array = top_elements_array_result[0][0]
+    except:
+        top_elements_array = []
+
+    return top_elements_array
