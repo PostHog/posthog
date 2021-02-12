@@ -69,11 +69,13 @@ jobs:
             - name: Checkout the repository
               uses: actions/checkout@v2
               with:
+                  path: 'plugin-server'
                   fetch-depth: 0
 
             - name: Detect package version
               id: version
               run: |
+                  cd plugin-server/
                   PACKAGE_VERSION=$(node -p "require('./package.json').version")
                   PACKAGE_VERSION_TAG="v$PACKAGE_VERSION"
                   if git rev-parse "$PACKAGE_VERSION_TAG"; then
@@ -95,11 +97,11 @@ jobs:
 
             - name: Install dependencies
               if: steps.version.outputs.IS_NEW_VERSION == 'true'
-              run: yarn --frozen-lockfile
+              run: cd plugin-server/ && yarn --frozen-lockfile
 
             - name: Publish the package in the npm registry
               if: steps.version.outputs.IS_NEW_VERSION == 'true'
-              run: npm publish --access public
+              run: cd plugin-server/ && npm publish --access public
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   REDIS_URL: 'redis://localhost'
@@ -113,3 +115,40 @@ jobs:
               with:
                   tag_name: ${{ env.PACKAGE_VERSION_TAG }}
                   release_name: ${{ env.PACKAGE_VERSION }}
+
+            - name: Check out main repo
+              if: steps.version.outputs.IS_NEW_VERSION == 'true'
+              uses: actions/checkout@v2
+              with:
+                  repository: 'PostHog/posthog'
+                  path: 'posthog/'
+
+            - name: Install new plugin server version in main repo
+              if: steps.version.outputs.IS_NEW_VERSION == 'true'
+              run: |
+                  cd posthog/plugins/
+                  jq '.dependencies."@posthog/plugin-server" = "${{ steps.version.outputs.PACKAGE_VERSION }}"' package.json | sponge package.json
+                  yarn
+
+            - name: Create main repo pull request
+              if: steps.version.outputs.IS_NEW_VERSION == 'true'
+              id: main-repo-pr
+              uses: peter-evans/create-pull-request@v3
+              with:
+                  path: posthog/
+                  commit-message: Update plugin server to ${{ steps.version.outputs.PACKAGE_VERSION }}
+                  committer: PostHog Bot <hey@posthog.com>
+                  branch: plugin-server-${{ steps.version.outputs.PACKAGE_VERSION_TAG }}
+                  delete-branch: true
+                  title: Update plugin server to ${{ steps.version.outputs.PACKAGE_VERSION }}
+                  body: |
+                      ## Changes
+
+                      Plugin server version ${{ steps.version.outputs.PACKAGE_VERSION }} has been released. This updates PostHog to use it.
+
+                      [npm releases](https://www.npmjs.com/package/@posthog/plugin-server?activeTab=version) • [GitHub releases](https://github.com/PostHog/plugin-server/releases) • [commit history](https://github.com/PostHog/plugin-server/commits/)
+
+            - name: Output pull request result
+              if: steps.version.outputs.IS_NEW_VERSION == 'true'
+              run: |
+                  echo "PostHog pull request for plugin server version ${{ steps.version.outputs.PACKAGE_VERSION }} ready: ${{ steps.main-repo-pr.outputs.pull-request-url }}"
