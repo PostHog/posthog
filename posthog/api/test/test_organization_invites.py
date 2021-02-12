@@ -80,7 +80,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             "team invite executed",
             properties={
                 "name_provided": False,
-                "current_invite_count": 0,
+                "current_invite_count": 1,
                 "current_member_count": 1,
                 "email_available": True,
             },
@@ -121,11 +121,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             response = self.client.post(
                 "/api/organizations/@current/invites/bulk/", {"invites": payload}, format="json",
             )
-
-        self.assertEqual(OrganizationInvite.objects.count(), count + 7)
-
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()["invites"]
+
+        self.assertEqual(OrganizationInvite.objects.count(), count + 7)
 
         self.assertEqual(len(response_data), 7)
 
@@ -147,7 +146,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             properties={
                 "invitee_count": 7,
                 "name_count": sum(1 for user in payload if user["first_name"]),
-                "current_invite_count": 0,
+                "current_invite_count": 7,
                 "current_member_count": 1,
                 "email_available": True,
             },

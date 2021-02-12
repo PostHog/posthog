@@ -52,6 +52,9 @@ if PRIMARY_DB != RDBMS.CLICKHOUSE:
     def cache_sync_execute(query, args=None, redis_client=None, ttl=None, settings=None):
         return
 
+    def substitute_params(query, params):
+        pass
+
 
 else:
     if not TEST and CLICKHOUSE_ASYNC:
@@ -113,6 +116,10 @@ else:
                 save_query(query, args, execution_time)
         return result
 
+    substitute_params = (
+        ch_client.substitute_params if isinstance(ch_client, SyncClient) else ch_client._client.substitute_params
+    )
+
 
 def _deserialize(result_bytes: bytes) -> List[Tuple]:
     results = []
@@ -131,9 +138,6 @@ def _key_hash(query: str, args: Any) -> bytes:
 
 
 def format_sql(sql, params):
-    substitute_params = (
-        ch_client.substitute_params if isinstance(ch_client, SyncClient) else ch_client._client.substitute_params
-    )
 
     sql = substitute_params(sql, params or {})
     sql = sqlparse.format(sql, reindent_aligned=True)

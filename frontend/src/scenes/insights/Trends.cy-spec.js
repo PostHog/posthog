@@ -1,24 +1,16 @@
 import React from 'react'
 import { Insights } from './Insights'
 import * as helpers from 'cypress/support/helpers'
+import { toParams } from 'lib/utils'
 
 describe('<Insights /> trends', () => {
     const mount = () => helpers.mountPage(<Insights />)
-    const baseLocation = () => {
-        helpers.setLocation('/insights', {
-            insight: 'TRENDS',
-            interval: 'day',
-            display: 'ActionsLineGraph',
-            events: [
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: 'events',
-                    order: 0,
-                },
-            ],
-            properties: [],
-        })
+
+    const mountAndCheckAPI = () => {
+        helpers.setLocation('/insights', given.params)
+        mount()
+
+        cy.wait('@api_insight').its('request.url').should('contain', toParams(given.params))
     }
 
     beforeEach(() => {
@@ -35,48 +27,29 @@ describe('<Insights /> trends', () => {
         helpers.mockPosthog()
     })
 
+    given('params', () => ({
+        insight: 'TRENDS',
+        interval: 'day',
+        display: 'ActionsLineGraph',
+        events: [
+            {
+                id: '$pageview',
+                name: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+        ],
+        properties: [],
+    }))
+
     it('loads default trends', () => {
-        baseLocation()
-        mount()
-        cy.wait('@api_insight')
-            .map(helpers.getSearchParameters)
-            .should('eq', {
-                insight: 'TRENDS',
-                interval: 'day',
-                display: 'ActionsLineGraph',
-                events: JSON.stringify([
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                        order: 0,
-                    },
-                ]),
-                properties: '[]',
-            })
+        mountAndCheckAPI()
 
         cy.get('[data-attr="trend-line-graph"]').should('be.visible')
     })
 
-    it('clicks on active user filter', () => {
-        baseLocation()
-        mount()
-        cy.wait('@api_insight')
-            .map(helpers.getSearchParameters)
-            .should('include', {
-                insight: 'TRENDS',
-                interval: 'day',
-                display: 'ActionsLineGraph',
-                events: JSON.stringify([
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                        order: 0,
-                    },
-                ]),
-                properties: '[]',
-            })
+    it('responds to active user filter', () => {
+        mountAndCheckAPI()
 
         cy.get('[data-attr=math-selector-0]').click()
         cy.get('[data-attr=math-dau-0]').click()
@@ -98,8 +71,8 @@ describe('<Insights /> trends', () => {
         cy.get('[data-attr="trend-line-graph"]').should('be.visible')
     })
 
-    describe('Trend filters from url', () => {
-        it('renders multiple entities', () => {
+    describe('filtered in url', () => {
+        it('responds to multiple entities', () => {
             helpers.setLocation('/insights', {
                 insight: 'TRENDS',
                 interval: 'day',
@@ -147,7 +120,7 @@ describe('<Insights /> trends', () => {
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
         })
 
-        it('renders single prop', () => {
+        it('responds to a single prop', () => {
             helpers.setLocation('/insights', {
                 insight: 'TRENDS',
                 interval: 'day',
@@ -185,10 +158,10 @@ describe('<Insights /> trends', () => {
                 })
 
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
-            cy.contains('Chrome').should('be.visible')
+            cy.get('[data-attr="property-filter-0"]').should('contain', 'Chrome')
         })
 
-        it('renders multiple prop', () => {
+        it('responds to multiple props', () => {
             helpers.setLocation('/insights', {
                 insight: 'TRENDS',
                 interval: 'day',
@@ -238,10 +211,11 @@ describe('<Insights /> trends', () => {
                 })
 
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
-            cy.contains('http://posthog.com').should('be.visible')
+            cy.get('[data-attr="property-filter-0"]').should('contain', 'Chrome')
+            cy.get('[data-attr="property-filter-1"]').should('contain', 'http://posthog.com')
         })
 
-        it('responsive to shown as', () => {
+        it('reponds to shown as parameter', () => {
             helpers.setLocation('/insights', {
                 insight: 'TRENDS',
                 interval: 'day',
@@ -262,10 +236,10 @@ describe('<Insights /> trends', () => {
                 shown_as: 'Stickiness',
             })
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
-            cy.contains('Stickiness').should('be.visible')
+            cy.get('[data-attr="shownas-filter"]').should('contain', 'Stickiness')
         })
 
-        it('responsive to breakdown', () => {
+        it('responds to breakdown paramters', () => {
             helpers.setLocation('/insights', {
                 insight: 'TRENDS',
                 interval: 'day',
@@ -289,7 +263,7 @@ describe('<Insights /> trends', () => {
                 breakdown_type: 'event',
             })
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
-            cy.contains('$browser').should('be.visible')
+            cy.get('[data-attr="add-breakdown-button"]').should('contain', '$browser')
         })
     })
 })

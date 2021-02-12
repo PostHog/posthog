@@ -60,9 +60,6 @@ export function OperatorValueSelect({
                             onChange(currentOperator || 'exact', value)
                         }}
                     />
-                    {(operator === 'gt' || operator === 'lt') && isNaN(value) && (
-                        <p className="text-danger">Value needs to be a number. Try "equals" or "contains" instead.</p>
-                    )}
                 </Col>
             )}
         </>

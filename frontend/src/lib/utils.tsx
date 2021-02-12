@@ -118,11 +118,12 @@ export function DeleteWithUndo(
     props: PropsWithChildren<{
         endpoint: string
         object: {
-            name: string
+            name?: string
             id: number
         }
         className: string
         style: CSSProperties
+        callback: () => void
     }>
 ): JSX.Element {
     const { className, style, children } = props
@@ -190,6 +191,19 @@ export const operatorMap: Record<string, string> = {
 export function isOperatorFlag(operator: string): boolean {
     // these filter operators can only be just set, no additional parameter
     return ['is_set', 'is_not_set'].includes(operator)
+}
+
+export function isOperatorRegex(operator: string): boolean {
+    return ['regex', 'not_regex'].includes(operator)
+}
+
+export function isValidRegex(value: string): boolean {
+    try {
+        new RegExp(value)
+        return true
+    } catch {
+        return false
+    }
 }
 
 export function formatPropertyLabel(
@@ -581,25 +595,28 @@ export function sampleSingle<T>(items: T[]): T[] {
 export function identifierToHuman(identifier: string | number): string {
     const words: string[] = []
     let currentWord: string = ''
-    for (const character of String(identifier).trim()) {
-        if (character === '_' || character === '-') {
-            if (currentWord) {
-                words.push(currentWord)
+    String(identifier)
+        .trim()
+        .split('')
+        .forEach((character) => {
+            if (character === '_' || character === '-') {
+                if (currentWord) {
+                    words.push(currentWord)
+                }
+                currentWord = ''
+            } else if (
+                character === character.toLowerCase() &&
+                (!'0123456789'.includes(character) ||
+                    (currentWord && '0123456789'.includes(currentWord[currentWord.length - 1])))
+            ) {
+                currentWord += character
+            } else {
+                if (currentWord) {
+                    words.push(currentWord)
+                }
+                currentWord = character.toLowerCase()
             }
-            currentWord = ''
-        } else if (
-            character === character.toLowerCase() &&
-            (!'0123456789'.includes(character) ||
-                (currentWord && '0123456789'.includes(currentWord[currentWord.length - 1])))
-        ) {
-            currentWord += character
-        } else {
-            if (currentWord) {
-                words.push(currentWord)
-            }
-            currentWord = character.toLowerCase()
-        }
-    }
+        })
     if (currentWord) {
         words.push(currentWord)
     }

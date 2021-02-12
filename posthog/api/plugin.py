@@ -63,11 +63,15 @@ class PluginSerializer(serializers.ModelSerializer):
 
         return None
 
-    def _raise_if_plugin_installed(self, url: str):
+    def _raise_if_plugin_installed(self, url: str, organization_id: str):
         url_without_private_key = url.split("?")[0]
-        if Plugin.objects.filter(
-            Q(url=url_without_private_key) | Q(url__startswith="{}?".format(url_without_private_key))
-        ).exists():
+        if (
+            Plugin.objects.filter(
+                Q(url=url_without_private_key) | Q(url__startswith="{}?".format(url_without_private_key))
+            )
+            .filter(organization_id=organization_id)
+            .exists()
+        ):
             raise ValidationError('Plugin from URL "{}" already installed!'.format(url_without_private_key))
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
@@ -76,7 +80,7 @@ class PluginSerializer(serializers.ModelSerializer):
             raise ValidationError("Plugin installation via the web is disabled!")
         if validated_data.get("plugin_type", None) != Plugin.PluginType.SOURCE:
             self._update_validated_data_from_url(validated_data, validated_data["url"])
-            self._raise_if_plugin_installed(validated_data["url"])
+            self._raise_if_plugin_installed(validated_data["url"], self.context["organization_id"])
         validated_data["organization_id"] = self.context["organization_id"]
         plugin = super().create(validated_data)
         reload_plugins_on_workers()
@@ -136,6 +140,7 @@ class PluginSerializer(serializers.ModelSerializer):
 class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -182,7 +187,6 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
 
     class Meta:
         model = PluginConfig
@@ -271,6 +275,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
 
     def get_queryset(self):
         if not can_configure_plugins_via_api(self.team.organization_id):
@@ -285,21 +290,6 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         plugin_config.enabled = False
         plugin_config.save()
         return Response(status=204)
-
-    @action(methods=["GET"], detail=False)
-    def global_plugins(self, request: request.Request, **kwargs):
-        if not can_configure_plugins_via_api(self.team.organization_id):
-            return Response([])
-
-        response = []
-        plugin_configs = PluginConfig.objects.filter(team_id=None, enabled=True)  # type: ignore
-        for plugin_config in plugin_configs:
-            plugin = PluginConfigSerializer(plugin_config).data
-            plugin["config"] = None
-            plugin["error"] = None
-            response.append(plugin)
-
-        return Response(response)
 
     @action(methods=["PATCH"], detail=False)
     def rearrange(self, request: request.Request, **kwargs):
