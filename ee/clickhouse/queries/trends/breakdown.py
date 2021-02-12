@@ -159,6 +159,8 @@ def _get_top_elements(query: str, filter: Filter, team_id: int) -> List:
 
 
 class BreakdownFilterConstructor:
+    breakdown_value = "value"
+
     @staticmethod
     def for_entity(entity: Entity, filter: Filter, team_id: int, round_interval: bool) -> "BreakdownFilterConstructor":
         if filter.breakdown_type == "cohort":
@@ -219,13 +221,11 @@ class BreakdownFilterConstructor:
         return self.build_query()
 
     @abstractmethod
-    def build_query():
+    def build_query(self):
         pass
 
 
 class CohortBreakdownFilterConstructor(BreakdownFilterConstructor):
-    breakdown_value = "value"
-
     def build_query(self):
         cohort_queries, cohort_ids, cohort_params = self._format_breakdown_cohort_join_query()
 
@@ -278,8 +278,6 @@ class CohortBreakdownFilterConstructor(BreakdownFilterConstructor):
 
 
 class PersonBreakdownFilterConstructor(BreakdownFilterConstructor):
-    breakdown_value = "value"
-
     def build_query(self):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=self.filter, team_id=self.team_id)
 
