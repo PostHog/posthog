@@ -6,6 +6,7 @@ from django.db.models import Count, Func, Prefetch, Q, QuerySet
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
@@ -122,12 +123,14 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return queryset
 
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
-        team_id = self.team_id
-        person = Person.objects.get(team_id=team_id, pk=pk)
-        events = Event.objects.filter(team_id=team_id, distinct_id__in=person.distinct_ids)
-        events.delete()
-        person.delete()
-        return response.Response(status=204)
+        try:
+            person = Person.objects.get(team_id=self.team_id, pk=pk)
+            events = Event.objects.filter(team_id=self.team_id, distinct_id__in=person.distinct_ids)
+            events.delete()
+            person.delete()
+            return response.Response(status=204)
+        except Person.DoesNotExist:
+            raise NotFound(detail="Person not found.")
 
     def get_queryset(self):
         return self._filter_request(self.request, super().get_queryset())

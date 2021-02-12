@@ -45,6 +45,7 @@ DATERANGE_MAP = {
     "week": datetime.timedelta(weeks=1),
     "month": datetime.timedelta(days=31),
 }
+ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
 
 
 def format_label_date(date: datetime.datetime, interval: str) -> str:
@@ -546,9 +547,6 @@ def get_safe_cache(cache_key: str):
     return None
 
 
-ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
-
-
 def is_anonymous_id(distinct_id: str) -> bool:
     # Our anonymous ids are _not_ uuids, but a random collection of strings
     return bool(re.match(ANONYMOUS_REGEX, distinct_id))
@@ -569,3 +567,11 @@ def mask_email_address(email_address: str) -> str:
         return f"*{email_address[index:]}"
 
     return f"{email_address[0]}{'*' * (index - 2)}{email_address[index-1:]}"
+
+
+def is_valid_regex(value: Any) -> bool:
+    try:
+        re.compile(value)
+        return True
+    except re.error:
+        return False

@@ -193,6 +193,19 @@ export function isOperatorFlag(operator: string): boolean {
     return ['is_set', 'is_not_set'].includes(operator)
 }
 
+export function isOperatorRegex(operator: string): boolean {
+    return ['regex', 'not_regex'].includes(operator)
+}
+
+export function isValidRegex(value: string): boolean {
+    try {
+        new RegExp(value)
+        return true
+    } catch {
+        return false
+    }
+}
+
 export function formatPropertyLabel(
     item: Record<string, any>,
     cohorts: Record<string, any>[],
