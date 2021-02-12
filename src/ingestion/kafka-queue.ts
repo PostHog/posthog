@@ -4,7 +4,7 @@ import { Consumer, EachBatchPayload, Kafka, Message } from 'kafkajs'
 import { PluginsServer, Queue, RawEventMessage } from 'types'
 
 import { status } from '../status'
-import { killGracefully, runInParallelBatches } from '../utils'
+import { groupIntoBatches, killGracefully } from '../utils'
 import { timeoutGuard } from './utils'
 
 export class KafkaQueue implements Queue {
@@ -65,7 +65,9 @@ export class KafkaQueue implements Queue {
         const processingTimeout = timeoutGuard(
             `Took too long to run plugins on ${pluginEvents.length} events! Timeout after 30 sec!`
         )
-        const processedEvents = await runInParallelBatches(pluginEvents, maxBatchSize, this.processEventBatch)
+        const batches = groupIntoBatches(pluginEvents, maxBatchSize)
+        const processedEvents = (await Promise.all(batches.map(this.processEventBatch))).flat()
+
         clearTimeout(processingTimeout)
 
         // Sort in the original order that the events came in, putting any randomly added events to the end.
@@ -85,7 +87,20 @@ export class KafkaQueue implements Queue {
                 await this.saveEvent(event)
                 this.pluginsServer.statsd?.timing('kafka_queue.single_ingestion', singleIngestionTimer)
             }
-            await Promise.all(processedEvents.map((event) => ingestOneEvent(event)))
+            const maxIngestionBatch = Math.max(
+                this.pluginsServer.WORKER_CONCURRENCY * this.pluginsServer.TASKS_PER_WORKER,
+                100
+            )
+            const batches = groupIntoBatches(processedEvents, maxIngestionBatch)
+            for (const batch of batches) {
+                await Promise.all(batch.map(ingestOneEvent))
+                const offset = uuidOffset.get(batch[batch.length - 1].uuid!)
+                if (offset) {
+                    resolveOffset(offset)
+                }
+                await heartbeat()
+                await commitOffsetsIfNecessary()
+            }
         } else {
             for (const event of processedEvents) {
                 if (!isRunning()) {

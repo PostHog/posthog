@@ -1,3 +1,5 @@
+import os from 'os'
+
 import { LogLevel, PluginsServerConfig } from './types'
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
@@ -5,6 +7,7 @@ export const configHelp = getConfigHelp()
 
 export function getDefaultConfig(): PluginsServerConfig {
     const isTestEnv = process.env.NODE_ENV === 'test'
+    const coreCount = os.cpus().length
 
     return {
         CELERY_DEFAULT_QUEUE: 'celery',
@@ -30,7 +33,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         DISABLE_WEB: true,
         WEB_PORT: 3008,
         WEB_HOSTNAME: '0.0.0.0',
-        WORKER_CONCURRENCY: 0, // use all cores
+        WORKER_CONCURRENCY: coreCount,
         TASKS_PER_WORKER: 10,
         LOG_LEVEL: LogLevel.Info,
         SENTRY_DSN: null,
