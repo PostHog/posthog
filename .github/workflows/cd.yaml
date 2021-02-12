@@ -127,7 +127,8 @@ jobs:
               if: steps.version.outputs.IS_NEW_VERSION == 'true'
               run: |
                   cd posthog/plugins/
-                  jq '.dependencies."@posthog/plugin-server" = "${{ steps.version.outputs.PACKAGE_VERSION }}"' package.json | sponge package.json
+                  mv package.json package.old.json
+                  jq '.dependencies."@posthog/plugin-server" = "${{ steps.version.outputs.PACKAGE_VERSION }}"' package.old.json > package.json
                   yarn
 
             - name: Create main repo pull request
