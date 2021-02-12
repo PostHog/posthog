@@ -233,7 +233,7 @@ export function Members({ user }: { user: UserType }): JSX.Element {
 
     return (
         <>
-            <h2 className="subtitle">Organization Members</h2>
+            <h2 className="subtitle">Members</h2>
             <Table
                 dataSource={members}
                 columns={columns}

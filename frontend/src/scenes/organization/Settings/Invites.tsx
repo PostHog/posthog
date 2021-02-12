@@ -1,5 +1,5 @@
 import React from 'react'
-import { Table, Modal, Divider } from 'antd'
+import { Table, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { invitesLogic } from './invitesLogic'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -85,25 +85,22 @@ function _Invites(): JSX.Element {
         },
     ]
 
-    return invites.length ? (
-        <>
+    return (
+        <div>
             <h2 className="subtitle" style={{ justifyContent: 'space-between' }}>
-                Pending Organization Invites
+                Invites
                 <CreateInviteModalWithButton />
             </h2>
-            <Table
-                dataSource={invites}
-                columns={columns}
-                rowKey="id"
-                pagination={false}
-                loading={invitesLoading}
-                style={{ marginTop: '1rem' }}
-            />
-            <Divider />
-        </>
-    ) : (
-        <div className="text-right">
-            <CreateInviteModalWithButton />
+            {!!invites.length && (
+                <Table
+                    dataSource={invites}
+                    columns={columns}
+                    rowKey="id"
+                    pagination={false}
+                    loading={invitesLoading}
+                    style={{ marginTop: '1rem' }}
+                />
+            )}
         </div>
     )
 }

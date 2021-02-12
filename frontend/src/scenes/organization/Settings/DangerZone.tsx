@@ -3,41 +3,39 @@ import { useActions, useValues } from 'kea'
 import { ExclamationCircleOutlined, DeleteOutlined } from '@ant-design/icons'
 import { red } from '@ant-design/colors'
 import { Button } from 'antd'
-import { teamLogic } from 'scenes/teamLogic'
 import confirm from 'antd/lib/modal/confirm'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import Paragraph from 'antd/lib/typography/Paragraph'
 
 export function DangerZone(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { deleteCurrentTeam } = useActions(teamLogic)
+    const { deleteCurrentOrganization } = useActions(organizationLogic)
 
     function confirmDeleteProject(): void {
         confirm({
-            title: 'Delete the entire project?',
+            title: 'Delete the entire organization?',
             content: (
                 <>
-                    Project deletion <b>cannot be undone</b>. You will lose all data, <b>including events</b>, related
-                    to the project.
+                    Organization deletion <b>cannot be undone</b>. You will lose all data, <b>including events</b>,
+                    related to all project within the organization.
                 </>
             ),
             icon: <ExclamationCircleOutlined color={red.primary} />,
-            okText: currentTeam ? `Delete ${currentTeam.name}` : <i>Loading current project…</i>,
+            okText: currentOrganization ? `Delete ${currentOrganization.name}` : <i>Loading current organization…</i>,
             okType: 'danger',
             okButtonProps: {
                 // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
-                'data-attr': 'delete-project-ok',
+                'data-attr': 'delete-organization-ok',
             },
             cancelText: 'Cancel',
-            onOk: deleteCurrentTeam,
+            onOk: deleteCurrentOrganization,
         })
     }
 
     let accessRestrictionReason: string | null = null
-    if ((currentOrganization?.membership_level ?? -1) < OrganizationMembershipLevel.Admin) {
-        accessRestrictionReason = 'This section is restricted to organization administrators.'
+    if ((currentOrganization?.membership_level ?? -1) < OrganizationMembershipLevel.Owner) {
+        accessRestrictionReason = 'This section is restricted to the organization owner.'
     }
 
     return (
@@ -45,7 +43,7 @@ export function DangerZone(): JSX.Element {
             <h2 style={{ color: 'var(--danger)' }} className="subtitle">
                 Danger Zone
             </h2>
-            {!currentTeam || accessRestrictionReason ? (
+            {!currentOrganization || accessRestrictionReason ? (
                 <i className="access-restricted">{accessRestrictionReason}</i>
             ) : (
                 <div className="mt">
@@ -60,7 +58,7 @@ export function DangerZone(): JSX.Element {
                         data-attr="delete-project-button"
                         icon={<DeleteOutlined />}
                     >
-                        Delete {currentTeam.name}
+                        Delete {currentOrganization.name}
                     </Button>
                 </div>
             )}

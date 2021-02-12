@@ -72,7 +72,12 @@ function _ProjectSettings(): JSX.Element {
 
     return (
         <div style={{ marginBottom: 128 }}>
-            <PageHeader title="Project Settings" />
+            <PageHeader
+                title="Project Settings"
+                caption={`Organize your analytics within the project. These settings only apply to ${
+                    currentTeam?.name ?? '–'
+                }.`}
+            />
             <Card>
                 <h2 id="name" className="subtitle">
                     Display Name
@@ -181,9 +186,6 @@ function _ProjectSettings(): JSX.Element {
                     with us!
                 </p>
                 <Divider />
-                <h2 style={{ color: 'var(--danger)' }} className="subtitle">
-                    Danger Zone
-                </h2>
                 <DangerZone />
             </Card>
         </div>

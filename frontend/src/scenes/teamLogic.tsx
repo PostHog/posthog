@@ -46,7 +46,7 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
     listeners: ({ values }) => ({
         deleteCurrentTeam: async () => {
             if (values.currentTeam) {
-                toast('Deleting project…')
+                toast(`Deleting project ${values.currentTeam.name}…`)
                 await api.delete(`api/projects/${values.currentTeam.id}`)
                 location.reload()
             }

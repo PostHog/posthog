@@ -53,7 +53,7 @@ export function _TopNavigation(): JSX.Element {
             <div className="text-center">
                 <div>
                     <LinkButton className="mt" to="/organization/members" data-attr="top-menu-item-org-settings">
-                        Org settings &amp; members
+                        Organization settings
                     </LinkButton>
                 </div>
                 {user?.is_multi_tenancy ? (
