@@ -37,7 +37,8 @@ const columns = [
                 </Tooltip>
             )
         },
-        render: (item: PropertyUsageType) => humanizeNumber(item.volume),
+        // eslint-disable-next-line react/display-name
+        render: (item: PropertyUsageType) => <span className="ph-no-capture">{humanizeNumber(item.volume)}</span>,
         sorter: (a: PropertyUsageType, b: PropertyUsageType) =>
             a.volume == b.volume ? a.usage_count - b.usage_count : a.volume - b.volume,
     },
@@ -53,7 +54,8 @@ const columns = [
                 </Tooltip>
             )
         },
-        render: (item: PropertyUsageType) => humanizeNumber(item.usage_count),
+        // eslint-disable-next-line react/display-name
+        render: (item: PropertyUsageType) => <span className="ph-no-capture">{humanizeNumber(item.usage_count)}</span>,
         sorter: (a: PropertyUsageType, b: PropertyUsageType) =>
             a.usage_count == b.usage_count ? a.volume - b.volume : a.usage_count - b.usage_count,
     },

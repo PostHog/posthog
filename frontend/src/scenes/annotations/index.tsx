@@ -15,6 +15,15 @@ import { createdByColumn } from 'lib/components/Table'
 
 const { TextArea } = Input
 
+interface AnnotationType {
+    content: string
+    date_marker: string
+    updated_at: string
+    deleted: boolean
+    scope: string
+    id: string
+}
+
 export const Annotations = hot(_Annotations)
 function _Annotations(): JSX.Element {
     const { annotations, annotationsLoading, next, loadingNext } = useValues(annotationsTableLogic)
@@ -23,13 +32,13 @@ function _Annotations(): JSX.Element {
     )
     const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
-    const [selectedAnnotation, setSelected] = useState(null)
+    const [selectedAnnotation, setSelected] = useState({} as AnnotationType)
 
     const columns = [
         {
             title: 'Annotation',
             key: 'annotation',
-            render: function RenderAnnotation(annotation): JSX.Element {
+            render: function RenderAnnotation(annotation: AnnotationType): JSX.Element {
                 return (
                     <span
                         style={{
@@ -38,6 +47,7 @@ function _Annotations(): JSX.Element {
                             textOverflow: 'ellipsis',
                             maxWidth: 200,
                         }}
+                        className="ph-no-capture"
                     >
                         {annotation.content}
                     </span>
@@ -48,25 +58,25 @@ function _Annotations(): JSX.Element {
         createdByColumn(annotations),
         {
             title: 'Date Marker',
-            render: function RenderDateMarker(annotation): JSX.Element {
+            render: function RenderDateMarker(annotation: AnnotationType): JSX.Element {
                 return <span>{moment(annotation.date_marker).format('YYYY-MM-DD')}</span>
             },
         },
         {
             title: 'Last Updated',
-            render: function RenderLastUpdated(annotation): JSX.Element {
+            render: function RenderLastUpdated(annotation: AnnotationType): JSX.Element {
                 return <span>{humanFriendlyDetailedTime(annotation.updated_at)}</span>
             },
         },
         {
             title: 'Status',
-            render: function RenderStatus(annotation): JSX.Element {
+            render: function RenderStatus(annotation: AnnotationType): JSX.Element {
                 return annotation.deleted ? <Tag color="red">Deleted</Tag> : <Tag color="green">Active</Tag>
             },
         },
         {
             title: 'Type',
-            render: function RenderType(annotation): JSX.Element {
+            render: function RenderType(annotation: AnnotationType): JSX.Element {
                 return annotation.scope !== 'dashboard_item' ? (
                     <Tag color="blue">Global</Tag>
                 ) : (
@@ -78,7 +88,7 @@ function _Annotations(): JSX.Element {
 
     function closeModal(): void {
         setOpen(false)
-        setTimeout(() => setSelected(null), 500)
+        setTimeout(() => setSelected({} as AnnotationType), 500)
     }
 
     return (
@@ -100,7 +110,6 @@ function _Annotations(): JSX.Element {
                     </Button>
                 </div>
                 <Table
-                    className="ph-no-capture"
                     data-attr="annotations-table"
                     size="small"
                     rowKey="id"
@@ -230,7 +239,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                                         key={AnnotationScope.Project}
                                         icon={<ProjectOutlined />}
                                     >
-                                        Project {user?.team.name}
+                                        Project {user?.team?.name}
                                     </Menu.Item>
                                 ) : (
                                     <Menu.Item
@@ -240,7 +249,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                                         key={AnnotationScope.Organization}
                                         icon={<DeploymentUnitOutlined />}
                                     >
-                                        Organization {user?.organization.name}
+                                        Organization {user?.organization?.name}
                                     </Menu.Item>
                                 )}
                             </Menu>
@@ -278,9 +287,9 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                     Date:
                     <DatePicker
                         style={{ marginTop: 16, marginLeft: 8, marginBottom: 16 }}
-                        getPopupContainer={(trigger): HTMLElement => trigger.parentElement}
+                        getPopupContainer={(trigger): HTMLElement => trigger.parentElement as HTMLElement}
                         value={selectedDate}
-                        onChange={(date): void => setDate(date)}
+                        onChange={(date): void => setDate(date as moment.Moment)}
                         allowClear={false}
                     />
                 </div>

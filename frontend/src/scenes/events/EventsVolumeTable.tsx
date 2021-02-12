@@ -26,7 +26,8 @@ export function EventsVolumeTable(): JSX.Element {
                     </Tooltip>
                 )
             },
-            render: (item: EventUsageType) => humanizeNumber(item.volume),
+            // eslint-disable-next-line react/display-name
+            render: (item: EventUsageType) => <span className="ph-no-capture">{humanizeNumber(item.volume)}</span>,
             sorter: (a: EventUsageType, b: EventUsageType) =>
                 a.volume == b.volume ? a.usage_count - b.usage_count : a.volume - b.volume,
         },
@@ -42,7 +43,8 @@ export function EventsVolumeTable(): JSX.Element {
                     </Tooltip>
                 )
             },
-            render: (item: EventUsageType) => humanizeNumber(item.usage_count),
+            // eslint-disable-next-line react/display-name
+            render: (item: EventUsageType) => <span className="ph-no-capture">{humanizeNumber(item.usage_count)}</span>,
             sorter: (a: EventUsageType, b: EventUsageType) =>
                 a.usage_count == b.usage_count ? a.volume - b.volume : a.usage_count - b.usage_count,
         },
@@ -61,7 +63,6 @@ export function EventsVolumeTable(): JSX.Element {
                 </>
             )}
             <Table
-                className="ph-no-capture"
                 dataSource={user?.team?.event_names_with_usage}
                 columns={columns}
                 rowKey="event"

@@ -21,18 +21,18 @@ export function NewDashboard(): JSX.Element {
             <Form.Item
                 name="name"
                 label="Dashboard name"
-                className="ph-no-capture"
                 rules={[{ required: true, message: 'Please give your dashboard a name.' }]}
             >
                 <Input
                     autoFocus={true}
                     onChange={(e) => form.setFieldsValue({ key: slugify(e.target.value) })}
                     data-attr="dashboard-name-input"
+                    className="ph-ignore-input"
                 />
             </Form.Item>
 
-            <Form.Item name="useTemplate" label="Start from" className="ph-no-capture">
-                <Select data-attr="copy-from-template" style={{ width: '100%' }}>
+            <Form.Item name="useTemplate" label="Start from">
+                <Select data-attr="copy-from-template" style={{ width: '100%' }} className="ph-ignore-input">
                     <Select.Option data-attr="dashboard-select-empty" value="">
                         Empty Dashboard
                     </Select.Option>

@@ -104,7 +104,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
     )
 
     return (
-        <div className="properties-table-value">
+        <div className="properties-table-value ph-no-capture">
             {typeToIcon[valueType] ? (
                 <>
                     {!editing ? (
@@ -170,7 +170,7 @@ export function PropertiesTable({
             title: 'key',
             render: function Key(item: any): JSX.Element {
                 return (
-                    <div className="properties-table-key">
+                    <div className="properties-table-key ph-no-capture">
                         {onDelete && nestingLevel <= 1 && !keyMappingKeys.includes(item[0]) && (
                             <Popconfirm
                                 onConfirm={() => onDelete(item[0])}
@@ -218,7 +218,6 @@ export function PropertiesTable({
     if (properties instanceof Object) {
         return (
             <Table
-                className="ph-no-capture"
                 columns={columns}
                 showHeader={false}
                 rowKey={(item) => item[0]}

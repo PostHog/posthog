@@ -18,7 +18,7 @@ export function CommandInput(): JSX.Element {
                 <SearchOutlined className="palette__icon" />
             )}
             <input
-                className={`palette__display palette__input ph-no-capture`}
+                className={`palette__display palette__input ph-ignore-input`}
                 autoFocus
                 value={input}
                 onChange={(event) => {
