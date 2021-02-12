@@ -336,15 +336,10 @@ export function escapeClickHouseString(string: string): string {
     return string.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 }
 
-export async function runInParallelBatches<T, R extends (batch: T[]) => Promise<any> = (batch: T[]) => Promise<any>>(
-    array: T[],
-    batchSize: number,
-    callback: R
-): Promise<ReturnType<R>> {
-    const arrays = []
+export function groupIntoBatches<T>(array: T[], batchSize: number): T[][] {
+    const batches = []
     for (let i = 0; i < array.length; i += batchSize) {
-        arrays.push(array.slice(i, i + batchSize))
+        batches.push(array.slice(i, i + batchSize))
     }
-    const responses = await Promise.all(arrays.map(callback))
-    return responses.flat()
+    return batches
 }
