@@ -99,10 +99,9 @@ class ClickhouseTrendsBreakdown:
             return "SELECT 1", {}, lambda _: []
 
         params = {**params, **_params}
-        breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
+        breakdown_filter = breakdown_filter.format(**breakdown_filter_params, **_breakdown_filter_params)
 
         if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
-            breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
             content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
                 breakdown_filter=breakdown_filter,
                 event_join=join_condition,
@@ -113,14 +112,12 @@ class ClickhouseTrendsBreakdown:
             return content_sql, params, self._parse_single_aggregate_result(filter, entity)
 
         else:
-
             null_sql = null_sql.format(
                 interval=interval_annotation,
                 seconds_in_interval=seconds_in_interval,
                 num_intervals=num_intervals,
                 date_to=(filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
             )
-            breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
             breakdown_query = BREAKDOWN_QUERY_SQL.format(
                 null_sql=null_sql,
                 breakdown_filter=breakdown_filter,
