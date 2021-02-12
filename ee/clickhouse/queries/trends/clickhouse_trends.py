@@ -32,7 +32,7 @@ class ClickhouseTrends(ClickhouseTrendsNormal, ClickhouseLifecycle, ClickhouseTr
             return Filter(data={**filter._data, **data})
         return filter
 
-    def _get_sql_for_entity(self, filter: Filter, entity: Entity, team_id: int) -> Tuple[str, Dict, Callable]:
+    def _run_for_entity(self, filter: Filter, entity: Entity, team_id: int) -> List[Dict]:
         if filter.breakdown:
             sql, params, parse_function = ClickhouseTrendsBreakdown(entity, filter, team_id)._format_breakdown_query()
         elif filter.shown_as == TRENDS_LIFECYCLE:
@@ -40,18 +40,16 @@ class ClickhouseTrends(ClickhouseTrendsNormal, ClickhouseLifecycle, ClickhouseTr
         else:
             sql, params, parse_function = self._normal_query(entity, filter, team_id)
 
-        return sql, params, parse_function
+        return parse_function(sync_execute(sql, params))
 
     def _run_query(self, filter: Filter, entity: Entity, team_id: int) -> List[Dict[str, Any]]:
-        sql, params, parse_function = self._get_sql_for_entity(filter, entity, team_id)
         try:
-            result = sync_execute(sql, params)
+            result = self._run_for_entity(filter, entity, team_id)
         except Exception as e:
             capture_exception(e)
             if settings.TEST or settings.DEBUG:
                 raise e
             result = []
-        result = parse_function(result)
         serialized_data = self._format_serialized(entity, result)
 
         if filter.display == TRENDS_CUMULATIVE:
