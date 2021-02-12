@@ -190,10 +190,9 @@ class ClickhouseRetention(Retention):
         trunc_func = get_trunc_func_ch(period)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
 
-        returning_entity = filter.returning_entity if filter.selected_interval > 0 else filter.target_entity
         target_query, target_params = self._get_condition(filter.target_entity, table="e")
         target_query_formatted = "AND {target_query}".format(target_query=target_query)
-        return_query, return_params = self._get_condition(returning_entity, table="e", prepend="returning")
+        return_query, return_params = self._get_condition(filter.returning_entity, table="e", prepend="returning")
         return_query_formatted = "AND {return_query}".format(return_query=return_query)
 
         first_event_sql = (
