@@ -18,7 +18,7 @@ def prepare_teams(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0125_longer_webhook_url"),
+        ("posthog", "0126_fix_funnels_insights_links"),
     ]
 
     operations = [
