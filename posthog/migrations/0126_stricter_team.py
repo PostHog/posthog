@@ -9,7 +9,9 @@ import posthog.models.utils
 
 def prepare_teams(apps, schema_editor):
     Team = apps.get_model("posthog", "Team")
-    Team.objects.filter(organization_id__isnull=True).delete()
+    Organization = apps.get_model("posthog", "Organization")
+    first_organization = Organization.objects.first()
+    Team.objects.filter(organization_id__isnull=True).update(organization_id=first_organization.id)
     Team.objects.filter(opt_out_capture=True).update(anonymize_ips=True)
 
 
