@@ -1,8 +1,10 @@
 from typing import Any, Dict, Tuple
 
+from django.db.models.query import Prefetch
+
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.person import ClickhousePersonSerializer
+from ee.clickhouse.models.person import ClickhousePersonSerializer, get_persons_by_uuids
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from ee.clickhouse.sql.retention.people_in_period import (
@@ -239,7 +241,10 @@ class ClickhouseRetention(Retention):
 
         from posthog.api.person import PersonSerializer
 
-        for person in Person.objects.filter(team_id=team.pk, uuid__in=[val[0] for val in query_result]):
+        people = get_persons_by_uuids(team_id=team.pk, uuids=[val[0] for val in query_result])
+        people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+
+        for person in people:
             people_dict.update({str(person.uuid): PersonSerializer(person).data})
 
         result = self.process_people_in_period(filter, query_result, people_dict)
