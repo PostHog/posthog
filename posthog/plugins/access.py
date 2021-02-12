@@ -9,11 +9,11 @@ from posthog.models.organization import Organization
 
 # We disable Plugins on Cloud, except for whitelisted organizations
 # Disregarding this in TEST mode, so that we can be sure plugins actually work in EE if/when needed
-def guard_cloud(organization_or_id: Optional[Union[Organization, UUID]]):
+def guard_cloud(organization_or_id: Optional[Union[Organization, UUID, str]]):
     organization_id: Optional[str] = (
         None
         if not organization_or_id
-        else str(organization_or_id if isinstance(organization_or_id, UUID) else organization_or_id.id)
+        else str(organization_or_id if isinstance(organization_or_id, (str, UUID)) else organization_or_id.id)
     )
     return (
         settings.TEST

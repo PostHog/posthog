@@ -96,6 +96,8 @@ email@example.org,
         response = self.client.post("/api/cohort/", {"name": "test", "csv": csv, "is_static": True},)
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(patch_calculate_cohort_from_csv.call_count, 1)
+        self.assertFalse(response.json()["is_calculating"], False)
+        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
 
         csv = SimpleUploadedFile(
             "example.csv",
@@ -115,3 +117,5 @@ User ID,
         response = client.patch("/api/cohort/%s/" % response.json()["id"], {"name": "test", "csv": csv,})
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(patch_calculate_cohort_from_csv.call_count, 2)
+        self.assertFalse(response.json()["is_calculating"], False)
+        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)

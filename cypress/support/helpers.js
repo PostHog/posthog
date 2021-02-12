@@ -2,9 +2,10 @@ import React from 'react'
 
 import { mount } from '@cypress/react'
 import { Provider } from 'react-redux'
-import { getContext } from 'kea'
+import { getContext, useValues } from 'kea'
 import { initKea } from '~/initKea'
 import { GlobalStyles } from '~/GlobalStyles'
+import { userLogic } from 'scenes/userLogic'
 import posthog from 'posthog-js'
 
 export const mountPage = (component) => {
@@ -12,9 +13,15 @@ export const mountPage = (component) => {
     return mount(
         <Provider store={getContext().store}>
             <GlobalStyles />
-            {component}
+            <WaitUntilUserMounted>{component}</WaitUntilUserMounted>
         </Provider>
     )
+}
+
+function WaitUntilUserMounted({ children }) {
+    const { user } = useValues(userLogic)
+
+    return user ? children : null
 }
 
 export const setLocation = (path) => {

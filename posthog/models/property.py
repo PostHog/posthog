@@ -1,11 +1,9 @@
 import json
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 from django.db.models import Exists, OuterRef, Q
 
-from posthog.constants import PROPERTIES
-
-from .person import Person
+from posthog.utils import is_valid_regex
 
 
 class Property:
@@ -60,6 +58,9 @@ class Property:
             return Q(**{"properties__{}__isnull".format(self.key): False})
         if self.operator == "is_not_set":
             return Q(**{"properties__{}__isnull".format(self.key): True})
+        if self.operator in ("regex", "not_regex") and not is_valid_regex(value):
+            # Return no data for invalid regexes
+            return Q(pk=-1)
         if isinstance(self.operator, str) and self.operator.startswith("not_"):
             return Q(
                 ~Q(**{"properties__{}__{}".format(self.key, self.operator[4:]): value})

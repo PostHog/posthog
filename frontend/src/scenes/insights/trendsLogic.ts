@@ -159,12 +159,13 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                         )
                     }
                 } catch (e) {
+                    breakpoint()
                     insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, false, e)
                     return []
                 }
-                insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, response.last_refresh)
                 breakpoint()
-                return response.result
+                insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, response.last_refresh)
+                return response
             },
         },
     }),

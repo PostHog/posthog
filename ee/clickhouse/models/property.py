@@ -11,7 +11,7 @@ from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.property import Property
 from posthog.models.team import Team
-from posthog.utils import relative_date_parse
+from posthog.utils import is_valid_regex, relative_date_parse
 
 
 def parse_prop_clauses(
@@ -96,19 +96,18 @@ def prop_filter_json_extract(
             ),
             params,
         )
-    elif operator == "regex":
+    elif operator in ("regex", "not_regex"):
+        if not is_valid_regex(prop.value):
+            return "AND 1 = 2", {}
+
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+
         return (
-            "AND match({left}, %(v{prepend}_{idx})s)".format(
-                idx=idx, prepend=prepend, left=denormalized if is_denormalized else json_extract
-            ),
-            params,
-        )
-    elif operator == "not_regex":
-        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
-        return (
-            "AND NOT match({left}, %(v{prepend}_{idx})s)".format(
-                idx=idx, prepend=prepend, left=denormalized if is_denormalized else json_extract
+            "AND {regex_function}({left}, %(v{prepend}_{idx})s)".format(
+                regex_function="match" if operator == "regex" else "NOT match",
+                idx=idx,
+                prepend=prepend,
+                left=denormalized if is_denormalized else json_extract,
             ),
             params,
         )
