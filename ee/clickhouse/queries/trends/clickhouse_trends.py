@@ -34,7 +34,7 @@ class ClickhouseTrends(ClickhouseTrendsNormal, ClickhouseLifecycle, ClickhouseTr
 
     def _run_for_entity(self, filter: Filter, entity: Entity, team_id: int) -> List[Dict]:
         if filter.breakdown:
-            sql, params, parse_function = ClickhouseTrendsBreakdown(entity, filter, team_id)._format_breakdown_query()
+            return ClickhouseTrendsBreakdown.for_type(entity, filter, team_id).run()
         elif filter.shown_as == TRENDS_LIFECYCLE:
             sql, params, parse_function = self._format_lifecycle_query(entity, filter, team_id)
         else:

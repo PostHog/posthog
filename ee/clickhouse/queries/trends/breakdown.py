@@ -33,6 +33,13 @@ from posthog.models.filters.mixins.utils import cached_property
 
 
 class ClickhouseTrendsBreakdown:
+    @staticmethod
+    def for_type(entity: Entity, filter: Filter, team_id: int) -> "ClickhouseTrendsBreakdown":
+        if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
+            return BreakdownAggregateTrends(entity, filter, team_id)
+        else:
+            return BreakdownSeriesTrends(entity, filter, team_id)
+
     def __init__(self, entity: Entity, filter: Filter, team_id: int):
         self.entity = entity
         self.filter = filter
@@ -44,37 +51,20 @@ class ClickhouseTrendsBreakdown:
         )
         self.aggregate_operation, _, self.math_params = process_math(self.entity)
 
-    def _format_breakdown_query(self) -> Tuple[str, Dict, Callable]:
+    def run(self) -> List[Any]:
         if len(self.breakdown_filter.query_params["values"]) == 0:
-            return "SELECT 1", {}, lambda _: []
+            return []
 
-        if self.filter.display == TRENDS_TABLE or self.filter.display == TRENDS_PIE:
-            content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
-                breakdown_filter=self.breakdown_filter.query,
-                event_join=self.join_condition(),
-                aggregate_operation=self.aggregate_operation,
-                breakdown_value=self.breakdown_filter.breakdown_value,
-            )
+        sql, params = self.format_query()
+        return self.parse(sync_execute(sql, params))
 
-            return content_sql, self.params, self._parse_single_aggregate_result(self.filter, self.entity)
+    @abstractmethod
+    def format_query(self) -> Tuple[str, Dict]:
+        pass
 
-        else:
-            null_sql = NULL_BREAKDOWN_SQL.format(
-                interval=self.interval_annotation,
-                seconds_in_interval=self.seconds_in_interval,
-                num_intervals=self.num_intervals,
-                date_to=(self.filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
-            )
-            breakdown_query = BREAKDOWN_QUERY_SQL.format(
-                null_sql=null_sql,
-                breakdown_filter=self.breakdown_filter.query,
-                event_join=self.join_condition(),
-                aggregate_operation=self.aggregate_operation,
-                interval_annotation=self.interval_annotation,
-                breakdown_value=self.breakdown_filter.breakdown_value,
-            )
-
-            return breakdown_query, self.params, self._parse_trend_result(self.filter, self.entity)
+    @abstractmethod
+    def parse(self, result: List[Any]) -> List[Dict]:
+        pass
 
     def join_condition(self):
         if self.entity.math == "dau" or self.filter.breakdown_type == "person":
@@ -96,31 +86,7 @@ class ClickhouseTrendsBreakdown:
     def breakdown_filter(self):
         return BreakdownFilterConstructor.for_entity(self.entity, self.filter, self.team_id, self.round_interval)
 
-    def _parse_single_aggregate_result(self, filter: Filter, entity: Entity) -> Callable:
-        def _parse(result: List) -> List:
-            parsed_results = []
-            for idx, stats in enumerate(result):
-                additional_values = self._breakdown_result_descriptors(stats[1], filter, entity)
-                parsed_result = {"aggregated_value": stats[0], **additional_values}
-                parsed_results.append(parsed_result)
-
-            return parsed_results
-
-        return _parse
-
-    def _parse_trend_result(self, filter: Filter, entity: Entity) -> Callable:
-        def _parse(result: List) -> List:
-            parsed_results = []
-            for idx, stats in enumerate(result):
-                additional_values = self._breakdown_result_descriptors(stats[2], filter, entity)
-                parsed_result = parse_response(stats, filter, additional_values)
-                parsed_results.append(parsed_result)
-
-            return sorted(parsed_results, key=lambda x: 0 if x.get("breakdown_value") != "all" else 1)
-
-        return _parse
-
-    def _breakdown_result_descriptors(self, breakdown_value, filter: Filter, entity: Entity):
+    def breakdown_result_descriptors(self, breakdown_value, filter: Filter, entity: Entity):
         stripped_value = breakdown_value.strip('"') if isinstance(breakdown_value, str) else breakdown_value
 
         extra_label = self._determine_breakdown_label(
@@ -152,6 +118,56 @@ class ClickhouseTrendsBreakdown:
                 return Cohort.objects.get(pk=breakdown_value).name
         else:
             return str(value) or ""
+
+
+class BreakdownAggregateTrends(ClickhouseTrendsBreakdown):
+    def format_query(self) -> Tuple[str, Dict]:
+        content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
+            breakdown_filter=self.breakdown_filter.query,
+            event_join=self.join_condition(),
+            aggregate_operation=self.aggregate_operation,
+            breakdown_value=self.breakdown_filter.breakdown_value,
+        )
+
+        return content_sql, self.params
+
+    def parse(self, result: List[Any]) -> List[Dict]:
+        parsed_results = []
+        for idx, stats in enumerate(result):
+            additional_values = self.breakdown_result_descriptors(stats[1], self.filter, self.entity)
+            parsed_result = {"aggregated_value": stats[0], **additional_values}
+            parsed_results.append(parsed_result)
+
+        return parsed_results
+
+
+class BreakdownSeriesTrends(ClickhouseTrendsBreakdown):
+    def format_query(self) -> Tuple[str, Dict]:
+        null_sql = NULL_BREAKDOWN_SQL.format(
+            interval=self.interval_annotation,
+            seconds_in_interval=self.seconds_in_interval,
+            num_intervals=self.num_intervals,
+            date_to=(self.filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        breakdown_query = BREAKDOWN_QUERY_SQL.format(
+            null_sql=null_sql,
+            breakdown_filter=self.breakdown_filter.query,
+            event_join=self.join_condition(),
+            aggregate_operation=self.aggregate_operation,
+            interval_annotation=self.interval_annotation,
+            breakdown_value=self.breakdown_filter.breakdown_value,
+        )
+
+        return breakdown_query, self.params
+
+    def parse(self, result: List[Any]) -> List[Dict]:
+        parsed_results = []
+        for idx, stats in enumerate(result):
+            additional_values = self.breakdown_result_descriptors(stats[2], self.filter, self.entity)
+            parsed_result = parse_response(stats, self.filter, additional_values)
+            parsed_results.append(parsed_result)
+
+        return sorted(parsed_results, key=lambda x: 0 if x.get("breakdown_value") != "all" else 1)
 
 
 class BreakdownFilterConstructor:
