@@ -65,7 +65,7 @@ class ClickhouseTrendsFormula:
             )
             if filter.breakdown
             else "".join(
-                ["CROSS JOIN ({}) as sub_{}".format(query, letters[i + 1]) for i, query in enumerate(queries[1:])]
+                [" CROSS JOIN ({}) as sub_{}".format(query, letters[i + 1]) for i, query in enumerate(queries[1:])]
             ),
         )
         result = sync_execute(sql)

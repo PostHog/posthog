@@ -18,7 +18,6 @@ import {
 import { ViewType, insightLogic } from './insightLogic'
 import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ActionType, EntityType, FilterType, PersonType, PropertyFilter } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
 import { ToastId } from 'react-toastify'
@@ -416,9 +415,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)
                 } else {
-                    /* Edge case when opening a trends graph from a dashboard or sometimes when trends are loaded
-                    with filters already set, `setAllFilters` action is not triggered, and therefore usage is not reported */
-                    eventUsageLogic.actions.reportInsightViewed(values.filters, values.isFirstLoad)
+                    insightLogic.actions.setAllFilters(values.filters)
                 }
 
                 handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))
