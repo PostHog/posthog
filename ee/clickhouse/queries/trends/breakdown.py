@@ -33,33 +33,38 @@ from posthog.models.filters.mixins.utils import cached_property
 
 
 class ClickhouseTrendsBreakdown:
-    def _format_breakdown_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
-        # process params
-        interval_annotation = get_trunc_func_ch(filter.interval)
-        num_intervals, seconds_in_interval, round_interval = get_time_diff(
-            filter.interval or "day", filter.date_from, filter.date_to, team_id
-        )
-        aggregate_operation, _, math_params = process_math(entity)
+    def __init__(self, entity: Entity, filter: Filter, team_id: int):
+        self.entity = entity
+        self.filter = filter
+        self.team_id = team_id
 
-        if entity.math == "dau" or filter.breakdown_type == "person":
+    def _format_breakdown_query(self) -> Tuple[str, Dict, Callable]:
+        # process params
+        interval_annotation = get_trunc_func_ch(self.filter.interval)
+        num_intervals, seconds_in_interval, round_interval = get_time_diff(
+            self.filter.interval or "day", self.filter.date_from, self.filter.date_to, self.team_id
+        )
+        aggregate_operation, _, math_params = process_math(self.entity)
+
+        if self.entity.math == "dau" or self.filter.breakdown_type == "person":
             join_condition = EVENT_JOIN_PERSON_SQL
         else:
             join_condition = ""
 
-        breakdown_filter = BreakdownFilterConstructor.for_entity(entity, filter, team_id, round_interval)
+        breakdown_filter = BreakdownFilterConstructor.for_entity(self.entity, self.filter, self.team_id, round_interval)
 
         params = {
             **math_params,
             **breakdown_filter.query_params,
-            "team_id": team_id,
-            "event": entity.id,
-            "key": filter.breakdown,
+            "team_id": self.team_id,
+            "event": self.entity.id,
+            "key": self.filter.breakdown,
         }
 
         if len(breakdown_filter.query_params["values"]) == 0:
             return "SELECT 1", {}, lambda _: []
 
-        if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
+        if self.filter.display == TRENDS_TABLE or self.filter.display == TRENDS_PIE:
             content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
                 breakdown_filter=breakdown_filter.query,
                 event_join=join_condition,
@@ -67,14 +72,14 @@ class ClickhouseTrendsBreakdown:
                 breakdown_value=breakdown_filter.breakdown_value,
             )
 
-            return content_sql, params, self._parse_single_aggregate_result(filter, entity)
+            return content_sql, params, self._parse_single_aggregate_result(self.filter, self.entity)
 
         else:
             null_sql = NULL_BREAKDOWN_SQL.format(
                 interval=interval_annotation,
                 seconds_in_interval=seconds_in_interval,
                 num_intervals=num_intervals,
-                date_to=(filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
+                date_to=(self.filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
             )
             breakdown_query = BREAKDOWN_QUERY_SQL.format(
                 null_sql=null_sql,
@@ -85,7 +90,7 @@ class ClickhouseTrendsBreakdown:
                 breakdown_value=breakdown_filter.breakdown_value,
             )
 
-            return breakdown_query, params, self._parse_trend_result(filter, entity)
+            return breakdown_query, params, self._parse_trend_result(self.filter, self.entity)
 
     def _parse_single_aggregate_result(self, filter: Filter, entity: Entity) -> Callable:
         def _parse(result: List) -> List:
