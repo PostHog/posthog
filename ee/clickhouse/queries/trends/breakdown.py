@@ -37,60 +37,64 @@ class ClickhouseTrendsBreakdown:
         self.entity = entity
         self.filter = filter
         self.team_id = team_id
+        self.interval_annotation = get_trunc_func_ch(self.filter.interval)
 
-    def _format_breakdown_query(self) -> Tuple[str, Dict, Callable]:
-        # process params
-        interval_annotation = get_trunc_func_ch(self.filter.interval)
-        num_intervals, seconds_in_interval, round_interval = get_time_diff(
+        self.num_intervals, self.seconds_in_interval, self.round_interval = get_time_diff(
             self.filter.interval or "day", self.filter.date_from, self.filter.date_to, self.team_id
         )
-        aggregate_operation, _, math_params = process_math(self.entity)
+        self.aggregate_operation, _, self.math_params = process_math(self.entity)
 
-        if self.entity.math == "dau" or self.filter.breakdown_type == "person":
-            join_condition = EVENT_JOIN_PERSON_SQL
+    def _format_breakdown_query(self) -> Tuple[str, Dict, Callable]:
+        if len(self.breakdown_filter.query_params["values"]) == 0:
+            return "SELECT 1", {}, lambda _: []
+
+        if self.filter.display == TRENDS_TABLE or self.filter.display == TRENDS_PIE:
+            content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
+                breakdown_filter=self.breakdown_filter.query,
+                event_join=self.join_condition(),
+                aggregate_operation=self.aggregate_operation,
+                breakdown_value=self.breakdown_filter.breakdown_value,
+            )
+
+            return content_sql, self.params, self._parse_single_aggregate_result(self.filter, self.entity)
+
         else:
-            join_condition = ""
+            null_sql = NULL_BREAKDOWN_SQL.format(
+                interval=self.interval_annotation,
+                seconds_in_interval=self.seconds_in_interval,
+                num_intervals=self.num_intervals,
+                date_to=(self.filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            breakdown_query = BREAKDOWN_QUERY_SQL.format(
+                null_sql=null_sql,
+                breakdown_filter=self.breakdown_filter.query,
+                event_join=self.join_condition(),
+                aggregate_operation=self.aggregate_operation,
+                interval_annotation=self.interval_annotation,
+                breakdown_value=self.breakdown_filter.breakdown_value,
+            )
 
-        breakdown_filter = BreakdownFilterConstructor.for_entity(self.entity, self.filter, self.team_id, round_interval)
+            return breakdown_query, self.params, self._parse_trend_result(self.filter, self.entity)
 
-        params = {
-            **math_params,
-            **breakdown_filter.query_params,
+    def join_condition(self):
+        if self.entity.math == "dau" or self.filter.breakdown_type == "person":
+            return EVENT_JOIN_PERSON_SQL
+        else:
+            return ""
+
+    @cached_property
+    def params(self):
+        return {
+            **self.math_params,
+            **self.breakdown_filter.query_params,
             "team_id": self.team_id,
             "event": self.entity.id,
             "key": self.filter.breakdown,
         }
 
-        if len(breakdown_filter.query_params["values"]) == 0:
-            return "SELECT 1", {}, lambda _: []
-
-        if self.filter.display == TRENDS_TABLE or self.filter.display == TRENDS_PIE:
-            content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
-                breakdown_filter=breakdown_filter.query,
-                event_join=join_condition,
-                aggregate_operation=aggregate_operation,
-                breakdown_value=breakdown_filter.breakdown_value,
-            )
-
-            return content_sql, params, self._parse_single_aggregate_result(self.filter, self.entity)
-
-        else:
-            null_sql = NULL_BREAKDOWN_SQL.format(
-                interval=interval_annotation,
-                seconds_in_interval=seconds_in_interval,
-                num_intervals=num_intervals,
-                date_to=(self.filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
-            )
-            breakdown_query = BREAKDOWN_QUERY_SQL.format(
-                null_sql=null_sql,
-                breakdown_filter=breakdown_filter.query,
-                event_join=join_condition,
-                aggregate_operation=aggregate_operation,
-                interval_annotation=interval_annotation,
-                breakdown_value=breakdown_filter.breakdown_value,
-            )
-
-            return breakdown_query, params, self._parse_trend_result(self.filter, self.entity)
+    @cached_property
+    def breakdown_filter(self):
+        return BreakdownFilterConstructor.for_entity(self.entity, self.filter, self.team_id, self.round_interval)
 
     def _parse_single_aggregate_result(self, filter: Filter, entity: Entity) -> Callable:
         def _parse(result: List) -> List:
