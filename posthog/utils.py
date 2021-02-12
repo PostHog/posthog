@@ -201,6 +201,9 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     else:
         context["opt_out_capture"] = team.opt_out_capture if team else False
 
+    # TODO: BEGINS DEPRECATED CODE
+    # Code deprecated in favor of posthog.api.authentication.AuthenticationSerializer
+    # Remove after migrating login to React
     if settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET:
         context["github_auth"] = True
     if settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET:
@@ -224,6 +227,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
                 context["google_auth"] = True
             else:
                 print_warning(["You have Google login set up, but not the required premium PostHog plan!"])
+    # ENDS DEPRECATED CODE
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]

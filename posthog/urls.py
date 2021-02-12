@@ -21,6 +21,7 @@ from social_django.strategy import DjangoStrategy
 
 from posthog.api import (
     api_not_found,
+    authentication,
     capture,
     dashboard,
     decide,
@@ -340,6 +341,7 @@ urlpatterns = [
     opt_slash_path("api/user", user.user),
     opt_slash_path("api/signup", organization.OrganizationSignupViewset.as_view()),
     opt_slash_path("api/social_signup", organization.OrganizationSocialSignupViewset.as_view()),
+    opt_slash_path("api/authentication", authentication.AuthenticationViewset.as_view()),
     path("api/signup/<str:invite_id>/", organization.OrganizationInviteSignupViewset.as_view()),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
@@ -403,7 +405,7 @@ if settings.TEST:
     urlpatterns.append(path("delete_events/", delete_events))
 
 # Routes added individually to remove login requirement
-frontend_unauthenticated_routes = ["preflight", "signup", r"signup/*"]
+frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*"]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
 
