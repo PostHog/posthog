@@ -40,28 +40,10 @@ describe('<Insights /> trends', () => {
             },
         ],
         properties: [],
-        breakdown: '$browser',
-        breakdown_type: 'event',
     }))
 
     it('loads default trends', () => {
         mountAndCheckAPI()
-        cy.wait('@api_insight')
-            .map(helpers.getSearchParameters)
-            .should('eq', {
-                insight: 'TRENDS',
-                interval: 'day',
-                display: 'ActionsLineGraph',
-                events: JSON.stringify([
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                        order: 0,
-                    },
-                ]),
-                properties: '[]',
-            })
 
         cy.get('[data-attr="trend-line-graph"]').should('be.visible')
     })
