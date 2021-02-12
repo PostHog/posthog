@@ -86,6 +86,8 @@ jobs:
                   echo "PACKAGE_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
                   echo "PACKAGE_VERSION_TAG=$PACKAGE_VERSION_TAG" >> $GITHUB_ENV
                   echo "IS_NEW_VERSION=$IS_NEW_VERSION" >> $GITHUB_ENV
+                  echo "::set-output name=PACKAGE_VERSION::$PACKAGE_VERSION"
+                  echo "::set-output name=PACKAGE_VERSION_TAG::$PACKAGE_VERSION_TAG"
                   echo "::set-output name=IS_NEW_VERSION::$IS_NEW_VERSION"
 
             - name: Set up Node 14
@@ -136,6 +138,7 @@ jobs:
               id: main-repo-pr
               uses: peter-evans/create-pull-request@v3
               with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
                   path: posthog/
                   commit-message: Update plugin server to ${{ steps.version.outputs.PACKAGE_VERSION }}
                   committer: PostHog Bot <hey@posthog.com>
