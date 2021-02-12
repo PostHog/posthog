@@ -49,11 +49,8 @@ class ClickhouseTrendsBreakdown:
         else:
             join_condition = ""
 
-        action_query = ""
-        action_params: Dict = {}
-        if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = Action.objects.get(pk=entity.id)
-            action_query, action_params = format_action_filter(action)
+        filter_constructor = BreakdownFilterConstructor(entity, filter, team_id)
+        action_query, action_params = filter_constructor.action_query_params()
 
         params = {
             **params,
@@ -273,3 +270,17 @@ class ClickhouseTrendsBreakdown:
             )
             queries.append(cohort_query)
         return queries, params
+
+
+class BreakdownFilterConstructor:
+    def __init__(self, entity: Entity, filter: Filter, team_id: int):
+        self.entity = entity
+        self.filter = filter
+        self.team_id = team_id
+
+    def action_query_params(self):
+        if self.entity.type == TREND_FILTER_TYPE_ACTIONS:
+            action = Action.objects.get(pk=self.entity.id)
+            return format_action_filter(action)
+        else:
+            return "", {}
