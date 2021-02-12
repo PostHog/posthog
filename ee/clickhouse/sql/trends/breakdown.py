@@ -7,7 +7,7 @@ SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value
                 (
                     SELECT breakdown_value
                     FROM (
-                        SELECT CAST(%(values)s, 'Array(String)') as breakdown_value
+                        SELECT %(values)s as breakdown_value
                     ) ARRAY JOIN breakdown_value
                 ) as sec
             ORDER BY breakdown_value, day_start

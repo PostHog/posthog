@@ -96,6 +96,9 @@ class ClickhouseTrendsBreakdown:
                 filter, team_id
             )
 
+        if len(_params["values"]) == 0:
+            return "SELECT 1", {}, lambda _: []
+
         params = {**params, **_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
