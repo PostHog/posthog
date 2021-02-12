@@ -141,7 +141,7 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Organization
     )
 }
 
-function ActionsComponent(_, member: OrganizationMemberType): JSX.Element | null {
+function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { removeMember } = useActions(membersLogic)
@@ -214,7 +214,8 @@ export function Members({ user }: { user: UserType }): JSX.Element {
             title: 'Level',
             dataIndex: 'level',
             key: 'level',
-            render: LevelComponent,
+            render: (level, member) =>
+                LevelComponent(level as OrganizationMembershipLevel, member as OrganizationMemberType),
         },
         {
             title: 'Joined At',
@@ -227,7 +228,7 @@ export function Members({ user }: { user: UserType }): JSX.Element {
             dataIndex: 'actions',
             key: 'actions',
             align: 'center',
-            render: ActionsComponent,
+            render: (_, member) => ActionsComponent(member as OrganizationMemberType),
         },
     ]
 
