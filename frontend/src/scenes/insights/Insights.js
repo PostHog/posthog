@@ -349,15 +349,15 @@ const isFunnelEmpty = (filters) => {
 }
 
 function FunnelInsight() {
-    const { stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic({}))
+    const { stepsWithCount, resultsLoading } = useValues(funnelLogic({}))
 
     return (
         <div style={{ height: 300, position: 'relative' }}>
-            {stepsWithCountLoading && <Loading />}
+            {resultsLoading && <Loading />}
             {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 ? (
                 <FunnelViz steps={stepsWithCount} />
             ) : (
-                !stepsWithCountLoading && (
+                !resultsLoading && (
                     <div
                         style={{
                             textAlign: 'center',
