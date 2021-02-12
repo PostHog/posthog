@@ -38,10 +38,6 @@ class ClickhouseTrendsBreakdown:
         num_intervals, seconds_in_interval, round_interval = get_time_diff(
             filter.interval or "day", filter.date_from, filter.date_to, team_id
         )
-        _, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
-
-        props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id, table_name="e")
         aggregate_operation, _, math_params = process_math(entity)
 
         if entity.math == "dau" or filter.breakdown_type == "person":
@@ -49,25 +45,15 @@ class ClickhouseTrendsBreakdown:
         else:
             join_condition = ""
 
-        filter_constructor = BreakdownFilterConstructor(entity, filter, team_id)
-        action_query, action_params = filter_constructor.action_query_params()
+        filter_constructor = BreakdownFilterConstructor(entity, filter, team_id, round_interval=round_interval)
+        breakdown_filter_params, breakdown_params = filter_constructor.base_query_arguments()
 
         params = {
             **params,
             **math_params,
-            **prop_filter_params,
-            **action_params,
+            **breakdown_params,
             "event": entity.id,
             "key": filter.breakdown,
-            **date_params,
-        }
-
-        breakdown_filter_params = {
-            "parsed_date_from": date_from_clause(interval_annotation, round_interval),
-            "parsed_date_to": parsed_date_to,
-            "actions_query": "AND {}".format(action_query) if action_query else "",
-            "event_filter": "AND event = %(event)s" if not action_query else "",
-            "filters": prop_filters if props_to_filter else "",
         }
 
         _params, _breakdown_filter_params = {}, {}
@@ -273,10 +259,11 @@ class ClickhouseTrendsBreakdown:
 
 
 class BreakdownFilterConstructor:
-    def __init__(self, entity: Entity, filter: Filter, team_id: int):
+    def __init__(self, entity: Entity, filter: Filter, team_id: int, round_interval: bool):
         self.entity = entity
         self.filter = filter
         self.team_id = team_id
+        self.round_interval = round_interval
 
     def action_query_params(self):
         if self.entity.type == TREND_FILTER_TYPE_ACTIONS:
@@ -284,3 +271,27 @@ class BreakdownFilterConstructor:
             return format_action_filter(action)
         else:
             return "", {}
+
+    def base_query_arguments(self):
+        interval_annotation = get_trunc_func_ch(self.filter.interval)
+        _, parsed_date_to, date_params = parse_timestamps(filter=self.filter, team_id=self.team_id)
+        action_query, action_params = self.action_query_params()
+
+        props_to_filter = [*self.filter.properties, *self.entity.properties]
+        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, self.team_id, table_name="e")
+
+        formatting_params = {
+            "parsed_date_from": date_from_clause(interval_annotation, self.round_interval),
+            "parsed_date_to": parsed_date_to,
+            "actions_query": "AND {}".format(action_query) if action_query else "",
+            "event_filter": "AND event = %(event)s" if not action_query else "",
+            "filters": prop_filters if props_to_filter else "",
+        }
+
+        query_params = {
+            **prop_filter_params,
+            **action_params,
+            **date_params,
+        }
+
+        return formatting_params, query_params
