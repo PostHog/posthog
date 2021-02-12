@@ -226,7 +226,7 @@ export async function startPluginsServer(
         if (piscina) {
             await stopPiscina(piscina)
         }
-        await closeServer()
+        await closeServer?.()
 
         // wait an extra second for any misc async task to finish
         await delay(1000)

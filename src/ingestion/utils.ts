@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node'
 import crypto from 'crypto'
 
 import { BasePerson, Element, Person, RawPerson } from '../types'
@@ -153,4 +154,11 @@ export function chainToElements(chain: string): Element[] {
         })
 
     return elements
+}
+
+export function timeoutGuard(message: string): NodeJS.Timeout {
+    return setTimeout(() => {
+        console.log(`⌛⌛⌛ ${message}`)
+        Sentry.captureMessage(message)
+    }, 30000)
 }

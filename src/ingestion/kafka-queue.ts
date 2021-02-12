@@ -5,6 +5,7 @@ import { PluginsServer, Queue, RawEventMessage } from 'types'
 
 import { status } from '../status'
 import { killGracefully, runInParallelBatches } from '../utils'
+import { timeoutGuard } from './utils'
 
 export class KafkaQueue implements Queue {
     private pluginsServer: PluginsServer
@@ -60,12 +61,21 @@ export class KafkaQueue implements Queue {
                 )
             )
         )
+
+        const processingTimeout = timeoutGuard(
+            `Took too long to run plugins on ${pluginEvents.length} events! Timeout after 30 sec!`
+        )
         const processedEvents = await runInParallelBatches(pluginEvents, maxBatchSize, this.processEventBatch)
+        clearTimeout(processingTimeout)
 
         // Sort in the original order that the events came in, putting any randomly added events to the end.
         // This is so we would resolve the correct kafka offsets in order.
         processedEvents.sort(
             (a, b) => (uuidOrder.get(a.uuid!) || pluginEvents.length) - (uuidOrder.get(b.uuid!) || pluginEvents.length)
+        )
+
+        const ingestionTimeout = timeoutGuard(
+            `Took too long to ingest ${processedEvents.length} events! Timeout after 30 sec!`
         )
 
         // TODO: add chunking into groups of 500 or so. Might start too many promises at once now
@@ -98,6 +108,9 @@ export class KafkaQueue implements Queue {
                 this.pluginsServer.statsd?.timing('kafka_queue.single_ingestion', singleIngestionTimer)
             }
         }
+
+        clearTimeout(ingestionTimeout)
+
         this.pluginsServer.statsd?.timing('kafka_queue.each_batch', batchProcessingTimer)
         resolveOffset(batch.lastOffset())
         await heartbeat()
