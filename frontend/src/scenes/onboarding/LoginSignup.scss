@@ -56,7 +56,8 @@
         justify-content: center;
         padding-top: $default_spacing * 2;
         .rhs-inner {
-            max-width: 450px;
+            width: 100%;
+            max-width: 350px;
         }
     }
 }

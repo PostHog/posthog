@@ -5,13 +5,11 @@ $github: #171516;
 $gitlab: #e65328;
 
 .social-logins {
+    margin-bottom: $default_spacing;
+    margin-top: $default_spacing;
     button,
     a {
-        margin-bottom: $default_spacing;
-
-        &:first-of-type {
-            margin-top: $default_spacing;
-        }
+        margin-bottom: $default_spacing / 2;
     }
 }
 
@@ -46,7 +44,7 @@ $gitlab: #e65328;
         }
 
         .btn-social-icon .img {
-            // background-image: url('./github.svg');
+            background-image: url('./github.svg');
         }
     }
 
