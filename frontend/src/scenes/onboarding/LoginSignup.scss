@@ -66,16 +66,6 @@
                 color: $text_light;
             }
         }
-
-        @media screen and (max-width: $md) {
-            height: initial;
-            background: initial;
-
-            .the-mountains,
-            .wordmark {
-                display: none;
-            }
-        }
     }
 
     .rhs-content {
@@ -94,6 +84,15 @@
 
         .password-login {
             margin-top: $default_spacing * 2;
+        }
+    }
+
+    @media screen and (max-width: $md) {
+        overflow: auto;
+
+        .rhs-content {
+            height: initial;
+            overflow: initial;
         }
     }
 }

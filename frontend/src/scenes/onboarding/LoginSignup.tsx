@@ -23,7 +23,7 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
     return (
         <div className="login-signup">
             <Row>
-                <Col span={0} md={10} className="image-showcase">
+                <Col span={24} md={10} className="image-showcase">
                     <div className="the-mountains" />
                     <div className="main-logo">
                         <img src={smLogo} alt="" />
@@ -33,16 +33,6 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
                             Join <b>{invite?.organization_name || 'us'}</b> at
                         </h1>
                         <div className="wordmark">PostHog</div>
-                        <div className="showcase-caption">{showcaseCaption}</div>
-                    </div>
-                </Col>
-                <Col span={24} md={0} className="image-showcase-mobile">
-                    {/* Replaces `image-showcase`'s content on small-width devices*/}
-                    <div className="showcase-content">
-                        <h1 className="page-title">Welcome to PostHog!</h1>
-                        <h2>
-                            Join <b>{invite?.organization_name || 'us'}</b> at
-                        </h2>
                         <div className="showcase-caption">{showcaseCaption}</div>
                     </div>
                 </Col>
@@ -70,7 +60,6 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
                                         placeholder="*******"
                                         type="password"
                                         required
-                                        autoFocus
                                         disabled={false}
                                         value={formState.password}
                                         onChange={(e) => setFormState({ ...formState, password: e.target.value })}
@@ -98,7 +87,7 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
                             <div className="mt text-center text-muted">
                                 Already have an account? <Link to="/login">Log in</Link>
                             </div>
-                            <div className="mt text-center">
+                            <div className="mt text-center" style={{ marginBottom: 60 }}>
                                 By clicking continue you agree to our{' '}
                                 <a href="https://posthog.com/terms" target="_blank" rel="noopener">
                                     Terms of Service
