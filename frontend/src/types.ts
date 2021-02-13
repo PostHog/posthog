@@ -504,6 +504,7 @@ interface DisabledSetupState {
 export type SetupState = EnabledSetupState | DisabledSetupState
 
 export interface PrevalidatedInvite {
+    id: string
     target_email: string
     first_name: string
     organization_name: string

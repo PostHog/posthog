@@ -18,8 +18,6 @@ interface ErrorInterface {
 export const inviteSignupLogic = kea<inviteSignupLogicType<PrevalidatedInvite, ErrorInterface>>({
     actions: {
         setError: (payload: ErrorInterface) => ({ payload }),
-        setInviteId: (id: string) => ({ id }),
-        prevalidateInvite: true,
     },
     reducers: {
         error: [
@@ -28,22 +26,16 @@ export const inviteSignupLogic = kea<inviteSignupLogicType<PrevalidatedInvite, E
                 setError: (_, { payload }) => payload,
             },
         ],
-        inviteId: [
-            null as null | string,
-            {
-                setInviteId: (_, { id }) => id,
-            },
-        ],
     },
     loaders: ({ actions, values }) => ({
         invite: [
             null as PrevalidatedInvite | null,
             {
-                prevalidateInvite: async (_, breakpoint) => {
+                prevalidateInvite: async (id: string, breakpoint) => {
                     breakpoint()
 
                     try {
-                        return await api.get(`api/signup/${values.inviteId}/`)
+                        return await api.get(`api/signup/${id}/`)
                     } catch (e) {
                         if (e.status === 400) {
                             if (e.code === 'invalid_recipient') {
@@ -65,11 +57,11 @@ export const inviteSignupLogic = kea<inviteSignupLogicType<PrevalidatedInvite, E
                 acceptInvite: async (_, breakpoint) => {
                     breakpoint()
 
-                    if (!values.inviteId) {
+                    if (!values.invite) {
                         return null
                     }
 
-                    return await api.create(`api/signup/${values.inviteId}/`, {})
+                    return await api.create(`api/signup/${values.invite.id}/`, {})
                 },
             },
         ],
@@ -83,8 +75,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType<PrevalidatedInvite, E
     }),
     urlToAction: ({ actions }) => ({
         '/signup/*': ({ _: id }: { _: string }) => {
-            actions.setInviteId(id)
-            actions.prevalidateInvite()
+            actions.prevalidateInvite(id)
         },
     }),
 })

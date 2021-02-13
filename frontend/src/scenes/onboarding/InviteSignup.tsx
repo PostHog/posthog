@@ -29,11 +29,21 @@ function ErrorView(): JSX.Element | null {
 
     const HelperLinks = (
         <>
-            <a href="/">App Home</a>
-            <a href={`https://posthog.com?${UTM_TAGS}&utm_message=invalid-invite`} rel="noopener">
+            <a className="plain-link" href="/">
+                App Home
+            </a>
+            <a
+                className="plain-link"
+                href={`https://posthog.com?${UTM_TAGS}&utm_message=invalid-invite`}
+                rel="noopener"
+            >
                 PostHog Website
             </a>
-            <a href={`https://posthog.com/slack?${UTM_TAGS}&utm_message=invalid-invite`} rel="noopener">
+            <a
+                className="plain-link"
+                href={`https://posthog.com/slack?${UTM_TAGS}&utm_message=invalid-invite`}
+                rel="noopener"
+            >
                 Contact Us
             </a>
         </>
@@ -162,6 +172,7 @@ function _InviteSignup(): JSX.Element {
                     <AuthenticatedAcceptInvite invite={invite} />
                 ) : (
                     <LoginSignup
+                        invite={invite}
                         showcaseCaption={
                             <>
                                 This is the email you will use to log in. <h3>{invite.target_email}</h3>

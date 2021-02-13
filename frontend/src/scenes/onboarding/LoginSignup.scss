@@ -50,4 +50,13 @@
             }
         }
     }
+
+    .rhs-content {
+        display: flex;
+        justify-content: center;
+        padding-top: $default_spacing * 2;
+        .rhs-inner {
+            max-width: 400px;
+        }
+    }
 }
