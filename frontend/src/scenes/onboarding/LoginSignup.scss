@@ -30,6 +30,12 @@
             }
         }
 
+        .wordmark {
+            font-family: $gosha_sans;
+            font-size: 3.5rem;
+            margin-bottom: $default_spacing * 2;
+        }
+
         .showcase-content {
             z-index: $z_city_background_content;
             color: $text_light;
@@ -46,6 +52,16 @@
             h1,
             h2,
             h3 {
+                b {
+                    color: white;
+                }
+            }
+
+            .page-title {
+                color: rgba(255, 255, 255, 0.6);
+            }
+
+            h3 {
                 color: $text_light;
             }
         }
@@ -53,11 +69,17 @@
 
     .rhs-content {
         display: flex;
-        justify-content: center;
+        align-items: flex-end;
         padding-top: $default_spacing * 2;
+        flex-direction: column;
         .rhs-inner {
+            align-self: center;
             width: 100%;
             max-width: 350px;
+        }
+
+        .password-login {
+            margin-top: $default_spacing * 3;
         }
     }
 }

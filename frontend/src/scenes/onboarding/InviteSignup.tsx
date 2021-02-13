@@ -175,7 +175,10 @@ function _InviteSignup(): JSX.Element {
                         invite={invite}
                         showcaseCaption={
                             <>
-                                This is the email you will use to log in. <h3>{invite.target_email}</h3>
+                                <b>This is the email you will use to log in.</b>{' '}
+                                <h3 className="l3" style={{ fontSize: '1.2rem' }}>
+                                    {invite.target_email}
+                                </h3>
                             </>
                         }
                     />

@@ -22,6 +22,11 @@ interface SocialLoginButtonProps extends SharedProps {
     provider: SocialProviders
 }
 
+interface SocialLoginButtonsProps extends SharedProps {
+    title?: string
+    caption?: string
+}
+
 export function SocialLoginButton({ provider, queryString }: SocialLoginButtonProps): JSX.Element {
     return (
         <Button className={`btn-social-login ${provider}`} href={`/login/${provider}/${queryString}`}>
@@ -33,9 +38,11 @@ export function SocialLoginButton({ provider, queryString }: SocialLoginButtonPr
     )
 }
 
-export function SocialLoginButtons({ ...props }: SharedProps): JSX.Element {
+export function SocialLoginButtons({ title, caption, ...props }: SocialLoginButtonsProps): JSX.Element {
     return (
         <div className="social-logins">
+            {title && <h3 className="l3">{title}</h3>}
+            {caption && <div className="caption">{caption}</div>}
             {Object.values(SocialProviders).map((provider) => (
                 <div key={provider}>
                     <SocialLoginButton provider={provider} {...props} />
