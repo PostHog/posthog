@@ -400,6 +400,7 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(
             response.data,
             {
+                "id": str(invite.id),
                 "target_email": "t*****9@posthog.com",
                 "first_name": "",
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
@@ -416,6 +417,7 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(
             response.data,
             {
+                "id": str(invite.id),
                 "target_email": "t*****8@posthog.com",
                 "first_name": "Jane",
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
@@ -433,7 +435,13 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.data, {"target_email": "t*****9@posthog.com", "first_name": "", "organization_name": "Test, Inc",},
+            response.data,
+            {
+                "id": str(invite.id),
+                "target_email": "t*****9@posthog.com",
+                "first_name": "",
+                "organization_name": "Test, Inc",
+            },
         )
 
     def test_api_invite_sign_up_prevalidate_invalid_invite(self):

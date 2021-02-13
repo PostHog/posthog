@@ -352,6 +352,7 @@ class OrganizationInviteSignupViewset(generics.CreateAPIView):
 
         return response.Response(
             {
+                "id": str(invite.id),
                 "target_email": mask_email_address(invite.target_email),
                 "first_name": invite.first_name,
                 "organization_name": invite.organization.name,
