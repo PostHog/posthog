@@ -23,7 +23,7 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
     return (
         <div className="login-signup">
             <Row>
-                <Col span={10} className="image-showcase">
+                <Col span={0} md={10} className="image-showcase">
                     <div className="the-mountains" />
                     <div className="main-logo">
                         <img src={smLogo} alt="" />
@@ -36,7 +36,17 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
                         <div className="showcase-caption">{showcaseCaption}</div>
                     </div>
                 </Col>
-                <Col span={14} className="rhs-content">
+                <Col span={24} md={0} className="image-showcase-mobile">
+                    {/* Replaces `image-showcase`'s content on small-width devices*/}
+                    <div className="showcase-content">
+                        <h1 className="page-title">Welcome to PostHog!</h1>
+                        <h2>
+                            Join <b>{invite?.organization_name || 'us'}</b> at
+                        </h2>
+                        <div className="showcase-caption">{showcaseCaption}</div>
+                    </div>
+                </Col>
+                <Col span={24} md={14} className="rhs-content">
                     <div className="text-right mb" style={{ marginRight: 32 }}>
                         <b>Already have an account?</b>{' '}
                         <Link to="/login?utm_message=login-to-accept-invite">Log in to accept your invite</Link>

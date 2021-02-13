@@ -3,6 +3,7 @@
 .login-signup {
     height: 100vh;
     overflow: hidden;
+
     .ant-row {
         height: 100%;
     }
@@ -65,6 +66,16 @@
                 color: $text_light;
             }
         }
+
+        @media screen and (max-width: $md) {
+            height: initial;
+            background: initial;
+
+            .the-mountains,
+            .wordmark {
+                display: none;
+            }
+        }
     }
 
     .rhs-content {
@@ -72,6 +83,9 @@
         align-items: flex-end;
         padding-top: $default_spacing * 2;
         flex-direction: column;
+        max-height: 100%;
+        overflow: auto;
+
         .rhs-inner {
             align-self: center;
             width: 100%;
@@ -79,7 +93,7 @@
         }
 
         .password-login {
-            margin-top: $default_spacing * 3;
+            margin-top: $default_spacing * 2;
         }
     }
 }

@@ -79,6 +79,11 @@ $z_command_palette: 1875;
 $z_city_background_content: 1;
 $z_city_background_image: 0;
 
+// Breakpoints (from AntD)
+$sm: 576px;
+$md: 768px;
+$lg: 992px;
+
 // Export variables for TS access
 :export {
     zDrawer: $z_drawer;
