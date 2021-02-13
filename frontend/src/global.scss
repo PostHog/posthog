@@ -6,6 +6,11 @@ style files without adding already imported styles. */
 @import 'node_modules/react-toastify/dist/ReactToastify';
 @import './vars';
 
+@font-face {
+    font-family: 'GoshaSans-Bold';
+    src: url('../public/GoshaSans-Bold.woff2') format('woff2'), url('../public/GoshaSans-Bold.woff') format('woff');
+}
+
 :root {
     --primary: #{$primary};
     --primary-alt: #{$primary_alt};
@@ -56,6 +61,7 @@ style files without adding already imported styles. */
     margin-top: 0.5em;
     font-weight: 700;
     color: $text_default;
+    font-family: $gosha_sans;
 }
 
 .page-caption {
