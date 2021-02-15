@@ -46,6 +46,7 @@ import { insightCommandLogic } from './insightCommandLogic'
 import './Insights.scss'
 import { ErrorMessage, TimeOut } from './EmptyStates'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { People } from 'scenes/funnels/People'
 
 const { TabPane } = Tabs
 
@@ -309,6 +310,14 @@ function _Insights() {
                                         </div>
                                     </div>
                                 </Card>
+                                {!showErrorMessage &&
+                                    !showTimeoutMessage &&
+                                    activeView === ViewType.FUNNELS &&
+                                    allFilters.display === FUNNEL_VIZ && (
+                                        <Card>
+                                            <FunnelPeople />
+                                        </Card>
+                                    )}
                             </Col>
                         </>
                     )}
@@ -371,4 +380,12 @@ function FunnelInsight() {
             )}
         </div>
     )
+}
+
+function FunnelPeople() {
+    const { stepsWithCount } = useValues(funnelLogic())
+    if (stepsWithCount && stepsWithCount.length > 0) {
+        return <People />
+    }
+    return <></>
 }
