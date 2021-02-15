@@ -22,6 +22,7 @@ import {
 import { FullScreen } from 'lib/components/FullScreen'
 import moment from 'moment'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardType } from '~/types'
 
 export function DashboardHeader(): JSX.Element {
     const { dashboard, draggingEnabled } = useValues(dashboardLogic)
@@ -48,9 +49,9 @@ export function DashboardHeader(): JSX.Element {
                             bordered={false}
                             dropdownMatchSelectWidth={false}
                         >
-                            {!dashboard ? <Select.Option value={null}>Not Found</Select.Option> : null}
-                            {dashboards.map((dash) => (
-                                <Select.Option key={dash.id} value={parseInt(dash.id)}>
+                            {!dashboard ? <Select.Option value="">Not Found</Select.Option> : null}
+                            {dashboards.map((dash: DashboardType) => (
+                                <Select.Option key={dash.id} value={dash.id}>
                                     {dash.name || <span style={{ color: 'var(--gray)' }}>Untitled</span>}
                                 </Select.Option>
                             ))}
@@ -71,7 +72,7 @@ export function DashboardHeader(): JSX.Element {
                                 <Tooltip title={dashboard.pinned ? 'Pinned into sidebar' : 'Pin into sidebar'}>
                                     <Button
                                         className="button-box-when-small"
-                                        type={dashboard.pinned ? 'primary' : ''}
+                                        type={dashboard.pinned ? 'primary' : undefined}
                                         onClick={() =>
                                             dashboard.pinned ? unpinDashboard(dashboard.id) : pinDashboard(dashboard.id)
                                         }
@@ -84,7 +85,7 @@ export function DashboardHeader(): JSX.Element {
                             <Tooltip title={'Share dashboard.'}>
                                 <Button
                                     className="button-box-when-small enable-dragging-button"
-                                    type={dashboard.is_shared ? 'primary' : ''}
+                                    type={dashboard.is_shared ? 'primary' : undefined}
                                     onClick={() => setShowShareModal(true)}
                                     data-attr="dashboard-share-button"
                                 >
@@ -98,7 +99,7 @@ export function DashboardHeader(): JSX.Element {
                             <Tooltip title="Click here or long press on a panel to rearrange the dashboard.">
                                 <Button
                                     className="button-box enable-dragging-button"
-                                    type={draggingEnabled === 'off' ? 'primary' : ''}
+                                    type={draggingEnabled === 'off' ? 'primary' : undefined}
                                     onClick={draggingEnabled === 'off' ? enableDragging : disableDragging}
                                 >
                                     {draggingEnabled !== 'off' ? <UnlockOutlined /> : <LockOutlined />}
@@ -119,7 +120,7 @@ export function DashboardHeader(): JSX.Element {
 
                             {!fullScreen ? (
                                 <Dropdown
-                                    trigger="click"
+                                    trigger={['click']}
                                     overlay={
                                         <Menu>
                                             <Menu.Item icon={<EditOutlined />} onClick={renameDashboard}>
