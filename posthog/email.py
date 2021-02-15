@@ -87,8 +87,6 @@ def _send_email(
             # Handle exceptions gracefully to avoid breaking the entire task for all teams
             # but make sure they're tracked on Sentry.
             capture_exception(err)
-            if settings.TEST:
-                raise err
         finally:
             # ensure that connection has been closed
             try:

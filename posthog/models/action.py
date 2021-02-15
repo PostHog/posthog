@@ -74,9 +74,7 @@ class Action(models.Model):
             try:
                 cursor.execute(query, params)
             except Exception as err:
-                capture_exception()
-                if settings.TEST:
-                    raise err
+                capture_exception(err)
 
         self.is_calculating = False
         self.last_calculated_at = calculated_at

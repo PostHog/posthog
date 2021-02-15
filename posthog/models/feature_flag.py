@@ -152,6 +152,4 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
                 flags_enabled.append(feature_flag.key)
         except Exception as err:
             capture_exception(err)
-            if settings.TEST:
-                raise err
     return flags_enabled
