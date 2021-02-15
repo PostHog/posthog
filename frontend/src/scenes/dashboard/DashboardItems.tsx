@@ -1,19 +1,20 @@
 import './DashboardItems.scss'
 
 import React, { useEffect, useRef, useState } from 'react'
-import { BuiltLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Responsive, WidthProvider } from 'react-grid-layout'
 
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
 import { DashboardItemType } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 const ReactGridLayout = WidthProvider(Responsive)
 const noop = (): void => {}
 
-export function DashboardItems({ logic, inSharedMode }: { logic: BuiltLogic; inSharedMode: boolean }): JSX.Element {
-    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, draggingEnabled } = useValues(logic)
+export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX.Element {
+    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, draggingEnabled } = useValues(dashboardLogic)
     const {
         loadDashboardItems,
         refreshDashboardItem,
@@ -21,7 +22,7 @@ export function DashboardItems({ logic, inSharedMode }: { logic: BuiltLogic; inS
         updateContainerWidth,
         updateItemColor,
         enableWobblyDragging,
-    } = useActions(logic)
+    } = useActions(dashboardLogic)
     const { duplicateDashboardItem } = useActions(dashboardItemsModel)
 
     // make sure the dashboard takes up the right size

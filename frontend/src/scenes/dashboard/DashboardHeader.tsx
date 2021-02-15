@@ -21,10 +21,11 @@ import {
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
 import moment from 'moment'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
-export function DashboardHeader({ logic }): JSX.Element {
-    const { dashboard, draggingEnabled } = useValues(logic)
-    const { addNewDashboard, renameDashboard, enableDragging, disableDragging } = useActions(logic)
+export function DashboardHeader(): JSX.Element {
+    const { dashboard, draggingEnabled } = useValues(dashboardLogic)
+    const { addNewDashboard, renameDashboard, enableDragging, disableDragging } = useActions(dashboardLogic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [fullScreen, setFullScreen] = useState(false)
@@ -33,7 +34,7 @@ export function DashboardHeader({ logic }): JSX.Element {
     return (
         <div className={`dashboard-header${fullScreen ? ' full-screen' : ''}`}>
             {fullScreen ? <FullScreen onExit={() => setFullScreen(false)} /> : null}
-            {showShareModal && <ShareModal logic={logic} onCancel={() => setShowShareModal(false)} />}
+            {showShareModal && <ShareModal onCancel={() => setShowShareModal(false)} />}
             {dashboardsLoading ? (
                 <Loading />
             ) : (
