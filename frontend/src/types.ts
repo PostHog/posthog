@@ -359,6 +359,7 @@ export interface BillingSubscription {
 export interface DashboardItemType {
     id: number
     name: string
+    description?: string
     filters: Record<string, any>
     filters_hash: string
     order: number
@@ -371,6 +372,8 @@ export interface DashboardItemType {
     refreshing: boolean
     created_by: Record<string, any>
     is_sample: boolean
+    dashboard: number
+    result: any | null
 }
 
 export interface DashboardType {

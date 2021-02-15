@@ -132,7 +132,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
                 >
                     <InsightPane
                         data={insights.map((insight) => ({ ...insight }))}
-                        loadMore={insightsNext && loadNextInsights}
+                        loadMore={insightsNext ? loadNextInsights : undefined}
                         loadingMore={loadingMoreInsights}
                         footer={(item) => <>Ran query {moment(item.created_at).fromNow()}</>}
                         loading={insightsLoading}
@@ -145,7 +145,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
                 >
                     <InsightPane
                         data={savedInsights}
-                        loadMore={savedInsightsNext && loadNextSavedInsights}
+                        loadMore={savedInsightsNext ? loadNextSavedInsights : undefined}
                         loadingMore={loadingMoreSavedInsights}
                         footer={(item) => <>Saved {moment(item.created_at).fromNow()}</>}
                         loading={savedInsightsLoading}
@@ -158,7 +158,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
                 >
                     <InsightPane
                         data={teamInsights}
-                        loadMore={teamInsightsNext && loadNextTeamInsights}
+                        loadMore={teamInsightsNext ? loadNextTeamInsights : undefined}
                         loadingMore={loadingMoreTeamInsights}
                         footer={(item) => (
                             <>
