@@ -96,20 +96,28 @@ export function PluginDrawer(): JSX.Element {
     function displayWarning({ e, value, key }: DisplayWarningProps): void {
         let clonedNativeEvent: MouseEvent | KeyboardEvent
         const { nativeEvent, target } = e
+
+        // Only show warning the first time a user tries to edit a secret field
         if (warningShown) {
             return
         }
+
+        // Handle overload
         if (key) {
+            // from input
             if (form.getFieldsValue()[key || ''] !== '****************') {
                 return
             }
             clonedNativeEvent = new KeyboardEvent('keydown', nativeEvent)
         } else {
+            // from file upload
             if (value?.name !== 'Secret Attachment') {
                 return
             }
             clonedNativeEvent = new MouseEvent('click', nativeEvent)
         }
+
+        // Prevent changes from happening if the user doesn't click 'ok'
         e.stopPropagation()
         e.preventDefault()
         setWarningShown(true)
@@ -121,10 +129,10 @@ export function PluginDrawer(): JSX.Element {
             okText: 'Yes',
             cancelText: 'No',
             onOk: () => {
-                target.dispatchEvent(clonedNativeEvent)
+                target.dispatchEvent(clonedNativeEvent) // if user clicked ok, let the changes happen
                 return false
             },
-            onCancel: () => setWarningShown(false),
+            onCancel: () => setWarningShown(false), // show the warning again if the user didn't accept at first
         })
     }
 
