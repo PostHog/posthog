@@ -26,13 +26,20 @@ import { isMobile, platformCommandControlKey } from 'lib/utils'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
+import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
 
 export const TopNavigation = hot(_TopNavigation)
 export function _TopNavigation(): JSX.Element {
-    const { setMenuCollapsed, setChangelogModalOpen, updateCurrentOrganization, updateCurrentProject } = useActions(
+    const {
+        setMenuCollapsed,
+        setChangelogModalOpen,
+        updateCurrentOrganization,
+        updateCurrentProject,
+        setInviteMembersModalOpen,
+    } = useActions(navigationLogic)
+    const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen, inviteMembersModalOpen } = useValues(
         navigationLogic
     )
-    const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen } = useValues(navigationLogic)
     const { user } = useValues(userLogic)
     const { logout } = useActions(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
@@ -111,9 +118,9 @@ export function _TopNavigation(): JSX.Element {
             </div>
             <div className="divider mb-05" />
             <div className="text-center mb-05">
-                <Link to="/organization/members" data-attr="top-menu-invite-team-members">
+                <a onClick={() => setInviteMembersModalOpen(true)} data-attr="top-menu-invite-team-members">
                     <UserAddOutlined style={{ marginRight: 8, fontSize: 18 }} /> Invite team members
-                </Link>
+                </a>
             </div>
             <div className="divider mb-05" />
             <div className="text-center">
@@ -230,6 +237,7 @@ export function _TopNavigation(): JSX.Element {
                     </Dropdown>
                 </div>
             </div>
+            <BulkInviteModal visible={inviteMembersModalOpen} onClose={() => setInviteMembersModalOpen(false)} />
             <CreateProjectModal isVisible={projectModalShown} setIsVisible={setProjectModalShown} />
             <CreateOrganizationModal isVisible={organizationModalShown} setIsVisible={setOrganizationModalShown} />
             {changelogModalOpen && <ChangelogModal onDismiss={() => setChangelogModalOpen(false)} />}
