@@ -22,6 +22,7 @@ import {
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
     LIFECYCLE,
+    FUNNEL_VIZ,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
