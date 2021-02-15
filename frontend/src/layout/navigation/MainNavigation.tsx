@@ -9,6 +9,7 @@ import {
     PushpinFilled,
     PlusOutlined,
     SettingOutlined,
+    TeamOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -240,6 +241,13 @@ function _MainNavigation(): JSX.Element {
                         icon={<MessageOutlined />}
                         identifier="annotations"
                         to="/annotations"
+                    />
+                    <div className="divider" />
+                    <MenuItem
+                        title="Team"
+                        icon={<TeamOutlined />}
+                        identifier="organizationMembers"
+                        to="/organization/members"
                     />
                     <MenuItem
                         title="Project"
