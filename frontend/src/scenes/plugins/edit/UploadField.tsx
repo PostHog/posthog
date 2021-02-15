@@ -6,9 +6,11 @@ import { UploadFile } from 'antd/es/upload/interface'
 export function UploadField({
     value,
     onChange,
+    displayWarning,
 }: {
     value?: UploadFile | null
     onChange?: (file?: UploadFile | null) => void
+    displayWarning: ({ e, value }: { e: React.MouseEvent; value: UploadFile | null }) => void
 }): JSX.Element {
     return (
         <Upload
@@ -23,7 +25,18 @@ export function UploadField({
                 return false
             }}
         >
-            <Button icon={<UploadOutlined />}>Click to Upload</Button>
+            <Button
+                icon={<UploadOutlined />}
+                onClick={(e) => {
+                    displayWarning({
+                        e: e,
+                        value: value ?? null,
+                    })
+                    return false
+                }}
+            >
+                Click to Upload
+            </Button>
         </Upload>
     )
 }

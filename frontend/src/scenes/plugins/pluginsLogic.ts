@@ -67,6 +67,7 @@ export const pluginsLogic = kea<
         }),
         savePluginOrders: (newOrders: Record<number, number>) => ({ newOrders }),
         cancelRearranging: true,
+        setWarningShown: (showWarning: boolean) => ({ showWarning }),
     },
 
     loaders: ({ actions, values }) => ({
@@ -303,6 +304,12 @@ export const pluginsLogic = kea<
                 return newPluginConfigs
             },
         },
+        warningShown: [
+            false,
+            {
+                setWarningShown: (_, { showWarning }) => showWarning,
+            },
+        ],
         pluginTab: [
             PluginTab.Installed as PluginTab,
             {

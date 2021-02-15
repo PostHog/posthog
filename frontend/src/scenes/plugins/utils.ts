@@ -38,6 +38,7 @@ export function defaultConfigForPlugin(plugin: PluginTypeWithConfig): Record<str
     }
     return config
 }
+
 export function getPluginConfigFormData(
     editingPlugin: PluginTypeWithConfig,
     pluginConfigChanges: Record<string, any>

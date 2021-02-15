@@ -31,6 +31,9 @@ from posthog.plugins.utils import load_json_file
 from posthog.redis import get_client
 from posthog.utils import is_plugin_server_alive
 
+SECRET_ATTACHMENT_NAME = "Secret Attachment"
+SECRET_STRING_NAME = "****************"
+
 
 class PluginSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
@@ -197,15 +200,36 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).only(
             "id", "file_size", "file_name", "content_type"
         )
+
         new_plugin_config = plugin_config.config.copy()
+
+        secret_fields = set(
+            [field["key"] for field in plugin_config.plugin.config_schema if "secret" in field and field["secret"]]
+        )
+
+        # do not send the real value to the client
+        for key in new_plugin_config.keys():
+            if key in secret_fields:
+                new_plugin_config[key] = SECRET_STRING_NAME
+
         for attachment in attachments:
-            new_plugin_config[attachment.key] = {
-                "uid": attachment.id,
-                "saved": True,
-                "size": attachment.file_size,
-                "name": attachment.file_name,
-                "type": attachment.content_type,
-            }
+            if attachment.key not in secret_fields:
+                new_plugin_config[attachment.key] = {
+                    "uid": attachment.id,
+                    "saved": True,
+                    "size": attachment.file_size,
+                    "name": attachment.file_name,
+                    "type": attachment.content_type,
+                }
+            else:
+                new_plugin_config[attachment.key] = {
+                    "uid": 1,
+                    "saved": True,
+                    "size": 1,
+                    "name": SECRET_ATTACHMENT_NAME,
+                    "type": "application/octet-stream",
+                }
+
         return new_plugin_config
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
@@ -222,6 +246,14 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
         self._fix_formdata_config_json(validated_data)
         validated_data.pop("plugin", None)
+        old_plugin_config = plugin_config.config
+
+        # Handles updates to secret fields
+        if "config" in validated_data:
+            for config_item in validated_data["config"].items():
+                if config_item[1] == SECRET_STRING_NAME:  # prevent overriding value with "masked" value
+                    validated_data["config"][config_item[0]] = old_plugin_config[config_item[0]]
+
         response = super().update(plugin_config, validated_data)
         self._update_plugin_attachments(plugin_config)
         reload_plugins_on_workers()
