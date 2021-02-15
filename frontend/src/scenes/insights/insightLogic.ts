@@ -198,4 +198,9 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
     }),
+    events: ({ values }) => ({
+        beforeUnmount: () => {
+            clearTimeout(values.timeout || undefined)
+        },
+    }),
 })
