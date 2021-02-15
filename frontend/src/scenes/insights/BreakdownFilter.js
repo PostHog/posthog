@@ -84,7 +84,7 @@ function CohortFilter({ breakdown, onChange }) {
                             key={item.id}
                             value={item.id}
                             type="cohort"
-                            label={item.name}
+                            label={item.name.length > 45 ? item.name.slice(0,45).concat("...") : item.name}
                             data-attr={'cohort-breakdown-' + index}
                         >
                             {item.name}
@@ -123,7 +123,7 @@ export function BreakdownFilter({ filters, onChange }) {
     let label = breakdown
     if (breakdown_type === 'cohort' && breakdown) {
         label = cohorts
-            ? breakdown.map((cohort_id) => cohorts.filter((c) => c.id == cohort_id)[0]?.name || cohort_id).join(', ')
+            ? breakdown.map((cohort_id) => cohorts.filter((c) => c.id == cohort_id)[0]?.name.slice(0,20) || cohort_id).join(', ')
             : ''
     }
 

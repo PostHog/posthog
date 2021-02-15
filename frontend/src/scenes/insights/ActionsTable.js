@@ -24,7 +24,11 @@ export function ActionsTable({ dashboardItemId = null, view, filters: filtersPar
                         render: function renderLabel(_, { label, action }) {
                             return (
                                 <div style={{ wordBreak: 'break-all' }}>
-                                    {filters.session ? label : filters.formula ? label : formatLabel(label, action)}
+                                    {
+                                    filters.session ? label : filters.formula ? label 
+                                    : label.length > 45 ? formatLabel(label.slice(0,46).concat("..."), action) 
+                                    : formatLabel(label, action)
+                                    }
                                 </div>
                             )
                         },
