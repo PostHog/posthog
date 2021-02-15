@@ -6,7 +6,7 @@ import { Input, Alert, Button, ButtonProps } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import { isEmail } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
-import { PlusOutlined } from '@ant-design/icons'
+import { UserAddOutlined } from '@ant-design/icons'
 
 export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Element {
     const { createInvite } = useActions(invitesLogic)
@@ -50,7 +50,7 @@ export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Eleme
                 onClick={() => {
                     setIsVisible(true)
                 }}
-                icon={<PlusOutlined />}
+                icon={<UserAddOutlined />}
                 {...buttonProps}
             >
                 Invite Team Member
