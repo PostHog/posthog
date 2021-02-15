@@ -65,6 +65,10 @@
             h3 {
                 color: $text_light;
             }
+
+            .mobile-continue {
+                display: none;
+            }
         }
     }
 
@@ -76,10 +80,16 @@
         max-height: 100%;
         overflow: auto;
 
+        .top-helper {
+            margin-right: $default_spacing * 2;
+            text-align: right;
+        }
+
         .rhs-inner {
             align-self: center;
             width: 100%;
-            max-width: 350px;
+            max-width: 382px; // 350px + 32px padding
+            padding: 0 $default_spacing;
         }
 
         .password-login {
@@ -89,10 +99,32 @@
 
     @media screen and (max-width: $md) {
         overflow: auto;
+        scroll-behavior: smooth;
+
+        .showcase-content {
+            .page-title {
+                margin-top: 0;
+            }
+
+            .mobile-continue {
+                display: block !important;
+                padding-top: $default_spacing;
+            }
+        }
 
         .rhs-content {
             height: initial;
             overflow: initial;
+
+            .top-helper {
+                text-align: left;
+                margin-right: 0;
+                padding: 0 $default_spacing;
+                color: $text_muted;
+                b {
+                    font-weight: normal;
+                }
+            }
         }
     }
 }

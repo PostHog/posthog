@@ -1,10 +1,11 @@
 import { Button, Col, Input, Row } from 'antd'
-import React, { lazy, Suspense, useState } from 'react'
+import React, { lazy, Suspense, useRef, useState } from 'react'
 import './LoginSignup.scss'
 import smLogo from 'public/icon-white.svg'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { PrevalidatedInvite } from '~/types'
 import { Link } from 'lib/components/Link'
+import { ArrowDownOutlined } from '@ant-design/icons'
 
 const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
 
@@ -19,9 +20,18 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
     Currently used for: InviteSignup.
     */
     const [formState, setFormState] = useState({ firstName: '', password: '' })
+    const mainContainerRef = useRef<HTMLDivElement | null>(null)
+    const rhsContainerRef = useRef<HTMLDivElement | null>(null)
+
+    const handleScroll = (): void => {
+        const yPos = rhsContainerRef.current ? rhsContainerRef.current.getBoundingClientRect().top : null
+        if (yPos) {
+            mainContainerRef.current?.scrollTo(0, yPos)
+        }
+    }
 
     return (
-        <div className="login-signup">
+        <div className="login-signup" ref={mainContainerRef}>
             <Row>
                 <Col span={24} md={10} className="image-showcase">
                     <div className="the-mountains" />
@@ -34,10 +44,15 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
                         </h1>
                         <div className="wordmark">PostHog</div>
                         <div className="showcase-caption">{showcaseCaption}</div>
+                        <div className="mobile-continue">
+                            <Button icon={<ArrowDownOutlined />} type="default" onClick={handleScroll}>
+                                Continue
+                            </Button>
+                        </div>
                     </div>
                 </Col>
-                <Col span={24} md={14} className="rhs-content">
-                    <div className="text-right mb" style={{ marginRight: 32 }}>
+                <Col span={24} md={14} className="rhs-content" ref={rhsContainerRef}>
+                    <div className="top-helper" style={{ marginRight: 32 }}>
                         <b>Already have an account?</b>{' '}
                         <Link to="/login?utm_message=login-to-accept-invite">Log in to accept your invite</Link>
                     </div>
@@ -61,17 +76,31 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
                                         type="password"
                                         required
                                         disabled={false}
+                                        autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
                                         value={formState.password}
                                         onChange={(e) => setFormState({ ...formState, password: e.target.value })}
                                         id="password"
                                     />
+                                    <span className="caption">Your password must have at least 8 characters.</span>
                                     <Suspense fallback={<></>}>
                                         <PasswordStrength password={formState.password} />
                                     </Suspense>
                                 </div>
                                 <div className="input-set">
                                     <label htmlFor="first_name">First Name</label>
-                                    <Input placeholder="Jane" type="text" required disabled={false} id="first_name" />
+                                    <Input
+                                        placeholder="Jane"
+                                        type="text"
+                                        required
+                                        disabled={false}
+                                        id="first_name"
+                                        defaultValue={invite?.first_name}
+                                    />
+                                    {invite?.first_name && (
+                                        <span className="caption">
+                                            Your name was provided in the invite, feel free to change it.
+                                        </span>
+                                    )}
                                 </div>
                                 <Button
                                     type="primary"
