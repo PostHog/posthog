@@ -300,7 +300,7 @@ code.code {
         .caption {
             color: $danger;
         }
-        .ant-input-password,
+        input[type='password'],
         input[type='text'] {
             border-color: $danger !important;
         }

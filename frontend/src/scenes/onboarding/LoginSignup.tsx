@@ -6,6 +6,9 @@ import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { PrevalidatedInvite } from '~/types'
 import { Link } from 'lib/components/Link'
 import { ArrowDownOutlined } from '@ant-design/icons'
+import { useActions, useValues } from 'kea'
+import { inviteSignupLogic } from './inviteSignupLogic'
+import Checkbox from 'antd/lib/checkbox/Checkbox'
 
 const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
 
@@ -19,15 +22,51 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
     UI component for the login & signup pages.
     Currently used for: InviteSignup.
     */
-    const [formState, setFormState] = useState({ firstName: '', password: '' })
+    const [formValues, setFormValues] = useState({
+        firstName: invite?.first_name || '',
+        password: '',
+        emailOptIn: true,
+    })
+    const [formState, setFormState] = useState({ submitted: false, passwordInvalid: false })
     const mainContainerRef = useRef<HTMLDivElement | null>(null)
     const rhsContainerRef = useRef<HTMLDivElement | null>(null)
+    const passwordInputRef = useRef<Input | null>(null)
+    const { acceptInvite } = useActions(inviteSignupLogic)
+    const { acceptedInviteLoading } = useValues(inviteSignupLogic)
 
     const handleScroll = (): void => {
         const yPos = rhsContainerRef.current ? rhsContainerRef.current.getBoundingClientRect().top : null
         if (yPos) {
             mainContainerRef.current?.scrollTo(0, yPos)
         }
+    }
+
+    const handlePasswordChanged = (e: React.ChangeEvent<HTMLInputElement>): void => {
+        const { value } = e.target
+        setFormValues({ ...formValues, password: value })
+        if (value.length >= 8) {
+            setFormState({ ...formState, passwordInvalid: false })
+        } else {
+            setFormState({ ...formState, passwordInvalid: true })
+        }
+    }
+
+    const handleFormSubmit = (e: React.FormEvent<EventTarget>): void => {
+        e.preventDefault()
+        if (formState.passwordInvalid) {
+            setFormState({ ...formState, submitted: true })
+            if (passwordInputRef.current) {
+                passwordInputRef.current.focus()
+            }
+            return
+        }
+
+        const payload = {
+            first_name: formValues.firstName,
+            password: formValues.password,
+            email_opt_in: formValues.emailOptIn,
+        }
+        acceptInvite(payload)
     }
 
     return (
@@ -64,26 +103,31 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
                         />
                         <div className="password-login">
                             <h3 className="l3 text-center">Or create your own password</h3>
-                            <form>
+                            <form onSubmit={handleFormSubmit}>
                                 <div className="input-set">
                                     <label htmlFor="email">Email</label>
                                     <Input type="email" disabled id="email" value={invite?.target_email} />
                                 </div>
-                                <div className="input-set">
+                                <div
+                                    className={`input-set${
+                                        formState.submitted && formState.passwordInvalid ? ' errored' : ''
+                                    }`}
+                                >
                                     <label htmlFor="password">Password</label>
                                     <Input
                                         placeholder="*******"
                                         type="password"
                                         required
-                                        disabled={false}
+                                        disabled={acceptedInviteLoading}
                                         autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
-                                        value={formState.password}
-                                        onChange={(e) => setFormState({ ...formState, password: e.target.value })}
+                                        value={formValues.password}
+                                        onChange={handlePasswordChanged}
                                         id="password"
+                                        ref={passwordInputRef}
                                     />
                                     <span className="caption">Your password must have at least 8 characters.</span>
                                     <Suspense fallback={<></>}>
-                                        <PasswordStrength password={formState.password} />
+                                        <PasswordStrength password={formValues.password} />
                                     </Suspense>
                                 </div>
                                 <div className="input-set">
@@ -92,9 +136,10 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
                                         placeholder="Jane"
                                         type="text"
                                         required
-                                        disabled={false}
+                                        disabled={acceptedInviteLoading}
                                         id="first_name"
-                                        defaultValue={invite?.first_name}
+                                        value={formValues.firstName}
+                                        onChange={(e) => setFormValues({ ...formValues, firstName: e.target.value })}
                                     />
                                     {invite?.first_name && (
                                         <span className="caption">
@@ -102,12 +147,22 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
                                         </span>
                                     )}
                                 </div>
+                                <div className="mb">
+                                    <Checkbox
+                                        checked={formValues.emailOptIn}
+                                        onChange={(e) => setFormValues({ ...formValues, emailOptIn: e.target.checked })}
+                                        disabled={acceptedInviteLoading}
+                                        style={{ fontSize: 12, color: 'var(--text-muted)' }}
+                                    >
+                                        Send me product and security updates
+                                    </Checkbox>
+                                </div>
                                 <Button
                                     type="primary"
                                     htmlType="submit"
                                     data-attr="password-signup"
-                                    disabled={false}
-                                    loading={false}
+                                    disabled={formState.submitted && formState.passwordInvalid}
+                                    loading={acceptedInviteLoading}
                                     block
                                 >
                                     Continue

@@ -15,7 +15,15 @@ interface ErrorInterface {
     detail?: string
 }
 
-export const inviteSignupLogic = kea<inviteSignupLogicType<PrevalidatedInvite, ErrorInterface>>({
+interface AcceptInvitePayloadInterface {
+    first_name?: string
+    password: string
+    email_opt_in: boolean
+}
+
+export const inviteSignupLogic = kea<
+    inviteSignupLogicType<PrevalidatedInvite, ErrorInterface, AcceptInvitePayloadInterface>
+>({
     actions: {
         setError: (payload: ErrorInterface) => ({ payload }),
     },
@@ -54,14 +62,14 @@ export const inviteSignupLogic = kea<inviteSignupLogicType<PrevalidatedInvite, E
         acceptedInvite: [
             null,
             {
-                acceptInvite: async (_, breakpoint) => {
+                acceptInvite: async (payload: AcceptInvitePayloadInterface | null, breakpoint) => {
                     breakpoint()
 
                     if (!values.invite) {
                         return null
                     }
 
-                    return await api.create(`api/signup/${values.invite.id}/`, {})
+                    return await api.create(`api/signup/${values.invite.id}/`, payload)
                 },
             },
         ],
