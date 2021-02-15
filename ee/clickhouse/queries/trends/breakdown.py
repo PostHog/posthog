@@ -248,13 +248,15 @@ class ClickhouseTrendsBreakdown:
 
         return top_elements_array
 
-    def _format_all_query(self, team_id: int, filter: Filter, entity: Entity) -> str:
+    def _format_all_query(self, team_id: int, filter: Filter, entity: Entity) -> Tuple[str, Dict]:
         parsed_date_from, parsed_date_to, date_params = parse_timestamps(
             filter=filter, team_id=team_id, table="all_events."
         )
 
         props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id, table_name="all_events")
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            props_to_filter, team_id, prepend="all_cohort_", table_name="all_events"
+        )
         query = """
             UNION ALL SELECT DISTINCT distinct_id, 0 as value
             FROM events all_events
@@ -262,7 +264,7 @@ class ClickhouseTrendsBreakdown:
             """.format(
             team_id, parsed_date_from, parsed_date_to, prop_filters
         )
-        return substitute_params(query, {**date_params, **prop_filter_params})
+        return query, {**date_params, **prop_filter_params}
 
     def _format_breakdown_cohort_join_query(
         self, team_id: int, filter: Filter, entity: Entity
@@ -271,7 +273,9 @@ class ClickhouseTrendsBreakdown:
         cohort_queries, params = self._parse_breakdown_cohorts(cohorts)
         ids = [cohort.pk for cohort in cohorts]
         if "all" in filter.breakdown:
-            cohort_queries += self._format_all_query(team_id, filter, entity)
+            all_query, all_params = self._format_all_query(team_id, filter, entity)
+            cohort_queries += all_query
+            params = {**params, **all_params}
             ids.append(0)
         return cohort_queries, ids, params
 
