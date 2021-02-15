@@ -376,7 +376,7 @@ export interface DashboardItemType {
 export interface DashboardType {
     id: number
     name: string
-    pinned: string
+    pinned: boolean
     items: DashboardItemType[]
     created_at: string
     created_by: number
