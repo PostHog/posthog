@@ -22,7 +22,7 @@ import {
 import { FullScreen } from 'lib/components/FullScreen'
 import moment from 'moment'
 
-export function DashboardHeader({ logic }) {
+export function DashboardHeader({ logic }): JSX.Element {
     const { dashboard, draggingEnabled } = useValues(logic)
     const { addNewDashboard, renameDashboard, enableDragging, disableDragging } = useActions(logic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
