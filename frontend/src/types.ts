@@ -367,7 +367,7 @@ export interface DashboardItemType {
     saved: boolean
     created_at: string
     layouts: Record<string, any>
-    color: string
+    color: string | null
     last_refresh: string
     refreshing: boolean
     created_by: Record<string, any>

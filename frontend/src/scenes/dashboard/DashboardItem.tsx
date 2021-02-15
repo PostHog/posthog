@@ -46,7 +46,7 @@ interface Props {
     inSharedMode?: boolean
     enableWobblyDragging?: () => void
     index: number
-    layout: any
+    layout?: any
     onRefresh?: () => void
     footer?: JSX.Element
     onClick?: () => void
@@ -56,7 +56,7 @@ interface Props {
     duplicateDashboardItem?: (it: DashboardItemType, dashboardId?: number) => void
 }
 
-type DisplayedType = DisplayType | 'RetentionContainer'
+export type DisplayedType = DisplayType | 'RetentionContainer'
 
 interface DisplayProps {
     className: string
