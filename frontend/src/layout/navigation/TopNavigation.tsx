@@ -15,6 +15,7 @@ import {
     PlusOutlined,
     UpOutlined,
     SearchOutlined,
+    UserAddOutlined,
 } from '@ant-design/icons'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -107,6 +108,12 @@ export function _TopNavigation(): JSX.Element {
                 >
                     <PlusOutlined style={{ marginRight: 8, fontSize: 18 }} /> New organization
                 </a>
+            </div>
+            <div className="divider mb-05" />
+            <div className="text-center mb-05">
+                <Link to="/organization/members" data-attr="top-menu-invite-team-members">
+                    <UserAddOutlined style={{ marginRight: 8, fontSize: 18 }} /> Invite team members
+                </Link>
             </div>
             <div className="divider mb-05" />
             <div className="text-center">
