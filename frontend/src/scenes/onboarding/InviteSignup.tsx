@@ -135,7 +135,12 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                 <div>
                     {!acceptedInvite ? (
                         <>
-                            <Button type="primary" block onClick={acceptInvite} disabled={acceptedInviteLoading}>
+                            <Button
+                                type="primary"
+                                block
+                                onClick={() => acceptInvite(null)}
+                                disabled={acceptedInviteLoading}
+                            >
                                 Accept invite
                             </Button>
                             <div className="mt">
