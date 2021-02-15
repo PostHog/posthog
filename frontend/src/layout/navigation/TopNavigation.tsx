@@ -15,6 +15,7 @@ import {
     PlusOutlined,
     UpOutlined,
     SearchOutlined,
+    SettingOutlined,
 } from '@ant-design/icons'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -25,6 +26,7 @@ import { isMobile, platformCommandControlKey } from 'lib/utils'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
+import { CreateInviteModalWithButton } from '../../scenes/organization/TeamMembers/CreateInviteModal'
 
 export const TopNavigation = hot(_TopNavigation)
 export function _TopNavigation(): JSX.Element {
@@ -50,10 +52,18 @@ export function _TopNavigation(): JSX.Element {
                     <span>{user?.organization?.name}</span>
                 </div>
             </div>
-            <div className="text-center">
+            <div className="text-center mt" style={{ paddingRight: 16, paddingLeft: 16 }}>
                 <div>
-                    <LinkButton className="mt" to="/organization/members" data-attr="top-menu-item-org-settings">
-                        Org settings &amp; members
+                    <CreateInviteModalWithButton style={{ width: '100%' }} />
+                </div>
+                <div style={{ marginTop: 12 }}>
+                    <LinkButton
+                        to="/organization/members"
+                        data-attr="top-menu-item-org-settings"
+                        style={{ width: '100%' }}
+                        icon={<SettingOutlined />}
+                    >
+                        Organization Settings
                     </LinkButton>
                 </div>
                 {user?.is_multi_tenancy ? (
