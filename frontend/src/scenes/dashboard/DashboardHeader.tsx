@@ -70,7 +70,7 @@ export function DashboardHeader(): JSX.Element {
                     {dashboard ? (
                         <div className="dashboard-meta">
                             <Tooltip title="Select time period">
-                                <DateFilter />
+                                <DateFilter defaultValue="Custom" showCustom />
                             </Tooltip>
 
                             {!fullScreen ? (

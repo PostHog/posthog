@@ -175,8 +175,8 @@ function _Insights() {
                         <Col xs={24} xl={7}>
                             <Card className="" style={{ overflow: 'visible' }}>
                                 <div>
-                                    {/* 
-                                These are insight specific filters. 
+                                    {/*
+                                These are insight specific filters.
                                 They each have insight specific logics
                                 */}
                                     {featureFlags['remove-shownas']
@@ -208,8 +208,8 @@ function _Insights() {
                             )}
                         </Col>
                         <Col xs={24} xl={17}>
-                            {/* 
-                        These are filters that are reused between insight features. 
+                            {/*
+                        These are filters that are reused between insight features.
                         They each have generic logic that updates the url
                         */}
                             <Card
@@ -230,7 +230,9 @@ function _Insights() {
                                             />
                                         )}
 
-                                        {showDateFilter[activeView] && <DateFilter disabled={dateFilterDisabled} />}
+                                        {showDateFilter[activeView] && (
+                                            <DateFilter defaultValue="Last 7 days" disabled={dateFilterDisabled} />
+                                        )}
 
                                         {showComparePrevious[activeView] && <CompareFilter />}
                                         <SaveToDashboard
