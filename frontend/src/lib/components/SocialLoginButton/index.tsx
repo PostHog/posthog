@@ -1,5 +1,7 @@
 import { Button } from 'antd'
+import { useValues } from 'kea'
 import React from 'react'
+import { userLogic } from 'scenes/userLogic'
 import './index.scss'
 
 export enum SocialProviders {
@@ -27,7 +29,13 @@ interface SocialLoginButtonsProps extends SharedProps {
     caption?: string
 }
 
-export function SocialLoginButton({ provider, queryString }: SocialLoginButtonProps): JSX.Element {
+export function SocialLoginButton({ provider, queryString }: SocialLoginButtonProps): JSX.Element | null {
+    const { authConfig } = useValues(userLogic)
+
+    if (!authConfig?.available_backends[provider]) {
+        return null
+    }
+
     return (
         <Button className={`btn-social-login ${provider}`} href={`/login/${provider}/${queryString}`}>
             <div className="btn-social-icon">
@@ -38,7 +46,16 @@ export function SocialLoginButton({ provider, queryString }: SocialLoginButtonPr
     )
 }
 
-export function SocialLoginButtons({ title, caption, ...props }: SocialLoginButtonsProps): JSX.Element {
+export function SocialLoginButtons({ title, caption, ...props }: SocialLoginButtonsProps): JSX.Element | null {
+    const { authConfig } = useValues(userLogic)
+
+    if (
+        !authConfig?.available_backends ||
+        !Object.values(authConfig.available_backends).filter((val) => !!val).length
+    ) {
+        return null
+    }
+
     return (
         <div className="social-logins">
             {title && <h3 className="l3">{title}</h3>}

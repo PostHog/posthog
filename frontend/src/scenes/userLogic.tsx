@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { posthogEvents } from 'lib/utils'
 import { userLogicType } from './userLogicType'
-import { UserType, UserUpdateType } from '~/types'
+import { AuthConfig, UserType, UserUpdateType } from '~/types'
 import posthog from 'posthog-js'
 
 export interface EventProperty {
@@ -10,7 +10,7 @@ export interface EventProperty {
     label: string
 }
 
-export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateType>>({
+export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateType, AuthConfig>>({
     actions: () => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         setUser: (user: UserType | null, updateKey?: string) => ({
@@ -46,7 +46,10 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
     },
 
     events: ({ actions }) => ({
-        afterMount: () => actions.loadUser(true),
+        afterMount: () => {
+            actions.loadUser(true)
+            actions.loadAuthConfig()
+        },
     }),
 
     selectors: ({ selectors }) => ({
@@ -155,4 +158,12 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
             window.location.href = '/logout'
         },
     }),
+    loaders: {
+        authConfig: [
+            null as AuthConfig | null,
+            {
+                loadAuthConfig: async () => await api.get('api/authentication/'),
+            },
+        ],
+    },
 })

@@ -509,3 +509,13 @@ export interface PrevalidatedInvite {
     first_name: string
     organization_name: string
 }
+
+interface AuthBackends {
+    'google-oauth2'?: boolean
+    gitlab?: boolean
+    github?: boolean
+}
+
+export interface AuthConfig {
+    available_backends: AuthBackends
+}
