@@ -88,8 +88,12 @@ class OrganizationInviteViewSet(
 
     @action(methods=["POST"], detail=False)
     def bulk(self, request: request.Request, **kwargs) -> response.Response:
-        validated_data = OrganizationInviteSerializer(data=request.data, many=True).validated_data
+        input_serializer = OrganizationInviteSerializer(data=request.data, many=True)
+        input_serializer.is_valid()
+        validated_data = input_serializer.validated_data
 
+        if not isinstance(validated_data, list):
+            raise serializers.ValidationError("Bulk invite creation requires an array of input data.")
         if len(validated_data) > 20:
             raise serializers.ValidationError(
                 "A maximum of 20 invites can be sent in a single request.", code="max_length",
@@ -99,15 +103,16 @@ class OrganizationInviteViewSet(
         organization = Organization.objects.get(id=self.organization_id)
 
         with transaction.atomic():
-            for invite in validated_data["invites"]:
-                serializer = OrganizationInviteSerializer(data=invite, context=self.get_serializer_context())
-                serializer.is_valid(raise_exception=False)  # Don't raise, already validated before
-                output.append(serializer.save())
+            for invite in validated_data:
+                output_serializer = OrganizationInviteSerializer(data=invite, context=self.get_serializer_context())
+                output_serializer.is_valid(raise_exception=False)  # Don't raise, already validated before
+                output_serializer.save()
+                output.append(output_serializer.data)
 
         report_bulk_invited(
             request.user.distinct_id,
-            invitee_count=len(validated_data["invites"]),
-            name_count=sum(1 for invite in validated_data["invites"] if invite["first_name"]),
+            invitee_count=len(validated_data),
+            name_count=sum(1 for invite in validated_data if invite["first_name"]),
             current_invite_count=organization.active_invites.count(),
             current_member_count=organization.memberships.count(),
             email_available=is_email_available(),
