@@ -568,6 +568,9 @@ export function uniqueBy<T>(items: T[], uniqueResolver: (item: T) => any): T[] {
 }
 
 export function sample<T>(items: T[], size: number): T[] {
+    if (!items.length) {
+        throw Error('Items array is empty!')
+    }
     if (size > items.length) {
         throw Error('Sample size cannot exceed items array length!')
     }
@@ -584,11 +587,11 @@ export function sample<T>(items: T[], size: number): T[] {
     return results
 }
 
-export function sampleSingle<T>(items: T[]): T[] {
+export function sampleOne<T>(items: T[]): T {
     if (!items.length) {
         throw Error('Items array is empty!')
     }
-    return [items[Math.floor(Math.random() * items.length)]]
+    return items[Math.floor(Math.random() * items.length)]
 }
 
 /** Convert camelCase, PascalCase or snake_case to Title Case. */
