@@ -8,7 +8,7 @@ import './FunnelPeople.scss'
 import { Card } from 'antd'
 
 export function People() {
-    const { stepsWithCount, peopleSorted, peopleLoading } = useValues(funnelLogic)
+    const { stepsWithCount, peopleSorted, peopleLoading } = useValues(funnelLogic({}))
 
     return (
         <Card title="Per user" className="funnel-people">

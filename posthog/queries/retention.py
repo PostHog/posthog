@@ -7,6 +7,7 @@ from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth,
 from django.db.models.query import Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from rest_framework.utils.serializer_helpers import ReturnDict
+from sentry_sdk.api import capture_exception
 
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models import Event, Filter, Team
@@ -281,9 +282,15 @@ class Retention(BaseQuery):
         marker_length = filter.total_intervals
         result = []
         for val in vals:
-            result.append(
-                {"person": people_dict[val[0]], "appearances": appearance_to_markers(sorted(val[2]), marker_length)}
-            )
+            # NOTE: This try/except shouldn't be necessary but there do seem to be a handful of missing persons that can't be looked up
+            try:
+                result.append(
+                    {"person": people_dict[val[0]], "appearances": appearance_to_markers(sorted(val[2]), marker_length)}
+                )
+            except Exception as e:
+                capture_exception(e)
+                continue
+
         return result
 
     def get_entity_condition(self, entity: Entity, table: str) -> Tuple[Q, str]:

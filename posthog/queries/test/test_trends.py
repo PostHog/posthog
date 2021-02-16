@@ -103,6 +103,23 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(response[0]["labels"][5], "Thu. 2 January")
             self.assertEqual(response[0]["data"][5], 1.0)
 
+        # just make sure this doesn't error
+        def test_no_props(self):
+            with freeze_time("2020-01-04T13:01:01Z"):
+                event_response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-14d",
+                            "breakdown": "$some_property",
+                            "events": [
+                                {"id": "sign up", "name": "sign up", "type": "events", "order": 0,},
+                                {"id": "no events"},
+                            ],
+                        }
+                    ),
+                    self.team,
+                )
+
         def test_trends_per_day_48hours(self):
             self._create_events()
             with freeze_time("2020-01-03T13:00:01Z"):

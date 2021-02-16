@@ -83,10 +83,10 @@ def _send_email(
                 record.sent_at = timezone.now()
                 record.save()
 
-        except Exception as e:
+        except Exception as err:
             # Handle exceptions gracefully to avoid breaking the entire task for all teams
             # but make sure they're tracked on Sentry.
-            capture_exception(e)
+            capture_exception(err)
         finally:
             # ensure that connection has been closed
             try:

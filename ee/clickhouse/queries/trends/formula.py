@@ -25,9 +25,13 @@ class ClickhouseTrendsFormula:
     def _run_formula_query(self, filter: Filter, team_id: int):
         letters = [chr(65 + i) for i in range(0, len(filter.entities))]
         queries = []
-        for entity in filter.entities:
-            sql, params, _ = self._get_sql_for_entity(filter, entity, team_id)  # type: ignore
-            queries.append(substitute_params(sql, params))
+        params: Dict[str, Any] = {}
+        for idx, entity in enumerate(filter.entities):
+            sql, entity_params, _ = self._get_sql_for_entity(filter, entity, team_id)  # type: ignore
+            sql = sql.replace("%(", "%({}_".format(idx))
+            entity_params = {"{}_{}".format(idx, key): value for key, value in entity_params.items()}
+            queries.append(sql)
+            params = {**params, **entity_params}
 
         breakdown_value = (
             ", sub_A.breakdown_value"
@@ -65,10 +69,10 @@ class ClickhouseTrendsFormula:
             )
             if filter.breakdown
             else "".join(
-                ["CROSS JOIN ({}) as sub_{}".format(query, letters[i + 1]) for i, query in enumerate(queries[1:])]
+                [" CROSS JOIN ({}) as sub_{}".format(query, letters[i + 1]) for i, query in enumerate(queries[1:])]
             ),
         )
-        result = sync_execute(sql)
+        result = sync_execute(sql, params)
         response = []
         for item in result:
             additional_values: Dict[str, Any] = {
@@ -78,7 +82,9 @@ class ClickhouseTrendsFormula:
                 additional_values["data"] = []
                 additional_values["aggregated_value"] = item[1][0]
             else:
-                additional_values["data"] = [round(number, 2) if not math.isnan(number) else 0.0 for number in item[1]]
+                additional_values["data"] = [
+                    round(number, 2) if not math.isnan(number) and not math.isinf(number) else 0.0 for number in item[1]
+                ]
                 if filter.display == TRENDS_CUMULATIVE:
                     additional_values["data"] = list(accumulate(additional_values["data"]))
             additional_values["count"] = float(sum(additional_values["data"]))

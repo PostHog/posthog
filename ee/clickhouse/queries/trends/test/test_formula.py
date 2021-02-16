@@ -155,6 +155,9 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
         self.assertEqual(self._run({"formula": "(A/3600)/B"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.assertEqual(self._run({"formula": "(A/3600)/B"})[0]["count"], 0)
 
+        self.assertEqual(self._run({"formula": "A/0"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        self.assertEqual(self._run({"formula": "A/0"})[0]["count"], 0)
+
     def test_breakdown(self):
         action_response = self._run({"formula": "A - B", "breakdown": "location"})
         self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 450.0, 0.0])
@@ -223,4 +226,19 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
     def test_cumulative(self):
         self.assertEqual(
             self._run({"display": TRENDS_CUMULATIVE})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 2550.0, 2550.0]
+        )
+
+    def test_multiple_events(self):
+        # regression test
+        self.assertEqual(
+            self._run(
+                {
+                    "events": [
+                        {"id": "session start", "math": "sum", "math_property": "session duration"},
+                        {"id": "session start", "math": "avg", "math_property": "session duration"},
+                        {"id": "session start", "math": "avg", "math_property": "session duration"},
+                    ]
+                }
+            )[0]["data"],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0],
         )
