@@ -721,3 +721,11 @@ export function autocorrectInterval(filters: Partial<FilterType>): string {
         return filters.interval
     }
 }
+
+export function pluralize(count: number, singular: string, plural?: string, includeNumber: boolean = true): string {
+    if (!plural) {
+        plural = singular + 's'
+    }
+    const form = count === 1 ? singular : plural
+    return includeNumber ? `${count} ${form}` : form
+}
