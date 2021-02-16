@@ -8,11 +8,12 @@ import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
 interface Props {
     defaultValue: string
     showCustom?: boolean
+    bordered?: boolean
     style?: React.CSSProperties
     disabled?: boolean
 }
 
-export function DateFilter({ defaultValue, showCustom, style, disabled }: Props): JSX.Element {
+export function DateFilter({ bordered, defaultValue, showCustom, style, disabled }: Props): JSX.Element {
     const {
         dates: { dateFrom, dateTo },
     } = useValues(dateFilterLogic)
@@ -74,7 +75,7 @@ export function DateFilter({ defaultValue, showCustom, style, disabled }: Props)
     return (
         <Select
             data-attr="date-filter"
-            bordered={false}
+            bordered={bordered}
             id="daterange_selector"
             value={dateFilterToText(dateFrom, dateTo, defaultValue)}
             onChange={_onChange}

@@ -231,7 +231,11 @@ function _Insights() {
                                         )}
 
                                         {showDateFilter[activeView] && (
-                                            <DateFilter defaultValue="Last 7 days" disabled={dateFilterDisabled} />
+                                            <DateFilter
+                                                defaultValue="Last 7 days"
+                                                disabled={dateFilterDisabled}
+                                                bordered={false}
+                                            />
                                         )}
 
                                         {showComparePrevious[activeView] && <CompareFilter />}
