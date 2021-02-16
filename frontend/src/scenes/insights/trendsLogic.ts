@@ -21,7 +21,7 @@ import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constan
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { ActionType, EntityType, FilterType, PersonType, PropertyFilter } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
-import { ToastId } from 'react-toastify'
+import { toast, ToastId } from 'react-toastify'
 
 interface ActionFilter {
     id: number | string
@@ -132,15 +132,6 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
 
     connect: {
         values: [userLogic, ['eventNames'], actionsModel, ['actions']],
-        actions: [
-            cohortLogic({
-                cohort: {
-                    id: 'new',
-                    groups: [],
-                },
-            }),
-            ['saveCohort', 'setCohort'],
-        ],
     },
 
     loaders: ({ values, props }) => ({
@@ -292,19 +283,33 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
             actions.setFilters({ display })
         },
         refreshCohort: () => {
-            actions.setCohort({
+            cohortLogic({
+                cohort: {
+                    id: 'new',
+                    groups: [],
+                },
+            }).actions.setCohort({
                 id: 'new',
                 groups: [],
             })
         },
         saveCohortWithFilters: ({ cohortName }) => {
-            const { label, action, day, breakdown_value } = values.people
-            const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
-            const cohortParams = {
-                is_static: true,
-                name: cohortName,
+            if (values.people) {
+                const { label, action, day, breakdown_value } = values.people
+                const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
+                const cohortParams = {
+                    is_static: true,
+                    name: cohortName,
+                }
+                cohortLogic({
+                    cohort: {
+                        id: 'new',
+                        groups: [],
+                    },
+                }).actions.saveCohort(cohortParams, filterParams)
+            } else {
+                toast.error('Error creating cohort')
             }
-            actions.saveCohort(cohortParams, filterParams)
         },
         loadPeople: async ({ label, action, day, breakdown_value }, breakpoint) => {
             let people = []
