@@ -477,6 +477,7 @@ export interface FilterType {
     type?: EntityType
     people_day?: any
     people_action?: any
+    formula?: any
 }
 
 export interface SystemStatus {

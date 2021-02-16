@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
-import { Dropdown } from 'antd'
+import { Button, Dropdown } from 'antd'
 import {
     ProjectOutlined,
     DownOutlined,
@@ -15,6 +15,8 @@ import {
     PlusOutlined,
     UpOutlined,
     SearchOutlined,
+    SettingOutlined,
+    UserAddOutlined,
 } from '@ant-design/icons'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -25,6 +27,7 @@ import { isMobile, platformCommandControlKey } from 'lib/utils'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
+import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
 
 export function WhoAmI(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -41,10 +44,16 @@ export function WhoAmI(): JSX.Element {
 
 export const TopNavigation = hot(_TopNavigation)
 export function _TopNavigation(): JSX.Element {
-    const { setMenuCollapsed, setChangelogModalOpen, updateCurrentOrganization, updateCurrentProject } = useActions(
+    const {
+        setMenuCollapsed,
+        setChangelogModalOpen,
+        updateCurrentOrganization,
+        updateCurrentProject,
+        setInviteMembersModalOpen,
+    } = useActions(navigationLogic)
+    const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen, inviteMembersModalOpen } = useValues(
         navigationLogic
     )
-    const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen } = useValues(navigationLogic)
     const { user } = useValues(userLogic)
     const { logout } = useActions(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
@@ -63,10 +72,25 @@ export function _TopNavigation(): JSX.Element {
                     <span>{user?.organization?.name}</span>
                 </div>
             </div>
-            <div className="text-center">
+            <div className="text-center mt" style={{ paddingRight: 16, paddingLeft: 16 }}>
                 <div>
-                    <LinkButton className="mt" to="/organization/members" data-attr="top-menu-item-org-settings">
-                        Org settings &amp; members
+                    <Button
+                        type="primary"
+                        icon={<UserAddOutlined />}
+                        onClick={() => setInviteMembersModalOpen(true)}
+                        data-attr="top-menu-invite-team-members"
+                    >
+                        Invite Team Members
+                    </Button>
+                </div>
+                <div style={{ marginTop: 12 }}>
+                    <LinkButton
+                        to="/organization/members"
+                        data-attr="top-menu-item-org-settings"
+                        style={{ width: '100%' }}
+                        icon={<SettingOutlined />}
+                    >
+                        Organization Settings
                     </LinkButton>
                 </div>
                 {user?.is_multi_tenancy ? (
@@ -232,6 +256,7 @@ export function _TopNavigation(): JSX.Element {
                     </Dropdown>
                 </div>
             </div>
+            <BulkInviteModal visible={inviteMembersModalOpen} onClose={() => setInviteMembersModalOpen(false)} />
             <CreateProjectModal isVisible={projectModalShown} setIsVisible={setProjectModalShown} />
             <CreateOrganizationModal isVisible={organizationModalShown} setIsVisible={setOrganizationModalShown} />
             {changelogModalOpen && <ChangelogModal onDismiss={() => setChangelogModalOpen(false)} />}

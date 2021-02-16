@@ -10,7 +10,6 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { getShadowRoot, getShadowRootPopupContainer } from '~/toolbar/utils'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { useLongPress } from 'lib/hooks/useLongPress'
-import { Stats } from '~/toolbar/button/icons/Stats'
 import { Flag } from '~/toolbar/button/icons/Flag'
 import { Fire } from '~/toolbar/button/icons/Fire'
 import { Magnifier } from '~/toolbar/button/icons/Magnifier'
@@ -36,18 +35,10 @@ export function ToolbarButton(): JSX.Element {
         heatmapExtensionPercentage,
         actionsExtensionPercentage,
         actionsInfoVisible,
-        statsExtensionPercentage,
-        statsVisible,
     } = useValues(toolbarButtonLogic)
-    const {
-        setExtensionPercentage,
-        showHeatmapInfo,
-        hideHeatmapInfo,
-        showActionsInfo,
-        hideActionsInfo,
-        showStats,
-        hideStats,
-    } = useActions(toolbarButtonLogic)
+    const { setExtensionPercentage, showHeatmapInfo, hideHeatmapInfo, showActionsInfo, hideActionsInfo } = useActions(
+        toolbarButtonLogic
+    )
     const { buttonActionsVisible, showActionsTooltip } = useValues(actionsTabLogic)
     const { hideButtonActions, showButtonActions } = useActions(actionsTabLogic)
     const { actionCount, allActionsLoading } = useValues(actionsLogic)
@@ -337,27 +328,6 @@ export function ToolbarButton(): JSX.Element {
                             />
                         ) : null}
                     </Circle>
-                    <Circle
-                        width={buttonWidth}
-                        x={side === 'left' ? 80 : -80}
-                        y={toolbarListVerticalPadding + n++ * 60}
-                        extensionPercentage={statsExtensionPercentage}
-                        rotationFixer={(r) => (side === 'right' && r < 0 ? 360 : 0)}
-                        label="Stats"
-                        labelPosition={side === 'left' ? 'right' : 'left'}
-                        labelStyle={{
-                            opacity: statsExtensionPercentage > 0.8 ? (statsExtensionPercentage - 0.8) / 0.2 : 0,
-                        }}
-                        content={<Stats style={{ height: 25 }} engaged={statsVisible} />}
-                        zIndex={1}
-                        onClick={statsVisible ? hideStats : showStats}
-                        style={{
-                            cursor: 'pointer',
-                            transform: `scale(${0.2 + 0.8 * statsExtensionPercentage})`,
-                            background: statsVisible ? '#F1AA04' : '#FEF5E2',
-                            borderRadius,
-                        }}
-                    />
                 </>
             ) : null}
         </Circle>

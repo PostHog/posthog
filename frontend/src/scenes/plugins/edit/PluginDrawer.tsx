@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Input, Popconfirm, Switch } from 'antd'
+import { Button, Form, Input, Popconfirm, Select, Switch } from 'antd'
 import { DeleteOutlined, CodeOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
@@ -13,6 +13,7 @@ import { defaultConfigForPlugin, getConfigSchemaArray } from 'scenes/plugins/uti
 import Markdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from './PluginSource'
+import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
 
 function EnabledDisabledSwitch({
     value,
@@ -51,6 +52,17 @@ export function PluginDrawer(): JSX.Element {
             form.resetFields()
         }
     }, [editingPlugin?.id])
+
+    const isValidChoiceConfig = (fieldConfig: PluginConfigChoice): boolean => {
+        return (
+            Array.isArray(fieldConfig.choices) &&
+            !!fieldConfig.choices.length &&
+            !fieldConfig.choices.find((c) => typeof c !== 'string')
+        )
+    }
+
+    const isValidField = (fieldConfig: PluginConfigSchema): boolean =>
+        fieldConfig.type !== 'choice' || isValidChoiceConfig(fieldConfig)
 
     return (
         <>
@@ -158,14 +170,13 @@ export function PluginDrawer(): JSX.Element {
                                 <React.Fragment key={fieldConfig.key || `__key__${index}`}>
                                     {fieldConfig.markdown ? (
                                         <Markdown source={fieldConfig.markdown} linkTarget="_blank" />
-                                    ) : null}
-                                    {fieldConfig.type ? (
+                                    ) : fieldConfig.type && isValidField(fieldConfig) ? (
                                         <Form.Item
                                             label={fieldConfig.name || fieldConfig.key}
                                             extra={
-                                                fieldConfig.hint ? (
+                                                fieldConfig.hint && (
                                                     <Markdown source={fieldConfig.hint} linkTarget="_blank" />
-                                                ) : null
+                                                )
                                             }
                                             name={fieldConfig.key}
                                             required={fieldConfig.required}
@@ -180,15 +191,27 @@ export function PluginDrawer(): JSX.Element {
                                                 <UploadField />
                                             ) : fieldConfig.type === 'string' ? (
                                                 <Input />
+                                            ) : fieldConfig.type === 'choice' ? (
+                                                <Select dropdownMatchSelectWidth={false}>
+                                                    {fieldConfig.choices.map((choice) => (
+                                                        <Select.Option value={choice} key={choice}>
+                                                            {choice}
+                                                        </Select.Option>
+                                                    ))}
+                                                </Select>
                                             ) : (
-                                                <strong style={{ color: 'var(--red)' }}>
+                                                <strong style={{ color: 'var(--danger)' }}>
                                                     Unknown field type "<code>{fieldConfig.type}</code>".
                                                     <br />
                                                     You may need to upgrade PostHog!
                                                 </strong>
                                             )}
                                         </Form.Item>
-                                    ) : null}
+                                    ) : (
+                                        <p style={{ color: 'var(--danger)' }}>
+                                            Invalid config field <i>{fieldConfig.name || fieldConfig.key}</i>.
+                                        </p>
+                                    )}
                                 </React.Fragment>
                             ))}
                         </div>

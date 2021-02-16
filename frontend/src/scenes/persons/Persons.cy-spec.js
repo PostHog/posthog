@@ -6,6 +6,7 @@ describe('<Person /> ', () => {
     const mount = () => helpers.mountPage(<Persons />)
 
     beforeEach(() => {
+        cy.intercept('/api/user/', { fixture: 'api/user' })
         cy.intercept('/api/person/', { fixture: 'api/person/persons' }).as('api_persons')
 
         helpers.mockPosthog()

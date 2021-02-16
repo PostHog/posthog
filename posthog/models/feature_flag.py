@@ -2,6 +2,7 @@ import hashlib
 from typing import Any, Dict, List
 
 import posthoganalytics
+from django.conf import settings
 from django.contrib.postgres.fields import JSONField
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL

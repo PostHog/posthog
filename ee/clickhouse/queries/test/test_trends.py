@@ -285,3 +285,20 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         # if the params were shared it would be 1 because action would take precedence
         self.assertEqual(action_response[0]["count"], 0)
+
+    def test_combine_all_cohort_and_icontains(self):
+        # This caused some issues with SQL parsing
+        sign_up_action, _ = self._create_events()
+        cohort = Cohort.objects.create(team=self.team, name="a", groups=[{"properties": {"key": "value"}}])
+        action_response = ClickhouseTrends().run(
+            Filter(
+                data={
+                    "actions": [{"id": sign_up_action.id, "math": "dau"}],
+                    "properties": [{"key": "$current_url", "value": "ii", "operator": "icontains"}],
+                    "breakdown": [cohort.pk, "all"],
+                    "breakdown_type": "cohort",
+                }
+            ),
+            self.team,
+        )
+        self.assertEqual(action_response[0]["count"], 0)
