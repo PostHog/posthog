@@ -5,8 +5,8 @@ import { PrevalidatedInvite } from '~/types'
 import { inviteSignupLogicType } from './inviteSignupLogicType'
 
 export enum ErrorCodes {
-    InvalidInvite = 'invalidInvite',
-    InvalidRecipient = 'invalidRecepient',
+    InvalidInvite = 'invalid_invite',
+    InvalidRecipient = 'invalid_recipient',
     Unknown = 'unknown',
 }
 
@@ -82,8 +82,12 @@ export const inviteSignupLogic = kea<
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/signup/*': ({ _: id }: { _: string }) => {
-            actions.prevalidateInvite(id)
+        '/signup/*': ({ _: id }: { _: string }, { error_code }: { error_code?: ErrorCodes }) => {
+            if (error_code) {
+                actions.setError({ code: error_code })
+            } else {
+                actions.prevalidateInvite(id)
+            }
         },
     }),
 })

@@ -240,8 +240,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
             try:
                 invite = TeamInviteSurrogate(invite_id)
             except Team.DoesNotExist:
-                processed = render_to_string("auth_error.html", {"message": "Invalid invite link!"},)
-                return HttpResponse(processed, status=401)
+                return redirect(f"/signup/{invite_id}?error_code=invalid_invite&source=social_create_user")
 
         try:
             invite.validate(user=None, email=user_email)
