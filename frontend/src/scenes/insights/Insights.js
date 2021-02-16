@@ -358,7 +358,10 @@ function SaveCohortModal({ onOk, onCancel, visible }) {
 
 function TrendInsight({ view }) {
     const [cohortModalVisible, setCohortModalVisible] = useState(false)
-    const { filters: _filters, loading, showingPeople, saveCohortWithFilters, refreshCohort } = useValues(
+    const { filters: _filters, loading, showingPeople } = useValues(
+        trendsLogic({ dashboardItemId: null, view, filters: null })
+    )
+    const { saveCohortWithFilters, refreshCohort } = useActions(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
     return (

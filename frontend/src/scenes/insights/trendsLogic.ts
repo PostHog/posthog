@@ -131,12 +131,8 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
     },
 
     connect: {
-        values: [userLogic, ['eventNames'], actionsModel, ['actions'], insightLogic, ['isFirstLoad']],
+        values: [userLogic, ['eventNames'], actionsModel, ['actions']],
         actions: [
-            insightLogic,
-            ['setAllFilters'],
-            insightHistoryLogic,
-            ['createInsight'],
             cohortLogic({
                 cohort: {
                     id: 'new',
@@ -363,7 +359,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
         },
         loadResultsSuccess: () => {
             if (!props.dashboardItemId) {
-                actions.createInsight({
+                insightHistoryLogic.actions.createInsight({
                     ...values.filters,
                     insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
                 })

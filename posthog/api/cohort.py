@@ -3,24 +3,19 @@ from typing import Any, Dict, List, Optional
 
 import posthoganalytics
 from django.db.models import Count, QuerySet
-from django.db.models.expressions import Value
-from django.db.models.sql.query import Query
 from rest_framework import serializers, viewsets
-from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
-from rest_framework.response import Response
+from sentry_sdk.api import capture_exception
 
 from posthog.api.action import calculate_people, filter_by_type
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
-from posthog.constants import INSIGHT_STICKINESS, TRENDS_STICKINESS
+from posthog.constants import TRENDS_STICKINESS
 from posthog.models import Cohort
 from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.person import Person
-from posthog.models.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.stickiness import (
     stickiness_fetch_people,
@@ -95,7 +90,8 @@ class CohortSerializer(serializers.ModelSerializer):
                     self._handle_stickiness_people(cohort, stickiness_filter)
                 else:
                     self._handle_trend_people(cohort, filter)
-            except:
+            except Exception as e:
+                capture_exception(e)
                 raise ValueError("This cohort has no conditions")
 
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
@@ -124,15 +120,19 @@ class CohortSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         cohort.name = validated_data.get("name", cohort.name)
         cohort.groups = validated_data.get("groups", cohort.groups)
-        cohort.deleted = validated_data.get("deleted", cohort.deleted)
-        if not cohort.is_static:
+        deleted_state = validated_data.get("deleted", None)
+        is_deletion_change = deleted_state is not None
+        cohort.deleted = deleted_state
+
+        if not cohort.is_static and not is_deletion_change:
             cohort.is_calculating = True
         cohort.save()
 
-        if cohort.is_static:
-            self._handle_static(cohort, request)
-        else:
-            calculate_cohort.delay(cohort_id=cohort.pk)
+        if not is_deletion_change:
+            if cohort.is_static:
+                self._handle_static(cohort, request)
+            else:
+                calculate_cohort.delay(cohort_id=cohort.pk)
 
         posthoganalytics.capture(
             request.user.distinct_id,

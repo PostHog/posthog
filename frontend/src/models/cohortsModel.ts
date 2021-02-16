@@ -40,7 +40,7 @@ export const cohortsModel = kea<cohortsModelType<CohortType>>({
                 if (!cohort) {
                     return state
                 }
-                return [cohort, ...state]
+                return [cohort, ...(state || [])]
             },
             deleteCohort: (state, cohort) => {
                 if (!cohort) {

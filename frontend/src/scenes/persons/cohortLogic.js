@@ -102,17 +102,31 @@ export const cohortLogic = kea({
                 }
                 actions.setPollTimeout(setTimeout(() => actions.checkIsFinished(cohort), 1000))
             } else {
-                toast.update(values.toastId, {
-                    render: function RenderToast() {
-                        return (
+                if (values.toastId) {
+                    toast.update(values.toastId, {
+                        render: function RenderToast() {
+                            return (
+                                <div data-attr="success-toast">
+                                    Cohort Saved&nbsp;
+                                    <Link to={`/cohorts/${cohort.id}`}>Click here to see it.</Link>
+                                </div>
+                            )
+                        },
+                        autoClose: 5000,
+                    })
+                } else {
+                    actions.setToastId(
+                        toast(
                             <div data-attr="success-toast">
                                 Cohort Saved&nbsp;
                                 <Link to={`/cohorts/${cohort.id}`}>Click here to see it.</Link>
-                            </div>
+                            </div>,
+                            {
+                                autoClose: false,
+                            }
                         )
-                    },
-                    autoClose: 5000,
-                })
+                    )
+                }
                 actions.setLastSavedAt(new Date().toISOString())
                 actions.setCohort(cohort)
                 cohortsModel.actions.updateCohort(cohort)
