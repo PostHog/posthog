@@ -1,12 +1,13 @@
 import React, { useState } from 'react'
-import { uuid, Loading } from 'lib/utils'
+import { uuid, Loading, deleteWithUndo } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
 import './Actions.scss'
 import { ActionStep } from './ActionStep'
 import { Button, Col, Input, Row } from 'antd'
-import { InfoCircleOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, PlusOutlined, SaveOutlined, DeleteOutlined } from '@ant-design/icons'
+import { router } from 'kea-router'
 
 export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryToken }) {
     let logic = actionEditLogic({
@@ -169,11 +170,25 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                         <a href={apiURL + 'action/' + errorActionId}>Click here to edit.</a>
                     </p>
                 )}
-                <div>
+                <div className="float-right">
+                    <Button
+                        data-attr="delete-action"
+                        danger
+                        style={{ marginRight: 12 }}
+                        icon={<DeleteOutlined />}
+                        onClick={() => {
+                            deleteWithUndo({
+                                endpoint: 'action',
+                                object: action,
+                                callback: () => router.actions.push('/events/actions'),
+                            })
+                        }}
+                    >
+                        Delete
+                    </Button>
                     <Button
                         disabled={!edited}
                         data-attr="save-action-button"
-                        className="float-right"
                         type="primary"
                         icon={<SaveOutlined />}
                         onClick={saveAction}
