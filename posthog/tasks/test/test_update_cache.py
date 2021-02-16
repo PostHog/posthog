@@ -2,11 +2,13 @@ from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from django.utils.timezone import now
+from freezegun import freeze_time
 
 from posthog.decorators import CacheType
 from posthog.models import Dashboard, DashboardItem, Event, Filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.queries.trends import Trends
 from posthog.tasks.update_cache import update_cache_item, update_cached_items
 from posthog.test.base import BaseTest
 from posthog.types import FilterType
@@ -100,6 +102,25 @@ class TestUpdateCache(BaseTest):
             CacheType.STICKINESS,
             patch_update_cache_item,
         )
+
+    @freeze_time("2012-01-15")
+    @patch("posthog.tasks.update_cache.import_from", return_value=Trends)
+    def test_update_cache_item_calls_right_class(self, patch_import_from: MagicMock) -> None:
+        filter = Filter(data={"insight": "TRENDS", "events": [{"id": "$pageview"}]})
+        dashboard_item = self._create_dashboard(filter)
+
+        with self.settings(EE_AVAILABLE=False):
+            update_cache_item(
+                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+                CacheType.TRENDS,
+                {"filter": filter.toJSON(), "team_id": self.team.pk,},
+            )
+
+        patch_import_from.assert_called_once_with("posthog.queries.trends", "Trends")
+
+        updated_dashboard_item = DashboardItem.objects.get(pk=dashboard_item.pk)
+        self.assertEqual(updated_dashboard_item.refreshing, False)
+        self.assertEqual(updated_dashboard_item.last_refresh, now())
 
     def _test_refresh_dashboard_cache_types(
         self, filter: FilterType, cache_type: CacheType, patch_update_cache_item: MagicMock,
