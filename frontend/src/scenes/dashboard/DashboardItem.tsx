@@ -196,6 +196,7 @@ export function DashboardItem({
     })
 
     const filters = { ...item.filters, from_dashboard: item.id }
+    console.log({ filters })
     const logicProps = {
         dashboardItemId: item.id,
         filters: filters,
@@ -212,6 +213,7 @@ export function DashboardItem({
         if (previousLoading && !resultsLoading && !initialLoaded) {
             setInitialLoaded(true)
         } else if (previousLoading && !resultsLoading && initialLoaded) {
+            console.log('Hello world!')
             onRefresh && onRefresh()
         }
     }, [resultsLoading])

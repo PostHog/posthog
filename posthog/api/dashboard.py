@@ -94,7 +94,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         if self.context["view"].action == "list":
             return None
         items = dashboard.items.filter(deleted=False).order_by("order").all()
-        return DashboardItemSerializer(items, many=True).data
+        return DashboardItemSerializer(items, many=True, context=self.context).data
 
 
 class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -188,12 +188,13 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Dashboard not found")
 
     def update(self, instance: Model, validated_data: Dict, **kwargs) -> DashboardItem:
-
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data.setdefault("is_sample", False)
         return super().update(instance, validated_data)
 
     def get_result(self, dashboard_item: DashboardItem):
+        return None
+
         # If it's more than a day old, don't return anything
         if dashboard_item.last_refresh and (now() - dashboard_item.last_refresh).days > 0:
             return None

@@ -40,6 +40,7 @@ export const dashboardLogic = kea({
                         const dashboard = await api.get(
                             `api/dashboard/${props.id}${props.shareToken ? '/?share_token=' + props.shareToken : ''}`
                         )
+                        console.log('loaded dashboard items', dashboard)
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
@@ -312,6 +313,7 @@ export const dashboardLogic = kea({
             }
         },
         refreshDashboardItem: async ({ id }) => {
+            console.log('refreshing dashboard item', id)
             const dashboardItem = await api.get(`api/insight/${id}`)
             dashboardsModel.actions.updateDashboardItem(dashboardItem)
             if (dashboardItem.refreshing) {

@@ -143,6 +143,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                 }
                 insightLogic.actions.startQuery()
                 let response
+                console.log(values.filters)
                 try {
                     if (values.filters?.insight === ViewType.SESSIONS || values.filters?.session) {
                         response = await api.get(

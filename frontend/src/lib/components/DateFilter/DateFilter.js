@@ -5,7 +5,7 @@ import moment from 'moment'
 import { dateFilterLogic } from './dateFilterLogic'
 import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
 
-export function DateFilter({ style, disabled }) {
+export function DateFilter({ style, disabled } = {}) {
     const {
         dates: { dateFrom, dateTo },
     } = useValues(dateFilterLogic)
@@ -14,6 +14,8 @@ export function DateFilter({ style, disabled }) {
     const [rangeDateTo, setRangeDateTo] = useState(isDate.test(dateTo) && moment(dateTo).toDate())
     const [dateRangeOpen, setDateRangeOpen] = useState(false)
     const [open, setOpen] = useState(false)
+
+    console.log({ rangeDateFrom, rangeDateTo })
 
     function onClickOutside() {
         setOpen(false)
