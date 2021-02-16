@@ -52,7 +52,7 @@
         "fast-deep-equal": "^3.1.3",
         "funnel-graph-js": "^1.4.1",
         "fuse.js": "^6.4.1",
-        "kea": "^2.2.2",
+        "kea": "^2.3.2",
         "kea-loaders": "^0.3.0",
         "kea-localstorage": "^1.0.2",
         "kea-router": "^0.5.1",
