@@ -718,3 +718,27 @@ export function autocorrectInterval(filters: Partial<FilterType>): string {
         return filters.interval
     }
 }
+
+function suffixFormatted(value: number, base: number, suffix: string, maxDecimals: number): string {
+    /* Helper function for compactNumber */
+    const multiplier = 10 ** maxDecimals
+    return `${Math.floor((value * multiplier) / base) / multiplier}${suffix}`
+}
+
+export function compactNumber(value: number, maxDecimals: number = 1): string {
+    /*
+    Returns a number in a compact format with a thousands or millions suffix if applicable.
+    Server-side equivalent posthog_filters.py#compact_number
+    Example:
+      compactNumber(5500000)
+      =>  "5.5M"
+    */
+    if (value < 1000) {
+        return Math.floor(value).toString()
+    } else if (value < 1000000) {
+        return suffixFormatted(value, 1000, 'K', maxDecimals)
+    } else if (value < 1000000000) {
+        return suffixFormatted(value, 1000000, 'M', maxDecimals)
+    }
+    return suffixFormatted(value, 1000000000, 'B', maxDecimals)
+}
