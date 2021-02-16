@@ -4,17 +4,15 @@
     <title>HogFlix</title>
     <script src="/static/array.js"></script>
     <script>
-
-        const handleFeatureFlagsLoaded = () => {
-            if (window.posthog.isFeatureEnabled('sign-up-cta')) {
-                document.getElementById('sign-up-cta').innerText = 'Get started now'
-            }
-        }
-        
         posthog.init('{{api_token}}', {
             api_host: window.location.origin,
-            loaded: function (posthog) { posthog.onFeatureFlags(handleFeatureFlagsLoaded) },
-        });
+            loaded: function (posthog) { 
+                posthog.onFeatureFlags(() => {
+                    if (posthog.isFeatureEnabled('sign-up-cta')) {
+                    document.getElementById('sign-up-cta').innerText = 'Get started now'
+                }
+            })},
+        })
     </script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.min.js"></script>
