@@ -5,28 +5,34 @@ import moment from 'moment'
 import { dateFilterLogic } from './dateFilterLogic'
 import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
 
-export function DateFilter({ style, disabled } = {}) {
+interface Props {
+    style?: React.CSSProperties
+    disabled?: boolean
+}
+
+export function DateFilter({ style, disabled }: Props): JSX.Element {
     const {
         dates: { dateFrom, dateTo },
     } = useValues(dateFilterLogic)
+
     const { setDates } = useActions(dateFilterLogic)
-    const [rangeDateFrom, setRangeDateFrom] = useState(isDate.test(dateFrom) && moment(dateFrom).toDate())
-    const [rangeDateTo, setRangeDateTo] = useState(isDate.test(dateTo) && moment(dateTo).toDate())
+    const [rangeDateFrom, setRangeDateFrom] = useState(
+        dateFrom && isDate.test(dateFrom as string) ? moment(dateFrom) : undefined
+    )
+    const [rangeDateTo, setRangeDateTo] = useState(dateTo && isDate.test(dateTo as string) ? moment(dateTo) : undefined)
     const [dateRangeOpen, setDateRangeOpen] = useState(false)
     const [open, setOpen] = useState(false)
 
-    console.log({ rangeDateFrom, rangeDateTo })
-
-    function onClickOutside() {
+    function onClickOutside(): void {
         setOpen(false)
         setDateRangeOpen(false)
     }
 
-    function setDate(fromDate, toDate) {
+    function setDate(fromDate: string, toDate: string): void {
         setDates(fromDate, toDate)
     }
 
-    function _onChange(v) {
+    function _onChange(v: string): void {
         if (v === 'Date range') {
             if (open) {
                 setOpen(false)
@@ -37,28 +43,28 @@ export function DateFilter({ style, disabled } = {}) {
         }
     }
 
-    function onBlur() {
+    function onBlur(): void {
         if (dateRangeOpen) {
             return
         }
         onClickOutside()
     }
 
-    function onClick() {
+    function onClick(): void {
         if (dateRangeOpen) {
             return
         }
         setOpen(!open)
     }
 
-    function dropdownOnClick(e) {
+    function dropdownOnClick(e: React.MouseEvent): void {
         e.preventDefault()
         setOpen(true)
         setDateRangeOpen(false)
-        document.getElementById('daterange_selector').focus()
+        document.getElementById('daterange_selector')?.focus()
     }
 
-    function onApplyClick() {
+    function onApplyClick(): void {
         onClickOutside()
         setDate(moment(rangeDateFrom).format('YYYY-MM-DD'), moment(rangeDateTo).format('YYYY-MM-DD'))
     }
@@ -80,7 +86,7 @@ export function DateFilter({ style, disabled } = {}) {
             listHeight={440}
             dropdownMatchSelectWidth={false}
             disabled={disabled}
-            dropdownRender={(menu) => {
+            dropdownRender={(menu: React.ReactElement) => {
                 if (dateRangeOpen) {
                     return (
                         <DatePickerDropdown
@@ -95,6 +101,8 @@ export function DateFilter({ style, disabled } = {}) {
                     )
                 } else if (open) {
                     return menu
+                } else {
+                    return <></>
                 }
             }}
         >
@@ -115,12 +123,20 @@ export function DateFilter({ style, disabled } = {}) {
     )
 }
 
-function DatePickerDropdown(props) {
-    const dropdownRef = useRef()
-    let [calendarOpen, setCalendarOpen] = useState(false)
+function DatePickerDropdown(props: {
+    onClickOutside: () => void
+    onClick: (e: React.MouseEvent) => void
+    onDateFromChange: (date: moment.Moment | undefined) => void
+    onDateToChange: (date: moment.Moment | undefined) => void
+    onApplyClick: () => void
+    rangeDateFrom: string | moment.Moment | undefined
+    rangeDateTo: string | moment.Moment | undefined
+}): JSX.Element {
+    const dropdownRef = useRef<HTMLDivElement | null>(null)
+    const [calendarOpen, setCalendarOpen] = useState(false)
 
-    let onClickOutside = (event) => {
-        if (!dropdownRef.current.contains(event.target) && !calendarOpen) {
+    const onClickOutside = (event: MouseEvent): void => {
+        if ((!event.target || !dropdownRef.current?.contains(event.target as any)) && !calendarOpen) {
             props.onClickOutside()
         }
     }
@@ -166,9 +182,9 @@ function DatePickerDropdown(props) {
                         setCalendarOpen(open)
                     }}
                     onChange={(dates) => {
-                        if (dates.length === 2) {
-                            props.onDateFromChange(dates[0])
-                            props.onDateToChange(dates[1])
+                        if (dates && dates.length === 2) {
+                            props.onDateFromChange(dates[0] || undefined)
+                            props.onDateToChange(dates[1] || undefined)
                         }
                     }}
                     popupStyle={{ zIndex: 999999 }}

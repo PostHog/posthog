@@ -471,7 +471,10 @@ export const dateMapping: Record<string, string[]> = {
 
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
-export function dateFilterToText(dateFrom: string | moment.Moment, dateTo: string | moment.Moment): string {
+export function dateFilterToText(
+    dateFrom: string | moment.Moment | undefined,
+    dateTo: string | moment.Moment | undefined
+): string {
     if (moment.isMoment(dateFrom) && moment.isMoment(dateTo)) {
         return `${dateFrom.format('YYYY-MM-DD')} - ${dateTo.format('YYYY-MM-DD')}`
     }

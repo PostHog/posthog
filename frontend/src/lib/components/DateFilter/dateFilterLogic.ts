@@ -1,21 +1,34 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
+import { Moment } from 'moment'
+import { dateFilterLogicType } from 'lib/components/DateFilter/dateFilterLogicType'
 import { objectsEqual } from 'lib/utils'
 
-export const dateFilterLogic = kea({
+interface UrlParams {
+    date_from?: string
+    date_to?: string
+}
+
+export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Moment>>({
     actions: () => ({
-        setDates: (dateFrom, dateTo) => ({ dateFrom, dateTo }),
+        setDates: (dateFrom: string | Moment | undefined, dateTo: string | Moment | undefined) => ({
+            dateFrom,
+            dateTo,
+        }),
     }),
-    reducers: ({ actions }) => ({
+    reducers: () => ({
         dates: [
-            {},
             {
-                [actions.setDates]: (_, dates) => dates,
+                dateFrom: undefined as string | Moment | undefined,
+                dateTo: undefined as string | Moment | undefined,
+            },
+            {
+                setDates: (_, dates) => dates,
             },
         ],
     }),
-    listeners: ({ actions, values }) => ({
-        [actions.setDates]: () => {
+    listeners: ({ values }) => ({
+        setDates: () => {
             const { date_from, date_to, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
 
@@ -28,7 +41,7 @@ export const dateFilterLogic = kea({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_, { date_from, date_to }) => {
+        '/insights': (_: any, { date_from, date_to }: UrlParams) => {
             actions.setDates(date_from, date_to)
         },
     }),
