@@ -6,7 +6,7 @@
     <script>
 
         const handleFeatureFlagsLoaded = () => {
-            if (posthog.isFeatureEnabled('sign-up-cta')) {
+            if (window.posthog.isFeatureEnabled('sign-up-cta')) {
                 document.getElementById('sign-up-cta').innerText = 'Get started now'
             }
         }
