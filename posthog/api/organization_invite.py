@@ -1,7 +1,7 @@
 from typing import Any, Dict, List
 
 from django.db import transaction
-from rest_framework import exceptions, mixins, request, response, serializers, viewsets
+from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
@@ -118,4 +118,4 @@ class OrganizationInviteViewSet(
             email_available=is_email_available(),
         )
 
-        return response.Response(output)
+        return response.Response(output, status=status.HTTP_201_CREATED)
