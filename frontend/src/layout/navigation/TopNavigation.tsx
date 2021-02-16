@@ -66,11 +66,12 @@ export function _TopNavigation(): JSX.Element {
                         icon={<UserAddOutlined />}
                         onClick={() => setInviteMembersModalOpen(true)}
                         data-attr="top-menu-invite-team-members"
+                        style={{ width: '100%' }}
                     >
                         Invite Team Members
                     </Button>
                 </div>
-                <div style={{ marginTop: 12 }}>
+                <div style={{ marginTop: 10 }}>
                     <LinkButton
                         to="/organization/members"
                         data-attr="top-menu-item-org-settings"
