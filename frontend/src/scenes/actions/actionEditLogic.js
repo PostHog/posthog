@@ -54,7 +54,10 @@ export const actionEditLogic = kea({
                     const data = {}
                     Object.keys(localStep).map((key) => {
                         data[key] =
-                            key == 'id' || key == 'event' || localStep.selection.indexOf(key) > -1
+                            key == 'id' ||
+                            key == 'event' ||
+                            key === 'properties' ||
+                            localStep.selection.indexOf(key) > -1
                                 ? localStep[key]
                                 : null
                     })
