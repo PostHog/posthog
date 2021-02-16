@@ -15,6 +15,7 @@ from django.urls import URLPattern, include, path, re_path, reverse
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
 from loginas.utils import is_impersonated_session, restore_original_login
+from rest_framework import exceptions
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
@@ -244,21 +245,19 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
 
         try:
             invite.validate(user=None, email=user_email)
-        except ValueError as e:
-            processed = render_to_string("auth_error.html", {"message": str(e)},)
-            return HttpResponse(processed, status=401)
+        except exceptions.ValidationError as e:
+            return redirect(
+                f"/signup/{invite_id}?error_code={e.get_codes()[0]}&error_detail={e.args[0]}&source=social_create_user"
+            )
 
         try:
             user = strategy.create_user(email=user_email, first_name=user_name, password=None)
         except Exception as e:
             capture_exception(e)
-            processed = render_to_string(
-                "auth_error.html",
-                {
-                    "message": "Account unable to be created. This account may already exist. Please try again or use different credentials!"
-                },
-            )
-            return HttpResponse(processed, status=401)
+            message = "Account unable to be created. This account may already exist. Please try again"
+            " or use different credentials."
+            return redirect(f"/signup/{invite_id}?error_code=unknown&error_detail={message}&source=social_create_user")
+
         invite.use(user, prevalidated=True)
 
     report_user_signed_up(

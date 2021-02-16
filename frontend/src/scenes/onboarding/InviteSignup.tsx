@@ -72,9 +72,22 @@ function ErrorView(): JSX.Element | null {
                 <>
                     <div>{error?.detail}</div>
                     <div className="mt">
-                        You can either log out and create a new account under the new email address or ask the
-                        organization admin to send a{' '}
-                        <b>new invite to the email address on your account, {user?.email}</b>.
+                        {user ? (
+                            <span>
+                                You can either log out and create a new account under the new email address or ask the
+                                organization admin to send a{' '}
+                                <b>new invite to the email address on your account, {user?.email}</b>.
+                            </span>
+                        ) : (
+                            <div>
+                                You need to log in with the email address above, or create your own password.
+                                <div className="mt">
+                                    <Button icon={<ArrowLeftOutlined />} href={window.location.pathname}>
+                                        Try again
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </>
             ),
@@ -82,8 +95,7 @@ function ErrorView(): JSX.Element | null {
         },
         [ErrorCodes.Unknown]: {
             title: 'Oops! We could not validate this invite link',
-            detail:
-                'There was an issue with your invite link, please try again in a few seconds. If the problem persists, contact us.',
+            detail: `${error?.detail} There was an issue with your invite link, please try again in a few seconds. If the problem persists, contact us.`,
             actions: user ? BackToPostHog : HelperLinks,
         },
     }

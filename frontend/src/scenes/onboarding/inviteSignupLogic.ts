@@ -82,9 +82,16 @@ export const inviteSignupLogic = kea<
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/signup/*': ({ _: id }: { _: string }, { error_code }: { error_code?: ErrorCodes }) => {
+        '/signup/*': (
+            { _: id }: { _: string },
+            { error_code, error_detail }: { error_code?: string; error_detail?: string }
+        ) => {
             if (error_code) {
-                actions.setError({ code: error_code })
+                if ((Object.values(ErrorCodes) as string[]).includes(error_code)) {
+                    actions.setError({ code: error_code as ErrorCodes, detail: error_detail })
+                } else {
+                    actions.setError({ code: ErrorCodes.Unknown, detail: error_detail })
+                }
             } else {
                 actions.prevalidateInvite(id)
             }
