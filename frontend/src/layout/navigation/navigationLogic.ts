@@ -3,9 +3,19 @@ import api from 'lib/api'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogicType } from './navigationLogicType'
-import { SystemStatus, UserType } from '~/types'
+import { OrganizationType, SystemStatus, UserType } from '~/types'
+import { organizationLogic } from 'scenes/organizationLogic'
+import moment from 'moment'
 
-export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus>>({
+type WarningType =
+    | 'welcome'
+    | 'incomplete_setup_on_demo_project'
+    | 'incomplete_setup_on_real_project'
+    | 'demo_project'
+    | 'real_project_with_no_events'
+    | null
+
+export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, WarningType>>({
     actions: {
         setMenuCollapsed: (collapsed: boolean) => ({ collapsed }),
         collapseMenu: () => {},
@@ -15,6 +25,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus>>(
         updateCurrentProject: (id: number, dest: string) => ({ id, dest }),
         setToolbarModalOpen: (isOpen: boolean) => ({ isOpen }),
         setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
+        setInviteMembersModalOpen: (isOpen: boolean) => ({ isOpen }),
     },
     reducers: {
         menuCollapsed: [
@@ -33,6 +44,12 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus>>(
             false,
             {
                 setToolbarModalOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
+        inviteMembersModalOpen: [
+            false,
+            {
+                setInviteMembersModalOpen: (_, { isOpen }) => isOpen,
             },
         ],
         pinnedDashboardsVisible: [
@@ -73,6 +90,27 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus>>(
             () => [userLogic.selectors.user],
             (user) => {
                 return user?.team?.id
+            },
+        ],
+        demoWarning: [
+            () => [userLogic.selectors.user, organizationLogic.selectors.currentOrganization],
+            (user: UserType, organization: OrganizationType): WarningType => {
+                if (
+                    organization.setup.is_active &&
+                    moment(organization.created_at) >= moment().subtract(1, 'days') &&
+                    user.team?.is_demo
+                ) {
+                    return 'welcome'
+                } else if (organization.setup.is_active && user.team?.is_demo) {
+                    return 'incomplete_setup_on_demo_project'
+                } else if (organization.setup.is_active) {
+                    return 'incomplete_setup_on_real_project'
+                } else if (user.team?.is_demo) {
+                    return 'demo_project'
+                } else if (user.team && !user.team.ingested_event) {
+                    return 'real_project_with_no_events'
+                }
+                return null
             },
         ],
     },

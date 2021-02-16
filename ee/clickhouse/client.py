@@ -5,10 +5,10 @@ from time import time
 from typing import Any, Dict, List, Tuple
 
 import sqlparse
+import statsd
 from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
-from clickhouse_pool import ChPool
 from django.conf import settings as app_settings
 from django.core.cache import cache
 from django.utils.timezone import now
@@ -26,8 +26,15 @@ from posthog.settings import (
     CLICKHOUSE_USER,
     CLICKHOUSE_VERIFY,
     PRIMARY_DB,
+    STATSD_HOST,
+    STATSD_PORT,
+    STATSD_PREFIX,
     TEST,
 )
+from posthog.utils import get_safe_cache
+
+if STATSD_HOST is not None:
+    statsd.Connection.set_defaults(host=STATSD_HOST, port=STATSD_PORT)
 
 CACHE_TTL = 60  # seconds
 
@@ -35,7 +42,6 @@ _save_query_user_id = False
 
 if PRIMARY_DB != RDBMS.CLICKHOUSE:
     ch_client = None  # type: Client
-    ch_sync_pool = None  # type: ChPool
 
     def async_execute(query, args=None, settings=None):
         return
@@ -45,6 +51,9 @@ if PRIMARY_DB != RDBMS.CLICKHOUSE:
 
     def cache_sync_execute(query, args=None, redis_client=None, ttl=None, settings=None):
         return
+
+    def substitute_params(query, params):
+        pass
 
 
 else:
@@ -80,18 +89,6 @@ else:
         def async_execute(query, args=None, settings=None):
             return sync_execute(query, args, settings=settings)
 
-    ch_sync_pool = ChPool(
-        host=CLICKHOUSE_HOST,
-        database=CLICKHOUSE_DATABASE,
-        secure=CLICKHOUSE_SECURE,
-        user=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        ca_certs=CLICKHOUSE_CA,
-        verify=CLICKHOUSE_VERIFY,
-        connections_min=20,
-        connections_max=100,
-    )
-
     def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, settings=None):
         if not redis_client:
             redis_client = redis.get_client()
@@ -110,12 +107,18 @@ else:
             result = ch_client.execute(query, args, settings=settings)
         finally:
             execution_time = time() - start_time
+            g = statsd.Gauge("%s_clickhouse_sync_execution_time" % (STATSD_PREFIX,))
+            g.send("clickhouse_sync_query_time", execution_time)
             if app_settings.SHELL_PLUS_PRINT_SQL:
                 print(format_sql(query, args))
                 print("Execution time: %.6fs" % (execution_time,))
             if _save_query_user_id:
                 save_query(query, args, execution_time)
         return result
+
+    substitute_params = (
+        ch_client.substitute_params if isinstance(ch_client, SyncClient) else ch_client._client.substitute_params
+    )
 
 
 def _deserialize(result_bytes: bytes) -> List[Tuple]:
@@ -135,9 +138,6 @@ def _key_hash(query: str, args: Any) -> bytes:
 
 
 def format_sql(sql, params):
-    substitute_params = (
-        ch_client.substitute_params if isinstance(ch_client, SyncClient) else ch_client._client.substitute_params
-    )
 
     sql = substitute_params(sql, params or {})
     sql = sqlparse.format(sql, reindent_aligned=True)
@@ -159,7 +159,7 @@ def save_query(sql: str, params: Dict, execution_time: float) -> None:
 
     try:
         key = "save_query_{}".format(_save_query_user_id)
-        queries = json.loads(cache.get(key) or "[]")
+        queries = json.loads(get_safe_cache(key) or "[]")
 
         queries.insert(
             0, {"timestamp": now().isoformat(), "query": format_sql(sql, params), "execution_time": execution_time}

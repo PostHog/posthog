@@ -26,6 +26,11 @@ def _create_person(**kwargs) -> Person:
 
 
 class TestPropFormat(ClickhouseTestMixin, BaseTest):
+    def _run_query(self, filter: Filter) -> List:
+        query, params = parse_prop_clauses(filter.properties, self.team.pk, allow_denormalized_props=True)
+        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        return sync_execute(final_query, {**params, "team_id": self.team.pk})
+
     def test_prop_person(self):
 
         _create_person(
@@ -39,11 +44,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "email", "value": "test@posthog.com", "type": "person"}],})
-        query, params = parse_prop_clauses(filter.properties, self.team.pk)
-
-        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(self._run_query(filter)), 1)
 
     def test_prop_event(self):
 
@@ -56,12 +57,42 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "attr", "value": "some_val"}],})
-        query, params = parse_prop_clauses(filter.properties, self.team.pk)
-        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        self.assertEqual(len(self._run_query(filter)), 1)
 
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
-        self.assertEqual(len(result), 1)
+    def test_prop_ints_saved_as_strings(self):
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "0"},
+        )
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "2"},
+        )
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 2},
+        )
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "string"},
+        )
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "2"}],})
+        self.assertEqual(len(self._run_query(filter)), 2)
 
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 2}],})
+        self.assertEqual(len(self._run_query(filter)), 2)
+
+        # value passed as string
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "1", "operator": "gt"}],})
+        self.assertEqual(len(self._run_query(filter)), 2)
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "3", "operator": "lt"}],})
+        self.assertEqual(len(self._run_query(filter)), 3)
+
+        # value passed as int
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 1, "operator": "gt"}],})
+        self.assertEqual(len(self._run_query(filter)), 2)
+
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 3, "operator": "lt"}],})
+        self.assertEqual(len(self._run_query(filter)), 3)
+
+
+class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
     def _run_query(self, filter: Filter) -> List:
         query, params = parse_prop_clauses(filter.properties, self.team.pk, allow_denormalized_props=True)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)

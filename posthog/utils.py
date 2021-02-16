@@ -26,6 +26,7 @@ import pytz
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models.query import QuerySet
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
@@ -44,6 +45,14 @@ DATERANGE_MAP = {
     "week": datetime.timedelta(weeks=1),
     "month": datetime.timedelta(days=31),
 }
+ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
+
+
+def format_label_date(date: datetime.datetime, interval: str) -> str:
+    labels_format = "%a. {day} %B"
+    if interval == "hour" or interval == "minute":
+        labels_format += ", %H:%M"
+    return date.strftime(labels_format.format(day=date.day))
 
 
 def absolute_uri(url: Optional[str] = None) -> str:
@@ -253,18 +262,16 @@ def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]
     append["labels"] = []
     append["days"] = []
 
-    labels_format = "%a. {day} %B"
     days_format = "%Y-%m-%d"
 
     if interval == "hour" or interval == "minute":
-        labels_format += ", %H:%M"
         days_format += " %H:%M:%S"
 
     for item in dates_filled:
         date = item[0]
         value = item[1]
         append["days"].append(date.strftime(days_format))
-        append["labels"].append(date.strftime(labels_format.format(day=date.day)))
+        append["labels"].append(format_label_date(date, interval))
         append["data"].append(value)
     if math == "sum":
         append["count"] = sum(append["data"])
@@ -347,7 +354,7 @@ def load_data_from_request(request):
                 data_res["body"] = {**json.loads(request.body)}
             except:
                 pass
-        elif request.content_type == "text/plain":
+        elif request.content_type == "text/plain" or request.content_type == "":
             data = request.body
         else:
             data = request.POST.get("data")
@@ -457,7 +464,7 @@ def is_celery_alive() -> bool:
 def is_plugin_server_alive() -> bool:
     try:
         ping = get_client().get("@posthog-plugin-server/ping")
-        return ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30)
+        return bool(ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30))
     except BaseException:
         return False
 
@@ -479,6 +486,13 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
     for idx, param in enumerate(params):
         named_params.update({f"{prepend}_arg_{idx}": param})
     return new_string, named_params
+
+
+def get_instance_realm() -> str:
+    """
+    Returns the realm for the current instance. `cloud` or `hosted`.
+    """
+    return "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
 
 
 def flatten(l: Union[List, Tuple]) -> Generator:
@@ -507,6 +521,9 @@ def get_daterange(
         return []
 
     time_range = []
+    if frequency != "minute" and frequency != "hour":
+        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
     if frequency == "week":
         start_date += datetime.timedelta(days=6 - start_date.weekday())
     if frequency != "month":
@@ -520,3 +537,45 @@ def get_daterange(
             time_range.append(start_date)
             start_date = (start_date.replace(day=1) + delta).replace(day=1)
     return time_range
+
+
+def get_safe_cache(cache_key: str):
+    try:
+        cached_result = cache.get(cache_key)  # cache.get is safe in most cases
+        return cached_result
+    except:  # if it errors out, the cache is probably corrupted
+        try:
+            cache.delete(cache_key)  # in that case, try to delete the cache
+        except:
+            pass
+    return None
+
+
+def is_anonymous_id(distinct_id: str) -> bool:
+    # Our anonymous ids are _not_ uuids, but a random collection of strings
+    return bool(re.match(ANONYMOUS_REGEX, distinct_id))
+
+
+def mask_email_address(email_address: str) -> str:
+    """
+    Grabs an email address and returns it masked in a human-friendly way to protect PII.
+        Example: testemail@posthog.com -> t********l@posthog.com
+    """
+    index = email_address.find("@")
+
+    if index == -1:
+        raise ValueError("Please provide a valid email address.")
+
+    if index == 1:
+        # Username is one letter, mask it differently
+        return f"*{email_address[index:]}"
+
+    return f"{email_address[0]}{'*' * (index - 2)}{email_address[index-1:]}"
+
+
+def is_valid_regex(value: Any) -> bool:
+    try:
+        re.compile(value)
+        return True
+    except re.error:
+        return False

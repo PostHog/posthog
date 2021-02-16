@@ -10,7 +10,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from './insightLogic'
 
 export function PersonModal({ visible, view, onSaveCohort }) {
-    const { people, filters, peopleModalURL } = useValues(trendsLogic({ dashboardItemId: null, view }))
+    const { people, filters, peopleModalURL, loadingMorePeople } = useValues(
+        trendsLogic({ dashboardItemId: null, view })
+    )
     const { setShowingPeople, loadMorePeople } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -68,7 +70,7 @@ export function PersonModal({ visible, view, onSaveCohort }) {
             >
                 {people?.next && (
                     <Button type="primary" onClick={loadMorePeople}>
-                        {people?.loadingMore ? <Spin /> : 'Load more people'}
+                        {loadingMorePeople ? <Spin /> : 'Load more people'}
                     </Button>
                 )}
             </div>

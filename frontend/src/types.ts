@@ -1,6 +1,17 @@
-import { OrganizationMembershipLevel } from 'lib/constants'
+import {
+    ACTION_TYPE,
+    AUTOCAPTURE,
+    CUSTOM_EVENT,
+    EVENT_TYPE,
+    OrganizationMembershipLevel,
+    PAGEVIEW,
+    SCREEN,
+    ShownAsValue,
+} from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
+import { ViewType } from 'scenes/insights/insightLogic'
+
 export interface UserType {
     anonymize_data: boolean
     distinct_id: string
@@ -66,11 +77,10 @@ export interface OrganizationType {
     available_features: string[]
     billing_plan: string
     billing: OrganizationBilling
-    teams: TeamType[]
+    teams?: TeamType[]
     membership_level: OrganizationMembershipLevel | null
-    any_project_ingested_events: boolean
-    any_project_completed_snippet_onboarding: boolean
-    non_demo_team_id: number | null
+    setup: SetupState
+    personalization: PersonalizationData
 }
 
 export interface OrganizationMemberType {
@@ -220,12 +230,12 @@ interface RecordingNotViewedFilter extends BasePropertyFilter {
 export type RecordingPropertyFilter = RecordingDurationFilter | RecordingNotViewedFilter
 
 interface ActionTypePropertyFilter extends BasePropertyFilter {
-    type: 'action_type'
+    type: typeof ACTION_TYPE
     properties?: Array<EventPropertyFilter>
 }
 
 export interface EventTypePropertyFilter extends BasePropertyFilter {
-    type: 'event_type'
+    type: typeof EVENT_TYPE
     properties?: Array<EventPropertyFilter>
 }
 
@@ -236,11 +246,13 @@ export type SessionsPropertyFilter =
     | ActionTypePropertyFilter
     | EventTypePropertyFilter
 
+export type EntityType = 'actions' | 'events'
+
 export interface Entity {
     id: string | number
     name: string
     order: number
-    type: 'actions' | 'events'
+    type: EntityType
 }
 
 export interface EntityWithProperties extends Entity {
@@ -257,6 +269,12 @@ export interface PersonType {
     created_at?: string
 }
 
+export interface CohortGroupType {
+    days?: string
+    action_id?: number
+    properties?: Record<string, any>
+}
+
 export interface CohortType {
     count?: number
     created_by?: Record<string, any>
@@ -265,9 +283,10 @@ export interface CohortType {
     id: number
     is_calculating?: boolean
     last_calculation?: string
+    is_static?: boolean
     name?: string
     csv?: File
-    groups: Record<string, any>[]
+    groups: CohortGroupType[]
 }
 
 export interface InsightHistory {
@@ -276,6 +295,7 @@ export interface InsightHistory {
     name?: string
     createdAt: string
     saved: boolean
+    type: ViewType
 }
 
 export interface SavedFunnel extends InsightHistory {
@@ -306,12 +326,18 @@ export interface SessionType {
     matching_events: Array<number | string>
 }
 
+export interface FormattedNumber {
+    value: number
+    formatted: string
+}
+
 export interface OrganizationBilling {
-    plan: PlanInterface
+    plan: PlanInterface | null
     current_usage: { value: number; formatted: string } | null
-    should_setup_billing: boolean
-    stripe_checkout_session: string
-    subscription_url: string
+    should_setup_billing?: boolean
+    stripe_checkout_session?: string
+    subscription_url?: string
+    event_allocation: FormattedNumber | null
 }
 
 export interface PlanInterface {
@@ -320,7 +346,9 @@ export interface PlanInterface {
     custom_setup_billing_message: string
     image_url: string
     self_serve: boolean
-    allowance: { value: number; formatted: string } | null
+    is_metered_billing: boolean
+    allowance: FormattedNumber | null
+    price_string: string
 }
 
 export interface BillingSubscription {
@@ -358,15 +386,13 @@ export interface DashboardType {
 }
 
 export interface OrganizationInviteType {
-    created_at: string
-    created_by_email: string
-    created_by_first_name: string
-    created_by_id: number
-    emailing_attempt_made: boolean
     id: string
     target_email: string
-    updated_at: string
     is_expired: boolean
+    emailing_attempt_made: boolean
+    created_by: UserNestedType | null
+    created_at: string
+    updated_at: string
 }
 
 export interface PluginType {
@@ -379,7 +405,6 @@ export interface PluginType {
     latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
-    error?: PluginErrorType
     maintainer?: string
 }
 
@@ -389,7 +414,6 @@ export interface PluginConfigType {
     enabled: boolean
     order: number
     config: Record<string, any>
-    global?: boolean
     error?: PluginErrorType
 }
 
@@ -414,30 +438,46 @@ export interface AnnotationType {
     creation_type?: string
 }
 
+export type DisplayType =
+    | 'ActionsLineGraph'
+    | 'ActionsLineGraphCumulative'
+    | 'ActionsTable'
+    | 'ActionsPie'
+    | 'ActionsBar'
+    | 'PathsViz'
+    | 'FunnelViz'
+export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
+export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
+export type BreakdownType = 'cohort' | 'person' | 'event'
+export type PathType = typeof PAGEVIEW | typeof AUTOCAPTURE | typeof SCREEN | typeof CUSTOM_EVENT
+export type RetentionType = 'retention_recurring' | 'retention_first_time'
+
 export interface FilterType {
-    insight: 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
-    display?:
-        | 'ActionsLineGraph'
-        | 'ActionsLineGraphCumulative'
-        | 'ActionsTable'
-        | 'ActionsPie'
-        | 'ActionsBar'
-        | 'PathsViz'
-        | 'FunnelViz'
+    insight: InsightType
+    display?: DisplayType
     interval?: string
     date_from?: string
     date_to?: string
     properties?: PropertyFilter[]
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
-    breakdown_type?: 'cohort' | 'person' | 'event'
-    shown_as?: 'Volume' | 'Stickiness' | 'Lifecycle' // DEPRECATED: Remove when releasing `remove-shownas`
+    breakdown_type?: BreakdownType
+    breakdown?: string
+    breakdown_value?: string
+    shown_as?: ShownAsType
     session?: string
     period?: string
-    retentionType?: 'retention_recurring' | 'retention_first_time'
+    retentionType?: RetentionType
     returningEntity?: Record<string, any>
     startEntity?: Record<string, any>
-    path_type?: '$pageview' | '$screen' | '$autocapture' | 'custom_event'
+    path_type?: PathType
+    start_point?: string | number
+    stickiness_days?: number
+    entityId?: string | number
+    type?: EntityType
+    people_day?: any
+    people_action?: any
+    formula?: any
 }
 
 export interface SystemStatus {
@@ -447,3 +487,19 @@ export interface SystemStatus {
 }
 
 export type PersonalizationData = Record<string, string | string[] | null>
+
+interface EnabledSetupState {
+    is_active: true // Whether the onbarding setup is currently active
+    current_section: number
+    any_project_ingested_events: boolean
+    any_project_completed_snippet_onboarding: boolean
+    non_demo_team_id: number | null
+    has_invited_team_members: boolean
+}
+
+interface DisabledSetupState {
+    is_active: false
+    current_section: null
+}
+
+export type SetupState = EnabledSetupState | DisabledSetupState

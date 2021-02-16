@@ -31,6 +31,7 @@ from posthog.api import (
 )
 from posthog.demo import demo
 from posthog.email import is_email_available
+from posthog.event_usage import report_user_signed_up
 from posthog.models.organization import Organization
 
 from .api.organization import OrganizationSignupSerializer
@@ -89,6 +90,9 @@ class TeamInviteSurrogate:
 
 
 def signup_to_organization_view(request, invite_id):
+    """
+    TODO: DEPRECATED in favor of posthog.api.organization.OrganizationInviteSignupSerializer
+    """
     if not invite_id:
         return redirect("/")
     if not User.objects.exists():
@@ -159,9 +163,15 @@ def signup_to_organization_view(request, invite_id):
             user = User.objects.create_user(email, password, first_name=first_name, email_opt_in=email_opt_in)
             invite.use(user, prevalidated=True)
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-            posthoganalytics.capture(
-                user.distinct_id, "user signed up", properties={"is_first_user": False, "first_team_user": False},
+
+            report_user_signed_up(
+                user.distinct_id,
+                is_instance_first_user=False,
+                is_organization_first_user=False,
+                new_onboarding_enabled=(not organization.setup_section_2_completed),
+                backend_processor="signup_to_organization_view",
             )
+
             return redirect("/")
     return render_template(
         "signup_to_organization.html",
@@ -176,10 +186,13 @@ class CompanyNameForm(forms.Form):
 
 
 def finish_social_signup(request):
+    """
+    TODO: DEPRECATED in favor of posthog.api.organization.OrganizationSocialSignupSerializer
+    """
     if request.method == "POST":
         form = CompanyNameForm(request.POST)
         if form.is_valid():
-            request.session["company_name"] = form.cleaned_data["companyName"]
+            request.session["organization_name"] = form.cleaned_data["companyName"]
             request.session["email_opt_in"] = bool(form.cleaned_data["emailOptIn"])
             return redirect(reverse("social:complete", args=[request.session["backend"]]))
     else:
@@ -198,19 +211,19 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
     from_invite = False
     invite_id = strategy.session_get("invite_id")
     if not invite_id:
-        company_name = strategy.session_get("company_name", None)
+        organization_name = strategy.session_get("organization_name", None)
         email_opt_in = strategy.session_get("email_opt_in", None)
-        if not company_name or email_opt_in is None:
+        if not organization_name or email_opt_in is None:
             return redirect(finish_social_signup)
 
         serializer = OrganizationSignupSerializer(
-            data=dict(
-                company_name=company_name,
-                email_opt_in=email_opt_in,
-                first_name=user_name,
-                email=user_email,
-                password=None,
-            ),
+            data={
+                "organization_name": organization_name,
+                "email_opt_in": email_opt_in,
+                "first_name": user_name,
+                "email": user_email,
+                "password": None,
+            },
             context={"request": request},
         )
 
@@ -220,7 +233,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
         from_invite = True
         try:
             invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
-                "organization"
+                "organization",
             ).get(id=invite_id)
         except (OrganizationInvite.DoesNotExist, ValidationError):
             try:
@@ -248,14 +261,13 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
             return HttpResponse(processed, status=401)
         invite.use(user, prevalidated=True)
 
-    posthoganalytics.capture(
-        user.distinct_id,
-        "user signed up",
-        properties={
-            "is_first_user": User.objects.count() == 1,
-            "is_first_team_user": not from_invite,
-            "login_provider": backend.name,
-        },
+    report_user_signed_up(
+        distinct_id=user.distinct_id,
+        is_instance_first_user=User.objects.count() == 1,
+        is_organization_first_user=not from_invite,
+        new_onboarding_enabled=False,
+        backend_processor="social_create_user",
+        social_provider=backend.name,
     )
 
     return {"is_new": True, "user": user}
@@ -327,6 +339,8 @@ urlpatterns = [
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/user", user.user),
     opt_slash_path("api/signup", organization.OrganizationSignupViewset.as_view()),
+    opt_slash_path("api/social_signup", organization.OrganizationSocialSignupViewset.as_view()),
+    path("api/signup/<str:invite_id>/", organization.OrganizationInviteSignupViewset.as_view()),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
@@ -377,6 +391,17 @@ if settings.DEBUG:
         assert False, locals()
 
     urlpatterns.append(path("debug/", debug))
+
+if settings.TEST:
+
+    @csrf_exempt
+    def delete_events(request):
+        from posthog.models import Event
+
+        Event.objects.all().delete()
+        return HttpResponse()
+
+    urlpatterns.append(path("delete_events/", delete_events))
 
 # Routes added individually to remove login requirement
 frontend_unauthenticated_routes = ["preflight", "signup"]

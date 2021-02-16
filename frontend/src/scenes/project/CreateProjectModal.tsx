@@ -32,6 +32,18 @@ export function CreateProjectModal({
         }
     }, [inputRef, setIsVisible])
 
+    const handleSubmit = (): void => {
+        const name = inputRef.current?.state.value?.trim()
+        if (name) {
+            reportProjectCreationSubmitted(user?.organization?.teams ? user.organization.teams.length : 0, name.length)
+            setErrorMessage(null)
+            createTeam(name)
+            closeModal()
+        } else {
+            setErrorMessage('Your project needs a name!')
+        }
+    }
+
     const defaultCaption = (
         <p>
             Projects are a way of tracking multiple products under the umbrella of a single organization.
@@ -48,17 +60,7 @@ export function CreateProjectModal({
             okText="Create Project"
             cancelButtonProps={setIsVisible ? undefined : { style: { display: 'none' } }}
             closable={!!setIsVisible}
-            onOk={() => {
-                const name = inputRef.current?.state.value?.trim()
-                if (name) {
-                    reportProjectCreationSubmitted(user?.organization?.teams.length, name.length)
-                    setErrorMessage(null)
-                    createTeam(name)
-                    closeModal()
-                } else {
-                    setErrorMessage('Your project needs a name!')
-                }
-            }}
+            onOk={handleSubmit}
             onCancel={closeModal}
             visible={isVisible}
         >
@@ -71,9 +73,14 @@ export function CreateProjectModal({
                     maxLength={64}
                     autoFocus
                     name="projectName"
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            handleSubmit()
+                        }
+                    }}
                 />
             </div>
-            {errorMessage && <Alert message={errorMessage} type="error" style={{ marginTop: '1rem' }} />}
+            {errorMessage && <Alert message={errorMessage} type="error" />}
         </Modal>
     )
 }

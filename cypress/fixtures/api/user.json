@@ -1,0 +1,460 @@
+{
+    "id": 2,
+    "distinct_id": "NFuDfZu5XKan7pDu3wCbvjJbVsoejlG6O6D8VaN96vA",
+    "name": "TestUser",
+    "email": "test@posthog.com",
+    "email_opt_in": true,
+    "anonymize_data": false,
+    "toolbar_mode": "toolbar",
+    "organization": {
+        "id": "01777279-f5a2-0000-b1d5-dbfc148b9426",
+        "name": "Foo",
+        "billing_plan": null,
+        "available_features": [],
+        "created_at": "2021-02-05T13:55:31.362Z",
+        "updated_at": "2021-02-05T13:55:44.244Z",
+        "teams": [
+            {
+                "id": 2,
+                "name": "HogFlix Demo App"
+            }
+        ]
+    },
+    "organizations": [
+        {
+            "name": "Foo",
+            "id": "01777279-f5a2-0000-b1d5-dbfc148b9426"
+        }
+    ],
+    "team": {
+        "id": 2,
+        "name": "HogFlix Demo App",
+        "app_urls": [],
+        "api_token": "JqcIEQVjX-CxbPiittsio2ZTIB2pHUBmGVGgQE4Io0I",
+        "opt_out_capture": false,
+        "anonymize_ips": false,
+        "slack_incoming_webhook": null,
+        "event_names": [
+            "watched_movie",
+            "installed_app",
+            "rated_app",
+            "purchase",
+            "entered_free_trial",
+            "$identify",
+            "$pageview",
+            "$autocapture",
+            "personalization skipped",
+            "insight viewed",
+            "$pageleave",
+            "$capture_metrics"
+        ],
+        "event_names_with_usage": [
+            {
+                "event": "$identify",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "event": "$pageview",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "event": "$autocapture",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "event": "personalization skipped",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "event": "insight viewed",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "event": "$pageleave",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "event": "$capture_metrics",
+                "volume": null,
+                "usage_count": null
+            }
+        ],
+        "event_properties": [
+            "$current_url",
+            "is_first_movie",
+            "plan",
+            "first_visit",
+            "$set",
+            "$ip",
+            "$os",
+            "$browser",
+            "$host",
+            "$pathname",
+            "$browser_version",
+            "$screen_height",
+            "$screen_width",
+            "$lib",
+            "$lib_version",
+            "$insert_id",
+            "$time",
+            "distinct_id",
+            "$device_id",
+            "$initial_referrer",
+            "$initial_referring_domain",
+            "$referrer",
+            "$referring_domain",
+            "$active_feature_flags",
+            "$user_id",
+            "$anon_distinct_id",
+            "token",
+            "posthog_version",
+            "has_slack_webhook",
+            "$event_type",
+            "$ce_version",
+            "is_first_component_load",
+            "insight",
+            "display",
+            "interval",
+            "filters",
+            "filters_count",
+            "events_count",
+            "actions_count",
+            "total_event_actions_count",
+            "phjs-_send_request",
+            "phjs-_send_request_inflight",
+            "phjs-capture",
+            "phjs-batch-enqueue",
+            "phjs-xhr-response",
+            "phjs-xhr-response-200",
+            "phjs-identify",
+            "phjs-batch-requests",
+            "phjs-batch-requests-e/",
+            "phjs-batch-handle",
+            "phjs-batch-handle-e/",
+            "phjs-batch-unload-requests",
+            "phjs-batch-unload-requests-e/",
+            "phjs-batch-unload",
+            "phjs-batch-unload-e/"
+        ],
+        "event_properties_numerical": [
+            "purchase",
+            "app_rating",
+            "purchase_value",
+            "$browser_version",
+            "$screen_height",
+            "$screen_width",
+            "$time",
+            "has_slack_webhook",
+            "$ce_version",
+            "is_first_component_load",
+            "filters_count",
+            "events_count",
+            "actions_count",
+            "total_event_actions_count",
+            "phjs-_send_request",
+            "phjs-_send_request_inflight",
+            "phjs-capture",
+            "phjs-batch-enqueue",
+            "phjs-xhr-response",
+            "phjs-xhr-response-200",
+            "phjs-identify",
+            "phjs-batch-requests",
+            "phjs-batch-requests-e/",
+            "phjs-batch-handle",
+            "phjs-batch-handle-e/",
+            "phjs-batch-unload-requests",
+            "phjs-batch-unload-requests-e/",
+            "phjs-batch-unload",
+            "phjs-batch-unload-e/"
+        ],
+        "event_properties_with_usage": [
+            {
+                "key": "$set",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$ip",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$os",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$browser",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$host",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$pathname",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$browser_version",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$screen_height",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$screen_width",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$lib",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$lib_version",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$insert_id",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$time",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "distinct_id",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$device_id",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$initial_referrer",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$initial_referring_domain",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$referrer",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$referring_domain",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$active_feature_flags",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$user_id",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$anon_distinct_id",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "token",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "posthog_version",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "has_slack_webhook",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$event_type",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "$ce_version",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "is_first_component_load",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "insight",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "display",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "interval",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "filters",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "filters_count",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "events_count",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "actions_count",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "total_event_actions_count",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "phjs-_send_request",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "phjs-_send_request_inflight",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "phjs-capture",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "phjs-batch-enqueue",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "phjs-xhr-response",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "phjs-xhr-response-200",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "phjs-identify",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "phjs-batch-requests",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "phjs-batch-requests-e/",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "phjs-batch-handle",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "phjs-batch-handle-e/",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "phjs-batch-unload-requests",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "phjs-batch-unload-requests-e/",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "phjs-batch-unload",
+                "volume": null,
+                "usage_count": null
+            },
+            {
+                "key": "phjs-batch-unload-e/",
+                "volume": null,
+                "usage_count": null
+            }
+        ],
+        "completed_snippet_onboarding": true,
+        "session_recording_opt_in": false,
+        "session_recording_retention_period_days": null,
+        "plugins_opt_in": false,
+        "ingested_event": true,
+        "is_demo": true
+    },
+    "teams": [
+        {
+            "name": "HogFlix Demo App",
+            "id": 2
+        }
+    ],
+    "has_password": true,
+    "opt_out_capture": null,
+    "posthog_version": "1.20.0",
+    "is_multi_tenancy": false,
+    "ee_available": true,
+    "ee_enabled": true,
+    "email_service_available": false,
+    "is_debug": true,
+    "is_staff": false,
+    "is_impersonated": false,
+    "plugin_access": {
+        "install": true,
+        "configure": true
+    }
+}

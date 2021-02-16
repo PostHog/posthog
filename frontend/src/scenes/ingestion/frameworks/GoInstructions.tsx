@@ -13,11 +13,10 @@ function GoSetupSnippet(): JSX.Element {
         <CodeSnippet language={Language.Go}>
             {`package main
 import (
-    "os"
     "github.com/posthog/posthog-go"
 )
 func main() {
-    client := posthog.NewWithConfig(os.Getenv("${user?.team?.api_token}"), posthog.Config{Endpoint: "${window.location.origin}"})
+    client, _ := posthog.NewWithConfig("${user?.team?.api_token}", posthog.Config{Endpoint: "${window.location.origin}"})
     defer client.Close()
 }`}
         </CodeSnippet>

@@ -4,23 +4,33 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
-import { AnnotationType, FilterType, DashboardType } from '~/types'
+import { AnnotationType, FilterType, DashboardType, PersonType } from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
-export const eventUsageLogic = kea<eventUsageLogicType>({
+export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterType, DashboardType, PersonType>>({
     actions: {
-        reportAnnotationViewed: (annotations) => ({ annotations }),
-        reportPersonDetailViewed: (person) => ({ person }),
-        reportInsightViewed: (filters, isFirstLoad) => ({ filters, isFirstLoad }),
-        reportDashboardViewed: (dashboard, hasShareToken) => ({ dashboard, hasShareToken }),
-        reportBookmarkletDragged: () => true,
-        reportIngestionBookmarkletCollapsible: (activePanels) => ({ activePanels }),
-        reportProjectCreationSubmitted: (projectCount, nameLength) => ({ projectCount, nameLength }),
+        reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
+        reportPersonDetailViewed: (person: PersonType) => ({ person }),
+        reportInsightViewed: (filters: Partial<FilterType>, isFirstLoad: boolean) => ({ filters, isFirstLoad }),
+        reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
+        reportBookmarkletDragged: true,
+        reportIngestionBookmarkletCollapsible: (activePanels: string[]) => ({ activePanels }),
+        reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
+        reportDemoWarningDismissed: (key: string) => ({ key }),
+        reportOnboardingStepTriggered: (stepKey: string, extra_args: Record<string, string | number | boolean>) => ({
+            stepKey,
+            extra_args,
+        }),
+        reportBulkInviteAttempted: (inviteesCount: number, namesCount: number) => ({ inviteesCount, namesCount }),
+        reportInviteAttempted: (nameProvided: boolean, instanceEmailAvailable: boolean) => ({
+            nameProvided,
+            instanceEmailAvailable,
+        }),
     },
     listeners: {
-        reportAnnotationViewed: async ({ annotations }: { annotations: AnnotationType[] | null }, breakpoint) => {
+        reportAnnotationViewed: async ({ annotations }, breakpoint) => {
             if (!annotations) {
                 // If value is `null` the component has been unmounted, don't report
                 return
@@ -43,7 +53,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 posthog.capture('annotation viewed', properties)
             }
         },
-        reportPersonDetailViewed: async ({ person }, breakpoint) => {
+        reportPersonDetailViewed: async ({ person }: { person: PersonType }, breakpoint) => {
             await breakpoint(500)
 
             let custom_properties_count = 0
@@ -66,10 +76,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
             posthog.capture('person viewed', properties)
         },
-        reportInsightViewed: async (
-            { filters, isFirstLoad }: { filters: FilterType; isFirstLoad: boolean },
-            breakpoint
-        ) => {
+        reportInsightViewed: async ({ filters, isFirstLoad }, breakpoint) => {
             await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
 
             // Reports `insight viewed` event
@@ -126,10 +133,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
 
             posthog.capture('insight viewed', properties)
         },
-        reportDashboardViewed: async (
-            { dashboard, hasShareToken }: { hasShareToken: boolean; dashboard: DashboardType },
-            breakpoint
-        ) => {
+        reportDashboardViewed: async ({ dashboard, hasShareToken }, breakpoint) => {
             await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
             const { created_at, name, is_shared, pinned } = dashboard
             const properties: Record<string, any> = {
@@ -156,10 +160,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             posthog.capture('viewed dashboard', properties)
         },
         reportBookmarkletDragged: async (_, breakpoint) => {
-            breakpoint(500)
+            await breakpoint(500)
             posthog.capture('bookmarklet drag start')
         },
-        reportIngestionBookmarkletCollapsible: async ({ activePanels }: { activePanels: string[] }, breakpoint) => {
+        reportIngestionBookmarkletCollapsible: async ({ activePanels }, breakpoint) => {
             breakpoint(500)
             const action = activePanels.includes('bookmarklet') ? 'shown' : 'hidden'
             posthog.capture(`ingestion bookmarklet panel ${action}`)
@@ -168,12 +172,35 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             projectCount,
             nameLength,
         }: {
-            projectCount: number
+            projectCount?: number
             nameLength: number
         }) => {
             posthog.capture('project create submitted', {
                 current_project_count: projectCount,
                 name_length: nameLength,
+            })
+        },
+        reportDemoWarningDismissed: async ({ key }) => {
+            posthog.capture('demo warning dismissed', { warning_key: key })
+        },
+        reportOnboardingStepTriggered: async ({ stepKey, extra_args }) => {
+            // Fired after the user attempts to start an onboarding step (e.g. clicking on create project)
+            posthog.capture('onboarding step triggered', { step: stepKey, ...extra_args })
+        },
+        reportBulkInviteAttempted: async ({
+            inviteesCount,
+            namesCount,
+        }: {
+            inviteesCount: number
+            namesCount: number
+        }) => {
+            // namesCount -> Number of invitees for which a name was provided
+            posthog.capture('bulk invite attempted', { invitees_count: inviteesCount, name_count: namesCount })
+        },
+        reportInviteAttempted: async ({ nameProvided, instanceEmailAvailable }) => {
+            posthog.capture('team invite attempted', {
+                name_provided: nameProvided,
+                instance_email_available: instanceEmailAvailable,
             })
         },
     },

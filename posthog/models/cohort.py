@@ -108,11 +108,11 @@ class Cohort(models.Model):
                 self.last_calculation = timezone.now()
                 self.errors_calculating = 0
                 self.save()
-        except Exception:
+        except Exception as err:
             self.is_calculating = False
             self.errors_calculating = F("errors_calculating") + 1
             self.save()
-            capture_exception()
+            capture_exception(err)
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """
@@ -169,11 +169,11 @@ class Cohort(models.Model):
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
             self.save()
-        except Exception:
+        except Exception as err:
             self.is_calculating = False
             self.errors_calculating = F("errors_calculating") + 1
             self.save()
-            capture_exception()
+            capture_exception(err)
 
     def __str__(self):
         return self.name

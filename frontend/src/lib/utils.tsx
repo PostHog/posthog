@@ -3,7 +3,7 @@ import api from './api'
 import { toast } from 'react-toastify'
 import { Spin } from 'antd'
 import moment from 'moment'
-import { EventType } from '~/types'
+import { EventType, FilterType } from '~/types'
 import { lightColors } from 'lib/colors'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
@@ -118,11 +118,12 @@ export function DeleteWithUndo(
     props: PropsWithChildren<{
         endpoint: string
         object: {
-            name: string
+            name?: string
             id: number
         }
         className: string
         style: CSSProperties
+        callback: () => void
     }>
 ): JSX.Element {
     const { className, style, children } = props
@@ -190,6 +191,19 @@ export const operatorMap: Record<string, string> = {
 export function isOperatorFlag(operator: string): boolean {
     // these filter operators can only be just set, no additional parameter
     return ['is_set', 'is_not_set'].includes(operator)
+}
+
+export function isOperatorRegex(operator: string): boolean {
+    return ['regex', 'not_regex'].includes(operator)
+}
+
+export function isValidRegex(value: string): boolean {
+    try {
+        new RegExp(value)
+        return true
+    } catch {
+        return false
+    }
 }
 
 export function formatPropertyLabel(
@@ -581,25 +595,28 @@ export function sampleSingle<T>(items: T[]): T[] {
 export function identifierToHuman(identifier: string | number): string {
     const words: string[] = []
     let currentWord: string = ''
-    for (const character of String(identifier).trim()) {
-        if (character === '_' || character === '-') {
-            if (currentWord) {
-                words.push(currentWord)
+    String(identifier)
+        .trim()
+        .split('')
+        .forEach((character) => {
+            if (character === '_' || character === '-') {
+                if (currentWord) {
+                    words.push(currentWord)
+                }
+                currentWord = ''
+            } else if (
+                character === character.toLowerCase() &&
+                (!'0123456789'.includes(character) ||
+                    (currentWord && '0123456789'.includes(currentWord[currentWord.length - 1])))
+            ) {
+                currentWord += character
+            } else {
+                if (currentWord) {
+                    words.push(currentWord)
+                }
+                currentWord = character.toLowerCase()
             }
-            currentWord = ''
-        } else if (
-            character === character.toLowerCase() &&
-            (!'0123456789'.includes(character) ||
-                (currentWord && '0123456789'.includes(currentWord[currentWord.length - 1])))
-        ) {
-            currentWord += character
-        } else {
-            if (currentWord) {
-                words.push(currentWord)
-            }
-            currentWord = character.toLowerCase()
-        }
-    }
+        })
     if (currentWord) {
         words.push(currentWord)
     }
@@ -655,4 +672,49 @@ export function midEllipsis(input: string, maxLength: number): string {
     const middle = Math.ceil(input.length / 2)
     const excess = Math.ceil((input.length - maxLength) / 2)
     return `${input.substring(0, middle - excess)}...${input.substring(middle + excess)}`
+}
+
+export const disableMinuteFor: Record<string, boolean> = {
+    dStart: false,
+    '-1d': false,
+    '-7d': true,
+    '-14d': true,
+    '-30d': true,
+    '-90d': true,
+    mStart: true,
+    '-1mStart': true,
+    yStart: true,
+    all: true,
+    other: false,
+}
+
+export const disableHourFor: Record<string, boolean> = {
+    dStart: false,
+    '-1d': false,
+    '-7d': false,
+    '-14d': false,
+    '-30d': false,
+    '-90d': true,
+    mStart: false,
+    '-1mStart': false,
+    yStart: true,
+    all: true,
+    other: false,
+}
+
+export function autocorrectInterval(filters: Partial<FilterType>): string {
+    if (!filters.interval) {
+        return 'day'
+    } // undefined/uninitialized
+
+    const minute_disabled = disableMinuteFor[filters.date_from || 'other'] && filters.interval === 'minute'
+    const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
+
+    if (minute_disabled) {
+        return 'hour'
+    } else if (hour_disabled) {
+        return 'day'
+    } else {
+        return filters.interval
+    }
 }

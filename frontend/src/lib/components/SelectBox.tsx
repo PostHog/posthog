@@ -1,12 +1,12 @@
 import React, { useRef, useEffect, useState, Fragment } from 'react'
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { Col, Row, Input, Divider } from 'antd'
 import { List } from 'antd'
 import { DownOutlined, RightOutlined } from '@ant-design/icons'
 import { ActionType, CohortType } from '~/types'
 import { searchItems, selectBoxLogic } from 'lib/logic/selectBoxLogic'
 import './SelectBox.scss'
-import { selectBoxLogicType } from './selectBoxLogicType'
+import { selectBoxLogicType } from 'lib/logic/selectBoxLogicType'
 
 export interface SelectBoxItem {
     dataSource: SelectedItem[]
@@ -38,12 +38,12 @@ export function SelectBox({
 }: {
     items: SelectBoxItem[]
     selectedItemKey?: string
-    onSelect: CallableFunction
+    onSelect: (type: any, id: string | number, name: string) => void
     onDismiss: (event: MouseEvent) => void
 }): JSX.Element {
     const dropdownRef = useRef<HTMLDivElement>(null)
     const dropdownLogic = selectBoxLogic({ updateFilter: onSelect, items })
-    const { selectedItem, RenderInfo } = useValues(dropdownLogic)
+    const { selectedItem, selectedGroup } = useValues(dropdownLogic)
     const { setSearch, setSelectedItem, onKeyDown } = useActions(dropdownLogic)
 
     const deselect = (e: MouseEvent): void => {
@@ -56,7 +56,7 @@ export function SelectBox({
     useEffect(() => {
         if (selectedItemKey) {
             const allSources = items.map((item) => item.dataSource).flat()
-            setSelectedItem(allSources.filter((item) => item.key === selectedItemKey)[0] || false)
+            setSelectedItem(allSources.filter((item) => item.key === selectedItemKey)[0] || null)
             const offset = document.querySelector('.search-list [datakey="' + selectedItemKey + '"]')?.offsetTop
             document.querySelector('.search-list').scrollTop = offset
         }
@@ -89,7 +89,7 @@ export function SelectBox({
                     </div>
                 </Col>
                 <Col sm={10} className="info-box">
-                    {RenderInfo && <RenderInfo item={selectedItem} />}
+                    {selectedGroup && selectedItem ? selectedGroup.renderInfo({ item: selectedItem }) : null}
                 </Col>
             </Row>
         </div>
@@ -103,7 +103,7 @@ export function SelectUnit({
 }: {
     group: SelectBoxItem
     dataSource: SelectedItem[]
-    dropdownLogic: selectBoxLogicType
+    dropdownLogic: selectBoxLogicType<SelectedItem, SelectBoxItem> & BuiltLogic
 }): JSX.Element {
     const [isCollapsed, setIsCollapsed] = useState(false)
     const { setSelectedItem, clickSelectedItem } = useActions(dropdownLogic)
@@ -129,7 +129,7 @@ export function SelectUnit({
                     dataSource={data || []}
                     renderItem={(item: SelectedItem) => (
                         <List.Item
-                            className={selectedItem.key === item.key ? 'selected' : undefined}
+                            className={selectedItem?.key === item.key ? 'selected' : undefined}
                             datakey={item.key}
                             onClick={() => clickSelectedItem(item, group)}
                             onMouseOver={() =>

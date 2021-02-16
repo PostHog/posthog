@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space, Tooltip, Drawer } from 'antd'
+import { Table, Button, Spin, Space, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -27,6 +27,7 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
 import { EditFiltersPanel } from 'scenes/sessions/filters/EditFiltersPanel'
 import { SearchAllBox } from 'scenes/sessions/filters/SearchAllBox'
+import { Drawer } from 'lib/components/Drawer'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -173,9 +174,14 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
     return (
         <div className="events" data-attr="events-table">
             <Space className="mb-05">
-                <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
-                <DatePicker value={selectedDate} onChange={(date) => setFilters(properties, date)} allowClear={false} />
-                <Button onClick={nextDay} icon={<CaretRightOutlined />} />
+                <Button onClick={previousDay} icon={<CaretLeftOutlined />} data-attr="sessions-prev-date" />
+                <DatePicker
+                    value={selectedDate}
+                    onChange={(date) => setFilters(properties, date)}
+                    allowClear={false}
+                    data-attr="sessions-date-picker"
+                />
+                <Button onClick={nextDay} icon={<CaretRightOutlined />} data-attr="sessions-next-date" />
             </Space>
 
             {featureFlags['filter_by_session_props'] && (
@@ -196,12 +202,11 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                     <span>
                         <LinkButton
                             to={firstRecordingId ? sessionPlayerUrl(firstRecordingId) : '#'}
-                            icon={<PlaySquareOutlined />}
                             type="primary"
                             data-attr="play-all-recordings"
                             disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled
                         >
-                            Play all
+                            <PlaySquareOutlined /> Play all
                         </LinkButton>
                     </span>
                 </Tooltip>
@@ -234,7 +239,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 }}
             >
                 {(pagination || isLoadingNext) && (
-                    <Button type="primary" onClick={fetchNextSessions}>
+                    <Button type="primary" onClick={fetchNextSessions} data-attr="load-more-sessions">
                         {isLoadingNext ? <Spin> </Spin> : 'Load more sessions'}
                     </Button>
                 )}

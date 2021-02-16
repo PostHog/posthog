@@ -13,7 +13,7 @@ export function ShownAsFilter({ filters, onChange }) {
                         onChange={(value) =>
                             onChange({
                                 shown_as: value,
-                                ...(value === LIFECYCLE ? { display: ACTIONS_BAR_CHART } : {}),
+                                ...(value === LIFECYCLE ? { display: ACTIONS_BAR_CHART, formula: '' } : {}),
                             })
                         }
                         style={{ width: 200 }}

@@ -31,6 +31,26 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ["id", "distinct_id", "first_name", "email"]
 
 
+def get_event_names_with_usage(team: Team):
+    def get_key(event: str, type: str):
+        return next((item.get(type) for item in team.event_names_with_usage if item["event"] == event), None)
+
+    return [
+        {"event": event, "volume": get_key(event, "volume"), "usage_count": get_key(event, "usage_count"),}
+        for event in team.event_names
+    ]
+
+
+def get_event_properties_with_usage(team: Team):
+    def get_key(key: str, type: str):
+        return next((item.get(type) for item in team.event_properties_with_usage if item["key"] == key), None)
+
+    return [
+        {"key": key, "volume": get_key(key, "volume"), "usage_count": get_key(key, "usage_count"),}
+        for key in team.event_properties
+    ]
+
+
 # TODO: remake these endpoints with DRF!
 @authenticate_secondarily
 def user(request):
@@ -121,12 +141,10 @@ def user(request):
                 "anonymize_ips": team.anonymize_ips,
                 "slack_incoming_webhook": team.slack_incoming_webhook,
                 "event_names": team.event_names,
-                "event_names_with_usage": team.event_names_with_usage
-                or [{"event": event, "volume": None, "usage_count": None} for event in team.event_names],
+                "event_names_with_usage": get_event_names_with_usage(team),
                 "event_properties": team.event_properties,
                 "event_properties_numerical": team.event_properties_numerical,
-                "event_properties_with_usage": team.event_properties_with_usage
-                or [{"key": key, "volume": None, "usage_count": None} for key in team.event_properties],
+                "event_properties_with_usage": get_event_properties_with_usage(team),
                 "completed_snippet_onboarding": team.completed_snippet_onboarding,
                 "session_recording_opt_in": team.session_recording_opt_in,
                 "session_recording_retention_period_days": team.session_recording_retention_period_days,

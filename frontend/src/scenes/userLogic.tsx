@@ -20,6 +20,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
         userUpdateRequest: (update: UserUpdateType, updateKey?: string) => ({ update, updateKey }),
         userUpdateSuccess: (user: UserType, updateKey?: string) => ({ user, updateKey }),
         userUpdateFailure: (error: string, updateKey?: string) => ({ updateKey, error }),
+        userUpdateLoading: (loading: boolean) => ({ loading }),
         currentTeamUpdateRequest: (teamId: number) => ({ teamId }),
         currentOrganizationUpdateRequest: (organizationId: string) => ({ organizationId }),
         completedOnboarding: true,
@@ -32,6 +33,14 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
             {
                 setUser: (_, payload) => payload.user,
                 userUpdateSuccess: (_, payload) => payload.user,
+            },
+        ],
+        userUpdateLoading: [
+            false,
+            {
+                userUpdateRequest: () => true,
+                userUpdateSuccess: () => false,
+                userUpdateFailure: () => false,
             },
         ],
     },
@@ -87,7 +96,8 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
         ],
         demoOnlyProject: [
             () => [selectors.user],
-            (user): boolean => (user?.team?.is_demo && user?.organization?.teams.length == 1) || false,
+            (user): boolean =>
+                (user?.team?.is_demo && user?.organization?.teams && user.organization.teams.length == 1) || false,
         ],
     }),
 
@@ -119,6 +129,9 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                         posthog.register({
                             posthog_version: user.posthog_version,
                             has_slack_webhook: !!user.team?.slack_incoming_webhook,
+                            is_demo_project: user.team?.is_demo,
+                            has_billing_plan: !!user.billing?.plan,
+                            // :TODO: Add percentage usage logic
                         })
                     }
                 }

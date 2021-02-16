@@ -48,7 +48,7 @@ export const cohortLogic = kea({
     }),
 
     listeners: ({ sharedListeners, actions, values }) => ({
-        saveCohort: async ({ cohortParams, filterParams }) => {
+        saveCohort: async ({ cohortParams, filterParams }, breakpoint) => {
             let cohort = { ...values.cohort, ...cohortParams }
             const cohortFormData = new FormData()
             for (const [key, value] of Object.entries(cohort)) {
@@ -73,12 +73,14 @@ export const cohortLogic = kea({
                 cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortFormData)
                 cohortsModel.actions.createCohort(cohort)
             }
+            breakpoint()
             delete cohort['csv']
             actions.setCohort(cohort)
             sharedListeners.pollIsFinished(cohort)
         },
-        checkIsFinished: async ({ cohort }) => {
+        checkIsFinished: async ({ cohort }, breakpoint) => {
             cohort = await api.get('api/cohort/' + cohort.id)
+            breakpoint()
             sharedListeners.pollIsFinished(cohort)
         },
     }),

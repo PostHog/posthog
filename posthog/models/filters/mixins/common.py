@@ -1,5 +1,6 @@
 import datetime
 import json
+import re
 from distutils.util import strtobool
 from typing import Dict, List, Optional, Union
 
@@ -17,6 +18,7 @@ from posthog.constants import (
     DATE_TO,
     DISPLAY,
     EVENTS,
+    FORMULA,
     INSIGHT,
     INSIGHT_TO_DISPLAY,
     INSIGHT_TRENDS,
@@ -32,6 +34,8 @@ from posthog.models.entity import Entity
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.utils import relative_date_parse
+
+ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
 
 
 class IntervalMixin(BaseParamMixin):
@@ -62,6 +66,19 @@ class ShownAsMixin(BaseParamMixin):
     @include_dict
     def shown_as_to_dict(self):
         return {"shown_as": self.shown_as} if self.shown_as else {}
+
+
+class FormulaMixin(BaseParamMixin):
+    @cached_property
+    def formula(self) -> Optional[str]:
+        formula = self._data.get(FORMULA, None)
+        if not formula:
+            return None
+        return "".join(re.findall(ALLOWED_FORMULA_CHARACTERS, formula))
+
+    @include_dict
+    def formula_to_dict(self):
+        return {"formula": self.formula} if self.formula else {}
 
 
 class BreakdownMixin(BaseParamMixin):

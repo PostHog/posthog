@@ -7,6 +7,8 @@ from django.db import models, transaction
 from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
 
+from posthog.utils import get_instance_realm
+
 from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey
 from .team import Team
@@ -32,7 +34,7 @@ class UserManager(BaseUserManager):
 
     def bootstrap(
         self,
-        company_name: str,
+        organization_name: str,
         email: str,
         password: Optional[str],
         first_name: str = "",
@@ -44,7 +46,7 @@ class UserManager(BaseUserManager):
         """Instead of doing the legwork of creating a user from scratch, delegate the details with bootstrap."""
         with transaction.atomic():
             organization_fields = organization_fields or {}
-            organization_fields.setdefault("name", company_name)
+            organization_fields.setdefault("name", organization_name)
             organization = Organization.objects.create(**organization_fields)
             user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
             if create_team:
@@ -157,16 +159,19 @@ class User(AbstractUser):
 
     def get_analytics_metadata(self):
 
-        team_member_count_all: int = OrganizationMembership.objects.filter(
-            organization__in=self.organizations.all(),
-        ).values("user_id").distinct().count()
+        team_member_count_all: int = (
+            OrganizationMembership.objects.filter(organization__in=self.organizations.all(),)
+            .values("user_id")
+            .distinct()
+            .count()
+        )
 
         project_setup_complete = False
         if self.team and self.team.completed_snippet_onboarding and self.team.ingested_event:
             project_setup_complete = True
 
         return {
-            "realm": "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted",
+            "realm": get_instance_realm(),
             "is_ee_available": settings.EE_AVAILABLE,
             "email_opt_in": self.email_opt_in,
             "anonymize_data": self.anonymize_data,
@@ -183,6 +188,10 @@ class User(AbstractUser):
             "organization_id": str(self.organization.id) if self.organization else None,
             "project_id": str(self.team.uuid) if self.team else None,
             "project_setup_complete": project_setup_complete,
+            "joined_at": self.date_joined,
+            "has_password_set": self.has_usable_password(),
+            "has_social_auth": self.social_auth.exists(),  # type: ignore
+            "social_providers": list(self.social_auth.values_list("provider", flat=True)),  # type: ignore
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")

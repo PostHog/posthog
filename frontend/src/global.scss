@@ -8,6 +8,7 @@ style files without adding already imported styles. */
 
 :root {
     --primary: #{$primary};
+    --primary-alt: #{$primary_alt};
     --success: #{$success};
     --danger: #{$danger};
     --warning: #{$warning};
@@ -300,6 +301,12 @@ code.code {
     }
 }
 
+.error-on-blur {
+    &.errored:not(:focus) {
+        border-color: $danger !important;
+    }
+}
+
 // Button styles
 .btn-close {
     color: $text_muted;
@@ -320,6 +327,11 @@ code.code {
     color: $primary !important;
     cursor: pointer;
     margin-left: 5px;
+}
+
+.btn-add {
+    color: $text_muted !important;
+    border: 1px dashed $border !important;
 }
 
 // Badges styles

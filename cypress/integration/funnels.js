@@ -9,6 +9,7 @@ describe('Funnels', () => {
         cy.get('[data-attr=add-action-event-button]').click()
         cy.get('[data-attr=trend-element-subject-0]').click()
 
+        cy.wait(200)
         // Double click: https://www.cypress.io/blog/2019/01/22/when-can-the-test-click/
         cy.contains('HogFlix homepage view').click().click()
 

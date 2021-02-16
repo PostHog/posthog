@@ -3,6 +3,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
+import moment from 'moment'
 import { DateFilter } from 'lib/components/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 
@@ -13,18 +14,15 @@ import { PersonModal } from './PersonModal'
 import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Tooltip, Card, Button, Input } from 'antd'
+import { Tabs, Row, Col, Card, Button, Input, Modal } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
-    LINEAR_CHART_LABEL,
-    CUMULATIVE_CHART_LABEL,
-    TABLE_LABEL,
-    PIE_CHART_LABEL,
     ACTIONS_TABLE,
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
-    BAR_CHART_LABEL,
+    LIFECYCLE,
+    FUNNEL_VIZ,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
@@ -37,49 +35,54 @@ import { Paths } from 'scenes/paths/Paths'
 import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { People } from 'scenes/funnels/People'
-import { insightLogic, ViewType } from './insightLogic'
+import { insightLogic, logicFromInsight, ViewType } from './insightLogic'
 import { trendsLogic } from './trendsLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { ReloadOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
 import { ErrorMessage, TimeOut } from './EmptyStates'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Modal } from 'antd'
+import { People } from 'scenes/funnels/People'
 
 const { TabPane } = Tabs
 
-const displayMap = {
-    [`${ACTIONS_LINE_GRAPH_LINEAR}`]: LINEAR_CHART_LABEL,
-    [`${ACTIONS_LINE_GRAPH_CUMULATIVE}`]: CUMULATIVE_CHART_LABEL,
-    [`${ACTIONS_TABLE}`]: TABLE_LABEL,
-    [`${ACTIONS_PIE_CHART}`]: PIE_CHART_LABEL,
-    [`${ACTIONS_BAR_CHART}`]: BAR_CHART_LABEL,
+const showIntervalFilter = function (activeView, filter) {
+    switch (activeView) {
+        case ViewType.TRENDS:
+        case ViewType.STICKINESS:
+        case ViewType.LIFECYCLE:
+        case ViewType.SESSIONS:
+            return true
+        case ViewType.FUNNELS:
+            return filter.display === ACTIONS_LINE_GRAPH_LINEAR
+        case ViewType.RETENTION:
+        case ViewType.PATHS:
+            return false
+        default:
+            return true // sometimes insights aren't set for trends
+    }
 }
 
-const showIntervalFilter = {
-    [`${ViewType.TRENDS}`]: true,
-    [`${ViewType.STICKINESS}`]: true,
-    [`${ViewType.LIFECYCLE}`]: true,
-    [`${ViewType.SESSIONS}`]: true,
-    [`${ViewType.FUNNELS}`]: false,
-    [`${ViewType.RETENTION}`]: false,
-    [`${ViewType.PATHS}`]: false,
-}
-
-const showChartFilter = {
-    [`${ViewType.TRENDS}`]: true,
-    [`${ViewType.STICKINESS}`]: true,
-    [`${ViewType.LIFECYCLE}`]: false,
-    [`${ViewType.SESSIONS}`]: true,
-    [`${ViewType.FUNNELS}`]: false,
-    [`${ViewType.RETENTION}`]: true,
-    [`${ViewType.PATHS}`]: false,
+const showChartFilter = function (activeView, featureFlags) {
+    switch (activeView) {
+        case ViewType.TRENDS:
+        case ViewType.STICKINESS:
+        case ViewType.SESSIONS:
+        case ViewType.RETENTION:
+            return true
+        case ViewType.FUNNELS:
+            return featureFlags['funnel-trends-1269']
+        case ViewType.LIFECYCLE:
+        case ViewType.PATHS:
+            return false
+        default:
+            return true // sometimes insights aren't set for trends
+    }
 }
 
 const showDateFilter = {
@@ -109,9 +112,14 @@ function _Insights() {
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
     const { user } = useValues(userLogic)
-    const { isLoading, activeView, allFilters, showTimeoutMessage, showErrorMessage } = useValues(insightLogic)
+    const { lastRefresh, isLoading, activeView, allFilters, showTimeoutMessage, showErrorMessage } = useValues(
+        insightLogic
+    )
     const { setActiveView } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
+    const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
 
     return (
         user?.team && (
@@ -198,19 +206,7 @@ function _Insights() {
                                 </Card>
                                 {activeView === ViewType.FUNNELS && (
                                     <Card
-                                        title={
-                                            <Row align="middle">
-                                                <span>Saved Funnels</span>
-                                                <Tooltip
-                                                    key="1"
-                                                    getPopupContainer={(trigger) => trigger.parentElement}
-                                                    placement="right"
-                                                    title="These consist of funnels by you and the rest of the team"
-                                                >
-                                                    <InfoCircleOutlined className="info-indicator" />
-                                                </Tooltip>
-                                            </Row>
-                                        }
+                                        title={<Row align="middle">Funnels Saved in Project</Row>}
                                         style={{ marginTop: 16 }}
                                     >
                                         <SavedFunnels />
@@ -225,10 +221,10 @@ function _Insights() {
                                 <Card
                                     title={
                                         <div className="float-right">
-                                            {showIntervalFilter[activeView] && (
+                                            {showIntervalFilter(activeView, allFilters) && (
                                                 <IntervalFilter filters={allFilters} view={activeView} />
                                             )}
-                                            {showChartFilter[activeView] && (
+                                            {showChartFilter(activeView, featureFlags) && (
                                                 <ChartFilter
                                                     onChange={(display) => {
                                                         if (
@@ -238,20 +234,14 @@ function _Insights() {
                                                             clearAnnotationsToCreate()
                                                         }
                                                     }}
-                                                    displayMap={displayMap}
                                                     filters={allFilters}
+                                                    disabled={allFilters.shown_as === LIFECYCLE}
                                                 />
                                             )}
 
-                                            {showDateFilter[activeView] && (
-                                                <DateFilter
-                                                    disabled={
-                                                        activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
-                                                    }
-                                                />
-                                            )}
+                                            {showDateFilter[activeView] && <DateFilter disabled={dateFilterDisabled} />}
 
-                                            {showComparePrevious[activeView] && <CompareFilter filters={allFilters} />}
+                                            {showComparePrevious[activeView] && <CompareFilter />}
                                             <SaveToDashboard
                                                 item={{
                                                     entity: {
@@ -264,35 +254,71 @@ function _Insights() {
                                     }
                                     headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
                                 >
-                                    {showErrorMessage ? (
-                                        <ErrorMessage />
-                                    ) : showTimeoutMessage ? (
-                                        <TimeOut isLoading={isLoading} />
-                                    ) : featureFlags['remove-shownas'] ? (
-                                        {
-                                            [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                            [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
-                                            [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
-                                            [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
-                                            [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                            [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                            [`${ViewType.PATHS}`]: <Paths />,
-                                        }[activeView]
-                                    ) : (
-                                        {
-                                            [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                            [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
-                                            [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                            [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                            [`${ViewType.PATHS}`]: <Paths />,
-                                        }[activeView]
-                                    )}
+                                    <div>
+                                        {lastRefresh && (
+                                            <small style={{ position: 'absolute', marginTop: -21, right: 24 }}>
+                                                Computed {moment(lastRefresh).fromNow()}
+                                                <Button
+                                                    size="small"
+                                                    type="link"
+                                                    onClick={() => loadResults(true)}
+                                                    style={{ margin: 0 }}
+                                                >
+                                                    refresh
+                                                    <ReloadOutlined
+                                                        style={{ cursor: 'pointer', marginTop: -3, marginLeft: 3 }}
+                                                    />
+                                                </Button>
+                                            </small>
+                                        )}
+                                        {showErrorMessage ? (
+                                            <ErrorMessage />
+                                        ) : (
+                                            showTimeoutMessage && <TimeOut isLoading={isLoading} />
+                                        )}
+                                        <div
+                                            style={{
+                                                display: showErrorMessage || showTimeoutMessage ? 'none' : 'block',
+                                            }}
+                                        >
+                                            {showErrorMessage ? (
+                                                <ErrorMessage />
+                                            ) : showTimeoutMessage ? (
+                                                <TimeOut isLoading={isLoading} />
+                                            ) : featureFlags['remove-shownas'] ? (
+                                                {
+                                                    [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                                    [`${ViewType.STICKINESS}`]: (
+                                                        <TrendInsight view={ViewType.STICKINESS} />
+                                                    ),
+                                                    [`${ViewType.LIFECYCLE}`]: (
+                                                        <TrendInsight view={ViewType.LIFECYCLE} />
+                                                    ),
+                                                    [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                                    [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                                    [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                                    [`${ViewType.PATHS}`]: <Paths />,
+                                                }[activeView]
+                                            ) : (
+                                                {
+                                                    [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                                    [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                                    [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                                    [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                                    [`${ViewType.PATHS}`]: <Paths />,
+                                                }[activeView]
+                                            )}
+                                        </div>
+                                    </div>
                                 </Card>
-                                {!showErrorMessage && !showTimeoutMessage && activeView === ViewType.FUNNELS && (
-                                    <Card>
-                                        <FunnelPeople />
-                                    </Card>
-                                )}
+                                {!showErrorMessage &&
+                                    !showTimeoutMessage &&
+                                    activeView === ViewType.FUNNELS &&
+                                    allFilters.display === FUNNEL_VIZ && (
+                                        <Card>
+                                            <FunnelPeople />
+                                        </Card>
+                                    )}
                             </Col>
                         </>
                     )}
@@ -332,13 +358,9 @@ function SaveCohortModal({ onOk, onCancel, visible }) {
 
 function TrendInsight({ view }) {
     const [cohortModalVisible, setCohortModalVisible] = useState(false)
-    const { filters: _filters, loading, showingPeople } = useValues(
+    const { filters: _filters, loading, showingPeople, saveCohortWithFilters, refreshCohort } = useValues(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
-    const { filters: _filters, loading, showingPeople, saveCohortWithFilters, refreshCohort } = useActions(
-        trendsLogic({ dashboardItemId: null, view })
-    )
-
     return (
         <>
             {(_filters.actions || _filters.events || _filters.session) && (
@@ -382,15 +404,15 @@ const isFunnelEmpty = (filters) => {
 }
 
 function FunnelInsight() {
-    const { stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic)
+    const { stepsWithCount, resultsLoading } = useValues(funnelLogic({}))
 
     return (
         <div style={{ height: 300, position: 'relative' }}>
-            {stepsWithCountLoading && <Loading />}
+            {resultsLoading && <Loading />}
             {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 ? (
                 <FunnelViz steps={stepsWithCount} />
             ) : (
-                !stepsWithCountLoading && (
+                !resultsLoading && (
                     <div
                         style={{
                             textAlign: 'center',
@@ -407,7 +429,7 @@ function FunnelInsight() {
 }
 
 function FunnelPeople() {
-    const { stepsWithCount } = useValues(funnelLogic)
+    const { stepsWithCount } = useValues(funnelLogic())
     if (stepsWithCount && stepsWithCount.length > 0) {
         return <People />
     }

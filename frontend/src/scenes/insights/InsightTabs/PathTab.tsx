@@ -39,19 +39,20 @@ export function PathTab(): JSX.Element {
             <hr />
             <h4 className="secondary">Start Point</h4>
             <PropertyValue
-                endpoint={filter?.path_type === AUTOCAPTURE && 'api/paths/elements'}
+                endpoint={filter.path_type === AUTOCAPTURE && 'api/paths/elements'}
                 outerOptions={
-                    filter.type === CUSTOM_EVENT &&
+                    filter.path_type === CUSTOM_EVENT &&
                     customEventNames.map((name) => ({
                         name,
                     }))
                 }
-                onSet={(value): void => setFilter({ start_point: value })}
-                propertyKey={pathOptionsToProperty[filter.path_type]}
+                onSet={(value: string | number): void => setFilter({ start_point: value })}
+                propertyKey={pathOptionsToProperty[filter.path_type || PAGEVIEW]}
                 type="event"
                 style={{ width: 200, paddingTop: 2 }}
                 value={filter.start_point}
                 placeholder={'Select start element'}
+                operator={null}
             />
             <hr />
             <h4 className="secondary">Filters</h4>

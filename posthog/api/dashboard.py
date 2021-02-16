@@ -12,7 +12,7 @@ from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import authentication, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 
@@ -22,7 +22,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.utils import render_template
+from posthog.utils import get_safe_cache, render_template
 
 
 class DashboardSerializer(serializers.ModelSerializer):
@@ -120,6 +120,8 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
         if self.request.GET.get("share_token"):
             return queryset.filter(share_token=self.request.GET["share_token"])
+        elif self.request.user.is_authenticated and not self.request.user.team:
+            raise NotFound()
         elif not self.request.user.is_authenticated or "team_id" not in self.get_parents_query_dict():
             raise AuthenticationFailed(detail="You're not logged in, but also not using add share_token.")
 
@@ -135,8 +137,7 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return response.Response(serializer.data)
 
     def get_parents_query_dict(self) -> Dict[str, Any]:  # to be moved to a separate Legacy*ViewSet Class
-
-        if not self.request.user.is_authenticated or "share_token" in self.request.GET:
+        if not self.request.user.is_authenticated or "share_token" in self.request.GET or not self.request.user.team:
             return {}
         return {"team_id": self.request.user.team.id}
 
@@ -200,10 +201,10 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         if not dashboard_item.filters_hash:
             return None
 
-        result = cache.get(dashboard_item.filters_hash)
+        result = get_safe_cache(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
-        return result["result"]
+        return result.get("result")
 
     def get_last_refresh(self, dashboard_item: DashboardItem):
         if self.get_result(dashboard_item):
