@@ -130,9 +130,31 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                             posthog_version: user.posthog_version,
                             has_slack_webhook: !!user.team?.slack_incoming_webhook,
                             is_demo_project: user.team?.is_demo,
-                            has_billing_plan: !!user.billing?.plan,
-                            // :TODO: Add percentage usage logic
+                            realm: user.realm,
                         })
+
+                        if (user.realm === 'cloud') {
+                            // Billing-related properties
+                            // :TODO: Temporary support for legacy `FormattedNumber` type
+                            const current_usage =
+                                typeof user.billing?.current_usage === 'number'
+                                    ? user.billing.current_usage
+                                    : user.billing?.current_usage?.value
+                            const event_allocation =
+                                typeof user.billing?.event_allocation === 'number'
+                                    ? user.billing.event_allocation
+                                    : user.billing?.event_allocation?.value
+
+                            posthog.register({
+                                has_billing_plan: !!user.billing?.plan,
+                                metered_billing: user.billing?.plan?.is_metered_billing,
+                                event_allocation: event_allocation,
+                                allocation_used:
+                                    event_allocation && current_usage !== undefined
+                                        ? current_usage / event_allocation
+                                        : undefined,
+                            })
+                        }
                     }
                 }
             } catch (e) {
