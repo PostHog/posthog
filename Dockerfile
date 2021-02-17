@@ -8,4 +8,4 @@ RUN yarn install --frozen-lockfile
 COPY ./ ./
 RUN yarn compile:typescript
 
-CMD [ "node", "dist/src/index.js" ]
+CMD [ "node", "dist/index.js" ]
