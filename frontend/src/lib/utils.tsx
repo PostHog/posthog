@@ -490,7 +490,7 @@ export function dateFilterToText(
     } // Changed to "last 24 hours" but this is backwards compatibility
     let name = defaultValue
     Object.entries(dateMapping).map(([key, value]) => {
-        if (value[0] === dateFrom && value[1] === dateTo) {
+        if (value[0] === dateFrom && value[1] === dateTo && key !== 'Custom') {
             name = key
         }
     })[0]
