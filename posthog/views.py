@@ -139,14 +139,14 @@ def system_status(request):
     metrics.append(
         {
             "key": "plugins_install",
-            "metric": "Plugin install access",
+            "metric": "Plugins can be installed",
             "value": can_install_plugins_via_api(team.organization),
         }
     )
     metrics.append(
         {
             "key": "plugins_configure",
-            "metric": "Plugin configuration access",
+            "metric": "Plugins can be configured",
             "value": can_configure_plugins_via_api(team.organization),
         }
     )

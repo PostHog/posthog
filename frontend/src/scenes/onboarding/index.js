@@ -11,7 +11,7 @@ function Signup() {
     const [state, setState] = useState({ submitted: false })
     const [formState, setFormState] = useState({
         firstName: {},
-        companyName: {},
+        organizationName: {},
         email: {},
         password: {},
         emailOptIn: { value: true },
@@ -43,7 +43,7 @@ function Signup() {
         }
         const payload = {
             first_name: formState.firstName.value,
-            company_name: formState.companyName.value || undefined,
+            organization_name: formState.organizationName.value || undefined,
             email: formState.email.value,
             password: formState.password.value,
             email_opt_in: formState.emailOptIn.value,
@@ -125,13 +125,13 @@ function Signup() {
                         </div>
 
                         <div className="input-set">
-                            <label htmlFor="signupCompanyName">Company or Project</label>
+                            <label htmlFor="signupOrganizationName">Organization Name</label>
                             <Input
                                 placeholder="Hogflix Movies"
-                                value={formState.companyName.value}
-                                onChange={(e) => updateForm('companyName', e.target)}
+                                value={formState.organizationName.value}
+                                onChange={(e) => updateForm('organizationName', e.target)}
                                 disabled={accountLoading}
-                                id="signupCompanyName"
+                                id="signupOrganizationName"
                             />
                         </div>
 
