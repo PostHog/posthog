@@ -348,7 +348,8 @@ export interface PlanInterface {
     image_url: string
     self_serve: boolean
     is_metered_billing: boolean
-    allowance: FormattedNumber | number | null
+    allowance: FormattedNumber | number | null // :TODO: DEPRECATED
+    event_allowance: number
     price_string: string
 }
 

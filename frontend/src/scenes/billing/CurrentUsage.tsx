@@ -15,25 +15,27 @@ export function CurrentUsage(): JSX.Element {
         typeof user?.billing?.current_usage === 'number'
             ? user.billing.current_usage
             : user?.billing?.current_usage?.value
+    const allocation = typeof eventAllocation === 'number' ? eventAllocation : eventAllocation?.value
 
     return (
         <>
             <div className="space-top" />
             <Card title="Current monthly usage">
-                {current_usage && (
+                {current_usage !== undefined ? (
                     <>
                         Your organization has used{' '}
                         <Tooltip title={`${current_usage.toLocaleString()} events`}>
                             <b>{compactNumber(current_usage)}</b>
                         </Tooltip>{' '}
                         events this month.{' '}
-                        {eventAllocation?.value && (
+                        {allocation && (
                             <>
-                                You can use up to <b>{eventAllocation.formatted}</b> events per month.
+                                You can use up to <b>{compactNumber(allocation)}</b> events per month.
                             </>
                         )}
                         {plan &&
-                            !plan.allowance &&
+                            !plan.allowance && // :TODO: DEPRECATED
+                            !plan.event_allowance &&
                             !plan.is_metered_billing &&
                             'Your current plan has an unlimited event allocation.'}
                         <Progress
@@ -50,8 +52,7 @@ export function CurrentUsage(): JSX.Element {
                             </div>
                         )}
                     </>
-                )}
-                {!user?.billing?.current_usage && (
+                ) : (
                     <div>
                         Currently we do not have information about your usage. Please check back again in a few minutes
                         or{' '}

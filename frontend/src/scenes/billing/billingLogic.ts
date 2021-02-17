@@ -13,7 +13,7 @@ export enum BillingAlertType {
     UsageNearLimit = 'usage_near_limit',
 }
 
-export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscription, UserType>>({
+export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscription, UserType, FormattedNumber>>({
     loaders: {
         plans: [
             [] as PlanInterface[],
