@@ -247,22 +247,22 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
             self._create_events(
                 [
-                    ("person1", self._date(day=0, hour=0)),
-                    ("person2", self._date(day=0, hour=0)),
-                    ("person1", self._date(day=0, hour=1)),
-                    ("person2", self._date(day=0, hour=1)),
-                    ("person1", self._date(day=0, hour=2)),
-                    ("person2", self._date(day=0, hour=2)),
-                    ("person1", self._date(day=0, hour=4)),
-                    ("person1", self._date(day=0, hour=5)),
-                    ("person2", self._date(day=0, hour=5)),
+                    ("person1", self._date(day=0, hour=6)),
                     ("person2", self._date(day=0, hour=6)),
+                    ("person1", self._date(day=0, hour=7)),
+                    ("person2", self._date(day=0, hour=7)),
                     ("person1", self._date(day=0, hour=8)),
-                    ("person2", self._date(day=0, hour=10)),
+                    ("person2", self._date(day=0, hour=8)),
+                    ("person1", self._date(day=0, hour=10)),
+                    ("person1", self._date(day=0, hour=11)),
+                    ("person2", self._date(day=0, hour=11)),
+                    ("person2", self._date(day=0, hour=12)),
+                    ("person1", self._date(day=0, hour=14)),
+                    ("person2", self._date(day=0, hour=16)),
                 ]
             )
 
-            filter = RetentionFilter(data={"date_to": self._date(0, hour=10), "period": "Hour"})
+            filter = RetentionFilter(data={"date_to": self._date(0, hour=16), "period": "Hour"})
 
             result = retention().run(filter, self.team, total_intervals=11)
 
@@ -303,17 +303,17 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             self.assertEqual(
                 self.pluck(result, "date"),
                 [
-                    datetime(2020, 6, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 1, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 2, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 3, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 4, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 5, tzinfo=pytz.UTC),
                     datetime(2020, 6, 10, 6, tzinfo=pytz.UTC),
                     datetime(2020, 6, 10, 7, tzinfo=pytz.UTC),
                     datetime(2020, 6, 10, 8, tzinfo=pytz.UTC),
                     datetime(2020, 6, 10, 9, tzinfo=pytz.UTC),
                     datetime(2020, 6, 10, 10, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 11, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 12, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 13, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 14, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 15, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 16, tzinfo=pytz.UTC),
                 ],
             )
 

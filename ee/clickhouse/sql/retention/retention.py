@@ -57,7 +57,7 @@ LIMIT 100 OFFSET %(offset)s
 """
 
 INITIAL_INTERVAL_SQL = """
-SELECT datediff(%(period)s, toStartOfDay(toDateTime(%(start_date)s)), event_date) event_date,
+SELECT datediff(%(period)s, {trunc_func}(toDateTime(%(start_date)s)), event_date) event_date,
        count(DISTINCT person_id) FROM (
     {reference_event_sql}
 ) GROUP BY event_date ORDER BY event_date
