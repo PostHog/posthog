@@ -517,6 +517,13 @@ interface AuthBackends {
     github?: boolean
 }
 
-export interface AuthConfig {
-    available_backends: AuthBackends
+export interface PreflightStatus {
+    django: boolean
+    plugins: boolean
+    redis: boolean
+    db: boolean
+    initiated: boolean
+    cloud: boolean
+    celery: boolean
+    available_social_auth_providers: AuthBackends
 }

@@ -1,7 +1,7 @@
 import { Button } from 'antd'
 import { useValues } from 'kea'
 import React from 'react'
-import { userLogic } from 'scenes/userLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './index.scss'
 
 enum SocialAuthProviders {
@@ -30,9 +30,9 @@ interface SocialLoginButtonsProps extends SharedProps {
 }
 
 export function SocialLoginButton({ provider, queryString }: SocialLoginButtonProps): JSX.Element | null {
-    const { authConfig } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
 
-    if (!authConfig?.available_backends[provider]) {
+    if (!preflight?.available_social_auth_providers[provider]) {
         return null
     }
 
@@ -47,11 +47,11 @@ export function SocialLoginButton({ provider, queryString }: SocialLoginButtonPr
 }
 
 export function SocialLoginButtons({ title, caption, ...props }: SocialLoginButtonsProps): JSX.Element | null {
-    const { authConfig } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
 
     if (
-        !authConfig?.available_backends ||
-        !Object.values(authConfig.available_backends).filter((val) => !!val).length
+        !preflight?.available_social_auth_providers ||
+        !Object.values(preflight.available_social_auth_providers).filter((val) => !!val).length
     ) {
         return null
     }
