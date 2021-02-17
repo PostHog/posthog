@@ -35,7 +35,7 @@ function _App(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
-        if (scene === Scene.Signup && !preflight.cloud && preflight.initiated) {
+        if (scene === Scene.Signup && preflight && !preflight.cloud && preflight.initiated) {
             // If user is on an initiated self-hosted instance, redirect away from signup
             replace('/login')
             return
