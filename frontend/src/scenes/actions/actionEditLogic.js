@@ -45,28 +45,10 @@ export const actionEditLogic = kea({
     listeners: ({ values, props, actions }) => ({
         saveAction: async () => {
             let action = { ...values.action }
-            action.steps = action.steps
-                .map((step) => {
-                    const localStep = { ...step }
-                    if (!localStep.selection) {
-                        localStep.selection = []
-                    }
-                    const data = {}
-                    Object.keys(localStep).map((key) => {
-                        data[key] =
-                            key == 'id' ||
-                            key == 'event' ||
-                            key === 'properties' ||
-                            localStep.selection.indexOf(key) > -1
-                                ? localStep[key]
-                                : null
-                    })
-                    return data
-                })
-                .filter((step) => {
-                    // Will discard any match groups that were added but for which a type of event selection has not been made
-                    return step.selection || step.event
-                })
+            action.steps = action.steps.filter((step) => {
+                // Will discard any match groups that were added but for which a type of event selection has not been made
+                return step.event
+            })
             try {
                 let token = props.temporaryToken ? '?temporary_token=' + props.temporaryToken : ''
                 if (action.id) {
