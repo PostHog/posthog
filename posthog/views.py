@@ -23,7 +23,7 @@ from posthog.utils import (
     is_redis_alive,
 )
 
-from .utils import get_celery_heartbeat
+from .utils import get_available_social_auth_providers, get_celery_heartbeat
 
 
 def health(request):
@@ -155,7 +155,7 @@ def system_status(request):
 
 
 @never_cache
-def preflight_check(request):
+def preflight_check(_):
     return JsonResponse(
         {
             "django": True,
@@ -165,5 +165,6 @@ def preflight_check(request):
             "db": is_postgres_alive(),
             "initiated": User.objects.exists(),
             "cloud": settings.MULTI_TENANCY,
+            "available_social_auth_providers": get_available_social_auth_providers(),
         }
     )
