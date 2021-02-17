@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
+from django.conf import settings
 from django.db.models.expressions import F
 from django.utils import timezone
 from rest_framework.utils.serializer_helpers import ReturnDict
@@ -137,8 +138,10 @@ def insert_stickiness_people_into_cohort(cohort: Cohort, filter: StickinessFilte
         cohort.last_calculation = timezone.now()
         cohort.errors_calculating = 0
         cohort.save()
-    except Exception:
+    except Exception as err:
+        if settings.DEBUG or settings.TEST:
+            raise err
         cohort.is_calculating = False
         cohort.errors_calculating = F("errors_calculating") + 1
         cohort.save()
-        capture_exception()
+        capture_exception(err)
