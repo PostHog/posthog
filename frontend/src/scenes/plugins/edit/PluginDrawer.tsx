@@ -168,9 +168,10 @@ export function PluginDrawer(): JSX.Element {
                             ) : null}
                             {getConfigSchemaArray(editingPlugin.config_schema).map((fieldConfig, index) => (
                                 <React.Fragment key={fieldConfig.key || `__key__${index}`}>
-                                    {fieldConfig.markdown ? (
+                                    {fieldConfig.markdown && (
                                         <Markdown source={fieldConfig.markdown} linkTarget="_blank" />
-                                    ) : fieldConfig.type && isValidField(fieldConfig) ? (
+                                    )}
+                                    {fieldConfig.type && isValidField(fieldConfig) ? (
                                         <Form.Item
                                             label={fieldConfig.name || fieldConfig.key}
                                             extra={
