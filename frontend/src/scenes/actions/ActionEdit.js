@@ -45,16 +45,34 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                 }}
             >
                 <label>Action name:</label>
+                <br />
                 <Input
                     required
                     placeholder="e.g. user account created, purchase completed, movie watched"
                     value={action.name}
+                    style={{ maxWidth: 500 }}
                     onChange={(e) => {
                         setAction({ ...action, name: e.target.value })
                         setEdited(e.target.value ? true : false)
                     }}
                     data-attr="edit-action-input"
                 />
+                <Button
+                    data-attr="delete-action"
+                    danger
+                    style={{ marginRight: 12 }}
+                    className="float-right"
+                    icon={<DeleteOutlined />}
+                    onClick={() => {
+                        deleteWithUndo({
+                            endpoint: 'action',
+                            object: action,
+                            callback: () => router.actions.push('/events/actions'),
+                        })
+                    }}
+                >
+                    Delete
+                </Button>
                 {action.count > -1 && (
                     <div>
                         <small className="text-muted">Matches {action.count} events</small>
@@ -171,21 +189,6 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                     </p>
                 )}
                 <div className="float-right">
-                    <Button
-                        data-attr="delete-action"
-                        danger
-                        style={{ marginRight: 12 }}
-                        icon={<DeleteOutlined />}
-                        onClick={() => {
-                            deleteWithUndo({
-                                endpoint: 'action',
-                                object: action,
-                                callback: () => router.actions.push('/events/actions'),
-                            })
-                        }}
-                    >
-                        Delete
-                    </Button>
                     <Button
                         disabled={!edited}
                         data-attr="save-action-button"
