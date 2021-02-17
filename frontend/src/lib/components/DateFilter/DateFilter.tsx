@@ -11,10 +11,19 @@ interface Props {
     bordered?: boolean
     makeLabel?: (key: string) => React.ReactNode
     style?: React.CSSProperties
+    onChange?: () => void
     disabled?: boolean
 }
 
-export function DateFilter({ bordered, defaultValue, showCustom, style, disabled, makeLabel }: Props): JSX.Element {
+export function DateFilter({
+    bordered,
+    defaultValue,
+    showCustom,
+    style,
+    disabled,
+    makeLabel,
+    onChange,
+}: Props): JSX.Element {
     const {
         dates: { dateFrom, dateTo },
     } = useValues(dateFilterLogic)
@@ -34,6 +43,9 @@ export function DateFilter({ bordered, defaultValue, showCustom, style, disabled
 
     function setDate(fromDate: string, toDate: string): void {
         setDates(fromDate, toDate)
+        if (onChange) {
+            onChange()
+        }
     }
 
     function _onChange(v: string): void {

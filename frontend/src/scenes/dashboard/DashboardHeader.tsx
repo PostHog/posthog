@@ -29,9 +29,14 @@ import { DateFilter } from 'lib/components/DateFilter'
 
 export function DashboardHeader(): JSX.Element {
     const { dashboard, draggingEnabled } = useValues(dashboardLogic)
-    const { addNewDashboard, renameDashboard, enableDragging, disableDragging, refreshAllDashboardItems } = useActions(
-        dashboardLogic
-    )
+    const {
+        addNewDashboard,
+        renameDashboard,
+        enableDragging,
+        disableDragging,
+        updateAndRefreshDashboard,
+        refreshAllDashboardItems,
+    } = useActions(dashboardLogic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [fullScreen, setFullScreen] = useState(false)
@@ -77,6 +82,7 @@ export function DashboardHeader(): JSX.Element {
                                 <DateFilter
                                     defaultValue="Custom"
                                     showCustom
+                                    onChange={updateAndRefreshDashboard}
                                     makeLabel={(key) => (
                                         <>
                                             <CalendarOutlined />

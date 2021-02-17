@@ -31,6 +31,7 @@ export const dashboardLogic = kea({
         disableDragging: true,
         refreshDashboardItem: (id) => ({ id }),
         refreshAllDashboardItems: true,
+        updateAndRefreshDashboard: true,
     }),
 
     loaders: ({ props }) => ({
@@ -336,10 +337,14 @@ export const dashboardLogic = kea({
             await breakpoint(200)
             dashboardItemsModel.actions.refreshAllDashboardItems({})
         },
-        [dateFilterLogic.actions.setDates]: async ({ dateFrom, dateTo }, breakpoint) => {
+        updateAndRefreshDashboard: async (_, breakpoint) => {
             await breakpoint(200)
+            const filters = {
+                date_from: dateFilterLogic.values.dates.dateFrom,
+                date_to: dateFilterLogic.values.dates.dateTo,
+            }
             actions.updateDashboard()
-            dashboardItemsModel.actions.refreshAllDashboardItems({ date_from: dateFrom, date_to: dateTo })
+            dashboardItemsModel.actions.refreshAllDashboardItems(filters)
         },
     }),
 })
