@@ -65,7 +65,7 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
             __default: { paths: [], filter: {} } as PathResult,
             loadResults: async (refresh = false, breakpoint) => {
                 const filter = { ...values.filter, properties: values.properties }
-                if (!refresh && (props.cachedResults || props.preventLoading)) {
+                if (!refresh && (props.cachedResults || props.preventLoading) && values.filter === props.filters) {
                     return { paths: props.cachedResults, filter }
                 }
                 const params = toParams({ ...filter, ...(refresh ? { refresh: true } : {}) })

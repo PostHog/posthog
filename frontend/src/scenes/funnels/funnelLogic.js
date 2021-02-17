@@ -64,7 +64,7 @@ export const funnelLogic = kea({
     loaders: ({ props, values, actions }) => ({
         results: {
             loadResults: async (refresh = false, breakpoint) => {
-                if (!refresh && props.cachedResults) {
+                if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return props.cachedResults
                 }
                 const { from_dashboard } = values.filters

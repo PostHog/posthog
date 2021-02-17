@@ -64,7 +64,7 @@ export const retentionTableLogic = kea<
         results: {
             __default: [] as RetentionTablePayload[] | RetentionTrendPayload[],
             loadResults: async (refresh = false, breakpoint) => {
-                if (!refresh && (props.cachedResults || props.preventLoading)) {
+                if (!refresh && (props.cachedResults || props.preventLoading) && values.filters === props.filters) {
                     return props.cachedResults
                 }
                 insightLogic.actions.startQuery()

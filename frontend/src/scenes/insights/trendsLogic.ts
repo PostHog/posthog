@@ -139,7 +139,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
         results: {
             __default: [],
             loadResults: async (refresh = false, breakpoint) => {
-                if (props.cachedResults && !refresh) {
+                if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return props.cachedResults
                 }
                 insightLogic.actions.startQuery()
