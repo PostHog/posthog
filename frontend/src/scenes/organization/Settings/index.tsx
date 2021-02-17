@@ -8,8 +8,10 @@ import { Members } from './Members'
 import { organizationLogic } from '../../organizationLogic'
 import { useActions, useValues } from 'kea'
 import { DangerZone } from './DangerZone'
+import { RestrictedArea, RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from '../../../lib/constants'
 
-function DisplayName(): JSX.Element {
+function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { renameCurrentOrganization } = useActions(organizationLogic)
 
@@ -26,6 +28,7 @@ function DisplayName(): JSX.Element {
                     setName(event.target.value)
                 }}
                 style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
+                disabled={isRestricted}
             />
             <Button
                 type="primary"
@@ -33,7 +36,7 @@ function DisplayName(): JSX.Element {
                     e.preventDefault()
                     renameCurrentOrganization(name)
                 }}
-                disabled={!name || !currentOrganization || name === currentOrganization.name}
+                disabled={isRestricted || !name || !currentOrganization || name === currentOrganization.name}
                 loading={currentOrganizationLoading}
             >
                 Rename Organization
@@ -51,7 +54,7 @@ function _OrganizationSettings({ user }: { user: UserType }): JSX.Element {
                 caption="View and manage your organization here. Build an even better product together."
             />
             <Card>
-                <DisplayName />
+                <RestrictedArea Component={DisplayName} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <Divider />
                 <Invites />
                 <Divider />

@@ -96,7 +96,7 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Organization
 
     const levelButton = (
         <Button icon={level === OrganizationMembershipLevel.Owner ? <CrownFilled /> : undefined}>
-            {organizationMembershipLevelToName.get(level) ?? 'unknown'}
+            {organizationMembershipLevelToName.get(level) ?? `unknown (${level})`}
         </Button>
     )
 
