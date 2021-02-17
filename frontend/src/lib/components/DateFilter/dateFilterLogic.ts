@@ -35,7 +35,10 @@ export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Moment>>({
             searchParams.date_from = values.dates.dateFrom
             searchParams.date_to = values.dates.dateTo
 
-            if (!objectsEqual(date_from, values.dates.dateFrom) || !objectsEqual(date_to, values.dates.dateTo)) {
+            if (
+                (pathname === '/insights' && !objectsEqual(date_from, values.dates.dateFrom)) ||
+                !objectsEqual(date_to, values.dates.dateTo)
+            ) {
                 router.actions.push(pathname, searchParams)
             }
         },
