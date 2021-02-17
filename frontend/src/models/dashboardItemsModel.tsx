@@ -12,7 +12,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
     actions: () => ({
         renameDashboardItem: (item: DashboardItemType) => ({ item }),
         renameDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
-        duplicateDashboardItem: (item: DashboardItemType, dashboardId: number, move: boolean = false) => ({
+        duplicateDashboardItem: (item: DashboardItemType, dashboardId?: number, move: boolean = false) => ({
             item,
             dashboardId,
             move,
@@ -34,15 +34,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
                 },
             })
         },
-        duplicateDashboardItem: async ({
-            item,
-            dashboardId,
-            move,
-        }: {
-            item: DashboardItemType
-            dashboardId: number
-            move: boolean
-        }) => {
+        duplicateDashboardItem: async ({ item, dashboardId, move }) => {
             if (!item) {
                 return
             }
@@ -72,6 +64,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
                         </Link>
                         .&nbsp;
                         <Link
+                            to="#"
                             onClick={async () => {
                                 toast.dismiss(toastId)
                                 const [restoredItem, deletedItem] = await Promise.all([

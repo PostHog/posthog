@@ -112,7 +112,7 @@ export const retentionTableLogic = kea<
         filters: [
             props.filters
                 ? defaultFilters(props.filters as Record<string, any>)
-                : (state) => defaultFilters(router.selectors.searchParams(state)) as Record<string, any>,
+                : (state: Record<string, any>) => defaultFilters(router.selectors.searchParams(state)),
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
@@ -200,6 +200,7 @@ export const retentionTableLogic = kea<
                 actions.updatePeople(newPeople)
             }
         },
+        // @ts-expect-error - kea.js typing issue
         [dashboardItemsModel.actions.refreshAllDashboardItems]: (filters: Record<string, any>) => {
             actions.setFilters(filters)
         },

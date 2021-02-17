@@ -84,10 +84,6 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
         },
     }),
     reducers: ({ props }) => ({
-        initialPathname: [
-            (state: Record<string, any>) => router.selectors.location(state).pathname,
-            { noop: (a) => a },
-        ],
         filter: [
             (props.filters
                 ? cleanPathParams(props.filters as Partial<FilterType>)
@@ -126,6 +122,7 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
                 actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
             }
         },
+        // @ts-expect-error - kea.js typing issue
         [dashboardItemsModel.actions.refreshAllDashboardItems]: (filters: Record<string, any>) => {
             actions.setFilter(filters)
         },
