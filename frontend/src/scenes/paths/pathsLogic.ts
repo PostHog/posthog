@@ -6,6 +6,7 @@ import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
 import { FilterType, PropertyFilter } from '~/types'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 export const PAGEVIEW = '$pageview'
 export const SCREEN = '$screen'
@@ -124,6 +125,9 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
             if (!props.dashboardItemId) {
                 actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
             }
+        },
+        [dashboardItemsModel.actions.refreshAllDashboardItems]: (filters: Record<string, any>) => {
+            actions.setFilter(filters)
         },
     }),
     selectors: {

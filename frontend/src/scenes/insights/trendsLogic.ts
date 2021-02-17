@@ -21,6 +21,7 @@ import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constan
 import { ActionType, EntityType, FilterType, PersonType, PropertyFilter } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
 import { ToastId } from 'react-toastify'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 interface ActionFilter {
     id: number | string
@@ -338,6 +339,9 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                     insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
                 })
             }
+        },
+        [dashboardItemsModel.actions.refreshAllDashboardItems]: (filters: Record<string, any>) => {
+            actions.setFilters(filters, true)
         },
     }),
 

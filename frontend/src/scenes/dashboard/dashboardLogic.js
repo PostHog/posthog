@@ -38,7 +38,9 @@ export const dashboardLogic = kea({
             {
                 loadDashboardItems: async () => {
                     try {
-                        const dashboard = await api.get(`api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken })}`)
+                        const dashboard = await api.get(
+                            `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken })}`
+                        )
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
@@ -49,14 +51,17 @@ export const dashboardLogic = kea({
                         throw error
                     }
                 },
-                updateDashboard: async() => {
-                    return await api.update(`api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken })}`, {
-                        filters: {
-                            date_from: dateFilterLogic.values.dates.dateFrom,
-                            date_to: dateFilterLogic.values.dates.dateTo
+                updateDashboard: async () => {
+                    return await api.update(
+                        `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken })}`,
+                        {
+                            filters: {
+                                date_from: dateFilterLogic.values.dates.dateFrom,
+                                date_to: dateFilterLogic.values.dates.dateTo,
+                            },
                         }
-                    })
-                }
+                    )
+                },
             },
         ],
     }),
@@ -319,16 +324,16 @@ export const dashboardLogic = kea({
             }
         },
         refreshDashboardItem: async ({ id }) => {
-            console.log('refreshing dashboard item', id)
             const dashboardItem = await api.get(`api/insight/${id}`)
             dashboardsModel.actions.updateDashboardItem(dashboardItem)
             if (dashboardItem.refreshing) {
                 setTimeout(() => actions.refreshDashboardItem(id), 1000)
             }
         },
-        [dateFilterLogic.actions.setDates]: async({ dateFrom, dateTo }, breakpoint) => {
+        [dateFilterLogic.actions.setDates]: async ({ dateFrom, dateTo }, breakpoint) => {
             await breakpoint(200)
             actions.updateDashboard()
-        }
+            dashboardItemsModel.actions.refreshAllDashboardItems({ date_from: dateFrom, date_to: dateTo })
+        },
     }),
 })

@@ -4,6 +4,7 @@ import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { autocorrectInterval, objectsEqual, toParams } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '../../models/funnelsModel'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 function wait(ms = 1000) {
     return new Promise((resolve) => {
@@ -177,6 +178,9 @@ export const funnelLogic = kea({
         },
         clearFunnel: async () => {
             insightLogic.actions.setAllFilters({})
+        },
+        [dashboardItemsModel.actions.refreshAllDashboardItems]: (filters) => {
+            actions.setFilters(filters, true)
         },
     }),
     actionToUrl: ({ actions, values, props }) => ({

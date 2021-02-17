@@ -18,6 +18,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
             move,
         }),
         duplicateDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
+        refreshAllDashboardItems: (filters: Record<string, any>) => filters,
     }),
     listeners: ({ actions }) => ({
         renameDashboardItem: async ({ item }) => {
