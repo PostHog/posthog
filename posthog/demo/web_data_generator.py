@@ -3,7 +3,6 @@ import os
 import random
 import secrets
 from datetime import timedelta
-from pathlib import Path
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
