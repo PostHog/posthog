@@ -334,7 +334,7 @@ export interface FormattedNumber {
 
 export interface OrganizationBilling {
     plan: PlanInterface | null
-    current_usage: { value: number; formatted: string } | null
+    current_usage: FormattedNumber | number | null
     should_setup_billing?: boolean
     stripe_checkout_session?: string
     subscription_url?: string

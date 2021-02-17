@@ -1,5 +1,6 @@
 import { Card, Progress, Tooltip } from 'antd'
 import { useValues } from 'kea'
+import { compactNumber } from 'lib/utils'
 import React from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { billingLogic } from './billingLogic'
@@ -9,15 +10,21 @@ export function CurrentUsage(): JSX.Element {
     const { user } = useValues(userLogic)
     const plan = user?.billing?.plan
 
+    // :TODO: Temporary support for legacy `FormattedNumber` type
+    const current_usage =
+        typeof user?.billing?.current_usage === 'number'
+            ? user.billing.current_usage
+            : user?.billing?.current_usage?.value
+
     return (
         <>
             <div className="space-top" />
             <Card title="Current monthly usage">
-                {user?.billing?.current_usage && (
+                {current_usage && (
                     <>
                         Your organization has used{' '}
-                        <Tooltip title={`${user.billing.current_usage.value.toLocaleString()} events`}>
-                            <b>{user.billing.current_usage.formatted}</b>
+                        <Tooltip title={`${current_usage.toLocaleString()} events`}>
+                            <b>{compactNumber(current_usage)}</b>
                         </Tooltip>{' '}
                         events this month.{' '}
                         {eventAllocation?.value && (

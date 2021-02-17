@@ -41,9 +41,13 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
                 if (!eventAllocation || !user.billing?.current_usage) {
                     return null
                 }
-                // TODO: Temp support for legacy FormattedNumber
+                // :TODO: Temporary support for legacy FormattedNumber
                 const allocation = typeof eventAllocation === 'number' ? eventAllocation : eventAllocation.value
-                return Math.min(Math.round((user.billing.current_usage.value / allocation) * 100) / 100, 1)
+                const usage =
+                    typeof user.billing.current_usage === 'number'
+                        ? user.billing.current_usage
+                        : user.billing.current_usage.value
+                return Math.min(Math.round((usage / allocation) * 100) / 100, 1)
             },
         ],
         strokeColor: [
@@ -82,12 +86,17 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
                 }
 
                 // Priority 2: Event allowance near limit
+                // :TODO: Temporary support for legacy FormattedNumber
                 const allocation = typeof eventAllocation === 'number' ? eventAllocation : eventAllocation?.value
+                const usage =
+                    typeof user?.billing?.current_usage === 'number'
+                        ? user.billing.current_usage
+                        : user?.billing?.current_usage?.value
                 if (
                     scene !== Scene.Billing &&
                     allocation &&
-                    user.billing?.current_usage &&
-                    user.billing.current_usage.value / allocation >= ALLOCATION_THRESHOLD_ALERT
+                    usage &&
+                    usage / allocation >= ALLOCATION_THRESHOLD_ALERT
                 ) {
                     return BillingAlertType.UsageNearLimit
                 }
