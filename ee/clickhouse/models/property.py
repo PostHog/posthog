@@ -48,8 +48,8 @@ def parse_prop_clauses(
             )
             params.update(filter_params)
         elif prop.type == "element":
-            filter_query, filter_params = filter_element({prop.key: prop.value}, prepend=idx)
-            final.append("AND {}".format(filter_query[0]))
+            query, filter_params = filter_element({prop.key: prop.value}, prepend=idx)
+            final.append("AND {}".format(query[0]))
             params.update(filter_params)
         else:
             filter_query, filter_params = prop_filter_json_extract(
