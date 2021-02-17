@@ -42,6 +42,7 @@ export const dashboardLogic = kea({
                         const dashboard = await api.get(
                             `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken })}`
                         )
+                        dateFilterLogic.actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to)
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
