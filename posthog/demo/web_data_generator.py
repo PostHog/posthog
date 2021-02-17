@@ -187,7 +187,7 @@ class WebDataGenerator(DataGenerator):
             return super().make_person(index)
 
     @cached_property
-    def demo_data(_):
+    def demo_data(self):
         with open(os.path.join(__location__, "demo_data.json"), "r") as demo_data_file:
             return json.load(demo_data_file)
 
