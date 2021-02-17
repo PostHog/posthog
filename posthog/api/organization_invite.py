@@ -88,14 +88,17 @@ class OrganizationInviteViewSet(
 
     @action(methods=["POST"], detail=False)
     def bulk(self, request: request.Request, **kwargs) -> response.Response:
-        input_serializer = OrganizationInviteSerializer(data=request.data, many=True)
-        input_serializer.is_valid()
-        validated_data = input_serializer.validated_data
+        if not isinstance(request.data, list):
+            raise exceptions.ValidationError("Bulk invite creation requires an array of input data.")
 
-        if not isinstance(validated_data, list):
-            raise serializers.ValidationError("Bulk invite creation requires an array of input data.")
+        input_serializer = OrganizationInviteSerializer(data=request.data, many=True)
+        if not input_serializer.is_valid():
+            raise exceptions.ValidationError("Invalid bulk invite creation payload.")
+
+        validated_data = input_serializer.validated_data
+        assert isinstance(validated_data, list)
         if len(validated_data) > 20:
-            raise serializers.ValidationError(
+            raise exceptions.ValidationError(
                 "A maximum of 20 invites can be sent in a single request.", code="max_length",
             )
 
@@ -104,7 +107,9 @@ class OrganizationInviteViewSet(
 
         with transaction.atomic():
             for invite in validated_data:
-                output_serializer = OrganizationInviteSerializer(data=invite, context=self.get_serializer_context())
+                output_serializer = OrganizationInviteSerializer(
+                    data=invite, context={**self.get_serializer_context(), "bulk_create": True}
+                )
                 output_serializer.is_valid(raise_exception=False)  # Don't raise, already validated before
                 output_serializer.save()
                 output.append(output_serializer.data)
@@ -117,5 +122,5 @@ class OrganizationInviteViewSet(
             current_member_count=organization.memberships.count(),
             email_available=is_email_available(),
         )
-
+        print(len(output))
         return response.Response(output, status=status.HTTP_201_CREATED)

@@ -210,23 +210,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     # Deleting invites
 
-    def test_delete_organization_invite_only_if_admin(self):
+    def test_delete_organization_invite_if_plain_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         invite = OrganizationInvite.objects.create(organization=self.organization)
-        response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
-        self.assertEqual(
-            response.data,
-            {
-                "type": "authentication_error",
-                "code": "permission_denied",
-                "detail": "Your organization access level is insufficient.",
-                "attr": None,
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
         response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
         self.assertIsNone(response.data)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
