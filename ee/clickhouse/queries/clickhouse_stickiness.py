@@ -139,7 +139,7 @@ def insert_stickiness_people_into_cohort(cohort: Cohort, filter: StickinessFilte
         cohort.errors_calculating = 0
         cohort.save()
     except Exception as err:
-        if settings.DEBUG or settings.TEST:
+        if settings.DEBUG:
             raise err
         cohort.is_calculating = False
         cohort.errors_calculating = F("errors_calculating") + 1
