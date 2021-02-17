@@ -52,9 +52,13 @@ export function DashboardHeader({ logic }) {
                                     {dash.name || <span style={{ color: 'var(--gray)' }}>Untitled</span>}
                                 </Select.Option>
                             ))}
-
                             <Select.Option value="new">+ New Dashboard</Select.Option>
                         </Select>
+                        {dashboard.created_by ? (
+                            <small className="dashboard-header-created-by">
+                                Created by: {dashboard.created_by.first_name || dashboard.created_by.email || '-'}
+                            </small>
+                        ) : null}
                     </div>
                     {dashboard ? (
                         <div className="dashboard-meta">
@@ -72,7 +76,6 @@ export function DashboardHeader({ logic }) {
                                     </Button>
                                 </Tooltip>
                             ) : null}
-
                             <Tooltip title={'Share dashboard.'}>
                                 <Button
                                     className="button-box-when-small enable-dragging-button"

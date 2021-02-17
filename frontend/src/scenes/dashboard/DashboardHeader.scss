@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .dashboard-header {
     display: flex;
     justify-content: space-between;
@@ -58,4 +60,12 @@
             display: none;
         }
     }
+}
+
+.dashboard-header-created-by {
+    padding: 5px;
+    background: $primary;
+    border-radius: 4px;
+    color: white;
+    opacity: 0.9;
 }
