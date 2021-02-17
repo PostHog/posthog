@@ -38,7 +38,7 @@ export function PersonModal({ visible, view, onSaveCohort }) {
                         Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
                         {(view === ViewType.TRENDS || view === ViewType.STICKINESS) && (
                             <Button type="primary" onClick={onSaveCohort}>
-                                {'Save cohort'}
+                                Save cohort
                             </Button>
                         )}
                     </div>
