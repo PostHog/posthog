@@ -19,6 +19,7 @@ import {
     UnlockOutlined,
     ShareAltOutlined,
     ReloadOutlined,
+    CalendarOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
 import moment from 'moment'
@@ -73,9 +74,16 @@ export function DashboardHeader(): JSX.Element {
                     {dashboard ? (
                         <div className="dashboard-meta">
                             <Tooltip title="Select time period">
-                                <span className="hide-when-small">
-                                    <DateFilter defaultValue="Custom" showCustom />
-                                </span>
+                                <DateFilter
+                                    defaultValue="Custom"
+                                    showCustom
+                                    makeLabel={(key) => (
+                                        <>
+                                            <CalendarOutlined />
+                                            <span className="hide-when-small"> {key}</span>
+                                        </>
+                                    )}
+                                />
                             </Tooltip>
 
                             {!fullScreen ? (

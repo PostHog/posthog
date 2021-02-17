@@ -9,11 +9,12 @@ interface Props {
     defaultValue: string
     showCustom?: boolean
     bordered?: boolean
+    makeLabel?: (key: string) => React.ReactNode
     style?: React.CSSProperties
     disabled?: boolean
 }
 
-export function DateFilter({ bordered, defaultValue, showCustom, style, disabled }: Props): JSX.Element {
+export function DateFilter({ bordered, defaultValue, showCustom, style, disabled, makeLabel }: Props): JSX.Element {
     const {
         dates: { dateFrom, dateTo },
     } = useValues(dateFilterLogic)
@@ -89,6 +90,7 @@ export function DateFilter({ bordered, defaultValue, showCustom, style, disabled
             listHeight={440}
             dropdownMatchSelectWidth={false}
             disabled={disabled}
+            optionLabelProp={makeLabel ? 'label' : undefined}
             dropdownRender={(menu: React.ReactElement) => {
                 if (dateRangeOpen) {
                     return (
@@ -113,7 +115,7 @@ export function DateFilter({ bordered, defaultValue, showCustom, style, disabled
                         return null
                     }
                     return (
-                        <Select.Option key={key} value={key}>
+                        <Select.Option key={key} value={key} label={makeLabel ? makeLabel(key) : undefined}>
                             {key}
                         </Select.Option>
                     )
