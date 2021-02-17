@@ -12,6 +12,8 @@ import { ViewType } from '../../insightLogic'
 import { ShownAsValue } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FilterType } from '~/types'
+import { userLogic } from 'scenes/userLogic'
+import { Formula } from './Formula'
 
 interface TrendTabProps {
     view: string
@@ -21,6 +23,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { filters } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
 
     return featureFlags['remove-shownas'] ? (
         <>
@@ -45,6 +48,15 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     <PropertyFilters pageKey="trends-filters" />
                 </>
             )}
+            {(!filters.insight || filters.insight === ViewType.TRENDS) &&
+                featureFlags['3275-formulas'] &&
+                user?.ee_enabled && (
+                    <>
+                        <hr />
+                        <h4 className="secondary">Formula</h4>
+                        <Formula filters={filters} onChange={(formula: string): void => setFilters({ formula })} />
+                    </>
+                )}
             {filters.insight !== ViewType.LIFECYCLE && filters.insight !== ViewType.STICKINESS && (
                 <>
                     <hr />
@@ -90,6 +102,15 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
             <hr />
             <h4 className="secondary">Filters</h4>
             <PropertyFilters pageKey="trends-filters" />
+            {(!filters.insight || filters.insight === ViewType.TRENDS) &&
+                featureFlags['3275-formulas'] &&
+                user?.ee_enabled && (
+                    <>
+                        <hr />
+                        <h4 className="secondary">Formula</h4>
+                        <Formula filters={filters} onChange={(formula: string): void => setFilters({ formula })} />
+                    </>
+                )}
             <hr />
             <h4 className="secondary">
                 Break down by

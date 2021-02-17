@@ -276,18 +276,9 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         from posthog.queries.sessions.sessions_list import SessionsList
 
         filter = SessionsFilter(request=request)
-        pagination = json.loads(request.GET.get("pagination", "{}"))
 
-        sessions, pagination = SessionsList().run(filter=filter, team=self.team, **pagination)
-
-        if filter.distinct_id:
-            sessions = self._filter_sessions_by_distinct_id(filter.distinct_id, sessions)
-
+        sessions, pagination = SessionsList.run(filter=filter, team=self.team)
         return Response({"result": sessions, "pagination": pagination})
-
-    def _filter_sessions_by_distinct_id(self, distinct_id: str, sessions: List[Any]) -> List[Any]:
-        person_ids = Person.objects.get(team=self.team, persondistinctid__distinct_id=distinct_id).distinct_ids
-        return [session for i, session in enumerate(sessions) if session["distinct_id"] in person_ids]
 
     @action(methods=["GET"], detail=False)
     def session_events(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:

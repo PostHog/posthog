@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, Fragment } from 'react'
-import { BuiltLogicAdditions, useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { Col, Row, Input, Divider } from 'antd'
 import { List } from 'antd'
 import { DownOutlined, RightOutlined } from '@ant-design/icons'
@@ -103,7 +103,7 @@ export function SelectUnit({
 }: {
     group: SelectBoxItem
     dataSource: SelectedItem[]
-    dropdownLogic: selectBoxLogicType<SelectedItem, SelectBoxItem> & BuiltLogicAdditions
+    dropdownLogic: selectBoxLogicType<SelectedItem, SelectBoxItem> & BuiltLogic
 }): JSX.Element {
     const [isCollapsed, setIsCollapsed] = useState(false)
     const { setSelectedItem, clickSelectedItem } = useActions(dropdownLogic)

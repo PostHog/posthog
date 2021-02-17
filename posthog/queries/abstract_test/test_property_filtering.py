@@ -23,5 +23,5 @@ class AbstractPropertyFilteringTest(ABC):
         pass
 
     @abstractmethod
-    def test_multiple_cohort_property_fitlering(self):
+    def test_multiple_cohort_property_filtering(self):
         pass
