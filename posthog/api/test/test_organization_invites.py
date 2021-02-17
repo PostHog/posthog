@@ -164,7 +164,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "type": "validation_error",
                 "code": "max_length",
                 "detail": "A maximum of 20 invites can be sent in a single request.",
-                "attr": "invites",
+                "attr": None,
             },
         )
 
