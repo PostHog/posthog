@@ -1,4 +1,4 @@
-from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_STATIC_COHORT, KAFKA_PERSON_UNIQUE_ID
+from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 
 from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine
 
