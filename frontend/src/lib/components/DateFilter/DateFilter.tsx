@@ -102,10 +102,8 @@ export function DateFilter({ bordered, defaultValue, showCustom, style, disabled
                             rangeDateTo={rangeDateTo}
                         />
                     )
-                } else if (open) {
-                    return menu
                 } else {
-                    return <></>
+                    return menu
                 }
             }}
         >
