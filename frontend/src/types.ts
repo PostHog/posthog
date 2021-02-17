@@ -386,6 +386,7 @@ export interface DashboardType {
     is_shared: boolean
     share_token: string
     deleted: boolean
+    filters: Record<string, any>
 }
 
 export interface OrganizationInviteType {
