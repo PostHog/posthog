@@ -64,7 +64,6 @@ export function PluginDrawer(): JSX.Element {
     const isValidField = (fieldConfig: PluginConfigSchema): boolean =>
         fieldConfig.type !== 'choice' || isValidChoiceConfig(fieldConfig)
 
-    console.log(editingPlugin?.config_schema)
     return (
         <>
             <Drawer
