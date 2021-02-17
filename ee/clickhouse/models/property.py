@@ -4,6 +4,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.action import filter_element
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.util import is_int, is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
@@ -45,6 +46,10 @@ def parse_prop_clauses(
                     filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query), table_name=table_name
                 )
             )
+            params.update(filter_params)
+        elif prop.type == "element":
+            query, filter_params = filter_element({prop.key: prop.value}, prepend="{}_".format(idx))
+            final.append("AND {}".format(query[0]))
             params.update(filter_params)
         else:
             filter_query, filter_params = prop_filter_json_extract(

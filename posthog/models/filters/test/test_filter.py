@@ -36,19 +36,6 @@ class TestFilter(BaseTest):
         self.assertCountEqual(list(filter.to_dict().keys()), ["events", "display", "compare", "insight", "date_from"])
 
 
-class TestSelectors(BaseTest):
-    def test_selectors(self):
-        event1 = Event.objects.create(
-            team=self.team,
-            event="$autocapture",
-            elements=[Element.objects.create(tag_name="a"), Element.objects.create(tag_name="div"),],
-        )
-        event2 = Event.objects.create(team=self.team, event="$autocapture")
-        filter = Filter(data={"properties": [{"key": "selector", "value": "div > a", "type": "element"}]})
-        events = Event.objects.filter(properties_to_Q(filter.properties, team_id=self.team.pk))
-        self.assertEqual(events.count(), 1)
-
-
 def property_to_Q_test_factory(filter_events: Callable, event_factory, person_factory):
     class TestPropertiesToQ(BaseTest):
         def test_simple(self):
@@ -335,6 +322,33 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             )
             events = filter_events(filter=filter, team=self.team, person_query=True, order_by=None)
             self.assertEqual(events[0]["id"], event1.pk)
+            self.assertEqual(len(events), 1)
+
+        def test_element_selectors(self):
+            event1 = event_factory(
+                team=self.team,
+                event="$autocapture",
+                distinct_id="distinct_id",
+                elements=[Element.objects.create(tag_name="a"), Element.objects.create(tag_name="div"),],
+            )
+            event2 = event_factory(team=self.team, event="$autocapture", distinct_id="distinct_id")
+            filter = Filter(data={"properties": [{"key": "selector", "value": "div > a", "type": "element"}]})
+            events = filter_events(filter=filter, team=self.team)
+            self.assertEqual(len(events), 1)
+
+        def test_element_filter(self):
+            event1 = event_factory(
+                team=self.team,
+                event="$autocapture",
+                distinct_id="distinct_id",
+                elements=[
+                    Element.objects.create(tag_name="a", text="some text"),
+                    Element.objects.create(tag_name="div"),
+                ],
+            )
+            event2 = event_factory(team=self.team, event="$autocapture", distinct_id="distinct_id")
+            filter = Filter(data={"properties": [{"key": "text", "value": "some text", "type": "element"}]})
+            events = filter_events(filter=filter, team=self.team)
             self.assertEqual(len(events), 1)
 
     return TestPropertiesToQ
