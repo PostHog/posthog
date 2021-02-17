@@ -88,9 +88,6 @@ class OrganizationInviteViewSet(
 
     @action(methods=["POST"], detail=False)
     def bulk(self, request: request.Request, **kwargs) -> response.Response:
-        if not isinstance(request.data, list):
-            raise exceptions.ValidationError("Bulk invite creation requires an array of input data.")
-
         input_serializer = OrganizationInviteSerializer(data=request.data, many=True)
         if not input_serializer.is_valid():
             raise exceptions.ValidationError("Invalid bulk invite creation payload.")
