@@ -30,6 +30,7 @@ export const dashboardLogic = kea({
         enableWobblyDragging: true,
         disableDragging: true,
         refreshDashboardItem: (id) => ({ id }),
+        refreshAllDashboardItems: true,
     }),
 
     loaders: ({ props }) => ({
@@ -329,6 +330,10 @@ export const dashboardLogic = kea({
             if (dashboardItem.refreshing) {
                 setTimeout(() => actions.refreshDashboardItem(id), 1000)
             }
+        },
+        refreshAllDashboardItems: async (_, breakpoint) => {
+            await breakpoint(200)
+            dashboardItemsModel.actions.refreshAllDashboardItems({})
         },
         [dateFilterLogic.actions.setDates]: async ({ dateFrom, dateTo }, breakpoint) => {
             await breakpoint(200)

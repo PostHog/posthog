@@ -18,6 +18,7 @@ import {
     LockOutlined,
     UnlockOutlined,
     ShareAltOutlined,
+    ReloadOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
 import moment from 'moment'
@@ -27,7 +28,9 @@ import { DateFilter } from 'lib/components/DateFilter'
 
 export function DashboardHeader(): JSX.Element {
     const { dashboard, draggingEnabled } = useValues(dashboardLogic)
-    const { addNewDashboard, renameDashboard, enableDragging, disableDragging } = useActions(dashboardLogic)
+    const { addNewDashboard, renameDashboard, enableDragging, disableDragging, refreshAllDashboardItems } = useActions(
+        dashboardLogic
+    )
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [fullScreen, setFullScreen] = useState(false)
@@ -100,6 +103,12 @@ export function DashboardHeader(): JSX.Element {
                                     <span className="hide-when-small">
                                         {dashboard.is_shared ? 'Shared' : 'Share dashboard'}
                                     </span>
+                                </Button>
+                            </Tooltip>
+
+                            <Tooltip title="Click here to reload all dashboard items">
+                                <Button className="button-box" onClick={refreshAllDashboardItems}>
+                                    <ReloadOutlined />
                                 </Button>
                             </Tooltip>
 
