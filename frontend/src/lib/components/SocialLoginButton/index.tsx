@@ -4,16 +4,16 @@ import React from 'react'
 import { userLogic } from 'scenes/userLogic'
 import './index.scss'
 
-export enum SocialProviders {
+enum SocialAuthProviders {
     Google = 'google-oauth2',
     GitHub = 'github',
     GitLab = 'gitlab',
 }
 
-const ProviderNames: Record<SocialProviders, string> = {
-    [SocialProviders.Google]: 'Google',
-    [SocialProviders.GitHub]: 'GitHub',
-    [SocialProviders.GitLab]: 'GitLab',
+const ProviderNames: Record<SocialAuthProviders, string> = {
+    [SocialAuthProviders.Google]: 'Google',
+    [SocialAuthProviders.GitHub]: 'GitHub',
+    [SocialAuthProviders.GitLab]: 'GitLab',
 }
 
 interface SharedProps {
@@ -21,7 +21,7 @@ interface SharedProps {
 }
 
 interface SocialLoginButtonProps extends SharedProps {
-    provider: SocialProviders
+    provider: SocialAuthProviders
 }
 
 interface SocialLoginButtonsProps extends SharedProps {
@@ -60,7 +60,7 @@ export function SocialLoginButtons({ title, caption, ...props }: SocialLoginButt
         <div className="social-logins">
             {title && <h3 className="l3">{title}</h3>}
             {caption && <div className="caption">{caption}</div>}
-            {Object.values(SocialProviders).map((provider) => (
+            {Object.values(SocialAuthProviders).map((provider) => (
                 <div key={provider}>
                     <SocialLoginButton provider={provider} {...props} />
                 </div>

@@ -28,15 +28,15 @@ import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPalett
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
 import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
+import { UserType } from '~/types'
 
-export function WhoAmI(): JSX.Element {
-    const { user } = useValues(userLogic)
+export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
         <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
-            <div className="pp">{user?.name[0]?.toUpperCase()}</div>
+            <div className="pp">{user.name[0]?.toUpperCase()}</div>
             <div className="details hide-lte-lg">
-                <span>{user?.name}</span>
-                <span>{user?.organization?.name}</span>
+                <span>{user.name}</span>
+                <span>{user.organization?.name}</span>
             </div>
         </div>
     )
@@ -248,13 +248,15 @@ export function _TopNavigation(): JSX.Element {
                         </div>
                     </Dropdown>
                 </div>
-                <div>
-                    <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
-                        <div>
-                            <WhoAmI />
-                        </div>
-                    </Dropdown>
-                </div>
+                {user && (
+                    <div>
+                        <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
+                            <div>
+                                <WhoAmI user={user} />
+                            </div>
+                        </Dropdown>
+                    </div>
+                )}
             </div>
             <BulkInviteModal visible={inviteMembersModalOpen} onClose={() => setInviteMembersModalOpen(false)} />
             <CreateProjectModal isVisible={projectModalShown} setIsVisible={setProjectModalShown} />

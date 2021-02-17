@@ -205,14 +205,15 @@ class OrganizationInvite(UUIDModel):
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise exceptions.ValidationError(
-                "User already is a member of the organization.", code="user_already_member",
+                "You are already a member of this organization.", code="user_already_member",
             )
 
         if OrganizationMembership.objects.filter(
             organization=self.organization, user__email=self.target_email,
         ).exists():
             raise exceptions.ValidationError(
-                "A user with this email address already belongs to the organization.", code="existing_email_address",
+                "Another user with this email address already belongs to this organization.",
+                code="existing_email_address",
             )
 
     def use(self, user: Any, *, prevalidated: bool = False) -> None:

@@ -137,11 +137,13 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                         the navigation bar.
                     </Col>
                     <Col md={12} span={0}>
-                        <div className="whoami-mock">
-                            <div className="whoami-inner-container">
-                                <WhoAmI />
+                        {user && (
+                            <div className="whoami-mock">
+                                <div className="whoami-inner-container">
+                                    <WhoAmI user={user} />
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </Col>
                 </Row>
                 <div>
