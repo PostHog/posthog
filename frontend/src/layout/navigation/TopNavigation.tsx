@@ -27,7 +27,7 @@ import { isMobile, platformCommandControlKey } from 'lib/utils'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
-import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
+import { BulkInviteModal } from 'scenes/organization/Settings/BulkInviteModal'
 
 export const TopNavigation = hot(_TopNavigation)
 export function _TopNavigation(): JSX.Element {
