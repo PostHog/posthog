@@ -43,7 +43,10 @@ class DashboardItem(models.Model):
     def dashboard_filters(self, dashboard: Optional[Dashboard] = None):
         if dashboard is None:
             dashboard = self.dashboard
-        return {**self.filters, **dashboard.filters}
+        if dashboard:
+            return {**self.filters, **dashboard.filters}
+        else:
+            return self.filters
 
 
 @receiver(pre_save, sender=Dashboard)

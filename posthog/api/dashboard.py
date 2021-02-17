@@ -147,7 +147,6 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 class DashboardItemSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField()
-    filters = serializers.SerializerMethodField()
     _get_result: Optional[Dict[str, Any]] = None
 
     class Meta:
@@ -194,12 +193,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         validated_data.setdefault("is_sample", False)
         return super().update(instance, validated_data)
 
-    def get_filters(self, dashboard_item: DashboardItem):
-        return dashboard_item.dashboard_filters(dashboard=self.context.get("dashboard"))
-
     def get_result(self, dashboard_item: DashboardItem):
-        return None
-
         # If it's more than a day old, don't return anything
         if dashboard_item.last_refresh and (now() - dashboard_item.last_refresh).days > 0:
             return None
@@ -218,6 +212,11 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         dashboard_item.last_refresh = None
         dashboard_item.save()
         return None
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
+        return representation
 
 
 class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

@@ -29,7 +29,6 @@ from posthog.utils import generate_cache_key, get_safe_cache
 class InsightSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
     created_by = serializers.SerializerMethodField()
-    filters = serializers.SerializerMethodField()
 
     class Meta:
         model = DashboardItem
@@ -72,9 +71,6 @@ class InsightSerializer(serializers.ModelSerializer):
         else:
             raise serializers.ValidationError("Dashboard not found")
 
-    def get_filters(self, dashboard_item: DashboardItem):
-        return dashboard_item.dashboard_filters()
-
     def get_result(self, dashboard_item: DashboardItem):
         if not dashboard_item.filters:
             return None
@@ -87,6 +83,11 @@ class InsightSerializer(serializers.ModelSerializer):
     def get_created_by(self, dashboard_item: DashboardItem):
         if dashboard_item.created_by:
             return UserSerializer(dashboard_item.created_by).data
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["filters"] = instance.dashboard_filters()
+        return representation
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
