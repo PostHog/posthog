@@ -43,6 +43,7 @@ class DashboardSerializer(serializers.ModelSerializer):
             "share_token",
             "deleted",
             "use_template",
+            "filters",
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
@@ -94,6 +95,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         if self.context["view"].action == "list":
             return None
         items = dashboard.items.filter(deleted=False).order_by("order").all()
+        self.context.update({"dashboard": dashboard})
         return DashboardItemSerializer(items, many=True, context=self.context).data
 
 
@@ -145,6 +147,7 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 class DashboardItemSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField()
+    filters = serializers.SerializerMethodField()
     _get_result: Optional[Dict[str, Any]] = None
 
     class Meta:
@@ -170,7 +173,6 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
-
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
@@ -191,6 +193,9 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data.setdefault("is_sample", False)
         return super().update(instance, validated_data)
+
+    def get_filters(self, dashboard_item: DashboardItem):
+        return dashboard_item.dashboard_filters(dashboard=self.context.get("dashboard"))
 
     def get_result(self, dashboard_item: DashboardItem):
         return None
