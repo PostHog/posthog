@@ -10,7 +10,6 @@ from django.contrib.auth import views as auth_views
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
-from django.template.loader import render_to_string
 from django.urls import URLPattern, include, path, re_path, reverse
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
@@ -22,7 +21,6 @@ from social_django.strategy import DjangoStrategy
 
 from posthog.api import (
     api_not_found,
-    authentication,
     capture,
     dashboard,
     decide,
@@ -339,7 +337,6 @@ urlpatterns = [
     opt_slash_path("api/user", user.user),
     opt_slash_path("api/signup", organization.OrganizationSignupViewset.as_view()),
     opt_slash_path("api/social_signup", organization.OrganizationSocialSignupViewset.as_view()),
-    opt_slash_path("api/authentication", authentication.AuthenticationViewset.as_view()),
     path("api/signup/<str:invite_id>/", organization.OrganizationInviteSignupViewset.as_view()),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
