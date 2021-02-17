@@ -37,11 +37,13 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
         eventAllocation: [() => [userLogic.selectors.user], (user: UserType) => user.billing?.event_allocation],
         percentage: [
             (s) => [s.eventAllocation, userLogic.selectors.user],
-            (eventAllocation: FormattedNumber | null | undefined, user: UserType) => {
+            (eventAllocation: FormattedNumber | number | null | undefined, user: UserType) => {
                 if (!eventAllocation || !user.billing?.current_usage) {
                     return null
                 }
-                return Math.min(Math.round((user.billing.current_usage.value / eventAllocation.value) * 100) / 100, 1)
+                // TODO: Temp support for legacy FormattedNumber
+                const allocation = typeof eventAllocation === 'number' ? eventAllocation : eventAllocation.value
+                return Math.min(Math.round((user.billing.current_usage.value / allocation) * 100) / 100, 1)
             },
         ],
         strokeColor: [
@@ -68,7 +70,7 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
         alertToShow: [
             (s) => [s.eventAllocation, userLogic.selectors.user, sceneLogic.selectors.scene],
             (
-                eventAllocation: FormattedNumber | null | undefined,
+                eventAllocation: FormattedNumber | number | null | undefined,
                 user: UserType,
                 scene: Scene
             ): BillingAlertType | undefined => {
@@ -80,11 +82,12 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
                 }
 
                 // Priority 2: Event allowance near limit
+                const allocation = typeof eventAllocation === 'number' ? eventAllocation : eventAllocation?.value
                 if (
                     scene !== Scene.Billing &&
-                    eventAllocation &&
+                    allocation &&
                     user.billing?.current_usage &&
-                    user.billing.current_usage.value / eventAllocation.value >= ALLOCATION_THRESHOLD_ALERT
+                    user.billing.current_usage.value / allocation >= ALLOCATION_THRESHOLD_ALERT
                 ) {
                     return BillingAlertType.UsageNearLimit
                 }
