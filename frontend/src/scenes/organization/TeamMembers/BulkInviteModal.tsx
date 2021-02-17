@@ -9,7 +9,7 @@ import './BulkInviteModal.scss'
 import { isEmail, pluralize } from 'lib/utils'
 import { bulkInviteLogic } from './bulkInviteLogic'
 
-// Placeholder names in random proportions
+/** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
     () => Math.random() - 0.5
 )
