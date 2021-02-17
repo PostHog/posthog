@@ -54,15 +54,10 @@ export const dashboardLogic = kea({
                         throw error
                     }
                 },
-                updateDashboard: async () => {
+                updateDashboard: async (filters) => {
                     return await api.update(
                         `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken })}`,
-                        {
-                            filters: {
-                                date_from: dateFilterLogic.values.dates.dateFrom,
-                                date_to: dateFilterLogic.values.dates.dateTo,
-                            },
-                        }
+                        { filters }
                     )
                 },
             },
@@ -343,7 +338,7 @@ export const dashboardLogic = kea({
                 date_from: dateFilterLogic.values.dates.dateFrom,
                 date_to: dateFilterLogic.values.dates.dateTo,
             }
-            actions.updateDashboard()
+            actions.updateDashboard(filters)
             dashboardItemsModel.actions.refreshAllDashboardItems(filters)
         },
     }),
