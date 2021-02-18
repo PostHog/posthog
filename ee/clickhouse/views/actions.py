@@ -115,7 +115,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         person_filter_params: Dict[str, Any] = {}
 
         if filter.breakdown_type == "cohort" and filter.breakdown_value != "all":
-            cohort = Cohort.objects.get(pk=filter.breakdown_value)
+            cohort = Cohort.objects.get(pk=filter.breakdown_value, team_id=team.pk)
             person_filter, person_filter_params = format_filter_query(cohort)
             person_filter = "AND distinct_id IN ({})".format(person_filter)
         elif (
