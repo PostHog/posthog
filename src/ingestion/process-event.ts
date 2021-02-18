@@ -23,7 +23,7 @@ import {
 } from '../types'
 import { castTimestampOrNow, UUID, UUIDT } from '../utils'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from './topics'
-import { elementsToString, sanitizeEventName } from './utils'
+import { elementsToString, sanitizeEventName, timeoutGuard } from './utils'
 
 export class EventsProcessor {
     pluginsServer: PluginsServer
@@ -71,11 +71,18 @@ export class EventsProcessor {
         const personUuid = new UUIDT().toString()
 
         const ts = this.handleTimestamp(data, now, sentAt)
+        const timeout1 = timeoutGuard(
+            `Still running "handleIdentifyOrAlias". Timeout warning after 30 sec! ${eventUuid}`
+        )
         await this.handleIdentifyOrAlias(data['event'], properties, distinctId, teamId)
+        clearTimeout(timeout1)
 
         let result: IEvent | SessionRecordingEvent
 
         if (data['event'] === '$snapshot') {
+            const timeout2 = timeoutGuard(
+                `Still running "createSessionRecordingEvent". Timeout warning after 30 sec! ${eventUuid}`
+            )
             result = await this.createSessionRecordingEvent(
                 eventUuid,
                 teamId,
@@ -85,7 +92,9 @@ export class EventsProcessor {
                 properties['$snapshot_data']
             )
             this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer)
+            clearTimeout(timeout2)
         } else {
+            const timeout3 = timeoutGuard(`Still running "captureEE". Timeout warning after 30 sec! ${eventUuid}`)
             result = await this.captureEE(
                 eventUuid,
                 personUuid,
@@ -99,6 +108,7 @@ export class EventsProcessor {
                 sentAt
             )
             this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer)
+            clearTimeout(timeout3)
         }
 
         return result
@@ -363,6 +373,9 @@ export class EventsProcessor {
     }
 
     private async storeNamesAndProperties(team: Team, event: string, properties: Properties): Promise<void> {
+        const timeout = timeoutGuard(
+            `Still running "storeNamesAndProperties". Timeout warning after 30 sec! Event: ${event}. Ingested: ${team.ingested_event}`
+        )
         // In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
         let save = false
         if (!team.ingested_event) {
@@ -400,6 +413,9 @@ export class EventsProcessor {
             }
         }
         if (save) {
+            const timeout2 = timeoutGuard(
+                `Still running "storeNamesAndProperties" save. Timeout warning after 30 sec! Event: ${event}`
+            )
             await this.db.postgresQuery(
                 `UPDATE posthog_team SET
                     ingested_event = $1, event_names = $2, event_names_with_usage = $3, event_properties = $4,
@@ -415,10 +431,13 @@ export class EventsProcessor {
                     team.id,
                 ]
             )
+            clearTimeout(timeout2)
         }
+        clearTimeout(timeout)
     }
 
     private async shouldSendHooksTask(team: Team): Promise<boolean> {
+        const timeout = timeoutGuard(`Still running "shouldSendHooksTask". Timeout warning after 30 sec!`)
         const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
         const hooksCacheValue = await this.pluginsServer.redis.get(hooksCacheKey)
         let shouldSendHooksTask = false
@@ -445,6 +464,7 @@ export class EventsProcessor {
             await this.pluginsServer.redis.set(hooksCacheKey, shouldSendHooksTask.toString())
             await this.pluginsServer.redis.expire(hooksCacheKey, 10)
         }
+        clearTimeout(timeout)
         return shouldSendHooksTask
     }
 
