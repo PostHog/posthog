@@ -140,9 +140,7 @@ export class KafkaQueue implements Queue {
 
         this.pluginsServer.statsd?.timing('kafka_queue.each_batch.ingest_events', batchIngestionTimer)
         this.pluginsServer.statsd?.timing('kafka_queue.each_batch', batchStartTimer)
-        resolveOffset(batch.lastOffset())
-        await heartbeat()
-        await commitOffsetsIfNecessary()
+
         status.info(
             '🧩',
             `Kafka Batch of ${batch.messages.length} events completed in ${
@@ -151,6 +149,10 @@ export class KafkaQueue implements Queue {
                 new Date().valueOf() - batchIngestionTimer.valueOf()
             }ms)`
         )
+
+        resolveOffset(batch.lastOffset())
+        await heartbeat()
+        await commitOffsetsIfNecessary()
     }
 
     async start(): Promise<void> {
