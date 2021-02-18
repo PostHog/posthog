@@ -9,6 +9,7 @@ import { Button, Col, Input, Row } from 'antd'
 import { InfoCircleOutlined, PlusOutlined, SaveOutlined, DeleteOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
+import { actionsModel } from '~/models'
 
 export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryToken }) {
     let logic = actionEditLogic({
@@ -19,6 +20,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
     })
     const { action, actionLoading, errorActionId } = useValues(logic)
     const { setAction, saveAction } = useActions(logic)
+    const { loadActions } = useActions(actionsModel)
 
     const [edited, setEdited] = useState(false)
     const slackEnabled = user?.team?.slack_incoming_webhook
@@ -46,7 +48,10 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                 deleteWithUndo({
                     endpoint: 'action',
                     object: action,
-                    callback: () => router.actions.push('/events/actions'),
+                    callback: () => {
+                        router.actions.push('/events/actions')
+                        loadActions()
+                    },
                 })
             }}
         >
