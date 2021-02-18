@@ -137,6 +137,8 @@ jobs:
               if: steps.version.outputs.IS_NEW_VERSION == 'true'
               id: main-repo-pr
               uses: peter-evans/create-pull-request@v3
+              env:
+                  GITHUB_TOKEN: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   path: posthog/
