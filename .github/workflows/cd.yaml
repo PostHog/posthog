@@ -75,6 +75,7 @@ jobs:
     release:
         name: Publish release if new version
         runs-on: ubuntu-20.04
+        needs: check-package-version
         if: needs.check-package-version.outputs.is-unpublished-version == 'true'
         env:
             REPO_VERSION: ${{ needs.check-package-version.outputs.repo-version }}
