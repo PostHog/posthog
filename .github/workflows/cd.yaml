@@ -20,7 +20,7 @@ jobs:
 
             - name: Check package version and detect an update
               id: check-package-version
-              uses: PostHog/check-package-version
+              uses: PostHog/check-package-version@master
 
     containerize:
         name: Build and push container image
