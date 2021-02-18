@@ -210,7 +210,7 @@ def get_event(request):
             plugin_server_ingestion = settings.PLUGIN_SERVER_INGESTION and (
                 not getattr(settings, "MULTI_TENANCY", False)
                 or str(team.organization_id) in getattr(settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", [])
-                or random() < 0.01
+                or random() < 0.03
             )
 
             if plugin_server_ingestion:
