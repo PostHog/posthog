@@ -128,6 +128,10 @@ export const createProcessEventTests = (
         processEventCounter = 0
         team = await getFirstTeam(server)
         now = DateTime.utc()
+
+        // clear the webhook redis cache
+        const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
+        await server.redis.del(hooksCacheKey)
     })
 
     afterEach(async () => {
@@ -221,7 +225,7 @@ export const createProcessEventTests = (
         )
 
         if (database === 'clickhouse') {
-            expect(queryCounter).toBe(8)
+            expect(queryCounter).toBe(9)
         } else if (database === 'postgresql') {
             expect(queryCounter).toBe(12)
         }
