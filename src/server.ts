@@ -271,10 +271,11 @@ export async function startPluginsServer(
             }
         })
 
-        // every 5 seconds set a @posthog-plugin-server/ping Redis key
+        // every 5 seconds set Redis keys @posthog-plugin-server/ping and @posthog-plugin-server/version
         pingJob = schedule.scheduleJob('*/5 * * * * *', () => {
             server!.redis!.set('@posthog-plugin-server/ping', new Date().toISOString())
             server!.redis!.expire('@posthog-plugin-server/ping', 60)
+            server!.redis!.set('@posthog-plugin-server/version', version)
         })
 
         // every 10 seconds sends stuff to StatsD
