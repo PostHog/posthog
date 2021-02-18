@@ -123,7 +123,10 @@ jobs:
                   mv package.json package.old.json
                   jq --indent 4 '.dependencies."@posthog/plugin-server" = "${{ env.REPO_VERSION }}"' package.old.json > package.json
                   rm package.old.json
-                  yarn
+                  for i in 1 2 3 4 5
+                      # Update yarn.lock, retrying up to 5 times (with a 5 s wait) in case of npm version inconsistency
+                      do yarn && break || sleep 5
+                  done
 
             - name: Create main repo pull request
               id: main-repo-pr
