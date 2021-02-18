@@ -414,6 +414,7 @@ if not REDIS_URL:
 CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
+CELERY_DB_REUSE_MAX = 100
 
 if PRIMARY_DB == RDBMS.CLICKHOUSE:
     try:
