@@ -7,7 +7,7 @@ import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from './s
 import { status } from './status'
 import { PluginConfig, PluginJsonConfig, PluginsServer, PluginTask, TeamId } from './types'
 import { getFileFromArchive } from './utils'
-import { createPluginConfigVM } from './vm'
+import { createPluginConfigVM } from './vm/vm'
 
 export async function setupPlugins(server: PluginsServer): Promise<void> {
     const pluginRows = await getPluginRows(server)

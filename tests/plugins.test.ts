@@ -141,10 +141,11 @@ test('archive plugin with broken index.js does not do much', async () => {
 
     expect(setError).toHaveBeenCalled()
     expect(setError.mock.calls[0][0]).toEqual(mockServer)
-    expect(setError.mock.calls[0][1]!.message).toEqual("Unexpected token ';'")
-    expect(setError.mock.calls[0][1]!.name).toEqual('SyntaxError')
-    expect(setError.mock.calls[0][1]!.stack).toContain('vm.js:')
-    expect(setError.mock.calls[0][1]!.time).toBeDefined()
+    const error = setError.mock.calls[0][1]!
+    expect(error.message).toContain('unknown: Unexpected token, expected ","')
+    expect(error.name).toEqual('SyntaxError')
+    expect(error.stack).toContain('SyntaxError: unknown')
+    expect(error.time).toBeDefined()
     expect(setError.mock.calls[0][2]).toEqual(pluginConfigs.get(39))
     expect(pluginConfigs.get(39)!.vm).toEqual(null)
 })
@@ -168,10 +169,11 @@ test('local plugin with broken index.js does not do much', async () => {
 
     expect(setError).toHaveBeenCalled()
     expect(setError.mock.calls[0][0]).toEqual(mockServer)
-    expect(setError.mock.calls[0][1]!.message).toEqual("Unexpected token ';'")
-    expect(setError.mock.calls[0][1]!.name).toEqual('SyntaxError')
-    expect(setError.mock.calls[0][1]!.stack).toContain('vm.js:')
-    expect(setError.mock.calls[0][1]!.time).toBeDefined()
+    const error = setError.mock.calls[0][1]!
+    expect(error.message).toContain('unknown: Unexpected token, expected ","')
+    expect(error.name).toEqual('SyntaxError')
+    expect(error.stack).toContain('SyntaxError: unknown')
+    expect(error.time).toBeDefined()
     expect(setError.mock.calls[0][2]).toEqual(pluginConfigs.get(39))
     expect(pluginConfigs.get(39)!.vm).toEqual(null)
 

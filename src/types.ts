@@ -22,6 +22,7 @@ export enum LogLevel {
 export interface PluginsServerConfig extends Record<string, any> {
     WORKER_CONCURRENCY: number
     TASKS_PER_WORKER: number
+    TASK_TIMEOUT: number
     CELERY_DEFAULT_QUEUE: string
     DATABASE_URL: string
     CLICKHOUSE_HOST: string

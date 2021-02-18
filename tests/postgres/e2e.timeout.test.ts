@@ -1,6 +1,5 @@
 import { startPluginsServer } from '../../src/server'
-import { LogLevel } from '../../src/types'
-import { PluginsServer } from '../../src/types'
+import { LogLevel, PluginsServer } from '../../src/types'
 import { UUIDT } from '../../src/utils'
 import { createPosthog, DummyPostHog } from '../../src/vm/extensions/posthog'
 import { makePiscina } from '../../src/worker/piscina'
@@ -10,7 +9,7 @@ import { delayUntilEventIngested } from '../shared/process-event'
 
 jest.setTimeout(60000) // 60 sec timeout
 
-describe('e2e postgres ingestion', () => {
+describe('e2e postgres ingestion timeout', () => {
     let server: PluginsServer
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
@@ -18,14 +17,19 @@ describe('e2e postgres ingestion', () => {
     beforeEach(async () => {
         await resetTestDatabase(`
             async function processEvent (event) {
-                event.properties.processed = 'hell yes'
-                event.properties.upperUuid = event.properties.uuid?.toUpperCase()
+                await new Promise(resolve => __jestSetTimeout(() => resolve(), 800))
+                await new Promise(resolve => __jestSetTimeout(() => resolve(), 800))
+                await new Promise(resolve => __jestSetTimeout(() => resolve(), 800))
+                await new Promise(resolve => __jestSetTimeout(() => resolve(), 800))
+                await new Promise(resolve => __jestSetTimeout(() => resolve(), 800))
+                event.properties = { passed: true }
                 return event
             }
         `)
         const startResponse = await startPluginsServer(
             {
                 WORKER_CONCURRENCY: 2,
+                TASK_TIMEOUT: 2,
                 PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
                 CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
                 PLUGIN_SERVER_INGESTION: true,
@@ -54,7 +58,7 @@ describe('e2e postgres ingestion', () => {
         await delayUntilEventIngested(() => server.db.fetchEvents())
         const events = await server.db.fetchEvents()
         expect(events.length).toBe(1)
-        expect(events[0].properties.processed).toEqual('hell yes')
-        expect(events[0].properties.upperUuid).toEqual(uuid.toUpperCase())
+        expect(events[0].properties.name).toEqual('haha')
+        expect(events[0].properties.passed).not.toEqual(true)
     })
 })
