@@ -136,10 +136,8 @@ jobs:
             - name: Create main repo pull request
               id: main-repo-pr
               uses: peter-evans/create-pull-request@v3
-              env:
-                  GITHUB_TOKEN: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
               with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
+                  token: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
                   path: posthog/
                   commit-message: Update plugin server to ${{ steps.version.outputs.PACKAGE_VERSION }}
                   committer: PostHog Bot <hey@posthog.com>
