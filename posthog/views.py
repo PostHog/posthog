@@ -25,7 +25,7 @@ from posthog.utils import (
     is_redis_alive,
 )
 
-from .utils import get_celery_heartbeat
+from .utils import get_celery_heartbeat, get_plugin_server_version
 
 
 def login_required(view):
@@ -151,6 +151,13 @@ def system_status(request):
             )
 
     metrics.append({"key": "plugin_sever_alive", "metric": "Plugin server alive", "value": is_plugin_server_alive()})
+    metrics.append(
+        {
+            "key": "plugin_sever_version",
+            "metric": "Plugin server version",
+            "value": get_plugin_server_version() or "unknown",
+        }
+    )
     metrics.append(
         {
             "key": "plugins_install",
