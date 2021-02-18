@@ -8,6 +8,7 @@ import { ActionStep } from './ActionStep'
 import { Button, Col, Input, Row } from 'antd'
 import { InfoCircleOutlined, PlusOutlined, SaveOutlined, DeleteOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryToken }) {
     let logic = actionEditLogic({
@@ -36,8 +37,26 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
         </Button>
     )
 
+    const deleteAction = actionId ? (
+        <Button
+            data-attr="delete-action"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => {
+                deleteWithUndo({
+                    endpoint: 'action',
+                    object: action,
+                    callback: () => router.actions.push('/events/actions'),
+                })
+            }}
+        >
+            Delete
+        </Button>
+    ) : undefined
+
     return (
         <div className="action-edit-container">
+            <PageHeader title={actionId ? 'Editing action' : 'Creating action'} buttons={deleteAction} />
             <form
                 onSubmit={(e) => {
                     e.preventDefault()
@@ -57,22 +76,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                     }}
                     data-attr="edit-action-input"
                 />
-                <Button
-                    data-attr="delete-action"
-                    danger
-                    style={{ marginRight: 12 }}
-                    className="float-right"
-                    icon={<DeleteOutlined />}
-                    onClick={() => {
-                        deleteWithUndo({
-                            endpoint: 'action',
-                            object: action,
-                            callback: () => router.actions.push('/events/actions'),
-                        })
-                    }}
-                >
-                    Delete
-                </Button>
+
                 {action.count > -1 && (
                     <div>
                         <small className="text-muted">Matches {action.count} events</small>
@@ -189,12 +193,14 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                     </p>
                 )}
                 <div className="float-right">
+                    <span data-attr="delete-action-bottom">{deleteAction}</span>
                     <Button
                         disabled={!edited}
                         data-attr="save-action-button"
                         type="primary"
                         icon={<SaveOutlined />}
                         onClick={saveAction}
+                        style={{ marginLeft: 16 }}
                     >
                         Save action
                     </Button>
