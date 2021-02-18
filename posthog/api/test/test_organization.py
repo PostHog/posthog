@@ -473,7 +473,7 @@ class TestInviteSignup(APIBaseTest):
             {
                 "type": "validation_error",
                 "code": "invalid_recipient",
-                "detail": "This invite is intended for another email address (t*****9@posthog.com).",
+                "detail": "This invite is intended for another email address (t*****9@posthog.com) but your current address is test+39@posthog.com.",
                 "attr": None,
             },
         )

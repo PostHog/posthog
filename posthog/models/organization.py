@@ -195,7 +195,7 @@ class OrganizationInvite(UUIDModel):
         if _email and _email != self.target_email:
             raise exceptions.ValidationError(
                 f"This invite is intended for another email address ({mask_email_address(self.target_email)})"
-                " but your current address is {_email}.",
+                f" but your current address is {_email}.",
                 code="invalid_recipient",
             )
 
