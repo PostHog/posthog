@@ -65,10 +65,10 @@ export class KafkaQueue implements Queue {
         const processingTimeout = timeoutGuard(
             `Still running plugins on ${pluginEvents.length} events. Timeout warning after 30 sec!`
         )
-        const batches = groupIntoBatches(pluginEvents, maxBatchSize)
+        const processingBatches = groupIntoBatches(pluginEvents, maxBatchSize)
         const processedEvents = (
             await Promise.all(
-                batches.map(async (batch) => {
+                processingBatches.map(async (batch) => {
                     const timer = new Date()
                     const processedBatch = this.processEventBatch(batch)
                     this.pluginsServer.statsd?.timing('kafka_queue.single_event_batch', timer)
@@ -92,51 +92,27 @@ export class KafkaQueue implements Queue {
             `Still ingesting ${processedEvents.length} events. Timeout warning after 30 sec!`
         )
 
-        if (this.pluginsServer.KAFKA_BATCH_PARALLEL_PROCESSING) {
-            const ingestOneEvent = async (event: PluginEvent) => {
-                const singleIngestionTimeout = timeoutGuard(
-                    `After 30 seconds still ingesting event: ${JSON.stringify(event)}`
-                )
-                const singleIngestionTimer = new Date()
-                await this.saveEvent(event)
-                this.pluginsServer.statsd?.timing('kafka_queue.single_ingestion', singleIngestionTimer)
-                clearTimeout(singleIngestionTimeout)
-            }
-            const maxIngestionBatch = Math.max(
-                this.pluginsServer.WORKER_CONCURRENCY * this.pluginsServer.TASKS_PER_WORKER,
-                50
+        const ingestOneEvent = async (event: PluginEvent) => {
+            const singleIngestionTimeout = timeoutGuard(
+                `After 30 seconds still ingesting event: ${JSON.stringify(event)}`
             )
-            const batches = groupIntoBatches(processedEvents, maxIngestionBatch)
-            for (const batch of batches) {
-                await Promise.all(batch.map(ingestOneEvent))
-                const offset = uuidOffset.get(batch[batch.length - 1].uuid!)
-                if (offset) {
-                    resolveOffset(offset)
-                }
-                await heartbeat()
-                await commitOffsetsIfNecessary()
+            const singleIngestionTimer = new Date()
+            await this.saveEvent(event)
+            this.pluginsServer.statsd?.timing('kafka_queue.single_ingestion', singleIngestionTimer)
+            clearTimeout(singleIngestionTimeout)
+        }
+        const maxIngestionBatch = Math.max(
+            this.pluginsServer.WORKER_CONCURRENCY * this.pluginsServer.TASKS_PER_WORKER,
+            50
+        )
+        const ingestionBatches = groupIntoBatches(processedEvents, maxIngestionBatch)
+        for (const batch of ingestionBatches) {
+            await Promise.all(batch.map(ingestOneEvent))
+            const offset = uuidOffset.get(batch[batch.length - 1].uuid!)
+            if (offset) {
+                resolveOffset(offset)
             }
-        } else {
-            for (const event of processedEvents) {
-                if (!isRunning()) {
-                    status.info('😮', 'Consumer not running anymore, canceling batch processing!')
-                    return
-                }
-                if (isStale()) {
-                    status.info('😮', 'Batch stale, canceling batch processing!')
-                    return
-                }
-
-                const singleIngestionTimer = new Date()
-                await this.saveEvent(event)
-                const offset = uuidOffset.get(event.uuid!)
-                if (offset) {
-                    resolveOffset(offset)
-                }
-                await heartbeat()
-                await commitOffsetsIfNecessary()
-                this.pluginsServer.statsd?.timing('kafka_queue.single_ingestion', singleIngestionTimer)
-            }
+            await commitOffsetsIfNecessary()
         }
 
         clearTimeout(ingestionTimeout)
@@ -154,8 +130,8 @@ export class KafkaQueue implements Queue {
         )
 
         resolveOffset(batch.lastOffset())
-        await heartbeat()
         await commitOffsetsIfNecessary()
+        await heartbeat()
     }
 
     async start(): Promise<void> {
@@ -222,6 +198,7 @@ export class KafkaQueue implements Queue {
     private static buildConsumer(kafka: Kafka): Consumer {
         const consumer = kafka.consumer({
             groupId: 'clickhouse-ingestion',
+            sessionTimeout: 60000,
             readUncommitted: false,
         })
         const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events
