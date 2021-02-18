@@ -123,6 +123,7 @@ export async function createServer(
 
     const postgres = new Pool({
         connectionString: serverConfig.DATABASE_URL,
+        statement_timeout: 60000,
         ssl: process.env.DEPLOYMENT?.startsWith('Heroku')
             ? {
                   rejectUnauthorized: false,

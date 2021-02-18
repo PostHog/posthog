@@ -5,7 +5,7 @@ import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
 import { KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID } from './ingestion/topics'
-import { chainToElements, hashElements, unparsePersonPartial } from './ingestion/utils'
+import { chainToElements, hashElements, timeoutGuard, unparsePersonPartial } from './ingestion/utils'
 import {
     ClickHouseEvent,
     ClickHousePerson,
@@ -45,7 +45,10 @@ export class DB {
         queryTextOrConfig: string | QueryConfig<I>,
         values?: I
     ): Promise<QueryResult<R>> {
-        return await this.postgres.query(queryTextOrConfig, values)
+        const timeout = timeoutGuard(`Postgres slow query warning after 30 sec: ${queryTextOrConfig}`)
+        const response = await this.postgres.query(queryTextOrConfig, values)
+        clearTimeout(timeout)
+        return response
     }
 
     public async postgresTransaction<ReturnType extends any>(
@@ -130,7 +133,7 @@ export class DB {
         const kafkaMessages: ProducerRecord[] = []
 
         const person = await this.postgresTransaction(async (client) => {
-            const insertResult = await client.query(
+            const insertResult = await this.postgresQuery(
                 'INSERT INTO posthog_person (created_at, properties, team_id, is_user_id, is_identified, uuid) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
                 [createdAt.toISO(), JSON.stringify(properties), teamId, isUserId, isIdentified, uuid]
             )
@@ -268,7 +271,7 @@ export class DB {
         person: Person,
         distinctId: string
     ): Promise<ProducerRecord | void> {
-        const insertResult = await client.query(
+        const insertResult = await this.postgresQuery(
             'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id) VALUES ($1, $2, $3) RETURNING *',
             [distinctId, person.id, person.team_id]
         )
