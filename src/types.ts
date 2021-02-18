@@ -37,7 +37,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_CLIENT_CERT_KEY_B64: string | null
     KAFKA_TRUSTED_CERT_B64: string | null
     KAFKA_CONSUMPTION_TOPIC: string | null
-    KAFKA_BATCH_PARALELL_PROCESSING: boolean
+    KAFKA_BATCH_PARALLEL_PROCESSING: boolean
     PLUGINS_CELERY_QUEUE: string
     REDIS_URL: string
     BASE_DIR: string
