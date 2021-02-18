@@ -22,7 +22,6 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
         setListFilters: (payload) => ({ payload }),
         editProperty: (key, newValue) => ({ key, newValue }),
         setNewProperty: (newProperty) => ({ newProperty }),
-        appendNewKey: (newKey) => ({ newKey }),
         saveNewProperty: true,
     },
     reducers: {
@@ -38,10 +37,10 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 setNewProperty: (_, { newProperty }) => newProperty,
             },
         ],
-        newKeys: [
-            [],
+        hasNewKeys: [
+            false,
             {
-                appendNewKey: (state, { newKey }) => [...state, newKey],
+                saveNewProperty: () => true,
             },
         ],
     },
@@ -85,7 +84,6 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
         },
         saveNewProperty: () => {
             actions.editProperty(values.newProperty[0], values.newProperty[1])
-            actions.appendNewKey(values.newProperty[0])
             actions.setNewProperty([])
         },
     }),

@@ -22,7 +22,7 @@ function _PersonV2(): JSX.Element {
     const [activeTab, setActiveTab] = useState('events')
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
 
-    const { person, personLoading, deletedPersonLoading, newKeys } = useValues(personsLogic)
+    const { person, personLoading, deletedPersonLoading, hasNewKeys } = useValues(personsLogic)
     const { deletePerson, setPerson, editProperty } = useActions(personsLogic)
 
     const ids = (
@@ -139,7 +139,7 @@ function _PersonV2(): JSX.Element {
                                 <PropertiesTable
                                     properties={person.properties}
                                     onEdit={editProperty}
-                                    sortProperties={newKeys.length === 0}
+                                    sortProperties={!hasNewKeys}
                                     onDelete={(key) => editProperty(key, undefined)}
                                     className="persons-page-props-table"
                                 />
