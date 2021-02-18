@@ -94,7 +94,7 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
     events: ({ actions }) => ({
         afterMount: () => {
             const user = userLogic.values.user
-            if (!user?.billing?.plan) {
+            if (user?.is_multi_tenancy && !user?.billing?.plan) {
                 actions.loadPlans()
             }
         },
