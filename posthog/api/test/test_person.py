@@ -321,6 +321,15 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             self.assertEqual(response["results"][0]["name"], "distinct_id2")
             self.assertEqual(response["results"][1]["name"], "distinct_id1")
 
+            self.assertEqual(
+                response["results"][0]["distinct_ids"],
+                ["distinct_id2", "17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c"],
+            )
+            self.assertEqual(
+                response["results"][1]["distinct_ids"],
+                ["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
+            )
+
     return TestPerson
 
 

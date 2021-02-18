@@ -54,6 +54,11 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             return sorted(person.distinct_ids, key=is_anonymous_id)[0]
         return person.pk
 
+    def to_representation(self, data):
+        data = super(PersonSerializer, self).to_representation(data)
+        data["distinct_ids"] = sorted(data["distinct_ids"], key=is_anonymous_id)
+        return data
+
 
 class PersonFilter(filters.FilterSet):
     email = filters.CharFilter(field_name="properties__email")
