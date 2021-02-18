@@ -95,13 +95,17 @@ export class KafkaQueue implements Queue {
         // TODO: add chunking into groups of 500 or so. Might start too many promises at once now
         if (this.pluginsServer.KAFKA_BATCH_PARALLEL_PROCESSING) {
             const ingestOneEvent = async (event: PluginEvent) => {
+                const singleIngestionTimeout = timeoutGuard(
+                    `After 30 seconds still ingesting event: ${JSON.stringify(event)}`
+                )
                 const singleIngestionTimer = new Date()
                 await this.saveEvent(event)
                 this.pluginsServer.statsd?.timing('kafka_queue.single_ingestion', singleIngestionTimer)
+                clearTimeout(singleIngestionTimeout)
             }
             const maxIngestionBatch = Math.max(
                 this.pluginsServer.WORKER_CONCURRENCY * this.pluginsServer.TASKS_PER_WORKER,
-                100
+                50
             )
             const batches = groupIntoBatches(processedEvents, maxIngestionBatch)
             for (const batch of batches) {
