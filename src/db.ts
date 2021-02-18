@@ -46,14 +46,17 @@ export class DB {
         values?: I
     ): Promise<QueryResult<R>> {
         const timeout = timeoutGuard(`Postgres slow query warning after 30 sec: ${queryTextOrConfig}`)
-        const response = await this.postgres.query(queryTextOrConfig, values)
-        clearTimeout(timeout)
-        return response
+        try {
+            return await this.postgres.query(queryTextOrConfig, values)
+        } finally {
+            clearTimeout(timeout)
+        }
     }
 
     public async postgresTransaction<ReturnType extends any>(
         transaction: (client: PoolClient) => Promise<ReturnType>
     ): Promise<ReturnType> {
+        const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
         const client = await this.postgres.connect()
         try {
             await client.query('BEGIN')
@@ -65,6 +68,7 @@ export class DB {
             throw e
         } finally {
             client.release()
+            clearTimeout(timeout)
         }
     }
 
@@ -77,7 +81,12 @@ export class DB {
         if (!this.clickhouse) {
             throw new Error('ClickHouse connection has not been provided to this DB instance!')
         }
-        return await this.clickhouse.querying(query, options)
+        const timeout = timeoutGuard(`ClickHouse slow query warning after 30 sec: ${query}`)
+        try {
+            return await this.clickhouse.querying(query, options)
+        } finally {
+            clearTimeout(timeout)
+        }
     }
 
     // Person
@@ -133,7 +142,7 @@ export class DB {
         const kafkaMessages: ProducerRecord[] = []
 
         const person = await this.postgresTransaction(async (client) => {
-            const insertResult = await this.postgresQuery(
+            const insertResult = await client.query(
                 'INSERT INTO posthog_person (created_at, properties, team_id, is_user_id, is_identified, uuid) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
                 [createdAt.toISO(), JSON.stringify(properties), teamId, isUserId, isIdentified, uuid]
             )
@@ -271,7 +280,7 @@ export class DB {
         person: Person,
         distinctId: string
     ): Promise<ProducerRecord | void> {
-        const insertResult = await this.postgresQuery(
+        const insertResult = await client.query(
             'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id) VALUES ($1, $2, $3) RETURNING *',
             [distinctId, person.id, person.team_id]
         )
@@ -377,14 +386,14 @@ export class DB {
         const hash = hashElements(cleanedElements)
 
         try {
-            await this.postgresTransaction(async () => {
-                const insertResult = await this.postgresQuery(
+            await this.postgresTransaction(async (client) => {
+                const insertResult = await client.query(
                     'INSERT INTO posthog_elementgroup (hash, team_id) VALUES ($1, $2) RETURNING *',
                     [hash, teamId]
                 )
                 const elementGroup = insertResult.rows[0] as ElementGroup
                 for (const element of cleanedElements) {
-                    await this.postgresQuery(
+                    await client.query(
                         'INSERT INTO posthog_element (text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, "order", event_id, attr_class, group_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
                         [
                             element.text,
