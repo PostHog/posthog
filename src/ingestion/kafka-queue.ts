@@ -97,9 +97,16 @@ export class KafkaQueue implements Queue {
                 `After 30 seconds still ingesting event: ${JSON.stringify(event)}`
             )
             const singleIngestionTimer = new Date()
-            await this.saveEvent(event)
-            this.pluginsServer.statsd?.timing('kafka_queue.single_ingestion', singleIngestionTimer)
-            clearTimeout(singleIngestionTimeout)
+            try {
+                await this.saveEvent(event)
+            } catch (error) {
+                status.info('🔔', error)
+                Sentry.captureException(error)
+                throw error
+            } finally {
+                this.pluginsServer.statsd?.timing('kafka_queue.single_ingestion', singleIngestionTimer)
+                clearTimeout(singleIngestionTimeout)
+            }
         }
         const maxIngestionBatch = Math.max(
             this.pluginsServer.WORKER_CONCURRENCY * this.pluginsServer.TASKS_PER_WORKER,
