@@ -21,6 +21,9 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
     actions: {
         setListFilters: (payload) => ({ payload }),
         editProperty: (key, newValue) => ({ key, newValue }),
+        resetNewProperty: true,
+        setNewProperty: (newProperty) => ({newProperty})
+
     },
     reducers: {
         listFilters: [
@@ -29,6 +32,13 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 setListFilters: (state, { payload }) => ({ ...state, ...payload }),
             },
         ],
+        newProperty: [
+            [],
+            {
+                resetNewProperty: () => [],
+                setNewProperty: (_, {newProperty}) => [newProperty[0], newProperty[1]]
+            }
+        ]
     },
     selectors: {
         exampleEmail: [
@@ -37,6 +47,10 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 const match = persons && persons.results.find((person) => person.properties?.email)
                 return match?.properties?.email || 'example@gmail.com'
             },
+        ],
+        editingNewProperty: [
+            (s) => [s.newProperty],
+            (newProperty: string[]): boolean => newProperty.length !== 0
         ],
     },
     listeners: ({ actions, values }) => ({
@@ -54,6 +68,11 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 const attemptedParsedNumber = Number(newValue)
                 if (!Number.isNaN(attemptedParsedNumber)) {
                     parsedValue = attemptedParsedNumber
+                }
+
+                const lowercaseValue = parsedValue.toLowerCase()
+                if (lowercaseValue === 'true' || lowercaseValue === 'false')  {
+                    parsedValue = lowercaseValue === 'true'
                 }
 
                 person.properties[key] = parsedValue

@@ -137,6 +137,7 @@ interface PropertiesTableType extends BasePropertyType {
     properties: any
     sortProperties?: boolean
     onDelete?: (key: string) => void
+    className?: string
 }
 
 export function PropertiesTable({
@@ -146,6 +147,7 @@ export function PropertiesTable({
     sortProperties = false,
     nestingLevel = 0,
     onDelete,
+    className = ''
 }: PropertiesTableType): JSX.Element {
     const objectProperties = useMemo(() => {
         if (!(properties instanceof Object)) {
@@ -224,6 +226,7 @@ export function PropertiesTable({
                 size="small"
                 pagination={false}
                 dataSource={objectProperties}
+                className={className}
             />
         )
     }

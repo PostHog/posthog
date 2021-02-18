@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
+import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm, Input } from 'antd'
 import { hot } from 'react-hot-loader/root'
 import { SessionsView } from '../sessions/SessionsView'
 import { EventsTable } from 'scenes/events'
@@ -21,8 +21,8 @@ function _PersonV2(): JSX.Element {
     const [activeTab, setActiveTab] = useState('events')
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
 
-    const { person, personLoading, deletedPersonLoading } = useValues(personsLogic)
-    const { deletePerson, setPerson, editProperty } = useActions(personsLogic)
+    const { person, personLoading, deletedPersonLoading, newProperty, editingNewProperty } = useValues(personsLogic)
+    const { deletePerson, setPerson, editProperty, setNewProperty, resetNewProperty } = useActions(personsLogic)
 
     const ids = (
         <Menu>
@@ -140,7 +140,34 @@ function _PersonV2(): JSX.Element {
                                     onEdit={editProperty}
                                     sortProperties
                                     onDelete={(key) => editProperty(key, undefined)}
+                                    className='persons-page-props-table'
                                 />
+                                <br />
+                                {editingNewProperty ? (
+                                    <>
+                                <Row>
+                                <Col span={12}>
+                                    <Input style={{ maxWidth: '90%'}} placeholder='key' onInput={e => setNewProperty([(e.target as HTMLInputElement).value, newProperty[1] || ''])} /> 
+                                </Col>
+                                <Col span={12}>
+                                <Input style={{ maxWidth: '90%'}} placeholder='value' onInput={e => setNewProperty([newProperty[0] || '', (e.target as HTMLInputElement).value])} /> 
+
+                                    </Col>
+                            </Row>
+                            <br /></>) : null
+                                }
+
+                                <Button 
+                                    className='add-prop-button' 
+                                    onClick={
+                                        editingNewProperty ? () => {
+                                            editProperty(newProperty[0], newProperty[1]) 
+                                            resetNewProperty()
+                                        }  : () => setNewProperty(['', '']) 
+                                    }
+                                >
+                                    {editingNewProperty ? 'Save' : '+'}
+                                </Button>
                             </>
                         )}
                         {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}

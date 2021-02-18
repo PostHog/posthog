@@ -22,7 +22,7 @@ export const Person = hot(_Person)
 
 function _Person(props) {
     const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags['persons-2353'] ? <PersonV2 /> : <PersonV1 {...props} />
+    return true ? <PersonV2 /> : <PersonV1 {...props} />
 }
 
 function PersonV1({ _: distinctId, id }) {

@@ -47,3 +47,22 @@
         color: $primary;
     }
 }
+
+.persons-page-props-table {
+
+    @media screen and (max-width: 1150px) {
+        table td,
+        table th {
+            max-width: 20px !important;
+            overflow: hidden;
+        }
+    }
+
+}
+
+.add-prop-button {
+    margin: auto;
+    text-align: center;
+    display: block;
+    width: 250px;
+}

@@ -11,7 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function PersonsTable(props) {
     const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags['persons-2353'] ? <PersonsTableV2 {...props} /> : <PersonsTableV1 {...props} />
+    return true ? <PersonsTableV2 {...props} /> : <PersonsTableV1 {...props} />
 }
 
 function PersonsTableV1({ people, loading, actions, onChange, cohort }) {

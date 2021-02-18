@@ -15,7 +15,7 @@ const { TabPane } = Tabs
 export const Persons = hot(_Persons)
 function _Persons({ cohort }: { cohort: CohortType }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags['persons-2353'] ? <PersonsV2 cohort={cohort} /> : <PersonsV1 cohort={cohort} />
+    return true ? <PersonsV2 cohort={cohort} /> : <PersonsV1 cohort={cohort} />
 }
 
 function PersonsV1({ cohort }: { cohort: CohortType }): JSX.Element {
