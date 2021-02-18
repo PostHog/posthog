@@ -15,6 +15,7 @@ from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INS
 from ee.idl.gen import events_pb2
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
+from ee.models.hook import Hook
 from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
 from posthog.models.person import Person
@@ -60,7 +61,10 @@ def create_event(
 
     p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
 
-    if team.slack_incoming_webhook or team.organization.is_feature_available("zapier"):
+    if team.slack_incoming_webhook or (
+        team.organization.is_feature_available("zapier")
+        and Hook.objects.filter(event="action_performed", team=team).exists()
+    ):
         try:
             celery.current_app.send_task(
                 "ee.tasks.webhooks_ee.post_event_to_webhook_ee",

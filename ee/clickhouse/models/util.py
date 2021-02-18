@@ -52,6 +52,11 @@ def is_json(val):
         return False
 
     try:
+        int(val)
+        return False
+    except:
+        pass
+    try:
         json.loads(val)
     except ValueError:
         return False

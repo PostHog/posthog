@@ -246,6 +246,9 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             self.assertEqual(len(get_people()), 0)
             self.assertEqual(len(get_events()), 1)
 
+            response = self.client.delete(f"/api/person/{person.pk}/")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
         def test_filters_by_endpoints_are_deprecated(self):
             person_factory(
                 team=self.team, distinct_ids=["person_1"], properties={"email": "someone@gmail.com"},

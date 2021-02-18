@@ -16,12 +16,14 @@ export function RetentionContainer(props: {
     return (
         <div
             style={
-                filters.display === ACTIONS_LINE_GRAPH_LINEAR
+                !props.dashboardItemId && filters.display === ACTIONS_LINE_GRAPH_LINEAR
                     ? {
                           minHeight: '70vh',
                           position: 'relative',
                       }
-                    : {}
+                    : {
+                          minHeight: '100%',
+                      }
             }
         >
             {filters.display === ACTIONS_LINE_GRAPH_LINEAR ? (

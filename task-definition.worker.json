@@ -87,6 +87,14 @@
                 {
                     "name": "CLICKHOUSE_DENORMALIZED_PROPERTIES",
                     "value": "issampledevent,currentscreen,objectname"
+                },
+                {
+                    "name": "BILLING_TRIAL_DAYS",
+                    "value": "0"
+                },
+                {
+                    "name": "BILLING_NO_PLAN_EVENT_ALLOCATION",
+                    "value": "10000"
                 }
             ],
             "secrets": [

@@ -9,9 +9,7 @@ import { ActionsLineGraph } from 'scenes/insights/ActionsLineGraph'
 import { ActionsTable } from 'scenes/insights/ActionsTable'
 import { ActionsPie } from 'scenes/insights/ActionsPie'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
-import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { Paths } from 'scenes/paths/Paths'
-import { pathsLogic } from 'scenes/paths/pathsLogic'
 import {
     EllipsisOutlined,
     EditOutlined,
@@ -32,9 +30,7 @@ import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import moment from 'moment'
-import { trendsLogic } from 'scenes/insights/trendsLogic'
-import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
-import { ViewType } from 'scenes/insights/insightLogic'
+import { logicFromInsight, ViewType } from 'scenes/insights/insightLogic'
 import { dashboardsModel } from '~/models'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import SaveModal from 'scenes/insights/SaveModal'
@@ -122,18 +118,6 @@ export const displayMap = {
     },
 }
 
-export const logicFromInsight = (insight, logicProps) => {
-    if (insight === ViewType.FUNNELS) {
-        return funnelVizLogic(logicProps)
-    } else if (insight === ViewType.RETENTION) {
-        return retentionTableLogic(logicProps)
-    } else if (insight === ViewType.PATHS) {
-        return pathsLogic(logicProps)
-    } else {
-        return trendsLogic(logicProps)
-    }
-}
-
 export function DashboardItem({
     item,
     dashboardId,
@@ -168,7 +152,7 @@ export function DashboardItem({
     const Element = displayMap[_type].element
     const Icon = displayMap[_type].icon
     const viewText = displayMap[_type].viewText
-    const link = displayMap[_type].link(item)
+    const link = displayMap[_type].link({ ...item, insight: item.insight || ViewType.TRENDS })
     const color = item.color || 'white'
     const { dashboards } = useValues(dashboardsModel)
     const { renameDashboardItem } = useActions(dashboardItemsModel)
@@ -311,10 +295,10 @@ export function DashboardItem({
                                                 title="Set Color"
                                             >
                                                 {Object.entries(dashboardColorNames).map(
-                                                    ([className, color], colorIndex) => (
+                                                    ([itemClassName, itemColor], colorIndex) => (
                                                         <Menu.Item
-                                                            key={className}
-                                                            onClick={() => updateItemColor(item.id, className)}
+                                                            key={itemClassName}
+                                                            onClick={() => updateItemColor(item.id, itemClassName)}
                                                             data-attr={
                                                                 'dashboard-item-' +
                                                                 index +
@@ -324,7 +308,7 @@ export function DashboardItem({
                                                         >
                                                             <span
                                                                 style={{
-                                                                    background: dashboardColors[className],
+                                                                    background: dashboardColors[itemClassName],
                                                                     border: '1px solid #eee',
                                                                     display: 'inline-block',
                                                                     width: 13,
@@ -334,7 +318,7 @@ export function DashboardItem({
                                                                     marginBottom: 1,
                                                                 }}
                                                             />
-                                                            {color}
+                                                            {itemColor}
                                                         </Menu.Item>
                                                     )
                                                 )}

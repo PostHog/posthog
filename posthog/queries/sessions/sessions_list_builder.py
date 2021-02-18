@@ -19,7 +19,8 @@ class SessionListBuilder:
         last_page_last_seen={},
         emails={},
         limit=50,
-        offset=0,
+        start_timestamp=None,
+        distinct_id_offset=0,
         action_filter_count=0,
         session_timeout=SESSION_TIMEOUT,
         max_session_duration=MAX_SESSION_DURATION,
@@ -28,7 +29,8 @@ class SessionListBuilder:
         self.last_page_last_seen: Dict[str, int] = last_page_last_seen
         self.emails: Dict[str, Optional[str]] = emails
         self.limit: int = limit
-        self.offset: int = offset
+        self.distinct_id_offset: int = distinct_id_offset
+        self.start_timestamp: Optional[float] = start_timestamp
         self.action_filter_count: int = action_filter_count
         self.session_timeout: timedelta = session_timeout
         self.max_session_duration: timedelta = max_session_duration
@@ -44,13 +46,14 @@ class SessionListBuilder:
 
     @cached_property
     def pagination(self):
-        has_more = len(self._sessions) >= self.limit and (
+        has_more_users = len(self.emails) >= self.limit + self.distinct_id_offset
+        has_more_sessions = len(self._sessions) >= self.limit and (
             len(self._sessions) > self.limit or next(self.iterator, None) is not None
         )
 
-        if has_more:
+        if has_more_users or has_more_sessions:
             return {
-                "offset": self.offset + self.limit,
+                "distinct_id_offset": self.distinct_id_offset + self.limit,
                 "last_seen": self.next_page_last_seen(),
                 "start_timestamp": self.next_page_start_timestamp,
             }
@@ -59,6 +62,8 @@ class SessionListBuilder:
 
     @cached_property
     def next_page_start_timestamp(self):
+        if len(self.sessions) == 0:
+            return self.start_timestamp
         return min(session["end_time"].timestamp() for session in self.sessions)
 
     def next_page_last_seen(self):
@@ -89,7 +94,7 @@ class SessionListBuilder:
                         self._session_start(event)
                     else:
                         self._session_update(event)
-                elif len(self.running_sessions) + self.sessions_count < self.limit:
+                else:
                     self._session_start(event)
 
             if index % 300 == 0:

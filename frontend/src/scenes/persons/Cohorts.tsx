@@ -57,7 +57,7 @@ function _Cohorts(): JSX.Element {
     const { loadCohorts } = useActions(cohortsModel)
     const { openCohort } = useValues(cohortsUrlLogic)
     const { setOpenCohort } = useActions(cohortsUrlLogic)
-    const [searchTerm, setSearchTerm] = useState(false)
+    const [searchTerm, setSearchTerm] = useState(false as string | false)
 
     const columns = [
         {
@@ -85,6 +85,9 @@ function _Cohorts(): JSX.Element {
                 </span>
             ),
             render: function RenderCalculation(_, cohort: CohortType) {
+                if (cohort.is_static) {
+                    return <>N/A</>
+                }
                 return cohort.is_calculating ? (
                     <span>
                         Calculating <Spin />

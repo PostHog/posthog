@@ -1,5 +1,6 @@
 import datetime
 
+from django.conf import settings
 from django.core.exceptions import EmptyResultSet
 from django.db import connection, models, transaction
 from django.db.models import Q
@@ -72,8 +73,8 @@ class Action(models.Model):
         with transaction.atomic():
             try:
                 cursor.execute(query, params)
-            except Exception:
-                capture_exception()
+            except Exception as err:
+                capture_exception(err)
 
         self.is_calculating = False
         self.last_calculated_at = calculated_at

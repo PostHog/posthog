@@ -269,6 +269,12 @@ export interface PersonType {
     created_at?: string
 }
 
+export interface CohortGroupType {
+    days?: string
+    action_id?: number
+    properties?: Record<string, any>
+}
+
 export interface CohortType {
     count?: number
     created_by?: Record<string, any>
@@ -277,9 +283,10 @@ export interface CohortType {
     id: number
     is_calculating?: boolean
     last_calculation?: string
+    is_static?: boolean
     name?: string
     csv?: File
-    groups: Record<string, any>[]
+    groups: CohortGroupType[]
 }
 
 export interface InsightHistory {
@@ -398,7 +405,6 @@ export interface PluginType {
     latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
-    error?: PluginErrorType
     maintainer?: string
 }
 
@@ -408,7 +414,6 @@ export interface PluginConfigType {
     enabled: boolean
     order: number
     config: Record<string, any>
-    global?: boolean
     error?: PluginErrorType
 }
 
@@ -472,6 +477,7 @@ export interface FilterType {
     type?: EntityType
     people_day?: any
     people_action?: any
+    formula?: any
 }
 
 export interface SystemStatus {

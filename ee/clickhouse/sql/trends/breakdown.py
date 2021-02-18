@@ -1,5 +1,5 @@
 BREAKDOWN_QUERY_SQL = """
-SELECT groupArray(day_start), groupArray(count), breakdown_value FROM (
+SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value FROM (
     SELECT SUM(total) as count, day_start, breakdown_value FROM (
         SELECT * FROM (
             {null_sql} as main
@@ -35,7 +35,7 @@ GROUP BY breakdown_value
 
 
 BREAKDOWN_DEFAULT_SQL = """
-SELECT groupArray(day_start), groupArray(count) FROM (
+SELECT groupArray(day_start) as date, groupArray(count) as data FROM (
     SELECT SUM(total) as count, day_start FROM (
         SELECT * FROM (
             {null_sql} as main

@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from django.conf import settings
 from django.contrib.postgres.fields import JSONField
 from django.db import models, transaction
+from django.db.models.query import QuerySet
 from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
@@ -15,9 +16,12 @@ except ImportError:
     License = None  # type: ignore
 
 
+INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
+
+
 class OrganizationManager(models.Manager):
     def bootstrap(
-        self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs
+        self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs,
     ) -> Tuple["Organization", Optional["OrganizationMembership"], Any]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
         from .team import Team  # Avoiding circular import
@@ -95,6 +99,10 @@ class Organization(UUIDModel):
     @property
     def is_onboarding_active(self) -> bool:
         return not self.setup_section_2_completed
+
+    @property
+    def active_invites(self) -> QuerySet:
+        return self.invites.filter(created_at__gte=timezone.now() - timezone.timedelta(days=INVITE_DAYS_VALIDITY))
 
     def complete_onboarding(self) -> "Organization":
         self.setup_section_2_completed = True
@@ -179,16 +187,18 @@ class OrganizationInvite(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
-    def validate(self, *, user: Optional[Any], email: Optional[str] = None) -> None:
-        if not email:
-            assert user is not None, "Either user or email must be provided!"
-            email = user.email
+    def validate(self, *, user: Any = None, email: Optional[str] = None) -> None:
+        _email = email or (hasattr(user, "email") and user.email)
+
+        if _email and _email != self.target_email:
+            raise ValueError("This invite is intended for another email address.")
+
         if self.is_expired():
             raise ValueError("This invite has expired. Please ask your admin for a new one.")
-        if email != self.target_email:
-            raise ValueError("This invite is intended for another email address.")
+
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise ValueError("User already is a member of the organization.")
+
         if OrganizationMembership.objects.filter(
             organization=self.organization, user__email=self.target_email,
         ).exists():
@@ -201,8 +211,8 @@ class OrganizationInvite(UUIDModel):
         OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
 
     def is_expired(self) -> bool:
-        """Check if invite is older than 3 days."""
-        return self.created_at < timezone.now() - timezone.timedelta(3)
+        """Check if invite is older than INVITE_DAYS_VALIDITY days."""
+        return self.created_at < timezone.now() - timezone.timedelta(INVITE_DAYS_VALIDITY)
 
     def __str__(self):
         return f"{settings.SITE_URL}/signup/{self.id}"
