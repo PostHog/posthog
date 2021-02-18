@@ -68,25 +68,26 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                     saveAction()
                 }}
             >
-                <label>Action name:</label>
-                <br />
-                <Input
-                    required
-                    placeholder="e.g. user account created, purchase completed, movie watched"
-                    value={action.name}
-                    style={{ maxWidth: 500 }}
-                    onChange={(e) => {
-                        setAction({ ...action, name: e.target.value })
-                        setEdited(e.target.value ? true : false)
-                    }}
-                    data-attr="edit-action-input"
-                />
-
-                {action.count > -1 && (
-                    <div>
-                        <small className="text-muted">Matches {action.count} events</small>
-                    </div>
-                )}
+                <div className="input-set">
+                    <label htmlFor="actionName">Action name</label>
+                    <Input
+                        required
+                        placeholder="e.g. user account created, purchase completed, movie watched"
+                        value={action.name}
+                        style={{ maxWidth: 500, display: 'block' }}
+                        onChange={(e) => {
+                            setAction({ ...action, name: e.target.value })
+                            setEdited(e.target.value ? true : false)
+                        }}
+                        data-attr="edit-action-input"
+                        id="actionName"
+                    />
+                    {action.count > -1 && (
+                        <div>
+                            <small className="text-muted">Matches {action.count} events</small>
+                        </div>
+                    )}
+                </div>
 
                 <div className="match-group-section" style={{ overflow: 'visible' }}>
                     <h2 className="subtitle">Match groups</h2>
