@@ -43,6 +43,7 @@ function defaultFilters(filters: Record<string, any>): Record<string, any> {
         period: filters.period || 'Day',
         retention_type: filters.retention_type || RETENTION_FIRST_TIME,
         display: filters.display || ACTIONS_TABLE,
+        properties: filters.properties || [],
     }
 }
 

@@ -10074,15 +10074,15 @@ posthog-js@^1.8.7:
   dependencies:
     fflate "^0.4.1"
 
-posthog-react-rrweb-player@^1.0.12:
-  version "1.0.12"
-  resolved "https://registry.yarnpkg.com/posthog-react-rrweb-player/-/posthog-react-rrweb-player-1.0.12.tgz#ad12aed7a6a6444af99b0a7d4cee078d4efa6090"
-  integrity sha512-8LPXIlsciPR2trXo6Zpo70SqKMAtoZ2gb8SvDuIv6zuQV40pNiOZXAJLgLlSPu07Q8EpzjLGsCkJUHg5iSW4yQ==
+posthog-react-rrweb-player@^1.0.13:
+  version "1.0.13"
+  resolved "https://registry.yarnpkg.com/posthog-react-rrweb-player/-/posthog-react-rrweb-player-1.0.13.tgz#49f068caa8f8354c23020b24ef2500cd961f5d4a"
+  integrity sha512-8Ex97PKAeKqfyDi3OMGnbHuKTJV6piIJVBXBcQvkIRYpCGESn3pIhJJvBs3nPmYbTA03+S5gLUc9tsFhRQGC4A==
   dependencies:
     rc-slider "^9.6.2"
     rc-tooltip "^5.0.1"
     react-transition-group "^4.4.1"
-    rrweb "^0.9.9"
+    rrweb "^0.9.14"
     screenfull "^5.0.2"
     use-debounce "^5.1.0"
     use-local-storage-state "^6.0.0"
@@ -11360,21 +11360,21 @@ ripemd160@^2.0.0, ripemd160@^2.0.1:
     hash-base "^3.0.0"
     inherits "^2.0.1"
 
-rrweb-snapshot@^1.0.1:
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.0.1.tgz#f3800f4deb434da02b6086533c5c38e23e7e796b"
-  integrity sha512-HKbfbTTDSTy4T0h/w9SubI1E5kL/qLiK08pJZRLA0MmGtqJ5nCTMtpEZXgCKMUncH3lb1rbiu+sDIoxKD+Anng==
+rrweb-snapshot@^1.0.3:
+  version "1.0.6"
+  resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.0.6.tgz#2b1143d2e8b5bba54c54bd63e485cfc253763b8e"
+  integrity sha512-ctwaNjFnomNFe446gOcMusSzIxLUnF0kq6ev0iuKa1W1lhiVcBoRdfpE8zDDRKee2MxHxt0rq2T5DMKSIAD6fQ==
 
-rrweb@^0.9.13, rrweb@^0.9.9:
-  version "0.9.13"
-  resolved "https://registry.yarnpkg.com/rrweb/-/rrweb-0.9.13.tgz#53e08da14f48bd3e6a79b704dde6081496b96265"
-  integrity sha512-yQn/rVKyHmzK0/VYZ+EgyKRMdjJRS+RRmpA+QDRKiRW3LkML7c6ZpGDkD2dxsA4yvRlZSyvYMqd1vpNxYQ4vCw==
+rrweb@^0.9.14:
+  version "0.9.14"
+  resolved "https://registry.yarnpkg.com/rrweb/-/rrweb-0.9.14.tgz#09bec604fc44c74801e4fe910606e5a6cde008ec"
+  integrity sha512-nm2rrVNoyWFPrbGQmcvTTlA7XjbbgPIgO7qsW0Zyr5iOURIFJDGPHFmOVLRyLpWiriVtEoXh6a+x+D1sj+qwWg==
   dependencies:
     "@types/css-font-loading-module" "0.0.4"
     "@xstate/fsm" "^1.4.0"
     fflate "^0.4.4"
     mitt "^1.1.3"
-    rrweb-snapshot "^1.0.1"
+    rrweb-snapshot "^1.0.3"
 
 rsvp@^4.8.4:
   version "4.8.5"
