@@ -19,7 +19,7 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
             [] as PlanInterface[],
             {
                 loadPlans: async () => {
-                    const response = await api.get('plans?self_serve=1')
+                    const response = await api.get('api/plans?self_serve=1')
                     return response.results
                 },
             },
