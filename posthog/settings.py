@@ -148,8 +148,8 @@ KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka")
 KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=strtobool)
-KAFKA_SCRAM_USER = get_from_env("KAFKA_SCRAM_USER")
-KAFKA_SCRAM_PASSWORD = get_from_env("KAFKA_SCRAM_PASSWORD")
+KAFKA_SCRAM_USER = get_from_env("KAFKA_SCRAM_USER", optional=True)
+KAFKA_SCRAM_PASSWORD = get_from_env("KAFKA_SCRAM_PASSWORD", optional=True)
 
 PRIMARY_DB = os.getenv("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
