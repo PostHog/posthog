@@ -72,30 +72,32 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
     return (
         <div className="login-signup" ref={mainContainerRef}>
             <Row>
-                <Col span={24} md={10} className="image-showcase">
-                    <div className="the-mountains" />
-                    <div className="main-logo">
-                        <img src={smLogo} alt="" />
-                    </div>
-                    <div className="showcase-content">
-                        <h1 className="page-title">
-                            Join <b>{invite?.organization_name || 'us'}</b> at
-                        </h1>
-                        <div className="wordmark">PostHog</div>
-                        <div className="showcase-caption">{showcaseCaption}</div>
-                        <div className="mobile-continue">
-                            <Button icon={<ArrowDownOutlined />} type="default" onClick={handleScroll}>
-                                Continue
-                            </Button>
+                <Col span={24} md={10} className="image-showcase-container">
+                    <div className="image-showcase ant-col-24 ant-col-md-10">
+                        <div className="the-mountains" />
+                        <div className="main-logo">
+                            <img src={smLogo} alt="" />
+                        </div>
+                        <div className="showcase-content">
+                            <h1 className="page-title">
+                                Join <b>{invite?.organization_name || 'us'}</b> at
+                            </h1>
+                            <div className="wordmark">PostHog</div>
+                            <div className="showcase-caption">{showcaseCaption}</div>
+                            <div className="mobile-continue">
+                                <Button icon={<ArrowDownOutlined />} type="default" onClick={handleScroll}>
+                                    Continue
+                                </Button>
+                            </div>
                         </div>
                     </div>
                 </Col>
                 <Col span={24} md={14} className="rhs-content" ref={rhsContainerRef}>
-                    <div className="top-helper" style={{ marginRight: 32 }}>
-                        <b>Already have an account?</b>{' '}
-                        <Link to="/login?utm_message=login-to-accept-invite">Log in to accept your invite</Link>
-                    </div>
                     <div className="rhs-inner">
+                        <div className="text-center">
+                            <b>Already have an account?</b>{' '}
+                            <Link to="/login?utm_message=login-to-accept-invite">Log in</Link>
+                        </div>
                         <SocialLoginButtons
                             title="Create your account with a provider"
                             caption="You can always create a password later"

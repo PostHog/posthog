@@ -2,25 +2,34 @@
 
 .login-signup {
     height: 100vh;
-    overflow: hidden;
+    position: relative;
 
     .ant-row {
         height: 100%;
     }
-    .image-showcase {
+
+    .image-showcase-container {
         height: 100%;
-        background: $sky;
         position: relative;
 
-        .the-mountains {
-            z-index: $z_city_background_image;
-            position: absolute;
-            left: 0;
-            right: 0;
+        .image-showcase {
+            position: fixed;
+            top: 0;
             bottom: 0;
-            height: 180px;
-            background: url('./mountains.svg');
-            background-size: cover;
+            left: 0;
+            width: 100%;
+            background: $sky;
+
+            .the-mountains {
+                z-index: $z_city_background_image;
+                position: absolute;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                height: 180px;
+                background: url('./mountains.svg');
+                background-size: cover;
+            }
         }
 
         .main-logo {
@@ -74,19 +83,11 @@
 
     .rhs-content {
         display: flex;
-        align-items: flex-end;
+        justify-content: center;
+        align-items: center;
         padding-top: $default_spacing * 2;
-        flex-direction: column;
-        max-height: 100%;
-        overflow: auto;
-
-        .top-helper {
-            margin-right: $default_spacing * 2;
-            text-align: right;
-        }
 
         .rhs-inner {
-            align-self: center;
             width: 100%;
             max-width: 382px; // 350px + 32px padding
             padding: 0 $default_spacing;
@@ -100,6 +101,11 @@
     @media screen and (max-width: $md) {
         overflow: auto;
         scroll-behavior: smooth;
+
+        .image-showcase {
+            position: relative !important;
+            height: 100%;
+        }
 
         .showcase-content {
             .page-title {
