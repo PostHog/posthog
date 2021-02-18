@@ -470,7 +470,10 @@ def is_plugin_server_alive() -> bool:
 
 
 def get_plugin_server_version() -> Optional[str]:
-    return get_client().get("@posthog-plugin-server/version")
+    cache_key_value = get_client().get("@posthog-plugin-server/version")
+    if cache_key_value:
+        return str(cache_key_value)
+    return None
 
 
 def get_redis_info() -> Mapping[str, Any]:
