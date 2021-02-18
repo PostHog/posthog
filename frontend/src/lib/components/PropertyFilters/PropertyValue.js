@@ -84,10 +84,10 @@ export function PropertyValue({
                     </Select.Option>
                 )}
                 {displayOptions.map(({ name, id }, index) => (
-                    <Select.Option 
+                    <Select.Option
                         className="ph-no-capture"
-                        key={id || name} 
-                        value={id || name} 
+                        key={id || name}
+                        value={id || name}
                         data-attr={'prop-val-' + index}
                     >
                         {name === true && 'true'}

@@ -33,7 +33,6 @@ export function CopyToClipboardInline({
     return (
         <Tooltip title={tooltipMessage}>
             <span
-                className={isValueSensitive ? 'ph-no-capture ' : ''}
                 style={{
                     cursor: 'pointer',
                     display: 'flex',
@@ -45,7 +44,12 @@ export function CopyToClipboardInline({
                 }}
                 {...props}
             >
-                <span style={iconPosition === 'start' ? { flexGrow: 1 } : {}}>{children}</span>
+                <span
+                    className={isValueSensitive ? 'ph-no-capture ' : ''}
+                    style={iconPosition === 'start' ? { flexGrow: 1 } : {}}
+                >
+                    {children}
+                </span>
                 <CopyOutlined
                     style={iconPosition === 'end' ? { marginLeft: 4, ...iconStyle } : { marginRight: 4, ...iconStyle }}
                 />
@@ -63,7 +67,7 @@ export function CopyToClipboardInput({
 }: InputProps): JSX.Element {
     return (
         <Input
-            className={isValueSensitive ? 'ph-no-capture' : ''}
+            className={isValueSensitive ? 'ph-ignore-input' : ''}
             type="text"
             value={value}
             placeholder={placeholder || 'nothing to show here'}
