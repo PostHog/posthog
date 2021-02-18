@@ -92,7 +92,6 @@ export class KafkaQueue implements Queue {
             `Still ingesting ${processedEvents.length} events. Timeout warning after 30 sec!`
         )
 
-        // TODO: add chunking into groups of 500 or so. Might start too many promises at once now
         if (this.pluginsServer.KAFKA_BATCH_PARALLEL_PROCESSING) {
             const ingestOneEvent = async (event: PluginEvent) => {
                 const singleIngestionTimeout = timeoutGuard(
