@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from random import random
 from typing import Any, Dict, Optional
 
 import statsd
@@ -209,6 +210,7 @@ def get_event(request):
             plugin_server_ingestion = settings.PLUGIN_SERVER_INGESTION and (
                 not getattr(settings, "MULTI_TENANCY", False)
                 or str(team.organization_id) in getattr(settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", [])
+                or random() < 0.10
             )
 
             if plugin_server_ingestion:
