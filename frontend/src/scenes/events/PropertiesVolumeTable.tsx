@@ -72,14 +72,11 @@ export function PropertiesVolumeTable(): JSX.Element {
             <br />
             <br />
             {user?.team?.event_properties_with_usage[0]?.volume === null && (
-                <>
-                    <Alert
-                        type="warning"
-                        description="We haven't been able to get usage and volume data yet. Please check back later"
-                        message={<></>}
-                    />
-                    <br />
-                </>
+                <Alert
+                    type="warning"
+                    message="We haven't been able to get usage and volume data yet. Please check back later."
+                    style={{ marginBottom: 16 }}
+                />
             )}
             <Table
                 className="ph-no-capture"

@@ -32,7 +32,7 @@ export function NewDashboard(): JSX.Element {
             </Form.Item>
 
             <Form.Item name="useTemplate" label="Start from">
-                <Select data-attr="copy-from-template" style={{ width: '100%' }} className="ph-ignore-input">
+                <Select data-attr="copy-from-template" style={{ width: '100%' }}>
                     <Select.Option data-attr="dashboard-select-empty" value="">
                         Empty Dashboard
                     </Select.Option>

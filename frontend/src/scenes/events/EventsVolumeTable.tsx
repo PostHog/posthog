@@ -53,14 +53,11 @@ export function EventsVolumeTable(): JSX.Element {
     return (
         <>
             {user?.team?.event_names_with_usage[0]?.volume === null && (
-                <>
-                    <Alert
-                        type="warning"
-                        description="We haven't been able to get usage and volume data yet. Please check back later"
-                        message={<></>}
-                    />
-                    <br />
-                </>
+                <Alert
+                    type="warning"
+                    message="We haven't been able to get usage and volume data yet. Please check back later."
+                    style={{ marginBottom: 16 }}
+                />
             )}
             <Table
                 dataSource={user?.team?.event_names_with_usage}
