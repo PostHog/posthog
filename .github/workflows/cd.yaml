@@ -121,7 +121,7 @@ jobs:
               run: |
                   cd posthog/plugins/
                   mv package.json package.old.json
-                  jq --indent 4 '.dependencies."@posthog/plugin-server" = "$REPO_VERSION"' package.old.json > package.json
+                  jq --indent 4 '.dependencies."@posthog/plugin-server" = "${{ env.REPO_VERSION }}"' package.old.json > package.json
                   rm package.old.json
                   yarn
 
