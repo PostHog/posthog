@@ -207,7 +207,10 @@ def get_event(request):
         if is_ee_enabled():
             log_topics = [KAFKA_EVENTS_WAL]
 
-            if settings.PLUGIN_SERVER_INGESTION:
+            if settings.PLUGIN_SERVER_INGESTION and (
+                not getattr(settings, "MULTI_TENANCY", False)
+                or team.organization_id in getattr(settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", [])
+            ):
                 log_topics.append(KAFKA_EVENTS_PLUGIN_INGESTION)
                 statsd.Counter("%s_posthog_cloud_plugin_server_ingestion" % (settings.STATSD_PREFIX,)).increment()
 
