@@ -41,10 +41,6 @@
                     "value": "true"
                 },
                 {
-                    "name": "KAFKA_BATCH_PARALELL_PROCESSING",
-                    "value": "true"
-                },
-                {
                     "name": "BILLING_TRIAL_DAYS",
                     "value": "0"
                 },
