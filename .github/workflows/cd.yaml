@@ -134,7 +134,6 @@ jobs:
                   yarn
 
             - name: Create main repo pull request
-              if: steps.version.outputs.IS_NEW_VERSION == 'true'
               id: main-repo-pr
               uses: peter-evans/create-pull-request@v3
               env:
