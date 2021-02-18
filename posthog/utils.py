@@ -469,7 +469,7 @@ def is_plugin_server_alive() -> bool:
         return False
 
 
-def plugin_server_version() -> Optional[str]:
+def get_plugin_server_version() -> Optional[str]:
     return get_client().get("@posthog-plugin-server/version")
 
 
