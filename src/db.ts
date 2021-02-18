@@ -89,6 +89,22 @@ export class DB {
         }
     }
 
+    // Kafka
+
+    public async sendKafkaMessage(kafkaMessage: ProducerRecord): Promise<void> {
+        if (!this.kafkaProducer) {
+            throw new Error('Kafka connection has not been provided!')
+        }
+        const timeout = timeoutGuard(
+            `Kafka message sending delayed. Waiting over 30 sec to send to topic: ${kafkaMessage.topic}`
+        )
+        try {
+            await this.kafkaProducer.send(kafkaMessage)
+        } finally {
+            clearTimeout(timeout)
+        }
+    }
+
     // Person
 
     public async fetchPersons(database?: Database.Postgres): Promise<Person[]>
@@ -183,7 +199,7 @@ export class DB {
 
         if (this.kafkaProducer) {
             for (const kafkaMessage of kafkaMessages) {
-                await this.kafkaProducer.send(kafkaMessage)
+                await this.sendKafkaMessage(kafkaMessage)
             }
         }
 
@@ -271,7 +287,7 @@ export class DB {
     public async addDistinctId(person: Person, distinctId: string): Promise<void> {
         const kafkaMessage = await this.addDistinctIdPooled(this.postgres, person, distinctId)
         if (this.kafkaProducer && kafkaMessage) {
-            await this.kafkaProducer.send(kafkaMessage)
+            await this.sendKafkaMessage(kafkaMessage)
         }
     }
 
@@ -307,7 +323,7 @@ export class DB {
         ])
         if (this.kafkaProducer) {
             const clickhouseModel: ClickHousePersonDistinctId = { ...personDistinctId, person_id: moveToPerson.uuid }
-            await this.kafkaProducer.send({
+            await this.sendKafkaMessage({
                 topic: KAFKA_PERSON_UNIQUE_ID,
                 messages: [{ value: Buffer.from(JSON.stringify(clickhouseModel)) }],
             })
