@@ -1,11 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
+import Piscina from 'piscina'
 
 import { defaultConfig } from '../../../src/config'
 import { LogLevel } from '../../../src/types'
 import { UUIDT } from '../../../src/utils'
 import { makePiscina } from '../../../src/worker/piscina'
 
-export function setupPiscina(workers: number, tasksPerWorker: number) {
+export function setupPiscina(workers: number, tasksPerWorker: number): Piscina {
     return makePiscina({
         ...defaultConfig,
         WORKER_CONCURRENCY: workers,
@@ -31,7 +32,7 @@ export function ingestOneEvent(
     return ingestEvent(defaultEvent)
 }
 
-export async function ingestCountEvents(piscina: ReturnType<typeof makePiscina>, count: number) {
+export async function ingestCountEvents(piscina: ReturnType<typeof makePiscina>, count: number): Promise<void> {
     const maxPromises = 500
     const promises = Array(maxPromises)
     const ingestEvent = (event: PluginEvent) => piscina.runTask({ task: 'ingestEvent', args: { event } })

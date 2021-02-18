@@ -154,6 +154,7 @@ export class UUID {
      * This does not care about RFC4122, since neither does UUIDT above.
      * https://stackoverflow.com/questions/7905929/how-to-test-valid-uuid-guid
      */
+    // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
     static validateString(candidate: any, throwOnInvalid = true): boolean {
         const isValid = Boolean(
             candidate &&

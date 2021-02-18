@@ -8,7 +8,7 @@ let _singular: string
 let _plural: string
 let _now: number
 
-export function startLog(services: string, test: string, singular = 'req', plural = 'reqs') {
+export function startLog(services: string, test: string, singular = 'req', plural = 'reqs'): void {
     _services = services
     _test = test
     _singular = singular
@@ -16,7 +16,7 @@ export function startLog(services: string, test: string, singular = 'req', plura
     _now = performance.now()
 }
 
-export function endLog(count: number) {
+export function endLog(count: number): void {
     const timeMs = performance.now() - _now
     console.log(
         `[${_services}] ${_test}: ${count} ${count === 1 ? _singular : _plural}, ${roundToTwo(
