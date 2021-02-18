@@ -21,9 +21,9 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
     actions: {
         setListFilters: (payload) => ({ payload }),
         editProperty: (key, newValue) => ({ key, newValue }),
-        resetNewProperty: true,
-        setNewProperty: (newProperty) => ({newProperty})
-
+        setNewProperty: (newProperty) => ({ newProperty }),
+        appendNewKey: (newKey) => ({ newKey }),
+        saveNewProperty: true,
     },
     reducers: {
         listFilters: [
@@ -35,10 +35,15 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
         newProperty: [
             [],
             {
-                resetNewProperty: () => [],
-                setNewProperty: (_, {newProperty}) => [newProperty[0], newProperty[1]]
-            }
-        ]
+                setNewProperty: (_, { newProperty }) => newProperty,
+            },
+        ],
+        newKeys: [
+            [],
+            {
+                appendNewKey: (state, { newKey }) => [...state, newKey],
+            },
+        ],
     },
     selectors: {
         exampleEmail: [
@@ -48,10 +53,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 return match?.properties?.email || 'example@gmail.com'
             },
         ],
-        editingNewProperty: [
-            (s) => [s.newProperty],
-            (newProperty: string[]): boolean => newProperty.length !== 0
-        ],
+        editingNewProperty: [(s) => [s.newProperty], (newProperty: string[]): boolean => newProperty.length !== 0],
     },
     listeners: ({ actions, values }) => ({
         deletePersonSuccess: () => {
@@ -71,7 +73,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 }
 
                 const lowercaseValue = parsedValue.toLowerCase()
-                if (lowercaseValue === 'true' || lowercaseValue === 'false')  {
+                if (lowercaseValue === 'true' || lowercaseValue === 'false') {
                     parsedValue = lowercaseValue === 'true'
                 }
 
@@ -80,6 +82,11 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 const response = await api.update(`api/person/${person.id}`, person)
                 actions.setPerson(response)
             }
+        },
+        saveNewProperty: () => {
+            actions.editProperty(values.newProperty[0], values.newProperty[1])
+            actions.appendNewKey(values.newProperty[0])
+            actions.setNewProperty([])
         },
     }),
     loaders: ({ values, actions }) => ({

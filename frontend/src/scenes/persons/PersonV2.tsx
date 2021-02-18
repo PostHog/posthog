@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm, Input } from 'antd'
+import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
 import { hot } from 'react-hot-loader/root'
 import { SessionsView } from '../sessions/SessionsView'
 import { EventsTable } from 'scenes/events'
@@ -13,6 +13,7 @@ import { DownOutlined, DeleteOutlined, MergeCellsOutlined, LoadingOutlined } fro
 import moment from 'moment'
 import { MergePerson } from './MergePerson'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { AddNewPropertyField } from './AddNewPropertyField'
 
 const { TabPane } = Tabs
 
@@ -21,8 +22,8 @@ function _PersonV2(): JSX.Element {
     const [activeTab, setActiveTab] = useState('events')
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
 
-    const { person, personLoading, deletedPersonLoading, newProperty, editingNewProperty } = useValues(personsLogic)
-    const { deletePerson, setPerson, editProperty, setNewProperty, resetNewProperty } = useActions(personsLogic)
+    const { person, personLoading, deletedPersonLoading, newKeys } = useValues(personsLogic)
+    const { deletePerson, setPerson, editProperty } = useActions(personsLogic)
 
     const ids = (
         <Menu>
@@ -83,7 +84,7 @@ function _PersonV2(): JSX.Element {
                                             tooltipMessage=""
                                             iconStyle={{ color: 'var(--primary)' }}
                                         >
-                                            {midEllipsis(person.distinct_ids[0], 32)}
+                                            {midEllipsis(person.distinct_ids[0], 20)}
                                         </CopyToClipboardInline>
                                         {person.distinct_ids.length > 1 && (
                                             <Dropdown overlay={ids} trigger={['click']}>
@@ -138,36 +139,12 @@ function _PersonV2(): JSX.Element {
                                 <PropertiesTable
                                     properties={person.properties}
                                     onEdit={editProperty}
-                                    sortProperties
+                                    sortProperties={newKeys.length === 0}
                                     onDelete={(key) => editProperty(key, undefined)}
-                                    className='persons-page-props-table'
+                                    className="persons-page-props-table"
                                 />
                                 <br />
-                                {editingNewProperty ? (
-                                    <>
-                                <Row>
-                                <Col span={12}>
-                                    <Input style={{ maxWidth: '90%'}} placeholder='key' onInput={e => setNewProperty([(e.target as HTMLInputElement).value, newProperty[1] || ''])} /> 
-                                </Col>
-                                <Col span={12}>
-                                <Input style={{ maxWidth: '90%'}} placeholder='value' onInput={e => setNewProperty([newProperty[0] || '', (e.target as HTMLInputElement).value])} /> 
-
-                                    </Col>
-                            </Row>
-                            <br /></>) : null
-                                }
-
-                                <Button 
-                                    className='add-prop-button' 
-                                    onClick={
-                                        editingNewProperty ? () => {
-                                            editProperty(newProperty[0], newProperty[1]) 
-                                            resetNewProperty()
-                                        }  : () => setNewProperty(['', '']) 
-                                    }
-                                >
-                                    {editingNewProperty ? 'Save' : '+'}
-                                </Button>
+                                <AddNewPropertyField />
                             </>
                         )}
                         {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}
