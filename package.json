@@ -15,7 +15,7 @@
         "start": "yarn start:dev",
         "start:dist": "node dist/index.js --base-dir ../posthog",
         "start:dev": "ts-node-dev --exit-child src/index.ts --base-dir ../posthog",
-        "start:dev:ee": "KAFKA_ENABLED=true KAFKA_HOSTS=localhost:9092 yarn start:dev",
+        "start:dev:ee": "PLUGIN_SERVER_INGESTION=true KAFKA_ENABLED=true KAFKA_HOSTS=localhost:9092 yarn start:dev",
         "build": "yarn clean && yarn compile",
         "clean": "rimraf dist/*",
         "compile:protobuf": "cd src/idl/ && rimraf protos.* && pbjs -t static-module -w commonjs -o protos.js *.proto && pbts -o protos.d.ts protos.js && eslint --fix . && prettier --write .",

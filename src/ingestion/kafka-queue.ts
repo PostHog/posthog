@@ -53,7 +53,7 @@ export class KafkaQueue implements Queue {
         })
 
         const maxBatchSize = Math.max(
-            1,
+            15,
             Math.min(
                 100,
                 Math.ceil(
@@ -143,6 +143,14 @@ export class KafkaQueue implements Queue {
         resolveOffset(batch.lastOffset())
         await heartbeat()
         await commitOffsetsIfNecessary()
+        status.info(
+            '🧩',
+            `Kafka Batch of ${batch.messages.length} events completed in ${
+                new Date().valueOf() - batchStartTimer.valueOf()
+            }ms (plugins: ${batchIngestionTimer.valueOf() - batchStartTimer.valueOf()}ms, ingestion: ${
+                new Date().valueOf() - batchIngestionTimer.valueOf()
+            }ms)`
+        )
     }
 
     async start(): Promise<void> {
@@ -161,6 +169,7 @@ export class KafkaQueue implements Queue {
                     try {
                         await this.eachBatch(payload)
                     } catch (error) {
+                        status.info('💀', `Kafka Batch of ${payload.batch.messages.length} events failed!`)
                         Sentry.captureException(error)
                         throw error
                     }
