@@ -5,7 +5,7 @@ import posthoganalytics
 from django import forms
 from django.conf import settings
 from django.contrib import admin
-from django.contrib.auth import authenticate, decorators, login
+from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
@@ -37,7 +37,7 @@ from posthog.models.organization import Organization
 from .api.organization import OrganizationSignupSerializer
 from .models import OrganizationInvite, Team, User
 from .utils import render_template
-from .views import health, preflight_check, stats, system_status
+from .views import health, login_required, preflight_check, stats, system_status
 
 
 def home(request, *args, **kwargs):
@@ -342,9 +342,9 @@ urlpatterns = [
     opt_slash_path("api/social_signup", organization.OrganizationSocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", organization.OrganizationInviteSignupViewset.as_view()),
     re_path(r"^api.+", api_not_found),
-    path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
+    path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
-    re_path(r"^demo.*", decorators.login_required(demo)),
+    re_path(r"^demo.*", login_required(demo)),
     # ingestion
     opt_slash_path("decide", decide.get_decide),
     opt_slash_path("e", capture.get_event),
@@ -409,5 +409,5 @@ for route in frontend_unauthenticated_routes:
     urlpatterns.append(path(route, home))
 
 urlpatterns += [
-    re_path(r"^.*", decorators.login_required(home)),
+    re_path(r"^.*", login_required(home)),
 ]

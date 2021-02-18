@@ -1,7 +1,9 @@
+from functools import wraps
 from typing import Dict, List, Union
 
 from django.conf import settings
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth import login
+from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpResponse, JsonResponse
@@ -11,7 +13,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from posthog.ee import is_ee_enabled
 from posthog.models import User
 from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api
-from posthog.settings import TEST
+from posthog.settings import AUTO_LOG_IN, TEST
 from posthog.utils import (
     get_redis_info,
     get_redis_queue_depth,
@@ -24,6 +26,19 @@ from posthog.utils import (
 )
 
 from .utils import get_celery_heartbeat
+
+
+def login_required(view):
+    base_handler = base_login_required(view)
+
+    @wraps(view)
+    def handler(request, *args, **kwargs):
+        if not request.user.is_authenticated and AUTO_LOG_IN and User.objects.count() > 0:
+            user = User.objects.first()
+            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        return base_handler(request, *args, **kwargs)
+
+    return handler
 
 
 def health(request):

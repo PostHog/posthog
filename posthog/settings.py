@@ -469,6 +469,7 @@ AUTH_USER_MODEL = "posthog.User"
 LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
+AUTO_LOG_IN = get_from_env("AUTO_LOG_IN", False, type_cast=strtobool)
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^/api/.*$"
 
