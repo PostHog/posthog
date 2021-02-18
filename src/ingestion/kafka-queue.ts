@@ -93,7 +93,7 @@ export class KafkaQueue implements Queue {
         )
 
         // TODO: add chunking into groups of 500 or so. Might start too many promises at once now
-        if (this.pluginsServer.KAFKA_BATCH_PARALELL_PROCESSING) {
+        if (this.pluginsServer.KAFKA_BATCH_PARALLEL_PROCESSING) {
             const ingestOneEvent = async (event: PluginEvent) => {
                 const singleIngestionTimer = new Date()
                 await this.saveEvent(event)
