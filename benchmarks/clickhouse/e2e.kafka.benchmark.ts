@@ -1,11 +1,11 @@
 import { performance } from 'perf_hooks'
 
-import { createPosthog, DummyPostHog } from '../../src/extensions/posthog'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/ingestion/topics'
 import { startPluginsServer } from '../../src/server'
 import { LogLevel, PluginsServerConfig, Queue } from '../../src/types'
 import { PluginsServer } from '../../src/types'
 import { delay, UUIDT } from '../../src/utils'
+import { createPosthog, DummyPostHog } from '../../src/vm/extensions/posthog'
 import { makePiscina } from '../../src/worker/piscina'
 import { resetTestDatabaseClickhouse } from '../../tests/helpers/clickhouse'
 import { resetKafka } from '../../tests/helpers/kafka'
@@ -84,7 +84,7 @@ describe('e2e kafka & clickhouse benchmark', () => {
 
         const n = (n: number) => `${Math.round(n * 100) / 100}`
         console.log(
-            `[Kafka & ClickHouse] Ingested ${count} events in ${n(timeMs / 1000)}s (${n(
+            `ℹ️️ [Kafka & ClickHouse] Ingested ${count} events in ${n(timeMs / 1000)}s (${n(
                 1000 / (timeMs / count)
             )} events/sec, ${n(timeMs / count)}ms per event)`
         )

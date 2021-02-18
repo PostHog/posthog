@@ -5,7 +5,7 @@ import Client from '../../src/celery/client'
 import { createServer } from '../../src/server'
 import { PluginsServer } from '../../src/types'
 import { delay } from '../../src/utils'
-import { createPluginConfigVM } from '../../src/vm'
+import { createPluginConfigVM } from '../../src/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 

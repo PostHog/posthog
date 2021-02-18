@@ -94,11 +94,14 @@ test('piscina worker benchmark', async () => {
             `,
         },
         {
-            testName: 'for200k',
+            // used to be 'for200k', but since we inject Date.now() code into
+            // the for/while/do loops, to throw if they are too long, running
+            // those comparisons 200k * 10k * runs * threads times is bit too much
+            testName: 'for2k',
             events: 10000,
             testCode: `
                 function processEvent (event, meta) {
-                    let j = 0; for(let i = 0; i < 200000; i++) { j = i };
+                    let j = 0; for(let i = 0; i < 2000; i++) { j = i };
                     event.properties = { "somewhere": "over the rainbow" };
                     return event
                 }

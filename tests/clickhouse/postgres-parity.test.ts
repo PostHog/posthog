@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 
-import { createPosthog, DummyPostHog } from '../../src/extensions/posthog'
 import { startPluginsServer } from '../../src/server'
 import { Database, LogLevel, PluginsServer, PluginsServerConfig, Team, TimestampFormat } from '../../src/types'
 import { castTimestampOrNow, UUIDT } from '../../src/utils'
+import { createPosthog, DummyPostHog } from '../../src/vm/extensions/posthog'
 import { makePiscina } from '../../src/worker/piscina'
 import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'

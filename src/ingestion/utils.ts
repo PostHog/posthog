@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/node'
 import crypto from 'crypto'
 
+import { defaultConfig } from '../config'
 import { BasePerson, Element, Person, RawPerson } from '../types'
 
 export function unparsePersonPartial(person: Partial<Person>): Partial<RawPerson> {
@@ -156,9 +157,9 @@ export function chainToElements(chain: string): Element[] {
     return elements
 }
 
-export function timeoutGuard(message: string): NodeJS.Timeout {
+export function timeoutGuard(message: string, timeout = defaultConfig.TASK_TIMEOUT * 1000): NodeJS.Timeout {
     return setTimeout(() => {
         console.log(`⌛⌛⌛ ${message}`)
         Sentry.captureMessage(message)
-    }, 30000)
+    }, timeout)
 }

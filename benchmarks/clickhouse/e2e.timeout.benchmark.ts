@@ -1,11 +1,14 @@
 import { performance } from 'perf_hooks'
 
+import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/ingestion/topics'
 import { startPluginsServer } from '../../src/server'
-import { LogLevel, PluginsServerConfig, Queue } from '../../src/types'
+import { ClickHouseEvent, LogLevel, PluginsServerConfig, Queue } from '../../src/types'
 import { PluginsServer } from '../../src/types'
 import { delay, UUIDT } from '../../src/utils'
 import { createPosthog, DummyPostHog } from '../../src/vm/extensions/posthog'
 import { makePiscina } from '../../src/worker/piscina'
+import { resetTestDatabaseClickhouse } from '../../tests/helpers/clickhouse'
+import { resetKafka } from '../../tests/helpers/kafka'
 import { pluginConfig39 } from '../../tests/helpers/plugins'
 import { resetTestDatabase } from '../../tests/helpers/sql'
 import { delayUntilEventIngested } from '../../tests/shared/process-event'
@@ -13,15 +16,17 @@ import { delayUntilEventIngested } from '../../tests/shared/process-event'
 jest.setTimeout(600000) // 10min timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
+    KAFKA_ENABLED: true,
+    KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
     WORKER_CONCURRENCY: 4,
-    PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
-    CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
+    TASK_TIMEOUT: 5,
     PLUGIN_SERVER_INGESTION: true,
+    KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_BATCH_PARALELL_PROCESSING: true,
     LOG_LEVEL: LogLevel.Log,
-    KAFKA_ENABLED: false,
 }
 
-describe('e2e celery & postgres benchmark', () => {
+describe('e2e kafka processing timeout benchmark', () => {
     let queue: Queue
     let server: PluginsServer
     let stopServer: () => Promise<void>
@@ -30,19 +35,18 @@ describe('e2e celery & postgres benchmark', () => {
     beforeEach(async () => {
         await resetTestDatabase(`
             async function processEvent (event) {
-                event.properties.processed = 'hell yes'
-                event.properties.upperUuid = event.properties.uuid?.toUpperCase()
+                await new Promise(resolve => __jestSetTimeout(() => resolve(), 15000 * Math.random()))
+                event.properties.timeout = 'no timeout'
                 return event
             }
         `)
+        await resetKafka(extraServerConfig)
+        await resetTestDatabaseClickhouse(extraServerConfig)
 
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
         server = startResponse.server
         stopServer = startResponse.stop
         queue = startResponse.queue
-
-        await server.redis.del(server.PLUGINS_CELERY_QUEUE)
-        await server.redis.del(server.CELERY_DEFAULT_QUEUE)
 
         posthog = createPosthog(server, pluginConfig39)
     })
@@ -62,12 +66,12 @@ describe('e2e celery & postgres benchmark', () => {
             posthog.capture('custom event', { name: 'haha', uuid, randomProperty: 'lololo' })
         }
         await queue.pause()
-        expect(await server.redis.llen(server.PLUGINS_CELERY_QUEUE)).toEqual(0)
         for (let i = 0; i < count; i++) {
-            await createEvent()
+            createEvent()
         }
-        await delay(1000)
-        expect(await server.redis.llen(server.PLUGINS_CELERY_QUEUE)).toEqual(count)
+
+        // hope that 5sec is enough to load kafka with all the events (posthog.capture can't be awaited)
+        await delay(5000)
         await queue.resume()
 
         console.log('Starting timer')
@@ -78,12 +82,16 @@ describe('e2e celery & postgres benchmark', () => {
 
         const n = (n: number) => `${Math.round(n * 100) / 100}`
         console.log(
-            `[Celery & Postgres] Ingested ${count} events in ${n(timeMs / 1000)}s (${n(
+            `ℹ️️ [Kafka & ClickHouse] Ingested ${count} events in ${n(timeMs / 1000)}s (${n(
                 1000 / (timeMs / count)
             )} events/sec, ${n(timeMs / count)}ms per event)`
         )
-
-        const events = await server.db.fetchEvents()
-        expect(events[count - 1].properties.upperUuid).toEqual(events[count - 1].properties.uuid.toUpperCase())
+        const events = (await server.db.fetchEvents()) as ClickHouseEvent[]
+        const passedEvents = events.filter((e) => e.properties.timeout).length
+        console.log(
+            `ℹ️ Out of 3000 events: ${passedEvents} took under 5sec, ${
+                3000 - passedEvents
+            } timed out. This should be a 1:2 ratio.`
+        )
     })
 })

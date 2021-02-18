@@ -36,7 +36,7 @@ export class KafkaQueue implements Queue {
         isRunning,
         isStale,
     }: EachBatchPayload): Promise<void> {
-        const batchProcessingTimer = new Date()
+        const batchStartTimer = new Date()
 
         const uuidOrder = new Map<string, number>()
         const uuidOffset = new Map<string, string>()
@@ -63,12 +63,24 @@ export class KafkaQueue implements Queue {
         )
 
         const processingTimeout = timeoutGuard(
-            `Took too long to run plugins on ${pluginEvents.length} events! Timeout after 30 sec!`
+            `Still running plugins on ${pluginEvents.length} events. Timeout warning after 30 sec!`
         )
         const batches = groupIntoBatches(pluginEvents, maxBatchSize)
-        const processedEvents = (await Promise.all(batches.map(this.processEventBatch))).flat()
+        const processedEvents = (
+            await Promise.all(
+                batches.map(async (batch) => {
+                    const timer = new Date()
+                    const processedBatch = this.processEventBatch(batch)
+                    this.pluginsServer.statsd?.timing('kafka_queue.single_event_batch', timer)
+                    return processedBatch
+                })
+            )
+        ).flat()
 
         clearTimeout(processingTimeout)
+
+        this.pluginsServer.statsd?.timing('kafka_queue.each_batch.process_events', batchStartTimer)
+        const batchIngestionTimer = new Date()
 
         // Sort in the original order that the events came in, putting any randomly added events to the end.
         // This is so we would resolve the correct kafka offsets in order.
@@ -77,7 +89,7 @@ export class KafkaQueue implements Queue {
         )
 
         const ingestionTimeout = timeoutGuard(
-            `Took too long to ingest ${processedEvents.length} events! Timeout after 30 sec!`
+            `Still ingesting ${processedEvents.length} events. Timeout warning after 30 sec!`
         )
 
         // TODO: add chunking into groups of 500 or so. Might start too many promises at once now
@@ -126,7 +138,8 @@ export class KafkaQueue implements Queue {
 
         clearTimeout(ingestionTimeout)
 
-        this.pluginsServer.statsd?.timing('kafka_queue.each_batch', batchProcessingTimer)
+        this.pluginsServer.statsd?.timing('kafka_queue.each_batch.ingest_events', batchIngestionTimer)
+        this.pluginsServer.statsd?.timing('kafka_queue.each_batch', batchStartTimer)
         resolveOffset(batch.lastOffset())
         await heartbeat()
         await commitOffsetsIfNecessary()

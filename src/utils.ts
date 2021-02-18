@@ -343,3 +343,11 @@ export function groupIntoBatches<T>(array: T[], batchSize: number): T[][] {
     }
     return batches
 }
+
+/** Template literal function, to standardize JS code used internally to form without extraneous indentation. */
+export function code(strings: TemplateStringsArray): string {
+    const stringsConcat = strings.join('…')
+    const indentation = stringsConcat.match(/^\n([ ]*)/)?.[1].length ?? 0
+    const dedentedCode = stringsConcat.replace(new RegExp(`^[ ]{${indentation}}`, 'gm'), '')
+    return dedentedCode.trim()
+}

@@ -1,5 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { DateTime } from 'luxon'
+import { performance } from 'perf_hooks'
 
 import { IEvent } from '../../src/idl/protos'
 import { EventsProcessor } from '../../src/ingestion/process-event'
@@ -24,10 +25,19 @@ export async function delayUntilEventIngested(
     fetchEvents: () => Promise<any[] | any>,
     minCount = 1,
     delayMs = 500,
-    maxDelayCount = 30
+    maxDelayCount = 30,
+    debug = false
 ): Promise<void> {
+    const timer = performance.now()
     for (let i = 0; i < maxDelayCount; i++) {
         const events = await fetchEvents()
+        if (debug) {
+            console.log(
+                `Waiting. ${Math.round((performance.now() - timer) / 100) / 10}s since the start. ${
+                    typeof events === 'number' ? events : events.length
+                } events.`
+            )
+        }
         if ((typeof events === 'number' ? events : events.length) >= minCount) {
             return
         }

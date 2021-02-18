@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { createServer } from '../../src/server'
 import { Plugin, PluginConfig, PluginConfigVMReponse } from '../../src/types'
-import { createPluginConfigVM } from '../../src/vm'
+import { createPluginConfigVM } from '../../src/vm/vm'
 import { commonOrganizationId } from '../../tests/helpers/plugins'
 
 jest.mock('../../src/sql')
@@ -47,6 +47,7 @@ const mockConfig: PluginConfig = {
 }
 
 test('test vm memory usage', async () => {
+    const debug = false
     const numVMs = 1000
     const numEventsPerVM = 100
 
@@ -76,27 +77,31 @@ test('test vm memory usage', async () => {
         const vm = await createPluginConfigVM(server, mockConfig, indexJs)
         vms.push(vm)
 
-        const nowUsed = getUsed()
-        console.log(
-            `Used: ${nowUsed} MB, diff ${nowUsed - used} (${(nowUsed - usedAtStart) / (i + 1)} * ${
-                i + 1
-            } used since the start)`
-        )
-        used = nowUsed
+        if (debug || i === numVMs - 1) {
+            const nowUsed = getUsed()
+            console.log(
+                `Used: ${nowUsed} MB, diff ${nowUsed - used} (${(nowUsed - usedAtStart) / (i + 1)} * ${
+                    i + 1
+                } used since the start)`
+            )
+            used = nowUsed
+        }
     }
 
     for (let i = 0; i < numEventsPerVM; i++) {
         for (let j = 0; j < numVMs; j++) {
             await vms[j].methods.processEvent(createEvent(i + j))
         }
-        global.gc()
-        const nowUsed = getUsed()
-        console.log(
-            `Run ${i}. Used: ${nowUsed} MB, diff ${nowUsed - used} (${nowUsed - usedAtStart} used since the start, ${
-                (nowUsed - usedAtStart) / numVMs
-            } per vm)`
-        )
-        used = nowUsed
+        if (debug || i === numEventsPerVM - 1) {
+            global?.gc?.()
+            const nowUsed = getUsed()
+            console.log(
+                `Run ${i}. Used: ${nowUsed} MB, diff ${nowUsed - used} (${
+                    nowUsed - usedAtStart
+                } used since the start, ${(nowUsed - usedAtStart) / numVMs} per vm)`
+            )
+            used = nowUsed
+        }
     }
 
     await closeServer()

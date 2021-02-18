@@ -2,9 +2,9 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { PluginConfig, PluginsServer, RawEventMessage } from 'types'
 
-import Client from '../celery/client'
-import { UUIDT } from '../utils'
-import { version } from '../version'
+import Client from '../../celery/client'
+import { UUIDT } from '../../utils'
+import { version } from '../../version'
 
 interface InternalData {
     distinct_id: string
@@ -30,7 +30,7 @@ export function createPosthog(server: PluginsServer, pluginConfig: PluginConfig)
             if (!server.kafkaProducer) {
                 throw new Error('kafkaProducer not configured!')
             }
-            server.kafkaProducer.send({
+            await server.kafkaProducer.send({
                 topic: server.KAFKA_CONSUMPTION_TOPIC!,
                 messages: [
                     {
