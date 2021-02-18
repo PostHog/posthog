@@ -12,17 +12,9 @@ import { userLogic } from 'scenes/userLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
 import { createdByColumn } from 'lib/components/Table'
+import { AnnotationType } from '~/types'
 
 const { TextArea } = Input
-
-interface AnnotationType {
-    content: string
-    date_marker: string
-    updated_at: string
-    deleted: boolean
-    scope: string
-    id: string
-}
 
 export const Annotations = hot(_Annotations)
 function _Annotations(): JSX.Element {
@@ -32,7 +24,7 @@ function _Annotations(): JSX.Element {
     )
     const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
-    const [selectedAnnotation, setSelected] = useState({} as AnnotationType)
+    const [selectedAnnotation, setSelected] = useState(null as AnnotationType | null)
 
     const columns = [
         {
@@ -153,17 +145,17 @@ function _Annotations(): JSX.Element {
                 }}
                 onSubmit={async (input, selectedDate): Promise<void> => {
                     ;(await selectedAnnotation)
-                        ? updateAnnotation(selectedAnnotation.id, input)
+                        ? updateAnnotation(selectedAnnotation?.id, input)
                         : createGlobalAnnotation(input, selectedDate, null)
                     closeModal()
                     loadAnnotations()
                 }}
                 onDelete={(): void => {
-                    deleteAnnotation(selectedAnnotation.id)
+                    deleteAnnotation(selectedAnnotation?.id)
                     closeModal()
                 }}
                 onRestore={(): void => {
-                    restoreAnnotation(selectedAnnotation.id)
+                    restoreAnnotation(selectedAnnotation?.id)
                     closeModal()
                 }}
                 annotation={selectedAnnotation}
