@@ -209,7 +209,7 @@ def get_event(request):
             log_topics = [KAFKA_EVENTS_WAL]
             plugin_server_ingestion = settings.PLUGIN_SERVER_INGESTION and (
                 not getattr(settings, "MULTI_TENANCY", False)
-                or team.organization_id in getattr(settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", [])
+                or str(team.organization_id) in getattr(settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", [])
                 or random() < 0.10
             )
 
