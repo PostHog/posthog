@@ -98,7 +98,7 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
                     <div className="rhs-inner">
                         <SocialLoginButtons
                             title="Create your account with a provider"
-                            caption="One less password to manage"
+                            caption="You can always create a password later"
                             queryString={invite ? `?invite_id=${invite.id}` : ''}
                         />
                         <div className="password-login">
@@ -168,10 +168,7 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
                                     Continue
                                 </Button>
                             </form>
-                            <div className="mt text-center text-muted">
-                                Already have an account? <Link to="/login">Log in</Link>
-                            </div>
-                            <div className="mt text-center" style={{ marginBottom: 60 }}>
+                            <div className="mt text-center">
                                 By clicking continue you agree to our{' '}
                                 <a href="https://posthog.com/terms" target="_blank" rel="noopener">
                                     Terms of Service
@@ -181,6 +178,9 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
                                     Privacy Policy
                                 </a>
                                 .
+                            </div>
+                            <div className="mt text-center text-muted" style={{ marginBottom: 60 }}>
+                                Already have an account? <Link to="/login">Log in</Link>
                             </div>
                         </div>
                     </div>
