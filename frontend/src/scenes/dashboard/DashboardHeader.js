@@ -20,6 +20,7 @@ import {
     ShareAltOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
+import moment from 'moment'
 
 export function DashboardHeader({ logic }) {
     const { dashboard, draggingEnabled } = useValues(logic)
@@ -56,7 +57,8 @@ export function DashboardHeader({ logic }) {
                         </Select>
                         {dashboard.created_by ? (
                             <small className="dashboard-header-created-by">
-                                Created by: {dashboard.created_by.first_name || dashboard.created_by.email || '-'}
+                                Created by {dashboard.created_by.first_name || dashboard.created_by.email || '-'} on{' '}
+                                {moment(dashboard.created_at).format('MMMM Do YYYY')}
                             </small>
                         ) : null}
                     </div>
