@@ -7,32 +7,43 @@ on:
             - master
 
 jobs:
+    check-package-version:
+        name: Check package version and detect an update
+        runs-on: ubuntu-20.04
+        outputs:
+            repo-version: ${{ steps.check-package-version.outputs.repo-version }}
+            published-version: ${{ steps.check-package-version.outputs.published-version }}
+            is-unpublished-version: ${{ steps.check-package-version.outputs.is-unpublished-version }}
+        steps:
+            - name: Checkout the repository
+              uses: actions/checkout@v2
+
+            - name: Check package version and detect an update
+              id: check-package-version
+              uses: posthog/check-package-version@v1
+
     containerize:
         name: Build and push container image
         runs-on: ubuntu-20.04
+        needs: check-package-version
+        env:
+            REPO_VERSION: ${{ needs.check-package-version.outputs.repo-version }}
+            PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
+            IS_UNPUBLISHED_VERSION: ${{ needs.check-package-version.outputs.is-unpublished-version }}
         steps:
             - name: Checkout the repository
               uses: actions/checkout@v2
               with:
                   fetch-depth: 0
 
-            - name: Detect package version and set up image tags
-              id: version
+            - name: Determine relevant Docker tags
+              id: docker-tags
               run: |
-                  PACKAGE_VERSION=$(node -p "require('./package.json').version")
-                  PACKAGE_VERSION_TAG="v$PACKAGE_VERSION"
                   DOCKER_TAGS="posthog/plugin-server:latest,public.ecr.aws/p1o5l3m0/posthog-plugin-server:latest"
-                  if git rev-parse "$PACKAGE_VERSION_TAG"; then
-                    IS_NEW_VERSION=false
-                  else
-                    IS_NEW_VERSION=true
+                  if if [ $IS_UNPUBLISHED_VERSION -eq true ]; then
                     DOCKER_TAGS="$DOCKER_TAGS,posthog/plugin-server:$PACKAGE_VERSION,public.ecr.aws/p1o5l3m0/posthog-plugin-server:$PACKAGE_VERSION,posthog/plugin-server:latest-release,public.ecr.aws/p1o5l3m0/posthog-plugin-server:latest-release"
                   fi
-                  echo "PACKAGE_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
-                  echo "PACKAGE_VERSION_TAG=$PACKAGE_VERSION_TAG" >> $GITHUB_ENV
-                  echo "IS_NEW_VERSION=$IS_NEW_VERSION" >> $GITHUB_ENV
-                  echo "::set-output name=IS_NEW_VERSION::$IS_NEW_VERSION"
-                  echo "::set-output name=DOCKER_TAGS::$DOCKER_TAGS"
+                  echo "::set-output name=docker-tags::$DOCKER_TAGS"
 
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v1
@@ -59,12 +70,15 @@ jobs:
               uses: docker/build-push-action@v2
               with:
                   push: true
-                  tags: ${{ steps.version.outputs.DOCKER_TAGS }}
+                  tags: ${{ steps.docker-tags.outputs.docker-tags }}
 
     release:
         name: Publish release if new version
         runs-on: ubuntu-20.04
-
+        if: needs.check-package-version.outputs.is-unpublished-version == 'true'
+        env:
+            REPO_VERSION: ${{ needs.check-package-version.outputs.repo-version }}
+            PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
         steps:
             - name: Checkout the repository
               uses: actions/checkout@v2
@@ -72,37 +86,16 @@ jobs:
                   path: 'plugin-server'
                   fetch-depth: 0
 
-            - name: Detect package version
-              id: version
-              run: |
-                  cd plugin-server/
-                  PACKAGE_VERSION=$(node -p "require('./package.json').version")
-                  PACKAGE_VERSION_TAG="v$PACKAGE_VERSION"
-                  if git rev-parse "$PACKAGE_VERSION_TAG"; then
-                    IS_NEW_VERSION=false
-                  else
-                    IS_NEW_VERSION=true
-                  fi
-                  echo "PACKAGE_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
-                  echo "PACKAGE_VERSION_TAG=$PACKAGE_VERSION_TAG" >> $GITHUB_ENV
-                  echo "IS_NEW_VERSION=$IS_NEW_VERSION" >> $GITHUB_ENV
-                  echo "::set-output name=PACKAGE_VERSION::$PACKAGE_VERSION"
-                  echo "::set-output name=PACKAGE_VERSION_TAG::$PACKAGE_VERSION_TAG"
-                  echo "::set-output name=IS_NEW_VERSION::$IS_NEW_VERSION"
-
             - name: Set up Node 14
-              if: steps.version.outputs.IS_NEW_VERSION == 'true'
               uses: actions/setup-node@v2
               with:
                   node-version: 14
                   registry-url: https://registry.npmjs.org
 
             - name: Install dependencies
-              if: steps.version.outputs.IS_NEW_VERSION == 'true'
               run: cd plugin-server/ && yarn --frozen-lockfile
 
             - name: Publish the package in the npm registry
-              if: steps.version.outputs.IS_NEW_VERSION == 'true'
               run: cd plugin-server/ && npm publish --access public
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
@@ -110,50 +103,45 @@ jobs:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
             - name: Create GitHub release
-              if: steps.version.outputs.IS_NEW_VERSION == 'true'
               uses: actions/create-release@v1
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:
-                  tag_name: ${{ env.PACKAGE_VERSION_TAG }}
-                  release_name: ${{ env.PACKAGE_VERSION }}
+                  tag_name: v${{ env.REPO_VERSION }}
+                  release_name: ${{ env.REPO_VERSION }}
 
             - name: Check out main repo
-              if: steps.version.outputs.IS_NEW_VERSION == 'true'
               uses: actions/checkout@v2
               with:
                   repository: 'PostHog/posthog'
                   path: 'posthog/'
 
             - name: Install new plugin server version in main repo
-              if: steps.version.outputs.IS_NEW_VERSION == 'true'
               run: |
                   cd posthog/plugins/
                   mv package.json package.old.json
-                  jq --indent 4 '.dependencies."@posthog/plugin-server" = "${{ steps.version.outputs.PACKAGE_VERSION }}"' package.old.json > package.json
+                  jq --indent 4 '.dependencies."@posthog/plugin-server" = "$REPO_VERSION"' package.old.json > package.json
                   rm package.old.json
                   yarn
 
             - name: Create main repo pull request
-              if: steps.version.outputs.IS_NEW_VERSION == 'true'
               id: main-repo-pr
               uses: peter-evans/create-pull-request@v3
               with:
                   token: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
                   path: posthog/
-                  commit-message: Update plugin server to ${{ steps.version.outputs.PACKAGE_VERSION }}
-                  committer: PostHog Bot <hey@posthog.com>
-                  branch: plugin-server-${{ steps.version.outputs.PACKAGE_VERSION_TAG }}
+                  commit-message: Update plugin server to ${{ env.REPO_VERSION }}
+                  committer: posthog-bot <hey@posthog.com>
+                  branch: plugin-server-${{ env.REPO_VERSION }}
                   delete-branch: true
-                  title: Update plugin server to ${{ steps.version.outputs.PACKAGE_VERSION }}
+                  title: Update plugin server to ${{ env.REPO_VERSION }}
                   body: |
                       ## Changes
 
-                      Plugin server version ${{ steps.version.outputs.PACKAGE_VERSION }} has been released. This updates PostHog to use it.
+                      Plugin server version ${{ env.REPO_VERSION }} has been released. This updates PostHog to use it.
 
-                      [npm releases](https://www.npmjs.com/package/@posthog/plugin-server?activeTab=version) • [GitHub releases](https://github.com/PostHog/plugin-server/releases) • [commit history](https://github.com/PostHog/plugin-server/commits/)
+                      https://github.com/PostHog/plugin-server/compare/${{ env.PUBLISHED_VERSION }}...${{ env.REPO_VERSION }} • [GitHub releases](https://github.com/PostHog/plugin-server/releases) • [npm releases](https://www.npmjs.com/package/@posthog/plugin-server?activeTab=version)
 
             - name: Output pull request result
-              if: steps.version.outputs.IS_NEW_VERSION == 'true'
               run: |
-                  echo "PostHog pull request for plugin server version ${{ steps.version.outputs.PACKAGE_VERSION }} ready: ${{ steps.main-repo-pr.outputs.pull-request-url }}"
+                  echo "PostHog pull request for plugin server version ${{ env.REPO_VERSION }} ready: ${{ steps.main-repo-pr.outputs.pull-request-url }}"
