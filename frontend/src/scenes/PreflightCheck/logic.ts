@@ -20,6 +20,13 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus>>({
             resetPreflight: () => null,
         },
     },
+    selectors: {
+        socialAuthAvailable: [
+            (s) => [s.preflight],
+            (preflight: PreflightStatus | null) =>
+                preflight && Object.values(preflight.available_social_auth_providers).filter((i) => i).length,
+        ],
+    },
     listeners: ({ actions }) => ({
         resetPreflight: async (_, breakpoint) => {
             await breakpoint(1000)

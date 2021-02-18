@@ -9,15 +9,15 @@ import { ArrowDownOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { inviteSignupLogic } from './inviteSignupLogic'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
 
 interface LoginSignupProps {
-    showcaseCaption?: JSX.Element | string
     invite?: PrevalidatedInvite | null
 }
 
-export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.Element {
+export function LoginSignup({ invite }: LoginSignupProps): JSX.Element {
     /*
     UI component for the login & signup pages.
     Currently used for: InviteSignup.
@@ -33,6 +33,7 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
     const passwordInputRef = useRef<Input | null>(null)
     const { acceptInvite } = useActions(inviteSignupLogic)
     const { acceptedInviteLoading } = useValues(inviteSignupLogic)
+    const { socialAuthAvailable } = useValues(preflightLogic)
 
     const handleScroll = (): void => {
         const yPos = rhsContainerRef.current ? rhsContainerRef.current.getBoundingClientRect().top : null
@@ -80,10 +81,10 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
                         </div>
                         <div className="showcase-content">
                             <h1 className="page-title">
-                                Join <b>{invite?.organization_name || 'us'}</b> at
+                                Hello{invite?.first_name ? ` ${invite.first_name}` : ''}! You've been invited to join
                             </h1>
-                            <div className="wordmark">PostHog</div>
-                            <div className="showcase-caption">{showcaseCaption}</div>
+                            <div className="company">{invite?.organization_name || 'us'}</div>
+                            <h1 className="page-title">at PostHog</h1>
                             <div className="mobile-continue">
                                 <Button icon={<ArrowDownOutlined />} type="default" onClick={handleScroll}>
                                     Continue
@@ -94,17 +95,19 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
                 </Col>
                 <Col span={24} md={14} className="rhs-content" ref={rhsContainerRef}>
                     <div className="rhs-inner">
-                        <div className="text-center">
+                        <div className="text-center" style={{ marginBottom: 32 }}>
                             <b>Already have an account?</b>{' '}
                             <Link to="/login?utm_message=login-to-accept-invite">Log in</Link>
                         </div>
                         <SocialLoginButtons
-                            title="Create your account with a provider"
-                            caption="You can always create a password later"
+                            title="Continue with a provider"
+                            caption={`Remember to log in with ${invite?.target_email}`}
                             queryString={invite ? `?invite_id=${invite.id}` : ''}
                         />
                         <div className="password-login">
-                            <h3 className="l3 text-center">Or create your own password</h3>
+                            <h3 className="l3 text-center">
+                                {socialAuthAvailable ? 'Or create your own passowrd' : 'Create your PostHog account'}
+                            </h3>
                             <form onSubmit={handleFormSubmit}>
                                 <div className="input-set">
                                     <label htmlFor="email">Email</label>
@@ -114,6 +117,7 @@ export function LoginSignup({ showcaseCaption, invite }: LoginSignupProps): JSX.
                                     className={`input-set${
                                         formState.submitted && formState.passwordInvalid ? ' errored' : ''
                                     }`}
+                                    style={{ paddingBottom: 8 }}
                                 >
                                     <label htmlFor="password">Password</label>
                                     <Input

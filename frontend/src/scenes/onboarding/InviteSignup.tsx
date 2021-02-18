@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useMemo } from 'react'
+import React from 'react'
 import { hot } from 'react-hot-loader/root'
 import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
 import { SceneLoading } from 'lib/utils'
@@ -22,12 +22,8 @@ interface ErrorMessage {
     actions: JSX.Element
 }
 
-function ErrorView(): JSX.Element | null {
-    const { error } = useValues(inviteSignupLogic)
-    const { user } = useValues(userLogic)
-    const { push } = useActions(router)
-
-    const HelperLinks = (
+function HelperLinks(): JSX.Element {
+    return (
         <>
             <a className="plain-link" href="/">
                 App Home
@@ -48,59 +44,65 @@ function ErrorView(): JSX.Element | null {
             </a>
         </>
     )
+}
 
-    const BackToPostHog = (
+function BackToPostHog(): JSX.Element {
+    const { push } = useActions(router)
+    return (
         <Button icon={<ArrowLeftOutlined />} block onClick={() => push('/')}>
             Go back to PostHog
         </Button>
     )
+}
 
-    const ErrorMessages: Record<ErrorCodes, ErrorMessage> = useMemo(() => {
-        return {
-            [ErrorCodes.InvalidInvite]: {
-                title: 'Oops! This invite link is invalid or has expired',
-                detail: (
-                    <>
-                        {error?.detail} If you believe this is a mistake, please contact whoever created this invite and{' '}
-                        <b>ask them for a new invite</b>.
-                    </>
-                ),
-                actions: user ? BackToPostHog : HelperLinks,
-            },
-            [ErrorCodes.InvalidRecipient]: {
-                title: 'Oops! You cannot use this invite link',
-                detail: (
-                    <>
-                        <div>{error?.detail}</div>
-                        <div className="mt">
-                            {user ? (
-                                <span>
-                                    You can either log out and create a new account under the new email address or ask
-                                    the organization admin to send a{' '}
-                                    <b>new invite to the email address on your account, {user?.email}</b>.
-                                </span>
-                            ) : (
-                                <div>
-                                    You need to log in with the email address above, or create your own password.
-                                    <div className="mt">
-                                        <Button icon={<ArrowLeftOutlined />} href={window.location.pathname}>
-                                            Try again
-                                        </Button>
-                                    </div>
+function ErrorView(): JSX.Element | null {
+    const { error } = useValues(inviteSignupLogic)
+    const { user } = useValues(userLogic)
+
+    const ErrorMessages: Record<ErrorCodes, ErrorMessage> = {
+        [ErrorCodes.InvalidInvite]: {
+            title: 'Oops! This invite link is invalid or has expired',
+            detail: (
+                <>
+                    {error?.detail} If you believe this is a mistake, please contact whoever created this invite and{' '}
+                    <b>ask them for a new invite</b>.
+                </>
+            ),
+            actions: user ? <BackToPostHog /> : <HelperLinks />,
+        },
+        [ErrorCodes.InvalidRecipient]: {
+            title: 'Oops! You cannot use this invite link',
+            detail: (
+                <>
+                    <div>{error?.detail}</div>
+                    <div className="mt">
+                        {user ? (
+                            <span>
+                                You can either log out and create a new account under the new email address or ask the
+                                organization admin to send a{' '}
+                                <b>new invite to the email address on your account, {user?.email}</b>.
+                            </span>
+                        ) : (
+                            <div>
+                                You need to log in with the email address above, or create your own password.
+                                <div className="mt">
+                                    <Button icon={<ArrowLeftOutlined />} href={window.location.pathname}>
+                                        Try again
+                                    </Button>
                                 </div>
-                            )}
-                        </div>
-                    </>
-                ),
-                actions: user ? BackToPostHog : HelperLinks,
-            },
-            [ErrorCodes.Unknown]: {
-                title: 'Oops! We could not validate this invite link',
-                detail: `${error?.detail} There was an issue with your invite link, please try again in a few seconds. If the problem persists, contact us.`,
-                actions: user ? BackToPostHog : HelperLinks,
-            },
-        }
-    }, [error, user])
+                            </div>
+                        )}
+                    </div>
+                </>
+            ),
+            actions: user ? <BackToPostHog /> : <HelperLinks />,
+        },
+        [ErrorCodes.Unknown]: {
+            title: 'Oops! We could not validate this invite link',
+            detail: `${error?.detail} There was an issue with your invite link, please try again in a few seconds. If the problem persists, contact us.`,
+            actions: user ? <BackToPostHog /> : <HelperLinks />,
+        },
+    }
 
     if (!error) {
         return null
@@ -188,22 +190,7 @@ function _InviteSignup(): JSX.Element {
     return (
         <div className={`invite-signup${user ? ' authenticated' : ''}`}>
             <ErrorView />
-            {invite &&
-                (user ? (
-                    <AuthenticatedAcceptInvite invite={invite} />
-                ) : (
-                    <LoginSignup
-                        invite={invite}
-                        showcaseCaption={
-                            <>
-                                <b>This is the email you will use to log in.</b>{' '}
-                                <h3 className="l3" style={{ fontSize: '1.2rem' }}>
-                                    {invite.target_email}
-                                </h3>
-                            </>
-                        }
-                    />
-                ))}
+            {invite && (user ? <AuthenticatedAcceptInvite invite={invite} /> : <LoginSignup invite={invite} />)}
         </div>
     )
 }
