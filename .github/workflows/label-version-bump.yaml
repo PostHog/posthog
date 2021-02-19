@@ -18,7 +18,8 @@ jobs:
         steps:
             - name: Check out repository
               uses: actions/checkout@v2
-              ref: master
+              with:
+                  ref: master
 
             - name: Detect version bump type
               id: bump-type
