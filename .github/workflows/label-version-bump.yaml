@@ -23,23 +23,27 @@ jobs:
               id: bump-type
               run: |
                   BUMP_TYPE=null
-                  if [[ {{ contains(github.event.pull_request.labels.*.name, 'bump patch') }} == 'true' ]]; then
+                  if [[ $BUMP_PATCH_PRESENT == 'true' ]]; then
                       BUMP_TYPE=patch
                   fi
-                  if [[ {{ contains(github.event.pull_request.labels.*.name, 'bump minor') }} == 'true' ]]; then
+                  if [[ $BUMP_MINOR_PRESENT == 'true' ]]; then
                       BUMP_TYPE=minor
                   fi
-                  if [[ {{ contains(github.event.pull_request.labels.*.name, 'bump major') }} == 'true' ]]; then
+                  if [[ $BUMP_MAJOR_PRESENT == 'true' ]]; then
                       BUMP_TYPE=major
                   fi
                   echo "::set-output name=bump-type::$BUMP_TYPE"
+              env:
+                  BUMP_PATCH_PRESENT: ${{ contains(github.event.pull_request.labels.*.name, 'bump patch') }}
+                  BUMP_MINOR_PRESENT: ${{ contains(github.event.pull_request.labels.*.name, 'bump minor') }}
+                  BUMP_MAJOR_PRESENT: ${{ contains(github.event.pull_request.labels.*.name, 'bump patch') }}
 
             - name: Determine new version
               id: new-version
               if: steps.bump-type.outputs.bump-type != 'null'
               run: |
                   OLD_VERSION=$(jq ".version" package.json -r)
-                  NEW_VERSION=$(npx semver $OLD_VERSION -i {{ steps.bump-type.outputs.bump-type }})
+                  NEW_VERSION=$(npx semver $OLD_VERSION -i ${{ steps.bump-type.outputs.bump-type }})
                   echo "::set-output name=new-version::$NEW_VERSION"
 
             - name: Update version in package.json
