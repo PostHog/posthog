@@ -327,17 +327,18 @@ export interface SessionType {
 }
 
 export interface FormattedNumber {
+    // :TODO: DEPRECATED, formatting will now happen client-side
     value: number
     formatted: string
 }
 
 export interface OrganizationBilling {
     plan: PlanInterface | null
-    current_usage: { value: number; formatted: string } | null
+    current_usage: FormattedNumber | number | null
     should_setup_billing?: boolean
     stripe_checkout_session?: string
     subscription_url?: string
-    event_allocation: FormattedNumber | null
+    event_allocation: FormattedNumber | number | null
 }
 
 export interface PlanInterface {
@@ -347,7 +348,8 @@ export interface PlanInterface {
     image_url: string
     self_serve: boolean
     is_metered_billing: boolean
-    allowance: FormattedNumber | null
+    allowance: FormattedNumber | number | null // :TODO: DEPRECATED
+    event_allowance: number
     price_string: string
 }
 
