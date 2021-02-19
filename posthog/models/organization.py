@@ -6,7 +6,6 @@ from django.db import models, transaction
 from django.db.models.query import QuerySet
 from django.dispatch import receiver
 from django.utils import timezone
-from django.utils.safestring import mark_safe
 from rest_framework import exceptions
 
 from .utils import UUIDModel, sane_repr
