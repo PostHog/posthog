@@ -84,7 +84,6 @@ jobs:
             - name: Checkout the repository
               uses: actions/checkout@v2
               with:
-                  path: 'plugin-server'
                   fetch-depth: 0
 
             - name: Set up Node 14
@@ -94,10 +93,10 @@ jobs:
                   registry-url: https://registry.npmjs.org
 
             - name: Install dependencies
-              run: cd plugin-server/ && yarn --frozen-lockfile
+              run: yarn --frozen-lockfile
 
             - name: Publish the package in the npm registry
-              run: cd plugin-server/ && npm publish --access public
+              run: npm publish --access public
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   REDIS_URL: 'redis://localhost'
@@ -111,15 +110,22 @@ jobs:
                   tag_name: v${{ env.REPO_VERSION }}
                   release_name: ${{ env.REPO_VERSION }}
 
+    create-pull-request:
+        name: Create main repo PR with new plugin server version
+        runs-on: ubuntu-20.04
+        needs: release
+        env:
+            REPO_VERSION: ${{ needs.check-package-version.outputs.repo-version }}
+            PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
+        steps:
             - name: Check out main repo
               uses: actions/checkout@v2
               with:
                   repository: 'PostHog/posthog'
-                  path: 'posthog/'
 
             - name: Install new plugin server version in main repo
               run: |
-                  cd posthog/plugins/
+                  cd plugins/
                   mv package.json package.old.json
                   jq --indent 4 '.dependencies."@posthog/plugin-server" = "${{ env.REPO_VERSION }}"' package.old.json > package.json
                   rm package.old.json
@@ -133,7 +139,6 @@ jobs:
               uses: peter-evans/create-pull-request@v3
               with:
                   token: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
-                  path: posthog/
                   commit-message: Update plugin server to ${{ env.REPO_VERSION }}
                   committer: posthog-bot <hey@posthog.com>
                   branch: plugin-server-${{ env.REPO_VERSION }}
