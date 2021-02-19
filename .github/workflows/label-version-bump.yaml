@@ -20,6 +20,7 @@ jobs:
               uses: actions/checkout@v2
               with:
                   ref: master
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Detect version bump type
               id: bump-type
@@ -60,6 +61,4 @@ jobs:
               uses: EndBug/add-and-commit@v7
               with:
                   branch: master
-                  author_name: PostHog Bot
-                  author_email: hey@posthog.com
                   message: 'Bump version to ${{ steps.new-version.outputs.new-version }}'
