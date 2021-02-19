@@ -8,7 +8,13 @@ jobs:
     label-version-bump:
         name: Bump version based on PR label
         runs-on: ubuntu-20.04
-        if: github.event.pull_request.merged == 'true'
+        if: |
+            github.event.pull_request.merged
+            && (
+                contains(github.event.pull_request.labels.*.name, 'bump patch')
+                || contains(github.event.pull_request.labels.*.name, 'bump minor')
+                || contains(github.event.pull_request.labels.*.name, 'bump major')
+            )
         steps:
             - name: Check out repository
               uses: actions/checkout@v2
