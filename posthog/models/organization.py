@@ -6,6 +6,7 @@ from django.db import models, transaction
 from django.db.models.query import QuerySet
 from django.dispatch import receiver
 from django.utils import timezone
+from django.utils.safestring import mark_safe
 from rest_framework import exceptions
 
 from .utils import UUIDModel, sane_repr
@@ -108,6 +109,15 @@ class Organization(UUIDModel):
         self.setup_section_2_completed = True
         self.save()
         return self
+
+    def organization_billing_link(self) -> str:
+        try:
+            from multi_tenancy.models import OrganizationBilling  # type: ignore
+
+            billing = OrganizationBilling.objects.get(organization_id=self.pk)
+            return mark_safe("/admin/multi_tenancy/organizationbilling/%s/change/" % billing.pk)
+        except:
+            return "-"
 
 
 class OrganizationMembership(UUIDModel):
