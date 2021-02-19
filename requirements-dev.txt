@@ -12,6 +12,7 @@ attrs==19.3.0
     # via
     #   black
     #   flake8-bugbear
+    #   pytest
 black==19.10b0
     # via -r requirements-dev.in
 click==7.1.1
@@ -58,6 +59,8 @@ flake8==3.7.9
     #   flake8-print
 freezegun==0.3.15
     # via -r requirements-dev.in
+iniconfig==1.1.1
+    # via pytest
 isort==5.2.2
     # via -r requirements-dev.in
 mccabe==0.6.1
@@ -72,11 +75,17 @@ mypy==0.790
     #   django-stubs
     #   djangorestframework-stubs
 packaging==20.4
-    # via -r requirements-dev.in
+    # via
+    #   -r requirements-dev.in
+    #   pytest
 pathspec==0.8.0
     # via black
-pip-tools==5.0.0
+pip-tools==5.5.0
     # via -r requirements-dev.in
+pluggy==0.13.1
+    # via pytest
+py==1.10.0
+    # via pytest
 pycodestyle==2.5.0
     # via
     #   flake8
@@ -86,6 +95,12 @@ pyflakes==2.1.1
     # via flake8
 pyparsing==2.4.7
     # via packaging
+pytest-django==4.1.0
+    # via -r requirements-dev.in
+pytest==6.2.2
+    # via
+    #   -r requirements-dev.in
+    #   pytest-django
 python-dateutil==2.8.1
     # via freezegun
 pytz==2020.1
@@ -100,7 +115,6 @@ six==1.14.0
     #   flake8-print
     #   freezegun
     #   packaging
-    #   pip-tools
     #   python-dateutil
 sortedcontainers==2.3.0
     # via fakeredis
@@ -109,7 +123,9 @@ sqlparse==0.3.1
     #   django
     #   django-debug-toolbar
 toml==0.10.1
-    # via black
+    # via
+    #   black
+    #   pytest
 typed-ast==1.4.1
     # via
     #   black
