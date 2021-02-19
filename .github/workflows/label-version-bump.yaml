@@ -18,6 +18,7 @@ jobs:
         steps:
             - name: Check out repository
               uses: actions/checkout@v2
+              ref: master
 
             - name: Detect version bump type
               id: bump-type
@@ -36,7 +37,7 @@ jobs:
               env:
                   BUMP_PATCH_PRESENT: ${{ contains(github.event.pull_request.labels.*.name, 'bump patch') }}
                   BUMP_MINOR_PRESENT: ${{ contains(github.event.pull_request.labels.*.name, 'bump minor') }}
-                  BUMP_MAJOR_PRESENT: ${{ contains(github.event.pull_request.labels.*.name, 'bump patch') }}
+                  BUMP_MAJOR_PRESENT: ${{ contains(github.event.pull_request.labels.*.name, 'bump major') }}
 
             - name: Determine new version
               id: new-version
