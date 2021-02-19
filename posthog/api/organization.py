@@ -5,7 +5,7 @@ from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.db import transaction
 from django.db.models import QuerySet
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404
 from django.urls.base import reverse
 from rest_framework import exceptions, generics, permissions, response, serializers, status, viewsets
 from rest_framework.request import Request

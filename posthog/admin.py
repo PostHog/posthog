@@ -46,17 +46,24 @@ class UserAdmin(DjangoUserAdmin):
     change_form_template = "loginas/change_form.html"
 
     fieldsets = (
-        (None, {"fields": ("email", "password", "organization_name")}),
+        (None, {"fields": ("email", "password", "organization_name", "org_count")}),
         (_("Personal info"), {"fields": ("first_name", "last_name")}),
         (_("Permissions"), {"fields": ("is_active", "is_staff",)},),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
         (_("PostHog"), {"fields": ("temporary_token",)}),
     )
     add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email", "password1", "password2"),}),)
-    list_display = ("email", "first_name", "last_name", "organization_name", "is_staff")
+    list_display = (
+        "email",
+        "first_name",
+        "last_name",
+        "organization_name",
+        "org_count",
+        "is_staff",
+    )
     list_filter = ("is_staff", "is_active", "groups")
     search_fields = ("email", "first_name", "last_name")
-    readonly_fields = ["organization_name"]
+    readonly_fields = ["organization_name", "org_count"]
     ordering = ("email",)
 
     def organization_name(self, user: User):
@@ -66,6 +73,9 @@ class UserAdmin(DjangoUserAdmin):
             )
         except Team.DoesNotExist:
             return "no team"
+
+    def org_count(self, user: User) -> int:
+        return user.organization_memberships.count()
 
 
 class OrganizationMemberInline(admin.TabularInline):
