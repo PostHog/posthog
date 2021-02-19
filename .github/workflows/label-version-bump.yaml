@@ -1,0 +1,58 @@
+name: Autobump
+
+on:
+    pull_request:
+        types: [closed]
+
+jobs:
+    label-version-bump:
+        name: Bump version based on PR label
+        runs-on: ubuntu-20.04
+        if: |
+            github.event.pull_request.merged == 'true'
+            && contains(['master', 'main'], github.event.pull_request.base.ref)
+            && (
+                contains(github.event.pull_request.labels.*.name, 'bump patch')
+                || contains(github.event.pull_request.labels.*.name, 'bump minor')
+                || contains(github.event.pull_request.labels.*.name, 'bump major')
+            )
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v2
+
+            - name: Determine version bump type
+              id: bump-type
+              run: |
+                  BUMP_TYPE=null
+                  if [[ {{ contains(github.event.pull_request.labels.*.name, 'bump patch') }} == 'true' ]]; then
+                      BUMP_TYPE=patch
+                  fi
+                  if [[ {{ contains(github.event.pull_request.labels.*.name, 'bump minor') }} == 'true' ]]; then
+                      BUMP_TYPE=minor
+                  fi
+                  if [[ {{ contains(github.event.pull_request.labels.*.name, 'bump major') }} == 'true' ]]; then
+                      BUMP_TYPE=major
+                  fi
+                  echo "::set-output name=bump-type::$BUMP_TYPE"
+
+            - name: Determine new version
+              id: new-version
+              if: steps.bump-type.outputs.bump-type != 'null'
+              run: |
+                  OLD_VERSION=$(jq ".version" package.json -r)
+                  NEW_VERSION=$(npx semver $OLD_VERSION -i {{ steps.bump-type.outputs.bump-type }})
+                  echo "::set-output name=new-version::$NEW_VERSION"
+
+            - name: Update version in package.json
+              if: steps.bump-type.outputs.bump-type != 'null'
+              run: |
+                  mv package.json package.old.json
+                  jq --indent 4 '.version = "${{ steps.new-version.outputs.new-version }}"' package.old.json > package.json
+                  rm package.old.json
+
+            - name: Commit bump
+              uses: EndBug/add-and-commit@v7
+              with:
+                  author_name: PostHog Bot
+                  author_email: hey@posthog.com
+                  message: 'Bump version to ${{ steps.new-version.outputs.new-version }}'
