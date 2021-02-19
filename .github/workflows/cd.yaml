@@ -113,7 +113,7 @@ jobs:
     create-pull-request:
         name: Create main repo PR with new plugin server version
         runs-on: ubuntu-20.04
-        needs: release
+        needs: [check-package-version, release]
         env:
             REPO_VERSION: ${{ needs.check-package-version.outputs.repo-version }}
             PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
