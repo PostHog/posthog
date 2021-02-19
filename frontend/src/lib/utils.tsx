@@ -722,7 +722,7 @@ export function autocorrectInterval(filters: Partial<FilterType>): string {
 function suffixFormatted(value: number, base: number, suffix: string, maxDecimals: number): string {
     /* Helper function for compactNumber */
     const multiplier = 10 ** maxDecimals
-    return `${Math.floor((value * multiplier) / base) / multiplier}${suffix}`
+    return `${Math.round((value * multiplier) / base) / multiplier}${suffix}`
 }
 
 export function compactNumber(value: number, maxDecimals: number = 1): string {

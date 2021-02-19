@@ -96,8 +96,8 @@ describe('compactNumber()', () => {
         expect(compactNumber(293)).toEqual('293')
         expect(compactNumber(5001)).toEqual('5K')
         expect(compactNumber(5312)).toEqual('5.3K')
-        expect(compactNumber(5392)).toEqual('5.3K') // rounds down
+        expect(compactNumber(5392)).toEqual('5.4K')
         expect(compactNumber(2833102, 2)).toEqual('2.83M')
-        expect(compactNumber(8283310234)).toEqual('8.2B')
+        expect(compactNumber(8283310234)).toEqual('8.3B')
     })
 })
