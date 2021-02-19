@@ -133,10 +133,10 @@ jobs:
                   rm package.old.json
                   for i in $(seq 1 $RETRY_TIMES)
                       # Retry loop because of npm being _eventually_ consistent
-                      do yarn && break || $( [ $i -ne $RETRY_TIMES ] && sleep $RETRY_WAIT_SECONDS || false )
+                      do yarn && break || $( yarn cache clean && [ $i -ne $RETRY_TIMES ] && sleep $RETRY_WAIT_SECONDS || false )
                   done
               env:
-                  RETRY_TIMES: 5
+                  RETRY_TIMES: 10
                   RETRY_WAIT_SECONDS: 10
 
             - name: Create main repo pull request
