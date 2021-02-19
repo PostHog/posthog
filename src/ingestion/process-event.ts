@@ -439,7 +439,13 @@ export class EventsProcessor {
     private async shouldSendHooksTask(team: Team): Promise<boolean> {
         const timeout = timeoutGuard(`Still running "shouldSendHooksTask". Timeout warning after 30 sec!`)
         const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
+
+        const timeout2 = timeoutGuard(
+            `Still running "this.pluginsServer.redis.get(hooksCacheKey)". Timeout warning after 30 sec!`
+        )
         const hooksCacheValue = await this.pluginsServer.redis.get(hooksCacheKey)
+        clearTimeout(timeout2)
+
         let shouldSendHooksTask = false
         if (hooksCacheValue) {
             shouldSendHooksTask = hooksCacheValue === 'true'
@@ -448,6 +454,7 @@ export class EventsProcessor {
                 shouldSendHooksTask = true
             } else if (this.pluginsServer.KAFKA_ENABLED) {
                 // Using KAFKA_ENABLED as a proxy for running enterprise edition
+                const timeout3 = timeoutGuard(`Still running "hook query". Timeout warning after 30 sec!`)
                 try {
                     const hookQueryResult = await this.db.postgresQuery(
                         `SELECT COUNT(*) FROM ee_hook WHERE team_id = $1 AND event = 'action_performed' LIMIT 1`,
@@ -455,14 +462,20 @@ export class EventsProcessor {
                     )
                     shouldSendHooksTask = !!hookQueryResult.rows[0].count
                 } catch (error) {
+                    status.info('🔔', error)
                     // In FOSS PostHog ee_hook does not exist. If the error is other than that, rethrow it
                     if (!String(error).includes('relation "ee_hook" does not exist')) {
                         throw error
                     }
+                } finally {
+                    clearTimeout(timeout)
+                    clearTimeout(timeout3)
                 }
             }
+            const timeout4 = timeoutGuard(`Still running "redis set/expire". Timeout warning after 30 sec!`)
             await this.pluginsServer.redis.set(hooksCacheKey, shouldSendHooksTask.toString())
             await this.pluginsServer.redis.expire(hooksCacheKey, 10)
+            clearTimeout(timeout4)
         }
         clearTimeout(timeout)
         return shouldSendHooksTask
