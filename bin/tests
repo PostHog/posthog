@@ -10,5 +10,4 @@ fi
 export REDIS_URL='redis:///'
 export TEST=1
 
-OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest $@
-nodemon -w ./posthog -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db $@; mypy posthog ee"
+nodemon -w ./posthog -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db $*; mypy posthog ee"
