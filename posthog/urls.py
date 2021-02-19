@@ -10,11 +10,11 @@ from django.contrib.auth import views as auth_views
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
-from django.template.loader import render_to_string
 from django.urls import URLPattern, include, path, re_path, reverse
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
 from loginas.utils import is_impersonated_session, restore_original_login
+from rest_framework import exceptions
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
@@ -239,26 +239,23 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
             try:
                 invite = TeamInviteSurrogate(invite_id)
             except Team.DoesNotExist:
-                processed = render_to_string("auth_error.html", {"message": "Invalid invite link!"},)
-                return HttpResponse(processed, status=401)
+                return redirect(f"/signup/{invite_id}?error_code=invalid_invite&source=social_create_user")
 
         try:
             invite.validate(user=None, email=user_email)
-        except ValueError as e:
-            processed = render_to_string("auth_error.html", {"message": str(e)},)
-            return HttpResponse(processed, status=401)
+        except exceptions.ValidationError as e:
+            return redirect(
+                f"/signup/{invite_id}?error_code={e.get_codes()[0]}&error_detail={e.args[0]}&source=social_create_user"
+            )
 
         try:
             user = strategy.create_user(email=user_email, first_name=user_name, password=None)
         except Exception as e:
             capture_exception(e)
-            processed = render_to_string(
-                "auth_error.html",
-                {
-                    "message": "Account unable to be created. This account may already exist. Please try again or use different credentials!"
-                },
-            )
-            return HttpResponse(processed, status=401)
+            message = "Account unable to be created. This account may already exist. Please try again"
+            " or use different credentials."
+            return redirect(f"/signup/{invite_id}?error_code=unknown&error_detail={message}&source=social_create_user")
+
         invite.use(user, prevalidated=True)
 
     report_user_signed_up(
@@ -357,7 +354,6 @@ urlpatterns = [
     path("logout", logout, name="login"),
     path("login", login_view, name="login"),
     path("signup/finish/", finish_social_signup, name="signup_finish"),
-    path("signup/<str:invite_id>", signup_to_organization_view, name="signup"),
     path("", include("social_django.urls", namespace="social")),
     *(
         []
@@ -404,9 +400,9 @@ if settings.TEST:
     urlpatterns.append(path("delete_events/", delete_events))
 
 # Routes added individually to remove login requirement
-frontend_unauthenticated_routes = ["preflight", "signup"]
+frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*"]
 for route in frontend_unauthenticated_routes:
-    urlpatterns.append(path(route, home))
+    urlpatterns.append(re_path(route, home))
 
 urlpatterns += [
     re_path(r"^.*", login_required(home)),

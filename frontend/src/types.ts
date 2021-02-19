@@ -505,3 +505,27 @@ interface DisabledSetupState {
 }
 
 export type SetupState = EnabledSetupState | DisabledSetupState
+
+export interface PrevalidatedInvite {
+    id: string
+    target_email: string
+    first_name: string
+    organization_name: string
+}
+
+interface AuthBackends {
+    'google-oauth2'?: boolean
+    gitlab?: boolean
+    github?: boolean
+}
+
+export interface PreflightStatus {
+    django: boolean
+    plugins: boolean
+    redis: boolean
+    db: boolean
+    initiated: boolean
+    cloud: boolean
+    celery: boolean
+    available_social_auth_providers: AuthBackends
+}

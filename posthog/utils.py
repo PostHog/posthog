@@ -202,6 +202,9 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     else:
         context["opt_out_capture"] = team.opt_out_capture if team else False
 
+    # TODO: BEGINS DEPRECATED CODE
+    # Code deprecated in favor of posthog.api.authentication.AuthenticationSerializer
+    # Remove after migrating login to React
     if settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET:
         context["github_auth"] = True
     if settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET:
@@ -225,6 +228,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
                 context["google_auth"] = True
             else:
                 print_warning(["You have Google login set up, but not the required premium PostHog plan!"])
+    # ENDS DEPRECATED CODE
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
@@ -500,6 +504,32 @@ def get_instance_realm() -> str:
     Returns the realm for the current instance. `cloud` or `hosted`.
     """
     return "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
+
+
+def get_available_social_auth_providers() -> Dict[str, bool]:
+    github: bool = bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET)
+    gitlab: bool = bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET)
+    google: bool = False
+
+    if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
+        settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", None,
+    ):
+        if settings.MULTI_TENANCY:
+            google = True
+        else:
+
+            try:
+                from ee.models.license import License
+            except ImportError:
+                pass
+            else:
+                license = License.objects.first_valid()
+                if license is not None and "google_login" in license.available_features:
+                    google = True
+                else:
+                    print_warning(["You have Google login set up, but not the required premium PostHog plan!"])
+
+    return {"google-oauth2": google, "github": github, "gitlab": gitlab}
 
 
 def flatten(l: Union[List, Tuple]) -> Generator:

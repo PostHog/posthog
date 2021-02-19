@@ -1,0 +1,136 @@
+@import '~/vars';
+
+.login-signup {
+    height: 100vh;
+    position: relative;
+
+    .ant-row {
+        height: 100%;
+    }
+
+    .image-showcase-container {
+        height: 100%;
+        position: relative;
+
+        .image-showcase {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: $sky;
+
+            .the-mountains {
+                z-index: $z_city_background_image;
+                position: absolute;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                height: 180px;
+                background: url('./mountains.svg');
+                background-size: cover;
+            }
+        }
+
+        .main-logo {
+            padding-top: $default_spacing;
+            padding-left: $default_spacing * 2;
+            img {
+                height: 60px;
+            }
+        }
+
+        .company {
+            font-family: $gosha_sans;
+            font-size: 2.7rem;
+            margin-bottom: 0;
+        }
+
+        .showcase-content {
+            z-index: $z_city_background_content;
+            color: $text_light;
+            height: calc(100% - 100px);
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 0 $default_spacing * 2;
+            position: relative;
+
+            h1,
+            h2,
+            h3 {
+                b {
+                    color: white;
+                }
+            }
+
+            .page-title {
+                color: rgba(255, 255, 255, 0.6);
+            }
+
+            h3 {
+                color: $text_light;
+            }
+
+            .mobile-continue {
+                display: none;
+            }
+        }
+    }
+
+    .rhs-content {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding-top: $default_spacing * 2;
+
+        .rhs-inner {
+            width: 100%;
+            max-width: 382px; // 350px + 32px padding
+            padding: 0 $default_spacing;
+        }
+
+        .password-login {
+            margin-top: $default_spacing * 2;
+        }
+    }
+
+    @media screen and (max-width: $md) {
+        overflow: auto;
+        scroll-behavior: smooth;
+
+        .image-showcase {
+            position: relative !important;
+            height: 100%;
+        }
+
+        .showcase-content {
+            .page-title {
+                margin-top: 0;
+            }
+
+            .mobile-continue {
+                display: block !important;
+                padding-top: $default_spacing;
+            }
+        }
+
+        .rhs-content {
+            height: initial;
+            overflow: initial;
+
+            .top-helper {
+                text-align: left;
+                margin-right: 0;
+                padding: 0 $default_spacing;
+                color: $text_muted;
+                b {
+                    font-weight: normal;
+                }
+            }
+        }
+    }
+}
