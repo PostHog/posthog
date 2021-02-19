@@ -194,8 +194,8 @@ class OrganizationInvite(UUIDModel):
 
         if _email and _email != self.target_email:
             raise exceptions.ValidationError(
-                f"This invite is intended for another email address ({mask_email_address(self.target_email)})"
-                f" but your current address is {_email}.",
+                f"This invite is intended for another email address: {mask_email_address(self.target_email)}"
+                f". You tried to sign up with {_email}.",
                 code="invalid_recipient",
             )
 
@@ -206,7 +206,7 @@ class OrganizationInvite(UUIDModel):
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise exceptions.ValidationError(
-                "You are already a member of this organization.", code="user_already_member",
+                "You already are a member of this organization.", code="user_already_member",
             )
 
         if OrganizationMembership.objects.filter(

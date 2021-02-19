@@ -84,7 +84,7 @@ export function LoginSignup({ invite }: LoginSignupProps): JSX.Element {
                                 Hello{invite?.first_name ? ` ${invite.first_name}` : ''}! You've been invited to join
                             </h1>
                             <div className="company">{invite?.organization_name || 'us'}</div>
-                            <h1 className="page-title">at PostHog</h1>
+                            <h1 className="page-title">on PostHog</h1>
                             <div className="mobile-continue">
                                 <Button icon={<ArrowDownOutlined />} type="default" onClick={handleScroll}>
                                     Continue
@@ -95,10 +95,6 @@ export function LoginSignup({ invite }: LoginSignupProps): JSX.Element {
                 </Col>
                 <Col span={24} md={14} className="rhs-content" ref={rhsContainerRef}>
                     <div className="rhs-inner">
-                        <div className="text-center" style={{ marginBottom: 32 }}>
-                            <b>Already have an account?</b>{' '}
-                            <Link to="/login?utm_message=login-to-accept-invite">Log in</Link>
-                        </div>
                         <SocialLoginButtons
                             title="Continue with a provider"
                             caption={`Remember to log in with ${invite?.target_email}`}
