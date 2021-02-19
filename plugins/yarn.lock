@@ -67,10 +67,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/clickhouse/-/clickhouse-1.7.0.tgz#21fa1e8cfa0637b688f91964e0efeedbf4cf7a3c"
   integrity sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==
 
-"@posthog/plugin-server@0.9.12":
-  version "0.9.12"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.9.12.tgz#eb4b523a1b70fe0149c43b64b3f73109924da7be"
-  integrity sha512-602G7yZohacPt+ho1EtjuZE8FK2if0YceTzK3hE4+3jhOzB3PHQpfPgxMUImn3OCItxA8QRjifcqmzn41P5JTQ==
+"@posthog/plugin-server@0.9.14":
+  version "0.9.14"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.9.14.tgz#7c0c6c0205e4ee9b20beac723db6414a251341e7"
+  integrity sha512-PsXZAp22Lvwo4ikvnG8VOkCXDXbqIT76CyGInO5l7+WXpI83+lyuZxy5Zp64qMzVUo5awm4mU1hdb3RJgHNfNQ==
   dependencies:
     "@babel/standalone" "^7.12.16"
     "@google-cloud/bigquery" "^5.5.0"
