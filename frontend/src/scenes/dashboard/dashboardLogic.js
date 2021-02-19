@@ -321,8 +321,9 @@ export const dashboardLogic = kea({
                 cache.draggingToastId = null
             }
         },
-        refreshDashboardItem: async ({ id }) => {
+        refreshDashboardItem: async ({ id }, breakpoint) => {
             const dashboardItem = await api.get(`api/insight/${id}`)
+            await breakpoint()
             dashboardsModel.actions.updateDashboardItem(dashboardItem)
             if (dashboardItem.refreshing) {
                 setTimeout(() => actions.refreshDashboardItem(id), 1000)
