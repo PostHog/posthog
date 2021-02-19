@@ -67,7 +67,7 @@ export function ActionFilter({
         <div>
             {localFilters ? (
                 sortable ? (
-                    <SortableContainer onSortEnd={onSortEnd} useDragHandle lockAxis="y">
+                    <SortableContainer onSortEnd={onSortEnd} lockAxis="y" distance={5}>
                         {localFilters.map((filter, index) => (
                             <SortableActionFilterRow
                                 key={index}
