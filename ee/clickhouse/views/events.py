@@ -42,6 +42,7 @@ class ClickhouseEventsViewSet(EventViewSet):
     def _query_events_list(self, filter: Filter, team: Team, request: Request, long_date_from: bool = False) -> List:
         limit = "LIMIT 101"
         conditions, condition_params = determine_event_conditions(
+            team,
             {
                 "after": (now() - timedelta(days=1)).isoformat(),
                 "before": (now() + timedelta(seconds=5)).isoformat(),

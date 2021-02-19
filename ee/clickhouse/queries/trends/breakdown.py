@@ -258,7 +258,7 @@ class ClickhouseTrendsBreakdown:
             props_to_filter, team_id, prepend="all_cohort_", table_name="all_events"
         )
         query = """
-            UNION ALL SELECT DISTINCT distinct_id, 0 as value
+            SELECT DISTINCT distinct_id, 0 as value
             FROM events all_events
             WHERE team_id = {} {} {} {}
             """.format(
@@ -274,12 +274,12 @@ class ClickhouseTrendsBreakdown:
         ids = [cohort.pk for cohort in cohorts]
         if "all" in filter.breakdown:
             all_query, all_params = self._format_all_query(team_id, filter, entity)
-            cohort_queries += all_query
+            cohort_queries.append(all_query)
             params = {**params, **all_params}
             ids.append(0)
-        return cohort_queries, ids, params
+        return " UNION ALL ".join(cohort_queries), ids, params
 
-    def _parse_breakdown_cohorts(self, cohorts: BaseManager) -> Tuple[str, Dict]:
+    def _parse_breakdown_cohorts(self, cohorts: BaseManager) -> Tuple[List[str], Dict]:
         queries = []
         params: Dict[str, Any] = {}
         for cohort in cohorts:
@@ -289,4 +289,4 @@ class ClickhouseTrendsBreakdown:
                 "SELECT distinct_id", "SELECT distinct_id, {} as value".format(cohort.pk)
             )
             queries.append(cohort_query)
-        return " UNION ALL ".join(queries), params
+        return queries, params

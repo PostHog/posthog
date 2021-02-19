@@ -92,7 +92,7 @@ class ClickhouseRetention(Retention):
         )
 
         initial_interval_result = sync_execute(
-            INITIAL_INTERVAL_SQL.format(reference_event_sql=reference_event_sql),
+            INITIAL_INTERVAL_SQL.format(reference_event_sql=reference_event_sql, trunc_func=trunc_func,),
             {
                 "team_id": team.pk,
                 "start_date": date_from.strftime(

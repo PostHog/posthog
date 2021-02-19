@@ -20,6 +20,7 @@ import {
     ShareAltOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
+import moment from 'moment'
 
 export function DashboardHeader({ logic }) {
     const { dashboard, draggingEnabled } = useValues(logic)
@@ -52,9 +53,16 @@ export function DashboardHeader({ logic }) {
                                     {dash.name || <span style={{ color: 'var(--gray)' }}>Untitled</span>}
                                 </Select.Option>
                             ))}
-
                             <Select.Option value="new">+ New Dashboard</Select.Option>
                         </Select>
+                        {dashboard.created_by ? (
+                            <div className="dashboard-header-created-by">
+                                Created by {dashboard.created_by.first_name || dashboard.created_by.email || '-'} on{' '}
+                                {moment(dashboard.created_at).format(
+                                    moment(dashboard.created_at).year() === moment().year() ? 'MMMM Do' : 'MMMM Do YYYY'
+                                )}
+                            </div>
+                        ) : null}
                     </div>
                     {dashboard ? (
                         <div className="dashboard-meta">
@@ -72,7 +80,6 @@ export function DashboardHeader({ logic }) {
                                     </Button>
                                 </Tooltip>
                             ) : null}
-
                             <Tooltip title={'Share dashboard.'}>
                                 <Button
                                     className="button-box-when-small enable-dragging-button"
