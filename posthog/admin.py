@@ -46,7 +46,7 @@ class UserAdmin(DjangoUserAdmin):
     change_form_template = "loginas/change_form.html"
 
     fieldsets = (
-        (None, {"fields": ("email", "password")}),
+        (None, {"fields": ("email", "password", "organization_name")}),
         (_("Personal info"), {"fields": ("first_name", "last_name")}),
         (_("Permissions"), {"fields": ("is_active", "is_staff", "groups", "user_permissions",)},),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
@@ -56,6 +56,7 @@ class UserAdmin(DjangoUserAdmin):
     list_display = ("email", "first_name", "last_name", "organization_name", "is_staff")
     list_filter = ("is_staff", "is_active", "groups")
     search_fields = ("email", "first_name", "last_name")
+    readonly_fields = ["organization_name"]
     ordering = ("email",)
 
     def organization_name(self, user: User):
