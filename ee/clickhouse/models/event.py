@@ -165,7 +165,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
 
 def determine_event_conditions(
-    conditions: Dict[str, Union[str, List[str]]], long_date_from: bool = False
+    team: Team, conditions: Dict[str, Union[str, List[str]]], long_date_from: bool
 ) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
@@ -182,7 +182,7 @@ def determine_event_conditions(
             params.update({"before": timestamp})
         elif k == "person_id":
             result += """AND distinct_id IN (%(distinct_ids)s)"""
-            distinct_ids = Person.objects.filter(pk=v)[0].distinct_ids
+            distinct_ids = Person.objects.filter(pk=v, team_id=team.pk)[0].distinct_ids
             distinct_ids = [distinct_id.__str__() for distinct_id in distinct_ids]
             params.update({"distinct_ids": distinct_ids})
         elif k == "distinct_id":
