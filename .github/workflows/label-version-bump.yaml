@@ -22,7 +22,7 @@ jobs:
             - name: Check out repository
               uses: actions/checkout@v2
 
-            - name: Determine version bump type
+            - name: Detect version bump type
               id: bump-type
               run: |
                   BUMP_TYPE=null
