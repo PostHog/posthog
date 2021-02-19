@@ -10,10 +10,8 @@ jobs:
         runs-on: ubuntu-20.04
         if: |
             github.event.pull_request.merged == 'true'
+            && contains(['master', 'main'], github.event.pull_request.base.ref)
             && (
-                github.event.pull_request.base.ref == 'master'
-                || github.event.pull_request.base.ref == 'main'
-            ) && (
                 contains(github.event.pull_request.labels.*.name, 'bump patch')
                 || contains(github.event.pull_request.labels.*.name, 'bump minor')
                 || contains(github.event.pull_request.labels.*.name, 'bump major')
