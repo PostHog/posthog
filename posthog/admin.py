@@ -116,13 +116,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         return mark_safe('<a href="/admin/posthog/user/%s/change/">%s</a>' % (user.pk, user.email))
 
     def organization_billing_link(self, organization: Organization) -> str:
-        try:
-            from multi_tenancy.models import OrganizationBilling  # type: ignore
-
-            billing = OrganizationBilling.objects.get(organization_id=organization.pk)
-            return mark_safe("/admin/multi_tenancy/organizationbilling/%s/change/" % billing.pk)
-        except:
-            return "-"
+        return mark_safe(f'<a href="/admin/multi_tenancy/organizationbilling/{organization.pk}/change/">Billing →</a>')
 
     def usage(self, organization: Organization):
         return mark_safe(

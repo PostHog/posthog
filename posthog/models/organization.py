@@ -110,15 +110,6 @@ class Organization(UUIDModel):
         self.save()
         return self
 
-    def organization_billing_link(self) -> str:
-        try:
-            from multi_tenancy.models import OrganizationBilling  # type: ignore
-
-            billing = OrganizationBilling.objects.get(organization_id=self.pk)
-            return mark_safe("/admin/multi_tenancy/organizationbilling/%s/change/" % billing.pk)
-        except:
-            return "-"
-
 
 class OrganizationMembership(UUIDModel):
     class Level(models.IntegerChoices):
