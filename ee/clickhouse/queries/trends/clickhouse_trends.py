@@ -50,7 +50,7 @@ class ClickhouseTrends(
             result = sync_execute(sql, params)
         except Exception as e:
             capture_exception(e)
-            if settings.TEST:
+            if settings.TEST or settings.DEBUG:
                 raise e
             result = []
         result = parse_function(result)
