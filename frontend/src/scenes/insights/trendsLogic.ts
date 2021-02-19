@@ -340,9 +340,10 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                 })
             }
         },
-        // @ts-expect-error - kea.js typing issue
-        [dashboardItemsModel.actions.refreshAllDashboardItems]: (filters: Record<string, any>) => {
-            actions.setFilters(filters, true)
+        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
+            if (props.dashboardItemId) {
+                actions.setFilters(filters, true)
+            }
         },
     }),
 

@@ -200,9 +200,10 @@ export const retentionTableLogic = kea<
                 actions.updatePeople(newPeople)
             }
         },
-        // @ts-expect-error - kea.js typing issue
-        [dashboardItemsModel.actions.refreshAllDashboardItems]: (filters: Record<string, any>) => {
-            actions.setFilters(filters)
+        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
+            if (props.dashboardItemId) {
+                actions.setFilters(filters)
+            }
         },
     }),
 })

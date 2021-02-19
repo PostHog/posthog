@@ -122,9 +122,10 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
                 actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
             }
         },
-        // @ts-expect-error - kea.js typing issue
-        [dashboardItemsModel.actions.refreshAllDashboardItems]: (filters: Record<string, any>) => {
-            actions.setFilter(filters)
+        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
+            if (props.dashboardItemId) {
+                actions.setFilter(filters)
+            }
         },
     }),
     selectors: {

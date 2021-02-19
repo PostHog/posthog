@@ -154,7 +154,7 @@ export const funnelLogic = kea({
         ],
     }),
 
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions, values, props }) => ({
         setSteps: async () => {
             if (values.stepsWithCount[0]?.people?.length > 0) {
                 actions.loadPeople(values.stepsWithCount)
@@ -179,8 +179,10 @@ export const funnelLogic = kea({
         clearFunnel: async () => {
             insightLogic.actions.setAllFilters({})
         },
-        [dashboardItemsModel.actions.refreshAllDashboardItems]: (filters) => {
-            actions.setFilters(filters, true)
+        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters) => {
+            if (props.dashboardItemId) {
+                actions.setFilters(filters, true)
+            }
         },
     }),
     actionToUrl: ({ actions, values, props }) => ({
