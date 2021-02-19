@@ -59,6 +59,7 @@ jobs:
               if: steps.bump-type.outputs.bump-type != 'null'
               uses: EndBug/add-and-commit@v7
               with:
+                  branch: master
                   author_name: PostHog Bot
                   author_email: hey@posthog.com
                   message: 'Bump version to ${{ steps.new-version.outputs.new-version }}'
