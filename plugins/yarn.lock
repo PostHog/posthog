@@ -67,7 +67,7 @@
   resolved "https://registry.yarnpkg.com/@posthog/clickhouse/-/clickhouse-1.7.0.tgz#21fa1e8cfa0637b688f91964e0efeedbf4cf7a3c"
   integrity sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==
 
-"@posthog/plugin-server@0.9.12":
+"@posthog/plugin-server@":
   version "0.9.12"
   resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.9.12.tgz#eb4b523a1b70fe0149c43b64b3f73109924da7be"
   integrity sha512-602G7yZohacPt+ho1EtjuZE8FK2if0YceTzK3hE4+3jhOzB3PHQpfPgxMUImn3OCItxA8QRjifcqmzn41P5JTQ==
