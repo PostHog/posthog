@@ -56,12 +56,12 @@ export function DashboardHeader({ logic }) {
                             <Select.Option value="new">+ New Dashboard</Select.Option>
                         </Select>
                         {dashboard.created_by ? (
-                            <small className="dashboard-header-created-by">
+                            <div className="dashboard-header-created-by">
                                 Created by {dashboard.created_by.first_name || dashboard.created_by.email || '-'} on{' '}
                                 {moment(dashboard.created_at).format(
                                     moment(dashboard.created_at).year() === moment().year() ? 'MMMM Do' : 'MMMM Do YYYY'
                                 )}
-                            </small>
+                            </div>
                         ) : null}
                     </div>
                     {dashboard ? (

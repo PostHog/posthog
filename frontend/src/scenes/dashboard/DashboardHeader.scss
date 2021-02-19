@@ -57,11 +57,8 @@
     }
 
     .dashboard-header-created-by {
-        display: inline-block;
-        padding-left: 5px;
-        padding-right: 5px;
-        position: relative;
-        bottom: 2px;
+        margin-top: $default_spacing / 2;
+        color: $text_muted;
     }
 
     @media (max-width: 750px) {
