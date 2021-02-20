@@ -1,4 +1,4 @@
-import { formatLabel, identifierToHuman, midEllipsis, isURL, capitalizeFirstLetter } from './utils'
+import { formatLabel, identifierToHuman, midEllipsis, isURL, capitalizeFirstLetter, limitTextLength } from './utils'
 
 describe('capitalizeFirstLetter()', () => {
     it('returns the capitalized string', () => {
@@ -87,5 +87,20 @@ describe('isURL()', () => {
         expect(isURL(1)).toEqual(false)
         expect(isURL(true)).toEqual(false)
         expect(isURL(null)).toEqual(false)
+    })
+})
+
+describe('limitTextLength()', () => {
+    it('returns the limited string', () => {
+        expect(limitTextLength('Posthog', 5).length).toEqual(8)
+        expect(limitTextLength('PostHog is a complete product analytics stack', 25).length).toEqual(28)
+        expect(limitTextLength('Hello World!').length).toBeLessThan(45)
+        expect(limitTextLength('Hello World!').length).not.toBeGreaterThan(45)
+        expect(
+            limitTextLength('PostHog is a complete product analytics stack, to deploy on your infrastructure.').length
+        ).toBeGreaterThan(45)
+        expect(
+            limitTextLength('PostHog is a complete product analytics stack, to deploy on your infrastructure.').length
+        ).not.toBeLessThan(45)
     })
 })

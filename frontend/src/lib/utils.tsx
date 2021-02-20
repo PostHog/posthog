@@ -206,6 +206,17 @@ export function isValidRegex(value: string): boolean {
     }
 }
 
+export function limitTextLength(text: string, maxLength?: number): string {
+    if (maxLength) {
+        return text.slice(0, maxLength).concat('...')
+    }
+    if (text.length > 45) {
+        return text.slice(0, 45).concat('...')
+    } else {
+        return text
+    }
+}
+
 export function formatPropertyLabel(
     item: Record<string, any>,
     cohorts: Record<string, any>[],

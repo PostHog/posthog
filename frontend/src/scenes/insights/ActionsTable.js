@@ -1,5 +1,5 @@
 import React from 'react'
-import { Loading, formatLabel } from '../../lib/utils'
+import { Loading, formatLabel, limitTextLength } from '../../lib/utils'
 import { Table } from 'antd'
 import PropTypes from 'prop-types'
 import { useValues } from 'kea'
@@ -28,9 +28,7 @@ export function ActionsTable({ dashboardItemId = null, view, filters: filtersPar
                                         ? label
                                         : filters.formula
                                         ? label
-                                        : label.length > 45
-                                        ? formatLabel(label.slice(0, 46).concat('...'), action)
-                                        : formatLabel(label, action)}
+                                        : formatLabel(limitTextLength(label), action)}
                                 </div>
                             )
                         },

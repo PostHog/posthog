@@ -4,6 +4,7 @@ import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { cohortsModel } from '../../models/cohortsModel'
+import { limitTextLength } from '../../lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { LIFECYCLE, STICKINESS } from 'lib/constants'
@@ -84,7 +85,7 @@ function CohortFilter({ breakdown, onChange }) {
                             key={item.id}
                             value={item.id}
                             type="cohort"
-                            label={item.name.length > 45 ? item.name.slice(0, 45).concat('...') : item.name}
+                            label={limitTextLength(item.name)}
                             data-attr={'cohort-breakdown-' + index}
                         >
                             {item.name}
@@ -124,7 +125,7 @@ export function BreakdownFilter({ filters, onChange }) {
     if (breakdown_type === 'cohort' && breakdown) {
         label = cohorts
             ? breakdown
-                  .map((cohort_id) => cohorts.filter((c) => c.id == cohort_id)[0]?.name.slice(0, 20) || cohort_id)
+                  .map((cohort_id) => limitTextLength(cohorts.filter((c) => c.id == cohort_id)[0]?.name || cohort_id))
                   .join(', ')
             : ''
     }
