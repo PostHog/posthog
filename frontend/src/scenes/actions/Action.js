@@ -8,7 +8,6 @@ import api from 'lib/api'
 import { kea } from 'kea'
 import { Spin } from 'antd'
 import { hot } from 'react-hot-loader/root'
-import { PageHeader } from 'lib/components/PageHeader'
 import { EventsTable } from 'scenes/events'
 
 let actionLogic = kea({
@@ -65,10 +64,6 @@ let actionLogic = kea({
     }),
 })
 
-function EditComponent(props) {
-    return <ActionEdit {...props} />
-}
-
 export const Action = hot(_Action)
 function _Action({ id }) {
     const fixedFilters = { action_id: id }
@@ -81,9 +76,7 @@ function _Action({ id }) {
 
     return (
         <div>
-            <PageHeader title={id ? 'Editing action' : 'Creating action'} />
-
-            <EditComponent
+            <ActionEdit
                 apiURL=""
                 actionId={id}
                 user={user}

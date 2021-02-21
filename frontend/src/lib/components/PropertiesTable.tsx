@@ -1,6 +1,5 @@
 import React, { CSSProperties, useMemo, useState } from 'react'
 import moment from 'moment'
-import PropTypes from 'prop-types'
 import { keyMapping, PropertyKeyInfo } from './PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm, Table, Tooltip } from 'antd'
 import { NumberOutlined, CalendarOutlined, BulbOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons'
@@ -13,16 +12,16 @@ type Type = HandledType | 'symbol' | 'object' | 'function'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
-const iconStyle: CSSProperties = { marginRight: '0.5rem', opacity: 0.75 }
+const iconStyle: CSSProperties = { display: 'inline-block', marginRight: '0.5rem', opacity: 0.75 }
 
-const typeToIcon: Record<string, JSX.Element> = {
-    string: <IconText style={iconStyle} />,
-    'string, parsable as datetime': <CalendarOutlined style={iconStyle} />,
-    number: <NumberOutlined style={iconStyle} />,
-    bigint: <NumberOutlined style={iconStyle} />,
-    boolean: <BulbOutlined style={iconStyle} />,
-    undefined: <StopOutlined style={iconStyle} />,
-    null: <StopOutlined style={iconStyle} />,
+const typeToIcon: Record<HandledType | string, JSX.Element> = {
+    string: <IconText />,
+    'string, parsable as datetime': <CalendarOutlined />,
+    number: <NumberOutlined />,
+    bigint: <NumberOutlined />,
+    boolean: <BulbOutlined />,
+    undefined: <StopOutlined />,
+    null: <StopOutlined />,
 }
 
 interface BasePropertyType {
@@ -62,6 +61,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
 
     let valueType: Type = typeof value
     if (value === null) {
+        // typeof null returns 'object' ¯\_(ツ)_/¯
         valueType = 'null'
     } else if (valueType === 'string' && moment(value).isValid()) {
         valueType = 'string, parsable as datetime'
@@ -109,7 +109,11 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
                 <>
                     {!editing ? (
                         <>
-                            <Tooltip title={`Property of type ${valueType}.`}>{typeToIcon[valueType]}</Tooltip>
+                            <div style={iconStyle}>
+                                <Tooltip title={`Property of type ${valueType}.`}>
+                                    <span>{typeToIcon[valueType]}</span>
+                                </Tooltip>
+                            </div>
                             {canEdit && boolNullTypes.includes(valueType) ? (
                                 <Dropdown overlay={boolNullSelect}>{valueComponent}</Dropdown>
                             ) : (
@@ -132,7 +136,6 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
         </div>
     )
 }
-
 interface PropertiesTableType extends BasePropertyType {
     properties: any
     sortProperties?: boolean
@@ -229,8 +232,4 @@ export function PropertiesTable({
     }
     // if none of above, it's a value
     return <ValueDisplay value={properties} rootKey={rootKey} onEdit={onEdit} nestingLevel={nestingLevel} />
-}
-
-PropertiesTable.propTypes = {
-    properties: PropTypes.any,
 }

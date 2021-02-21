@@ -2,13 +2,13 @@ import React, { useState, useRef, useCallback } from 'react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { invitesLogic } from './invitesLogic'
-import { Input, Alert, Button } from 'antd'
+import { Input, Alert, Button, ButtonProps } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import { isEmail } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
-import { PlusOutlined } from '@ant-design/icons'
+import { UserAddOutlined } from '@ant-design/icons'
 
-export function CreateInviteModalWithButton({ type = 'standalone' }: { type?: 'standalone' | 'sidebar' }): JSX.Element {
+export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Element {
     const { createInvite } = useActions(invitesLogic)
     const { push } = useActions(router)
     const { location } = useValues(router)
@@ -44,28 +44,17 @@ export function CreateInviteModalWithButton({ type = 'standalone' }: { type?: 's
 
     return (
         <>
-            {type === 'sidebar' ? (
-                <span
-                    className="sidebar-label"
-                    onClick={() => {
-                        setIsVisible(true)
-                    }}
-                >
-                    Invite Team Member
-                </span>
-            ) : (
-                <Button
-                    type="primary"
-                    data-attr="invite-teammate-button"
-                    onClick={() => {
-                        setIsVisible(true)
-                    }}
-                    icon={<PlusOutlined />}
-                >
-                    Invite Team Member
-                </Button>
-            )}
-
+            <Button
+                type="primary"
+                data-attr="invite-teammate-button"
+                onClick={() => {
+                    setIsVisible(true)
+                }}
+                icon={<UserAddOutlined />}
+                {...buttonProps}
+            >
+                Invite Team Member
+            </Button>
             <Modal
                 title={`Inviting Team Member${user?.organization ? ' to ' + user?.organization?.name : ''}`}
                 okText={user?.email_service_available ? 'Send Invite' : 'Create Invite Link'}

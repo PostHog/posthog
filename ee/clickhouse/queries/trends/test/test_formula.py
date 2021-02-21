@@ -240,5 +240,5 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
                     ]
                 }
             )[0]["data"],
-            [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 135.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0],
         )

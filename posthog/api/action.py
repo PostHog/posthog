@@ -275,6 +275,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                         Person.objects.filter(
                             **{
                                 "id": OuterRef("person_id"),
+                                "team_id": self.team.pk,
                                 "properties__{}".format(request.GET["breakdown"]): request.GET["breakdown_value"],
                             }
                         ).only("id")

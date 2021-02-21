@@ -22,7 +22,9 @@ def format_action_filter(action: Action, prepend: str = "action", use_loop: bool
         conditions: List[str] = []
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
-            el_conditions, element_params = filter_element(step, "{}_{}{}".format(action.pk, index, prepend))
+            el_conditions, element_params = filter_element(
+                model_to_dict(step), "{}_{}{}".format(action.pk, index, prepend)
+            )
             params = {**params, **element_params}
             conditions += el_conditions
 
@@ -99,8 +101,7 @@ def _create_regex(selector: Selector) -> str:
     return regex
 
 
-def filter_element(step: ActionStep, prepend: str = "") -> Tuple[List[str], Dict]:
-    filters = model_to_dict(step)
+def filter_element(filters: Dict, prepend: str = "") -> Tuple[List[str], Dict]:
     params = {}
     conditions = []
 
