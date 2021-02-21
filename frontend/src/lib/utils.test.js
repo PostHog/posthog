@@ -1,4 +1,12 @@
-import { formatLabel, identifierToHuman, midEllipsis, isURL, capitalizeFirstLetter, compactNumber, limitTextLength } from './utils'
+import {
+    formatLabel,
+    identifierToHuman,
+    midEllipsis,
+    isURL,
+    capitalizeFirstLetter,
+    compactNumber,
+    limitTextLength,
+} from './utils'
 
 describe('capitalizeFirstLetter()', () => {
     it('returns the capitalized string', () => {
