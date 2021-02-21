@@ -67,12 +67,12 @@ class UserAdmin(DjangoUserAdmin):
     ordering = ("email",)
 
     def organization_name(self, user: User):
-        try:
-            return mark_safe(
-                '<a href="/admin/posthog/organization/%s/change/">%s</a>' % (user.organization.pk, user.organization)
-            )
-        except Team.DoesNotExist:
-            return "no team"
+        if not user.organization:
+            return "No Organization"
+
+        return mark_safe(
+            f'<a href="/admin/posthog/organization/{user.organization.pk}/change/">{user.organization.name}</a>',
+        )
 
     def org_count(self, user: User) -> int:
         return user.organization_memberships.count()
