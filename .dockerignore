@@ -2,6 +2,7 @@
 !package.json
 !yarn.lock
 !tsconfig.json
+!tsconfig.eslint.json
 !src
 !.eslintrc.js
 !.prettierrc
