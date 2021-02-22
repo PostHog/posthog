@@ -62,7 +62,7 @@ export const inviteSignupLogic = kea<
         acceptedInvite: [
             null,
             {
-                acceptInvite: async (payload: AcceptInvitePayloadInterface | undefined, breakpoint) => {
+                acceptInvite: async (payload?: AcceptInvitePayloadInterface, breakpoint?) => {
                     breakpoint()
 
                     if (!values.invite) {
