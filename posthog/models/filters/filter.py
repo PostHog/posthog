@@ -20,6 +20,7 @@ from posthog.models.filters.mixins.common import (
     SelectorMixin,
     SessionMixin,
     ShownAsMixin,
+    TargetEntityDerivedMixin,
 )
 from posthog.models.filters.mixins.property import PropertyMixin
 
@@ -27,7 +28,7 @@ from posthog.models.filters.mixins.property import PropertyMixin
 class Filter(
     PropertyMixin,
     IntervalMixin,
-    EntitiesMixin,
+    TargetEntityDerivedMixin,
     DisplayDerivedMixin,
     SelectorMixin,
     ShownAsMixin,

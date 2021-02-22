@@ -283,3 +283,45 @@ class EntitiesMixin(BaseParamMixin):
             **({"events": [entity.to_dict() for entity in self.events]} if len(self.events) > 0 else {}),
             **({"actions": [entity.to_dict() for entity in self.actions]} if len(self.actions) > 0 else {}),
         }
+
+
+class EntityIdMixin(BaseParamMixin):
+    @cached_property
+    def target_entity_id(self) -> Optional[str]:
+        return self._data.get("entityId", None)
+
+    @include_dict
+    def entity_id_to_dict(self):
+        return {"entity_id": self.target_entity_id} if self.target_entity_id else {}
+
+
+class EntityTypeMixin(BaseParamMixin):
+    @cached_property
+    def target_entity_type(self) -> Optional[str]:
+        return self._data.get("type", None)
+
+    @include_dict
+    def entity_type_to_dict(self):
+        return {"entity_type": self.target_entity_type} if self.target_entity_type else {}
+
+
+class TargetEntityDerivedMixin(EntitiesMixin, EntityTypeMixin, EntityIdMixin):
+    """
+    Properties
+    -----------
+    - target_entity
+    - entity_type (inherited)
+    - entity_id (inherited)
+    - entities (inherited)
+    - actions (inherited)
+    - events (inherited)
+    """
+
+    @cached_property
+    def target_entity(self) -> Entity:
+        if self.target_entity_id and self.target_entity_type:
+            return Entity({"id": self.target_entity_id, "type": self.target_entity_type})
+        elif self.entities:
+            return self.entities[0]
+        else:
+            raise ValueError("An entity must be provided for stickiness target entity to be determined")

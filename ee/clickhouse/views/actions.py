@@ -62,12 +62,8 @@ class ClickhouseActionsViewSet(ActionViewSet):
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
         filter = Filter(request=request)
-        shown_as = request.GET.get("shown_as")
 
-        if len(filter.entities) >= 1:
-            entity = filter.entities[0]
-        else:
-            entity = Entity({"id": request.GET["entityId"], "type": request.GET["type"]})
+        entity = filter.target_entity
 
         # adhoc date handling. parsed differently with django orm
         date_from = filter.date_from or timezone.now()

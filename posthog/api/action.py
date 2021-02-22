@@ -293,10 +293,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 Event.objects.filter(team=team).filter(base.filter_events(team.pk, filter)).add_person_id(team.pk)
             )
         else:
-            if len(filter.entities) >= 1:
-                entity = filter.entities[0]
-            else:
-                entity = Entity({"id": request.GET["entityId"], "type": request.GET["type"]})
+            entity = filter.target_entity
 
             if entity.type == TREND_FILTER_TYPE_EVENTS:
                 filtered_events = base.process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(
