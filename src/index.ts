@@ -45,4 +45,4 @@ for (const [key, value] of Object.entries(otherArgs)) {
 }
 
 initApp(config)
-startPluginsServer(config, makePiscina)
+void startPluginsServer(config, makePiscina) // void the returned promise

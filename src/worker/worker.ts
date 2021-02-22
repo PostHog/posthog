@@ -16,11 +16,8 @@ export async function createWorker(config: PluginsServerConfig, threadId: number
     const [server, closeServer] = await createServer(config, threadId)
     await setupPlugins(server)
 
-    const closeJobs = async () => {
-        await closeServer()
-    }
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-        process.on(signal, closeJobs)
+        process.on(signal, closeServer)
     }
 
     return async ({ task, args }) => {

@@ -10,8 +10,8 @@ beforeEach(async () => {
     ;[server, closeServer] = await createServer()
     await resetTestDatabase(`const processEvent = event => event`)
 })
-afterEach(() => {
-    closeServer()
+afterEach(async () => {
+    await closeServer()
 })
 
 test('getPluginAttachmentRows', async () => {
@@ -28,7 +28,7 @@ test('getPluginAttachmentRows', async () => {
             team_id: 2,
         },
     ])
-    server.db.postgresQuery("update posthog_team set plugins_opt_in='f'")
+    await server.db.postgresQuery("update posthog_team set plugins_opt_in='f'")
     const rows2 = await getPluginAttachmentRows(server)
     expect(rows2).toEqual([])
 })
@@ -49,7 +49,7 @@ test('getPluginConfigRows', async () => {
             team_id: 2,
         },
     ])
-    server.db.postgresQuery("update posthog_team set plugins_opt_in='f'")
+    await server.db.postgresQuery("update posthog_team set plugins_opt_in='f'")
     const rows2 = await getPluginConfigRows(server)
     expect(rows2).toEqual([])
 })
@@ -94,7 +94,7 @@ test('getPluginRows', async () => {
             url: 'https://www.npmjs.com/package/posthog-maxmind-plugin',
         },
     ])
-    server.db.postgresQuery("update posthog_team set plugins_opt_in='f'")
+    await server.db.postgresQuery("update posthog_team set plugins_opt_in='f'")
     const rows2 = await getPluginRows(server)
     expect(rows2).toEqual([])
 })

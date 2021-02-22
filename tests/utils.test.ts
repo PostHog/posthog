@@ -64,13 +64,13 @@ test('getFileFromZip & getFileFromArchive', async () => {
     await expect(getFileFromArchive(Buffer.from('haha'), 'broken.json')).rejects.toThrow()
 })
 
-test('bufferToStream', async () => {
+test('bufferToStream', () => {
     const buffer = Buffer.from(zip, 'base64')
     const stream = bufferToStream(buffer)
     expect(stream.read()).toEqual(buffer)
 })
 
-test('setLogLevel', async () => {
+test('setLogLevel', () => {
     function resetMocks() {
         console.debug = jest.fn()
         console.info = jest.fn()
@@ -158,7 +158,7 @@ test('setLogLevel', async () => {
     expect((console.error as any)._original).toBeDefined()
 })
 
-test('cloneObject', async () => {
+test('cloneObject', () => {
     const o1 = ['string', 'value']
     expect(cloneObject(o1)).toEqual(o1)
     expect(cloneObject(o1) === o1).toBe(false)
@@ -272,6 +272,8 @@ describe('UUID', () => {
     describe('#valueOf', () => {
         it('returns the right big integer', () => {
             const uuid = new UUID('99aBcDeF-1234-4321-0000-dcba87654321')
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-ignore
             expect(uuid.valueOf()).toStrictEqual(0x99abcdef123443210000dcba87654321n)
         })
     })

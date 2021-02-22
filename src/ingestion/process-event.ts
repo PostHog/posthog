@@ -388,7 +388,7 @@ export class EventsProcessor {
                 'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
                 [team.organization_id]
             )
-            const distinctIds: { distinct_id: string }[] = (await organizationMembers).rows
+            const distinctIds: { distinct_id: string }[] = organizationMembers.rows
             for (const { distinct_id } of distinctIds) {
                 this.posthog.identify(distinct_id)
                 this.posthog.capture('first team event ingested', { team: team.uuid })

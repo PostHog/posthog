@@ -18,8 +18,8 @@ let closeServer: () => Promise<void>
 beforeEach(async () => {
     ;[mockServer, closeServer] = await createServer({ LOG_LEVEL: LogLevel.Log })
 })
-afterEach(() => {
-    closeServer()
+afterEach(async () => {
+    await closeServer()
 })
 
 test('setupPlugins and runPlugins', async () => {

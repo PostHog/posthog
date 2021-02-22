@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import { Consumer, EachBatchPayload, Kafka, Message } from 'kafkajs'
-import { PluginsServer, Queue, RawEventMessage } from 'types'
+import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
+import { PluginsServer, Queue } from 'types'
 
 import { status } from '../status'
 import { groupIntoBatches, killGracefully } from '../utils'
@@ -168,21 +168,20 @@ export class KafkaQueue implements Queue {
     }
 
     async pause(): Promise<void> {
-        if (!this.wasConsumerRan || this.isPaused()) {
-            return
+        if (this.wasConsumerRan && !this.isPaused()) {
+            status.info('⏳', 'Pausing Kafka consumer...')
+            this.consumer.pause([{ topic: this.pluginsServer.KAFKA_CONSUMPTION_TOPIC! }])
+            status.info('⏸', 'Kafka consumer paused!')
         }
-        status.info('⏳', 'Pausing Kafka consumer...')
-        await this.consumer.pause([{ topic: this.pluginsServer.KAFKA_CONSUMPTION_TOPIC! }])
-        status.info('⏸', 'Kafka consumer paused!')
+        return Promise.resolve()
     }
 
-    async resume(): Promise<void> {
-        if (!this.wasConsumerRan || !this.isPaused()) {
-            return
+    resume(): void {
+        if (this.wasConsumerRan && this.isPaused()) {
+            status.info('⏳', 'Resuming Kafka consumer...')
+            this.consumer.resume([{ topic: this.pluginsServer.KAFKA_CONSUMPTION_TOPIC! }])
+            status.info('▶️', 'Kafka consumer resumed!')
         }
-        status.info('⏳', 'Resuming Kafka consumer...')
-        await this.consumer.resume([{ topic: this.pluginsServer.KAFKA_CONSUMPTION_TOPIC! }])
-        status.info('▶️', 'Kafka consumer resumed!')
     }
 
     isPaused(): boolean {

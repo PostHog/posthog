@@ -1,5 +1,10 @@
 module.exports = {
     parser: '@typescript-eslint/parser',
+    parserOptions: {
+        sourceType: 'module',
+        tsconfigRootDir: __dirname,
+        project: ['./tsconfig.eslint.json'],
+    },
     plugins: ['@typescript-eslint', 'simple-import-sort'],
     extends: ['plugin:@typescript-eslint/recommended', 'prettier', 'prettier/@typescript-eslint', 'prettier/react'],
     ignorePatterns: ['bin', 'dist', 'node_modules'],
@@ -11,6 +16,11 @@ module.exports = {
         '@typescript-eslint/no-non-null-assertion': 'off',
         '@typescript-eslint/no-var-requires': 'off',
         '@typescript-eslint/no-explicit-any': 'off',
+        'require-await': 'off',
+        '@typescript-eslint/require-await': 'error',
+        '@typescript-eslint/await-thenable': 'error',
+        '@typescript-eslint/no-floating-promises': 'error',
+        '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }],
         curly: 'error',
     },
     overrides: [

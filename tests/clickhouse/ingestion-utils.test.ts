@@ -1,6 +1,6 @@
 import { chainToElements, elementsToString } from '../../src/ingestion/utils'
 
-test('elementsToString and chainToElements', async () => {
+test('elementsToString and chainToElements', () => {
     const elementsString = elementsToString([
         {
             tag_name: 'a',

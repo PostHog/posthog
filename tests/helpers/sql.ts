@@ -112,6 +112,7 @@ export async function createUserTeamAndOrganization(
         plugins_opt_in: true,
         opt_out_capture: false,
         is_demo: false,
+        api_token: `THIS IS NOT A TOKEN FOR TEAM ${teamId}`,
     })
 }
 

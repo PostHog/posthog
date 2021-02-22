@@ -79,12 +79,12 @@ export interface Pausable {
 }
 
 export interface Queue extends Pausable {
-    start: () => void
-    stop: () => void
+    start: () => Promise<void>
+    stop: () => Promise<void>
 }
 
 export interface Queue {
-    stop: () => void
+    stop: () => Promise<void>
 }
 
 export type PluginId = number

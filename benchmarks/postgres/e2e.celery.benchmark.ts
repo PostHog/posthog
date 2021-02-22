@@ -64,11 +64,11 @@ describe('e2e celery & postgres benchmark', () => {
         await queue.pause()
         expect(await server.redis.llen(server.PLUGINS_CELERY_QUEUE)).toEqual(0)
         for (let i = 0; i < count; i++) {
-            await createEvent()
+            createEvent()
         }
         await delay(1000)
         expect(await server.redis.llen(server.PLUGINS_CELERY_QUEUE)).toEqual(count)
-        await queue.resume()
+        queue.resume()
 
         console.log('Starting timer')
         const startTime = performance.now()
