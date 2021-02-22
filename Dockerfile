@@ -1,7 +1,7 @@
 FROM node:14
 WORKDIR /code
 
-COPY package.json yarn.lock .eslintrc.js .prettierrc ./
+COPY package.json yarn.lock .eslintrc.js .prettierrc tsconfig.eslint.json ./
 COPY src/idl/ src/idl/
 RUN yarn install --frozen-lockfile
 
