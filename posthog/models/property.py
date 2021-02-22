@@ -1,19 +1,22 @@
 import json
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Exists, OuterRef, Q
 
+from posthog.models import cohort
 from posthog.utils import is_valid_regex
+
+ValueT = Union[str, int, List[str]]
 
 
 class Property:
     key: str
     operator: Optional[str]
-    value: str
+    value: ValueT
     type: str
 
     def __init__(
-        self, key: str, value: str, operator: Optional[str] = None, type: Optional[str] = None, **kwargs
+        self, key: str, value: ValueT, operator: Optional[str] = None, type: Optional[str] = None, **kwargs
     ) -> None:
         self.key = key
         self.value = value
@@ -33,7 +36,7 @@ class Property:
             "type": self.type,
         }
 
-    def _parse_value(self, value: Union[int, str]) -> Union[int, str, bool]:
+    def _parse_value(self, value: ValueT) -> ValueT:
         if value == "true":
             return True
         if value == "false":
@@ -41,7 +44,7 @@ class Property:
         if isinstance(value, int):
             return value
         try:
-            return json.loads(value)
+            return json.loads(value)  # type: ignore
         except (json.JSONDecodeError, TypeError):
             return value
 
@@ -50,7 +53,8 @@ class Property:
 
         value = self._parse_value(self.value)
         if self.type == "cohort":
-            return Q(Exists(CohortPeople.objects.filter(cohort_id=int(value), person_id=OuterRef("id"),).only("id")))
+            cohort_id = int(cast(Union[str, int], value))
+            return Q(Exists(CohortPeople.objects.filter(cohort_id=cohort_id, person_id=OuterRef("id"),).only("id")))
 
         if self.operator == "is_not":
             return Q(~Q(**{"properties__{}".format(self.key): value}) | ~Q(properties__has_key=self.key))
