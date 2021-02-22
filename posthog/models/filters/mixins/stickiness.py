@@ -3,7 +3,7 @@ from typing import Callable, Optional, Union
 
 from django.utils import timezone
 
-from posthog.constants import DATE_FROM, DATE_TO, STICKINESS_DAYS
+from posthog.constants import DATE_FROM, DATE_TO, ENTITY_ID, ENTITY_TYPE, STICKINESS_DAYS
 from posthog.models.entity import Entity
 from posthog.models.filters.mixins.common import BaseParamMixin, DateMixin, EntitiesMixin, IntervalMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
@@ -76,21 +76,21 @@ class TotalIntervalsDerivedMixin(IntervalMixin, StickinessDateMixin):
 class EntityIdMixin(BaseParamMixin):
     @cached_property
     def target_entity_id(self) -> Optional[str]:
-        return self._data.get("entityId", None)
+        return self._data.get(ENTITY_ID, None)
 
     @include_dict
-    def entity_id_to_dict(self):
-        return {"entity_id": self.target_entity_id} if self.target_entity_id else {}
+    def target_entity_id_to_dict(self):
+        return {ENTITY_ID: self.target_entity_id} if self.target_entity_id else {}
 
 
 class EntityTypeMixin(BaseParamMixin):
     @cached_property
     def target_entity_type(self) -> Optional[str]:
-        return self._data.get("type", None)
+        return self._data.get(ENTITY_TYPE, None)
 
     @include_dict
-    def entity_type_to_dict(self):
-        return {"entity_type": self.target_entity_type} if self.target_entity_type else {}
+    def target_entity_type_to_dict(self):
+        return {ENTITY_TYPE: self.target_entity_type} if self.target_entity_type else {}
 
 
 class TargetEntityDerivedMixin(EntitiesMixin, EntityTypeMixin, EntityIdMixin):

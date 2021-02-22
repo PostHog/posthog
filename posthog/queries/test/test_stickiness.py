@@ -5,6 +5,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.api.test.base import APIBaseTest
+from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models import Action, ActionStep, Event, Person, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.abstract_test.test_compare import AbstractCompareTest
@@ -298,8 +299,8 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                     "stickiness_days": 1,
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-08",
-                    "type": "actions",
-                    "entityId": watched_movie.id,
+                    ENTITY_TYPE: "actions",
+                    ENTITY_ID: watched_movie.id,
                 },
                 team=self.team,
                 get_earliest_timestamp=get_earliest_timestamp,
@@ -331,8 +332,8 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                     "stickiness_days": 1,
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-08",
-                    "type": "actions",
-                    "entityId": watched_movie.id,
+                    ENTITY_TYPE: "actions",
+                    ENTITY_ID: watched_movie.id,
                 },
             ).json()
 
