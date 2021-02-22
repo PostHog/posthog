@@ -62,12 +62,13 @@ class ClickhouseActionsViewSet(ActionViewSet):
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
         filter = Filter(request=request)
-        shown_as = request.GET.get("shown_as")
+        entity_id = request.GET.get("entityId")
+        entity_type = request.GET.get("type")
 
-        if len(filter.entities) >= 1:
-            entity = filter.entities[0]
+        if entity_id and entity_type:
+            entity = Entity({"id": entity_id, "type": entity_type})
         else:
-            entity = Entity({"id": request.GET["entityId"], "type": request.GET["type"]})
+            raise ValueError("An entity must be provided for target entity to be determined")
 
         # adhoc date handling. parsed differently with django orm
         date_from = filter.date_from or timezone.now()

@@ -294,10 +294,13 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 Event.objects.filter(team=team).filter(base.filter_events(team.pk, filter)).add_person_id(team.pk)
             )
         else:
-            if len(filter.entities) >= 1:
-                entity = filter.entities[0]
+            entity_id = request.GET.get("entityId")
+            entity_type = request.GET.get("type")
+
+            if entity_id and entity_type:
+                entity = Entity({"id": entity_id, "type": entity_type})
             else:
-                entity = Entity({"id": request.GET["entityId"], "type": request.GET["type"]})
+                raise ValueError("An entity must be provided for target entity to be determined")
 
             if entity.type == TREND_FILTER_TYPE_EVENTS:
                 filtered_events = base.process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(

@@ -107,9 +107,7 @@ class TargetEntityDerivedMixin(EntitiesMixin, EntityTypeMixin, EntityIdMixin):
 
     @cached_property
     def target_entity(self) -> Entity:
-        if self.entities:
-            return self.entities[0]
-        elif self.target_entity_id and self.target_entity_type:
+        if self.target_entity_id and self.target_entity_type:
             return Entity({"id": self.target_entity_id, "type": self.target_entity_type})
         else:
             raise ValueError("An entity must be provided for stickiness target entity to be determined")
