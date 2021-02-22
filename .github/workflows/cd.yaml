@@ -126,8 +126,11 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install new plugin server version in main repo
+              id: yarn-upgrade
               run: |
                   cd plugins/
+                  OUTGOING_VERSION=$(jq '.dependencies["@posthog/plugin-server"]' package.json -r)
+                  echo "::set-output name=outgoing-version::$OUTGOING_VERSION"
                   for i in $(seq 1 $RETRY_TIMES); do
                       # Retry loop because of npm being _eventually_ consistent
                       if yarn upgrade @posthog/plugin-server@${{ env.REPO_VERSION }}; then
@@ -154,7 +157,7 @@ jobs:
 
                       Plugin server version ${{ env.REPO_VERSION }} has been released. This updates PostHog to use it.
 
-                      https://github.com/PostHog/plugin-server/compare/v${{ env.PUBLISHED_VERSION }}...v${{ env.REPO_VERSION }} • [GitHub releases](https://github.com/PostHog/plugin-server/releases) • [npm releases](https://www.npmjs.com/package/@posthog/plugin-server?activeTab=version)
+                      https://github.com/PostHog/plugin-server/compare/v${{ steps.yarn-upgrade.outputs.outgoing-version }}...v${{ env.REPO_VERSION }} • [GitHub releases](https://github.com/PostHog/plugin-server/releases) • [npm releases](https://www.npmjs.com/package/@posthog/plugin-server?activeTab=version)
 
             - name: Output pull request result
               run: |
