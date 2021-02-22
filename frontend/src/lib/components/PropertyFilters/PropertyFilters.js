@@ -80,7 +80,7 @@ export function PropertyFilters({
                 filters.map((item, index) => {
                     return (
                         <FilterRow
-                            key={index === filters.length - 1 ? index : `${index}_${Object.keys(item)[0]}`}
+                            key={index}
                             logic={logic}
                             item={item}
                             index={index}
