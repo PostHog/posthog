@@ -181,8 +181,6 @@ jobs:
 
             - name: Link posthog-production at master
               run: |
-                  cp deploy/ee/conftest.py multi_tenancy/
-                  cp deploy/ee/conftest.py messagning/
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
                   cat multi_tenancy_settings.py >> deploy/posthog/settings.py
@@ -226,6 +224,8 @@ jobs:
 
             - name: Link posthog-production at current branch
               run: |
+                  cp deploy/ee/conftest.py multi_tenancy/conftest.py
+                  cp deploy/ee/conftest.py messaging/conftest.py
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
                   cat multi_tenancy_settings.py >> deploy/posthog/settings.py
