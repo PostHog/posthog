@@ -51,7 +51,7 @@ export function createPosthog(server: PluginsServer, pluginConfig: PluginConfig)
         }
     } else {
         // Sending event to our Redis>Postgres pipeline
-        const client = new Client(server.redis, server.PLUGINS_CELERY_QUEUE)
+        const client = new Client(server.db, server.PLUGINS_CELERY_QUEUE)
         sendEvent = async (data) => {
             client.sendTask(
                 'posthog.tasks.process_event.process_event_with_plugins',

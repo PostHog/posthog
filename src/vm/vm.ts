@@ -59,11 +59,7 @@ export async function createPluginConfigVM(
 
     vm.freeze(
         {
-            cache: createCache(
-                server,
-                pluginConfig.plugin?.name || pluginConfig.plugin_id.toString(),
-                pluginConfig.team_id
-            ),
+            cache: createCache(server, pluginConfig.plugin_id, pluginConfig.team_id),
             config: pluginConfig.config,
             attachments: pluginConfig.attachments,
             storage: createStorage(server, pluginConfig),

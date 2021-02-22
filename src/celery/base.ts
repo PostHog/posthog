@@ -2,15 +2,14 @@
  * writes here Base Parent class of Celery client and worker
  * @author SunMyeong Lee <actumn814@gmail.com>
  */
-import * as Redis from 'ioredis'
-
-import RedisBroker from './broker'
+import { DB } from '../db'
+import { Broker } from './broker'
 import { CeleryConf, defaultConf } from './conf'
 
 export default class Base {
-    broker: RedisBroker
+    broker: Broker
     conf: CeleryConf
-    redis: Redis.Redis
+    db: DB
 
     /**
      * Parent Class of Client and Worker
@@ -18,11 +17,11 @@ export default class Base {
      *
      * @constructor Base
      */
-    constructor(redis: Redis.Redis, queue = 'celery') {
-        this.redis = redis
+    constructor(db: DB, queue = 'celery') {
+        this.db = db
         this.conf = defaultConf()
         this.conf.CELERY_QUEUE = queue
-        this.broker = new RedisBroker(this.redis)
+        this.broker = new Broker(db)
     }
 
     /**

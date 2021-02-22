@@ -46,7 +46,7 @@ test('worker and task passing via redis', async () => {
 
     // Tricky: make a client to the PLUGINS_CELERY_QUEUE queue (not CELERY_DEFAULT_QUEUE as normally)
     // This is so that the worker can directly read from it. Basically we will simulate a event sent from posthog.
-    const client = new Client(server.redis, server.PLUGINS_CELERY_QUEUE)
+    const client = new Client(server.db, server.PLUGINS_CELERY_QUEUE)
     client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
 
     // It's there
@@ -124,7 +124,7 @@ test('process multiple tasks', async () => {
 
     // Tricky: make a client to the PLUGINS_CELERY_QUEUE queue (not CELERY_DEFAULT_QUEUE as normally)
     // This is so that the worker can directly read from it. Basically we will simulate a event sent from posthog.
-    const client = new Client(server.redis, server.PLUGINS_CELERY_QUEUE)
+    const client = new Client(server.db, server.PLUGINS_CELERY_QUEUE)
     client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
     client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
     client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
@@ -188,7 +188,7 @@ test('pause and resume queue', async () => {
 
     // Tricky: make a client to the PLUGINS_CELERY_QUEUE queue (not CELERY_DEFAULT_QUEUE as normally)
     // This is so that the worker can directly read from it. Basically we will simulate a event sent from posthog.
-    const client = new Client(server.redis, server.PLUGINS_CELERY_QUEUE)
+    const client = new Client(server.db, server.PLUGINS_CELERY_QUEUE)
     client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
     client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
     client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
