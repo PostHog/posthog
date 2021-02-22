@@ -54,9 +54,9 @@ export function OperatorValueSelect({
                         type={type}
                         key={propkey}
                         propertyKey={propkey}
-                        operator={operator}
+                        operator={currentOperator || 'exact'}
                         value={value}
-                        onSet={(value: string | number | null) => {
+                        onSet={(value: string | number | string[] | null) => {
                             onChange(currentOperator || 'exact', value)
                         }}
                     />
