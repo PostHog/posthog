@@ -234,7 +234,7 @@ export function formatLabel(
     }
 ): string {
     if (action.math === 'dau') {
-        label += ` (${action.math.toUpperCase()}) `
+        label += ` (Active Users) `
     } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math)) {
         label += ` (${action.math} of ${action.math_property}) `
     } else {
