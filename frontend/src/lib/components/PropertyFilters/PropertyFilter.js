@@ -46,8 +46,8 @@ function PropertyPaneContents({
 
     return (
         <>
-            <Row gutter={8} className="full-width">
-                <Col flex={1}>
+            <Row gutter={8} className="full-width" wrap={false}>
+                <Col flex={'1'}>
                     <PropertySelect
                         value={
                             type === 'cohort'
@@ -85,7 +85,7 @@ function PropertyPaneContents({
                                 onComplete()
                             }
                         }}
-                        columnOptions={{ flex: 1 }}
+                        columnOptions={{ flex: '1' }}
                     />
                 )}
             </Row>
