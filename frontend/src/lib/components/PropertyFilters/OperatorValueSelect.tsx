@@ -11,7 +11,7 @@ interface OperatorValueSelectProps {
     operator: PropertyOperator | undefined
     value: string | number | null
     columnOptions?: ColProps
-    onChange: (operator: PropertyOperator, value: string | number | null) => void
+    onChange: (operator: PropertyOperator, value: string | number | string[] | null) => void
 }
 
 interface OperatorSelectProps {
@@ -56,8 +56,8 @@ export function OperatorValueSelect({
                         propertyKey={propkey}
                         operator={currentOperator || 'exact'}
                         value={value}
-                        onSet={(value: string | number | string[] | null) => {
-                            onChange(currentOperator || 'exact', value)
+                        onSet={(newValue: string | number | string[] | null) => {
+                            onChange(currentOperator || 'exact', newValue)
                         }}
                     />
                 </Col>
