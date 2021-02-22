@@ -7,23 +7,11 @@ import moment from 'moment'
 import { DateFilter } from 'lib/components/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 
-import { ActionsPie } from './ActionsPie'
-import { ActionsTable } from './ActionsTable'
-import { ActionsLineGraph } from './ActionsLineGraph'
-import { PersonModal } from './PersonModal'
 import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Card, Button, Input, Modal } from 'antd'
-import {
-    ACTIONS_LINE_GRAPH_LINEAR,
-    ACTIONS_LINE_GRAPH_CUMULATIVE,
-    ACTIONS_TABLE,
-    ACTIONS_PIE_CHART,
-    ACTIONS_BAR_CHART,
-    LIFECYCLE,
-    FUNNEL_VIZ,
-} from 'lib/constants'
+import { Tabs, Row, Col, Card, Button } from 'antd'
+import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, ACTIONS_PIE_CHART, LIFECYCLE, FUNNEL_VIZ } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -36,7 +24,6 @@ import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './Insigh
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic, logicFromInsight, ViewType } from './insightLogic'
-import { trendsLogic } from './trendsLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
@@ -48,6 +35,7 @@ import './Insights.scss'
 import { ErrorMessage, TimeOut } from './EmptyStates'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { People } from 'scenes/funnels/People'
+import { TrendInsight } from 'scenes/trends/Trends'
 
 const { TabPane } = Tabs
 
@@ -325,80 +313,6 @@ function _Insights() {
                 </Row>
             </div>
         )
-    )
-}
-
-function SaveCohortModal({ onOk, onCancel, visible }) {
-    const [cohortTitle, setCohortTitle] = useState('')
-    return (
-        <Modal
-            title={`New Cohort`}
-            okText={'Save'}
-            cancelText="Cancel"
-            onOk={() => {
-                onOk(cohortTitle)
-                setCohortTitle('')
-            }}
-            onCancel={onCancel}
-            visible={visible}
-        >
-            <div className="mb">
-                <Input
-                    required
-                    autoFocus
-                    placeholder="Cohort name..."
-                    value={cohortTitle}
-                    data-attr="cohort-name"
-                    onChange={(e) => setCohortTitle(e.target.value)}
-                />
-            </div>
-        </Modal>
-    )
-}
-
-function TrendInsight({ view }) {
-    const [cohortModalVisible, setCohortModalVisible] = useState(false)
-    const { filters: _filters, loading, showingPeople } = useValues(
-        trendsLogic({ dashboardItemId: null, view, filters: null })
-    )
-    const { saveCohortWithFilters, refreshCohort } = useActions(
-        trendsLogic({ dashboardItemId: null, view, filters: null })
-    )
-    return (
-        <>
-            {(_filters.actions || _filters.events || _filters.session) && (
-                <div
-                    style={{
-                        minHeight: 'calc(90vh - 16rem)',
-                        position: 'relative',
-                    }}
-                >
-                    {loading && <Loading />}
-                    {(!_filters.display ||
-                        _filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                        _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
-                        _filters.display === ACTIONS_BAR_CHART) && <ActionsLineGraph view={view} />}
-                    {_filters.display === ACTIONS_TABLE && <ActionsTable filters={_filters} view={view} />}
-                    {_filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={_filters} view={view} />}
-                </div>
-            )}
-            <PersonModal
-                visible={showingPeople && !cohortModalVisible}
-                view={view}
-                onSaveCohort={() => {
-                    refreshCohort()
-                    setCohortModalVisible(true)
-                }}
-            />
-            <SaveCohortModal
-                visible={cohortModalVisible}
-                onOk={(title) => {
-                    saveCohortWithFilters(title)
-                    setCohortModalVisible(false)
-                }}
-                onCancel={() => setCohortModalVisible(false)}
-            />
-        </>
     )
 }
 

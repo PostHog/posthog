@@ -15,8 +15,8 @@ import {
     ACTION_TYPE,
     ShownAsValue,
 } from 'lib/constants'
-import { ViewType, insightLogic } from './insightLogic'
-import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
+import { ViewType, insightLogic } from '../insights/insightLogic'
+import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { ActionType, EntityType, FilterType, PersonType, PropertyFilter } from '~/types'
@@ -174,7 +174,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
         setDisplay: (display) => ({ display }),
 
         loadPeople: (action, label, day, breakdown_value) => ({ action, label, day, breakdown_value }),
-        saveCohortWithFilters: (cohortName) => ({ cohortName }),
+        saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
         loadMorePeople: true,
         refreshCohort: true,
         setLoadingMorePeople: (status) => ({ status }),

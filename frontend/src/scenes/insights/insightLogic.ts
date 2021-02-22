@@ -5,7 +5,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
-import { trendsLogic } from './trendsLogic'
+import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
 export enum ViewType {
