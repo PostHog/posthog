@@ -12,7 +12,7 @@ from posthog.tasks.calculate_cohort import insert_cohort_from_query
 
 
 class ClickhouseCohortSerializer(CohortSerializer):
-    earliest_timestamp_func = lambda team_id: get_earliest_timestamp(team_id)
+    earliest_timestamp_func = get_earliest_timestamp
 
     def _handle_stickiness_people(self, cohort: Cohort, filter: StickinessFilter) -> None:
         insert_cohort_from_query.delay(cohort.pk, INSIGHT_STICKINESS, filter.to_dict())

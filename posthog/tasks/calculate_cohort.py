@@ -65,9 +65,8 @@ def insert_cohort_from_query(
 
         cohort = Cohort.objects.get(pk=cohort_id)
         if insight_type == INSIGHT_STICKINESS:
-            earliest_timestamp_func = lambda team_id: get_earliest_timestamp(team_id)
             _stickiness_filter = StickinessFilter(
-                data=filter_data, team=cohort.team, get_earliest_timestamp=earliest_timestamp_func
+                data=filter_data, team=cohort.team, get_earliest_timestamp=get_earliest_timestamp
             )
             insert_stickiness_people_into_cohort(cohort, _stickiness_filter)
         else:
