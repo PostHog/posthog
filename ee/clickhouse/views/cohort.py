@@ -18,10 +18,7 @@ class ClickhouseCohortSerializer(CohortSerializer):
         insert_cohort_from_query.delay(cohort.pk, INSIGHT_STICKINESS, filter.to_dict())
 
     def _handle_trend_people(self, cohort: Cohort, filter: Filter) -> None:
-        if len(filter.entities) >= 1:
-            entity = filter.entities[0]
-        else:
-            entity = Entity({"id": filter.target_entity_id, "type": filter.target_entity_type})
+        entity = Entity({"id": filter.target_entity_id, "type": filter.target_entity_type})
         insert_cohort_from_query.delay(cohort.pk, INSIGHT_TRENDS, filter.to_dict(), entity_data=entity.to_dict())
 
 
