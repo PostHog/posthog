@@ -155,12 +155,6 @@ EE_AVAILABLE = False
 
 PLUGIN_SERVER_INGESTION = get_from_env("PLUGIN_SERVER_INGESTION", False, type_cast=strtobool)
 
-if PRIMARY_DB == RDBMS.CLICKHOUSE:
-    TEST_RUNNER = os.getenv("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
-else:
-    TEST_RUNNER = os.getenv("TEST_RUNNER", "django.test.runner.DiscoverRunner")
-
-
 ASYNC_EVENT_ACTION_MAPPING = get_from_env("ASYNC_EVENT_ACTION_MAPPING", False, type_cast=strtobool)
 
 # Enable if ingesting with the plugin server into postgres, as it's not able to calculate the mapping on the fly
