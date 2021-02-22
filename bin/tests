@@ -1,5 +1,5 @@
 #!/bin/bash
-set -x
+set -e
 
 if ! command -v nodemon &> /dev/null
 then
