@@ -47,6 +47,7 @@ import './Insights.scss'
 import { ErrorMessage, TimeOut } from './EmptyStates'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { People } from 'scenes/funnels/People'
+import { TrendLegend } from './TrendLegend'
 
 const { TabPane } = Tabs
 
@@ -306,6 +307,9 @@ function _Insights() {
                                         <FunnelPeople />
                                     </Card>
                                 )}
+                            <Card>
+                                <TrendLegend view={ViewType.TRENDS} />
+                            </Card>
                         </Col>
                     </>
                 )}

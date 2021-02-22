@@ -186,6 +186,9 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
             breakdown_value,
             next,
         }),
+        setIndexedResults: (results) => ({ results }),
+        toggleVisibility: (index: number) => ({ index }),
+        setVisibility: (entry: Record<number, any>) => ({ entry }),
     }),
 
     reducers: ({ props }) => ({
@@ -222,6 +225,25 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
             {
                 loadPeople: () => true,
                 setShowingPeople: ({}, { isShowing }) => isShowing,
+            },
+        ],
+        indexedResults: [
+            [],
+            {
+                setIndexedResults: ({}, { results }) => results,
+            },
+        ],
+        visibilityMap: [
+            {} as Record<number, any>,
+            {
+                setVisibility: (state: Record<number, any>, { entry }: { entry: Record<number, any> }) => ({
+                    ...state,
+                    ...entry,
+                }),
+                toggleVisibility: (state: Record<number, any>, { index }: { index: number }) => ({
+                    ...state,
+                    [`${index}`]: !state[index],
+                }),
             },
         ],
     }),
@@ -273,6 +295,13 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                     filters: [...(params.filters || []), SESSIONS_WITH_RECORDINGS_FILTER],
                 })}`,
             }),
+        ],
+        selectedIds: [
+            () => [selectors.visibilityMap],
+            (visibilityMap) =>
+                Object.entries(visibilityMap)
+                    .filter(([, value]) => value)
+                    .map(([key]) => parseInt(key)),
         ],
     }),
 
@@ -338,6 +367,12 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                     insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
                 })
             }
+
+            const indexedResults = values.results.map((element, index) => {
+                actions.setVisibility({ [`${index}`]: true })
+                return { ...element, id: index }
+            })
+            actions.setIndexedResults(indexedResults)
         },
     }),
 
