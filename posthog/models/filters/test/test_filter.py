@@ -56,6 +56,30 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             events = filter_events(filter, self.team)
             self.assertEqual(len(events), 1)
 
+        def test_multiple_equality(self):
+            event_factory(team=self.team, distinct_id="test", event="$pageview")
+            event_factory(
+                team=self.team, distinct_id="test", event="$pageview", properties={"$current_url": 1}
+            )  # test for type incompatibility
+            event_factory(
+                team=self.team, distinct_id="test", event="$pageview", properties={"$current_url": {"bla": "bla"}}
+            )  # test for type incompatibility
+            event_factory(
+                team=self.team,
+                event="$pageview",
+                distinct_id="test",
+                properties={"$current_url": "https://whatever.com"},
+            )
+            event_factory(
+                team=self.team,
+                event="$pageview",
+                distinct_id="test",
+                properties={"$current_url": "https://example.com"},
+            )
+            filter = Filter(data={"properties": {"$current_url": ["https://whatever.com", "https://example.com"]}})
+            events = filter_events(filter, self.team)
+            self.assertEqual(len(events), 2)
+
         def test_incomplete_data(self):
             filter = Filter(
                 data={"properties": [{"key": "$current_url", "operator": "not_icontains", "type": "event"}]}

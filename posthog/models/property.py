@@ -57,7 +57,7 @@ class Property:
             return Q(Exists(CohortPeople.objects.filter(cohort_id=cohort_id, person_id=OuterRef("id"),).only("id")))
 
         if self.operator == "is_not":
-            return Q(~Q(**{"properties__{}".format(self.key): value}) | ~Q(properties__has_key=self.key))
+            return Q(~lookup_q(f"properties__{self.key}", value) | ~Q(properties__has_key=self.key))
         if self.operator == "is_set":
             return Q(**{"properties__{}__isnull".format(self.key): False})
         if self.operator == "is_not_set":
@@ -71,4 +71,13 @@ class Property:
                 | ~Q(properties__has_key=self.key)
                 | Q(**{"properties__{}".format(self.key): None})
             )
-        return Q(**{"properties__{}{}".format(self.key, f"__{self.operator}" if self.operator else ""): value})
+
+        suffix = f"__{self.operator}" if self.operator else ""
+        return lookup_q(f"properties__{self.key}{suffix}", value)
+
+
+def lookup_q(key: str, value: Any) -> Q:
+    # exact and is_not operators can pass lists as arguments. Handle those lookups!
+    if isinstance(value, list):
+        return Q(**{f"{key}__in": value})
+    return Q(**{key: value})
