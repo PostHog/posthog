@@ -46,9 +46,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
     },
 
     events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadUser(true)
-        },
+        afterMount: () => actions.loadUser(true),
     }),
 
     selectors: ({ selectors }) => ({

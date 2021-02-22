@@ -1,38 +1,42 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { PreflightStatus } from '~/types'
 import { preflightLogicType } from './logicType'
 
-export const preflightLogic = kea<preflightLogicType<PreflightStatus>>({
+interface PreflightStatus {
+    django?: boolean
+    redis?: boolean
+    db?: boolean
+    initiated?: boolean
+    cloud?: boolean
+}
+
+export const preflightLogic = kea<preflightLogicType>({
     loaders: {
         preflight: [
-            null as PreflightStatus | null,
+            {} as PreflightStatus,
             {
-                loadPreflight: async () => await api.get('_preflight/'),
+                loadPreflight: async () => (await api.get('_preflight/')) as PreflightStatus,
             },
         ],
     },
+
     actions: {
         resetPreflight: true,
     },
+
     reducers: {
         preflight: {
-            resetPreflight: () => null,
+            resetPreflight: () => ({} as PreflightStatus),
         },
     },
-    selectors: {
-        socialAuthAvailable: [
-            (s) => [s.preflight],
-            (preflight: PreflightStatus | null) =>
-                preflight && Object.values(preflight.available_social_auth_providers).filter((i) => i).length,
-        ],
-    },
+
     listeners: ({ actions }) => ({
         resetPreflight: async (_, breakpoint) => {
             await breakpoint(1000)
             actions.loadPreflight()
         },
     }),
+
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadPreflight()

@@ -8,8 +8,6 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
-from posthog.utils import mask_email_address
-
 from .utils import UUIDModel, sane_repr
 
 try:
@@ -193,29 +191,18 @@ class OrganizationInvite(UUIDModel):
         _email = email or (hasattr(user, "email") and user.email)
 
         if _email and _email != self.target_email:
-            raise exceptions.ValidationError(
-                f"This invite is intended for another email address: {mask_email_address(self.target_email)}"
-                f". You tried to sign up with {_email}.",
-                code="invalid_recipient",
-            )
+            raise ValueError("This invite is intended for another email address.")
 
         if self.is_expired():
-            raise exceptions.ValidationError(
-                "This invite has expired. Please ask your admin for a new one.", code="expired",
-            )
+            raise ValueError("This invite has expired. Please ask your admin for a new one.")
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
-            raise exceptions.ValidationError(
-                "You already are a member of this organization.", code="user_already_member",
-            )
+            raise ValueError("User already is a member of the organization.")
 
         if OrganizationMembership.objects.filter(
             organization=self.organization, user__email=self.target_email,
         ).exists():
-            raise exceptions.ValidationError(
-                "Another user with this email address already belongs to this organization.",
-                code="existing_email_address",
-            )
+            raise ValueError("A user with this email address already belongs to the organization.")
 
     def use(self, user: Any, *, prevalidated: bool = False) -> None:
         if not prevalidated:
