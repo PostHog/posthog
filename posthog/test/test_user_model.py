@@ -1,5 +1,6 @@
 from unittest.mock import Mock, patch
 
+import pytest
 from dateutil.relativedelta import relativedelta
 from django.test import tag
 from django.utils.timezone import now
@@ -10,7 +11,7 @@ from posthog.test.base import BaseTest
 
 
 class TestUser(BaseTest):
-    @tag("ee")
+    @pytest.mark.ee
     @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     @patch("ee.models.license.requests.post")
     def test_feature_available_self_hosted_has_license(self, patch_post):
@@ -24,13 +25,13 @@ class TestUser(BaseTest):
             self.assertTrue(self.organization.is_feature_available("whatever"))
             self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
 
-    @tag("ee")
+    @pytest.mark.ee
     @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     def test_feature_available_self_hosted_no_license(self):
         self.assertFalse(self.organization.is_feature_available("whatever"))
         self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
 
-    @tag("ee")
+    @pytest.mark.ee
     @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     @patch("ee.models.license.requests.post")
     def test_feature_available_self_hosted_license_expired(self, patch_post):
