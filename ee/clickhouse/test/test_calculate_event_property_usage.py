@@ -3,7 +3,7 @@ from uuid import uuid4
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.event import Event
-from posthog.tasks.test.calculate_event_property_usage_test_factory import calculate_event_property_usage_test_factory
+from posthog.tasks.test.test_calculate_event_property_usage import calculate_event_property_usage_test_factory
 
 
 def _create_event(**kwargs) -> Event:
