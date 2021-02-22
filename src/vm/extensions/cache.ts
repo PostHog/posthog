@@ -2,32 +2,20 @@ import { CacheExtension } from '@posthog/plugin-scaffold'
 
 import { PluginsServer } from '../../types'
 
-export function createCache(server: PluginsServer, pluginName: string, teamId: number): CacheExtension {
-    const getKey = (key: string) => `@plugin/${pluginName}/${typeof teamId === 'undefined' ? '@all' : teamId}/${key}`
+export function createCache(server: PluginsServer, pluginId: number, teamId: number): CacheExtension {
+    const getKey = (key: string) => `@plugin/${pluginId}/${typeof teamId === 'undefined' ? '@all' : teamId}/${key}`
     return {
         set: async function (key: string, value: unknown, ttlSeconds?: number): Promise<void> {
-            if (ttlSeconds) {
-                await server.redis.set(getKey(key), JSON.stringify(value), 'EX', ttlSeconds)
-            } else {
-                await server.redis.set(getKey(key), JSON.stringify(value))
-            }
+            return await server.db.redisSet(getKey(key), value, ttlSeconds)
         },
         get: async function (key: string, defaultValue: unknown): Promise<unknown> {
-            const value = await server.redis.get(getKey(key))
-            if (typeof value === 'undefined') {
-                return defaultValue
-            }
-            try {
-                return value ? JSON.parse(value) : null
-            } catch (e) {
-                return null
-            }
+            return await server.db.redisGet(getKey(key), defaultValue)
         },
         incr: async function (key: string): Promise<number> {
-            return await server.redis.incr(getKey(key))
+            return await server.db.redisIncr(getKey(key))
         },
         expire: async function (key: string, ttlSeconds: number): Promise<boolean> {
-            return (await server.redis.expire(getKey(key), ttlSeconds)) === 1
+            return await server.db.redisExpire(getKey(key), ttlSeconds)
         },
     }
 }

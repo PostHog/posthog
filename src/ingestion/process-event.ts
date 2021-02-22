@@ -38,7 +38,7 @@ export class EventsProcessor {
         this.db = pluginsServer.db
         this.clickhouse = pluginsServer.clickhouse!
         this.kafkaProducer = pluginsServer.kafkaProducer!
-        this.celery = new Client(pluginsServer.redis, pluginsServer.CELERY_DEFAULT_QUEUE)
+        this.celery = new Client(pluginsServer.db, pluginsServer.CELERY_DEFAULT_QUEUE)
         this.posthog = nodePostHog('sTMFPsFhdP1Ssg', { fetch })
         if (process.env.NODE_ENV === 'test') {
             this.posthog.optOut()
@@ -59,6 +59,9 @@ export class EventsProcessor {
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
         }
         const singleSaveTimer = new Date()
+        const timeout = timeoutGuard(
+            `Still inside "EventsProcessor.processEvent". Timeout warning after 30 sec! ${JSON.stringify(data)}`
+        )
 
         const properties: Properties = data.properties ?? {}
         if (data['$set']) {
@@ -110,6 +113,7 @@ export class EventsProcessor {
             this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer)
             clearTimeout(timeout3)
         }
+        clearTimeout(timeout)
 
         return result
     }

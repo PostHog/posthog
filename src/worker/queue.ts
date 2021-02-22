@@ -57,8 +57,8 @@ async function startQueueRedis(
     piscina: Piscina | undefined,
     workerMethods: WorkerMethods
 ): Promise<Queue> {
-    const celeryQueue = new Worker(server.redis, server.PLUGINS_CELERY_QUEUE)
-    const client = new Client(server.redis, server.CELERY_DEFAULT_QUEUE)
+    const celeryQueue = new Worker(server.db, server.PLUGINS_CELERY_QUEUE)
+    const client = new Client(server.db, server.CELERY_DEFAULT_QUEUE)
 
     celeryQueue.register(
         'posthog.tasks.process_event.process_event_with_plugins',

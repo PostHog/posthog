@@ -1,6 +1,6 @@
-import * as Redis from 'ioredis'
 import { v4 } from 'uuid'
 
+import { DB } from '../db'
 import { status } from '../status'
 import { Pausable } from '../types'
 import { Message } from './message'
@@ -23,8 +23,8 @@ class RedisMessage extends Message {
     }
 }
 
-export default class RedisBroker implements Pausable {
-    redis: Redis.Redis
+export class Broker implements Pausable {
+    db: DB
     subscriptions: BrokerSubscription[] = []
     channels: Promise<void>[] = []
     closing = false
@@ -36,8 +36,8 @@ export default class RedisBroker implements Pausable {
      * @param {string} url the connection string of redis
      * @param {object} opts the options object for redis connect of ioredis
      */
-    constructor(redis: Redis.Redis) {
-        this.redis = redis
+    constructor(db: DB) {
+        this.db = db
     }
 
     /**
@@ -81,7 +81,7 @@ export default class RedisBroker implements Pausable {
             },
         }
 
-        return this.redis.lpush(routingKey, JSON.stringify(message))
+        return this.db.redisLPush(routingKey, message)
     }
 
     /**
@@ -165,21 +165,17 @@ export default class RedisBroker implements Pausable {
             return
         }
 
-        return this.receiveOne(queue)
-            .then((body) => {
-                if (body) {
-                    callback(body)
-                }
-                return body
-            })
-            .then((body) => {
-                if (body) {
-                    this.receiveFast(resolve, queue, callback)
-                } else {
-                    this.receiveSlow(resolve, queue, callback)
-                }
-            })
-            .catch((error) => status.error('⚠️', 'An error occured in Celery broker:\n', error))
+        try {
+            const body = await this.receiveOne(queue)
+            if (body) {
+                callback(body)
+                this.receiveFast(resolve, queue, callback)
+            } else {
+                this.receiveSlow(resolve, queue, callback)
+            }
+        } catch (error) {
+            status.error('⚠️', 'An error occured in Celery broker:\n', error)
+        }
     }
 
     /**
@@ -187,29 +183,29 @@ export default class RedisBroker implements Pausable {
      * @param {string} queue
      * @return {Promise}
      */
-    private async receiveOne(queue: string): Promise<Message | null> {
-        return this.redis.brpop(queue, '5').then((result) => {
-            if (!result || !result[1]) {
-                return null
-            }
+    private async receiveOne(celeryQueue: string): Promise<Message | null> {
+        const result = await this.db.redisBRPop(celeryQueue, '5')
 
-            const [queue, item] = result
-            const rawMsg = JSON.parse(item)
+        if (!result || !result[1]) {
+            return null
+        }
 
-            // now supports only application/json of content-type
-            if (rawMsg['content-type'] !== 'application/json') {
-                throw new Error(`queue ${queue} item: unsupported content type ${rawMsg['content-type']}`)
-            }
-            // now supports only base64 of body_encoding
-            if (rawMsg.properties.body_encoding !== 'base64') {
-                throw new Error(`queue ${queue} item: unsupported body encoding ${rawMsg.properties.body_encoding}`)
-            }
-            // now supports only utf-8 of content-encoding
-            if (rawMsg['content-encoding'] !== 'utf-8') {
-                throw new Error(`queue ${queue} item: unsupported content encoding ${rawMsg['content-encoding']}`)
-            }
+        const [queue, item] = result
+        const rawMsg = JSON.parse(item)
 
-            return new RedisMessage(rawMsg)
-        })
+        // now supports only application/json of content-type
+        if (rawMsg['content-type'] !== 'application/json') {
+            throw new Error(`queue ${queue} item: unsupported content type ${rawMsg['content-type']}`)
+        }
+        // now supports only base64 of body_encoding
+        if (rawMsg.properties.body_encoding !== 'base64') {
+            throw new Error(`queue ${queue} item: unsupported body encoding ${rawMsg.properties.body_encoding}`)
+        }
+        // now supports only utf-8 of content-encoding
+        if (rawMsg['content-encoding'] !== 'utf-8') {
+            throw new Error(`queue ${queue} item: unsupported content encoding ${rawMsg['content-encoding']}`)
+        }
+
+        return new RedisMessage(rawMsg)
     }
 }
