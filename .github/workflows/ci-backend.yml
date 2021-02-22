@@ -2,6 +2,10 @@ name: Backend CI
 
 on:
     - pull_request
+env:
+    SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+    REDIS_URL: 'redis://localhost'
+    TEST: 1
 
 jobs:
     backend-code-quality:
@@ -56,9 +60,7 @@ jobs:
 
             - name: Typecheck
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
               run: |
                   mypy .
 
@@ -111,17 +113,12 @@ jobs:
 
             - name: Check migrations
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
               run: python manage.py makemigrations --check --dry-run
 
             - name: Run posthog tests
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
-                  TEST: 1
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -130,15 +127,12 @@ jobs:
                   pytest posthog/
             - name: Run EE tests
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   PRIMARY_DB: 'clickhouse'
-                  REDIS_URL: 'redis://localhost'
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_DATABASE: 'posthog_test'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
-                  TEST: 1
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -210,9 +204,7 @@ jobs:
             # be possible to migrate to the new version without problems in production
             - name: Migrate initially at master, then remove master deploy code
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
               run: |
                   python deploy/manage.py migrate
                   rm -rf deploy
@@ -233,9 +225,7 @@ jobs:
 
             - name: Check migrations
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
               run: |
                   cd deploy
                   python manage.py makemigrations --check --dry-run
@@ -243,10 +233,7 @@ jobs:
 
             - name: Run posthog tests
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
-                  TEST: 1
               run: |
                   cd deploy
                   mkdir -p frontend/dist
@@ -257,32 +244,26 @@ jobs:
 
             - name: Run cloud tests (posthog-production)
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
                   PRIMARY_DB: 'clickhouse'
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_DATABASE: 'posthog_test'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
-                  TEST: 1
               run: |
                   cd deploy
-                  pytest multi_tenancy messaging --reuse-db -m "not skip_on_multitenancy"
+                  pytest multi_tenancy messaging -m "not skip_on_multitenancy"
             - name: Run EE tests
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
                   PRIMARY_DB: 'clickhouse'
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_DATABASE: 'posthog_test'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
-                  TEST: 1
               run: |
                   cd deploy/
-                  pytest ee --reuse-db
+                  pytest ee
 
     foss:
         name: Django tests – FOSS
@@ -328,17 +309,12 @@ jobs:
 
             - name: Check migrations
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
               run: python manage.py makemigrations --check --dry-run
 
             - name: Run tests
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
-                  TEST: 1
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
