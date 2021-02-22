@@ -22,6 +22,7 @@ const noop = () => {}
 
 export function LineGraph({
     datasets,
+    visibilityMap,
     labels,
     color,
     type,
@@ -62,7 +63,7 @@ export function LineGraph({
 
     useEffect(() => {
         buildChart()
-    }, [datasets, color])
+    }, [datasets, color, visibilityMap])
 
     // annotation related effects
 
@@ -172,6 +173,7 @@ export function LineGraph({
                       }),
                   ]
                 : datasets.map((dataset, index) => processDataset(dataset, index))
+        datasets = datasets.filter((data) => visibilityMap[data.id])
 
         myLineChart.current = new Chart(myChartRef, {
             type: type || 'line',
