@@ -19,7 +19,6 @@ export interface UserType {
     email_opt_in: boolean
     id: number
     name: string
-    opt_out_capture: null
     posthog_version: string
     organization: OrganizationType | null
     team: TeamType | null
@@ -117,7 +116,6 @@ export interface TeamType {
     event_properties_numerical: string[]
     event_names_with_usage: EventUsageType[]
     event_properties_with_usage: PropertyUsageType[]
-    opt_out_capture: boolean
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     session_recording_retention_period_days: number | null
@@ -327,17 +325,18 @@ export interface SessionType {
 }
 
 export interface FormattedNumber {
+    // :TODO: DEPRECATED, formatting will now happen client-side
     value: number
     formatted: string
 }
 
 export interface OrganizationBilling {
     plan: PlanInterface | null
-    current_usage: { value: number; formatted: string } | null
+    current_usage: FormattedNumber | number | null
     should_setup_billing?: boolean
     stripe_checkout_session?: string
     subscription_url?: string
-    event_allocation: FormattedNumber | null
+    event_allocation: FormattedNumber | number | null
 }
 
 export interface PlanInterface {
@@ -347,7 +346,8 @@ export interface PlanInterface {
     image_url: string
     self_serve: boolean
     is_metered_billing: boolean
-    allowance: FormattedNumber | null
+    allowance: FormattedNumber | number | null // :TODO: DEPRECATED
+    event_allowance: number
     price_string: string
 }
 
@@ -503,3 +503,27 @@ interface DisabledSetupState {
 }
 
 export type SetupState = EnabledSetupState | DisabledSetupState
+
+export interface PrevalidatedInvite {
+    id: string
+    target_email: string
+    first_name: string
+    organization_name: string
+}
+
+interface AuthBackends {
+    'google-oauth2'?: boolean
+    gitlab?: boolean
+    github?: boolean
+}
+
+export interface PreflightStatus {
+    django: boolean
+    plugins: boolean
+    redis: boolean
+    db: boolean
+    initiated: boolean
+    cloud: boolean
+    celery: boolean
+    available_social_auth_providers: AuthBackends
+}

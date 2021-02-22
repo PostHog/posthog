@@ -1,4 +1,4 @@
-import { formatLabel, identifierToHuman, midEllipsis, isURL, capitalizeFirstLetter } from './utils'
+import { formatLabel, identifierToHuman, midEllipsis, isURL, capitalizeFirstLetter, compactNumber } from './utils'
 
 describe('capitalizeFirstLetter()', () => {
     it('returns the capitalized string', () => {
@@ -36,7 +36,7 @@ describe('formatLabel()', () => {
         given('action', () => ({ math: 'dau' }))
 
         it('is formatted', () => {
-            expect(given.subject).toEqual('some_event (DAU) ')
+            expect(given.subject).toEqual('some_event (Active Users) ')
         })
     })
 
@@ -87,5 +87,17 @@ describe('isURL()', () => {
         expect(isURL(1)).toEqual(false)
         expect(isURL(true)).toEqual(false)
         expect(isURL(null)).toEqual(false)
+    })
+})
+
+describe('compactNumber()', () => {
+    it('formats number correctly', () => {
+        expect(compactNumber(10)).toEqual('10')
+        expect(compactNumber(293)).toEqual('293')
+        expect(compactNumber(5001)).toEqual('5K')
+        expect(compactNumber(5312)).toEqual('5.3K')
+        expect(compactNumber(5392)).toEqual('5.4K')
+        expect(compactNumber(2833102, 2)).toEqual('2.83M')
+        expect(compactNumber(8283310234)).toEqual('8.3B')
     })
 })

@@ -1,3 +1,6 @@
+{
+    /* DEPRECATED in favor of LoginSignup.tsx (see #3339) */
+}
 import React, { useState, useRef, lazy, Suspense } from 'react'
 import { useActions, useValues } from 'kea'
 import { signupLogic } from './logic'
