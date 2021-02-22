@@ -131,13 +131,18 @@ jobs:
                   mv package.json package.old.json
                   jq --indent 4 '.dependencies."@posthog/plugin-server" = "${{ env.REPO_VERSION }}"' package.old.json > package.json
                   rm package.old.json
-                  for i in $(seq 1 $RETRY_TIMES)
+                  for i in $(seq 1 $RETRY_TIMES); do
                       # Retry loop because of npm being _eventually_ consistent
-                      do yarn && break || $( yarn cache clean && [ $i -ne $RETRY_TIMES ] && sleep $RETRY_WAIT_SECONDS || false )
+                      yarn cache clean
+                      if yarn; then
+                          break
+                      else
+                          [ $i -ne $RETRY_TIMES ] && sleep $RETRY_WAIT_SECONDS || false
+                      fi
                   done
               env:
                   RETRY_TIMES: 10
-                  RETRY_WAIT_SECONDS: 10
+                  RETRY_WAIT_SECONDS: 5
 
             - name: Create main repo pull request
               id: main-repo-pr
