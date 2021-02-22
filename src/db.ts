@@ -188,7 +188,15 @@ export class DB {
     public async fetchPersons(database: Database.ClickHouse): Promise<ClickHousePerson[]>
     public async fetchPersons(database: Database = Database.Postgres): Promise<Person[] | ClickHousePerson[]> {
         if (database === Database.ClickHouse) {
-            return (await this.clickhouseQuery('SELECT * FROM person')).data as ClickHousePerson[]
+            const query = `
+                SELECT * FROM person JOIN (
+                    SELECT id, max(_timestamp) as _timestamp FROM person GROUP BY team_id, id
+                ) as person_max ON person.id = person_max.id AND person._timestamp = person_max._timestamp
+            `
+            return (await this.clickhouseQuery(query)).data.map((row) => {
+                const { 'person_max._timestamp': _discard1, 'person_max.id': _discard2, ...rest } = row
+                return rest
+            }) as ClickHousePerson[]
         } else if (database === Database.Postgres) {
             return ((await this.postgresQuery('SELECT * FROM posthog_person')).rows as RawPerson[]).map(
                 (rawPerson: RawPerson) =>
@@ -292,29 +300,29 @@ export class DB {
             )} WHERE id = $${Object.values(update).length + 1}`,
             values
         )
-        if (this.clickhouse) {
-            const { is_user_id, id, uuid, ...validUpdates } = update
-            const updateString = Object.entries(validUpdates)
-                .map(([key, value]) => {
-                    let clickhouseValue: string
-                    if (typeof value === 'string') {
-                        clickhouseValue = value
-                    } else if (typeof value === 'boolean') {
-                        clickhouseValue = value ? '1' : '0'
-                    } else if (DateTime.isDateTime(value)) {
-                        clickhouseValue = castTimestampOrNow(value, TimestampFormat.ClickHouseSecondPrecision)
-                    } else {
-                        clickhouseValue = JSON.stringify(value)
-                    }
-                    return `${sanitizeSqlIdentifier(key)} = '${escapeClickHouseString(clickhouseValue)}'`
-                })
-                .join(', ')
-            if (updateString.length > 0) {
-                await this.clickhouseQuery(
-                    `ALTER TABLE person UPDATE ${updateString} WHERE id = '${escapeClickHouseString(person.uuid)}'`
-                )
-            }
+
+        if (this.kafkaProducer) {
+            await this.sendKafkaMessage({
+                topic: KAFKA_PERSON,
+                messages: [
+                    {
+                        value: Buffer.from(
+                            JSON.stringify({
+                                created_at: castTimestampOrNow(
+                                    updatedPerson.created_at,
+                                    TimestampFormat.ClickHouseSecondPrecision
+                                ),
+                                properties: JSON.stringify(updatedPerson.properties),
+                                team_id: updatedPerson.team_id,
+                                is_identified: updatedPerson.is_identified,
+                                id: updatedPerson.uuid,
+                            })
+                        ),
+                    },
+                ],
+            })
         }
+
         return updatedPerson
     }
 
