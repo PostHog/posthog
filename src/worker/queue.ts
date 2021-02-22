@@ -17,7 +17,7 @@ export type WorkerMethods = {
 
 function pauseQueueIfWorkerFull(queue: Queue | undefined, server: PluginsServer, piscina?: Piscina) {
     if (queue && (piscina?.queueSize || 0) > (server.WORKER_CONCURRENCY || 4) * (server.WORKER_CONCURRENCY || 4)) {
-        queue.pause()
+        void queue.pause()
     }
 }
 
@@ -26,7 +26,6 @@ export async function startQueue(
     piscina?: Piscina,
     workerMethods: Partial<WorkerMethods> = {}
 ): Promise<Queue> {
-    const relevantStartQueue = server.KAFKA_ENABLED ? startQueueKafka : startQueueRedis
     const mergedWorkerMethods = {
         processEvent: (event: PluginEvent) => {
             return piscina!.runTask({ task: 'processEvent', args: { event } })
@@ -44,7 +43,7 @@ export async function startQueue(
         if (server.KAFKA_ENABLED) {
             return await startQueueKafka(server, mergedWorkerMethods)
         } else {
-            return await startQueueRedis(server, piscina, mergedWorkerMethods)
+            return startQueueRedis(server, piscina, mergedWorkerMethods)
         }
     } catch (error) {
         status.error('💥', 'Failed to start event queue:\n', error)
@@ -52,11 +51,7 @@ export async function startQueue(
     }
 }
 
-async function startQueueRedis(
-    server: PluginsServer,
-    piscina: Piscina | undefined,
-    workerMethods: WorkerMethods
-): Promise<Queue> {
+function startQueueRedis(server: PluginsServer, piscina: Piscina | undefined, workerMethods: WorkerMethods): Queue {
     const celeryQueue = new Worker(server.db, server.PLUGINS_CELERY_QUEUE)
     const client = new Client(server.db, server.CELERY_DEFAULT_QUEUE)
 
@@ -98,7 +93,8 @@ async function startQueueRedis(
         }
     )
 
-    celeryQueue.start()
+    // run in the background
+    void celeryQueue.start()
 
     return celeryQueue
 }

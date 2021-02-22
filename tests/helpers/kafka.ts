@@ -36,7 +36,7 @@ export async function resetKafka(extraServerConfig: Partial<PluginsServerConfig>
         KAFKA_PERSON_UNIQUE_ID,
     ])
 
-    const connected = await new Promise<void>(async (resolve, reject) => {
+    await new Promise<void>(async (resolve, reject) => {
         console.info('setting group join and crash listeners')
         const { CONNECT, GROUP_JOIN, CRASH } = consumer.events
         consumer.on(CONNECT, () => {
@@ -47,29 +47,34 @@ export async function resetKafka(extraServerConfig: Partial<PluginsServerConfig>
             resolve()
         })
         consumer.on(CRASH, ({ payload: { error } }) => reject(error))
+
         console.info('connecting producer')
         await producer.connect()
-        console.info('subscribing consumer')
 
+        console.info('subscribing consumer')
         await consumer.subscribe({ topic: KAFKA_EVENTS_PLUGIN_INGESTION })
+
         console.info('running consumer')
         await consumer.run({
             eachMessage: async (payload) => {
+                await Promise.resolve()
                 console.info('message received!')
                 messages.push(payload)
             },
         })
+
+        console.info(`awaiting ${delayMs} ms before disconnecting`)
+        await delay(delayMs)
+
+        console.info('disconnecting producer')
+        await producer.disconnect()
+
+        console.info('stopping consumer')
+        await consumer.stop()
+
+        console.info('disconnecting consumer')
+        await consumer.disconnect()
     })
-
-    console.info(`awaiting ${delayMs} ms before disconnecting`)
-    await delay(delayMs)
-
-    console.info('disconnecting producer')
-    await producer.disconnect()
-    console.info('stopping consumer')
-    await consumer.stop()
-    console.info('disconnecting consumer')
-    await consumer.disconnect()
 
     return true
 }

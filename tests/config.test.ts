@@ -1,6 +1,6 @@
 import { getDefaultConfig, overrideWithEnv } from '../src/config'
 
-test('overrideWithEnv 1', async () => {
+test('overrideWithEnv 1', () => {
     const defaultConfig = getDefaultConfig()
     const env = {
         DISABLE_WEB: 'false',
@@ -16,7 +16,7 @@ test('overrideWithEnv 1', async () => {
     expect(config.BASE_DIR).toEqual(defaultConfig.BASE_DIR)
 })
 
-test('overrideWithEnv 2', async () => {
+test('overrideWithEnv 2', () => {
     const defaultConfig = getDefaultConfig()
     const env = {
         DISABLE_WEB: '1',

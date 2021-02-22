@@ -10,8 +10,8 @@ beforeEach(async () => {
     ;[server, closeServer] = await createServer()
     await resetTestDatabase(`const processEvent = event => event`)
 })
-afterEach(() => {
-    closeServer()
+afterEach(async () => {
+    await closeServer()
 })
 
 describe('secureCode', () => {

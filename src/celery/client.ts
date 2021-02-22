@@ -22,14 +22,14 @@ export default class Client extends Base {
         return this.taskProtocols[this.conf.TASK_PROTOCOL]
     }
 
-    public sendTaskMessage(taskName: string, message: TaskMessage): void {
+    public async sendTaskMessage(taskName: string, message: TaskMessage): Promise<void> {
         const { headers, properties, body /*, sentEvent */ } = message
 
         const exchange = ''
         // exchangeType = 'direct';
         // const serializer = 'json';
 
-        this.broker.publish(body, exchange, this.conf.CELERY_QUEUE, headers, properties)
+        await this.broker.publish(body, exchange, this.conf.CELERY_QUEUE, headers, properties)
     }
 
     public asTaskV2(taskId: string, taskName: string, args?: Array<any>, kwargs?: Record<string, any>): TaskMessage {
@@ -108,6 +108,7 @@ export default class Client extends Base {
     public sendTask(taskName: string, args?: Array<any>, kwargs?: Record<string, any>, taskId?: string): void {
         taskId = taskId || v4()
         const message = this.createTaskMessage(taskId, taskName, args, kwargs)
-        this.sendTaskMessage(taskName, message)
+        // run in the background
+        void this.sendTaskMessage(taskName, message)
     }
 }

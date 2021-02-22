@@ -22,15 +22,16 @@ export interface DummyPostHog {
 export function createPosthog(server: PluginsServer, pluginConfig: PluginConfig): DummyPostHog {
     const distinctId = pluginConfig.plugin?.name || `plugin-id-${pluginConfig.plugin_id}`
 
-    let sendEvent: (data: InternalData) => Promise<void>
+    let sendEvent: (data: InternalData) => void
 
     if (server.KAFKA_ENABLED) {
         // Sending event to our Kafka>ClickHouse pipeline
-        sendEvent = async (data) => {
+        sendEvent = (data) => {
             if (!server.kafkaProducer) {
                 throw new Error('kafkaProducer not configured!')
             }
-            await server.kafkaProducer.send({
+            // ignore the promise, run in the background just like with celery
+            void server.kafkaProducer.send({
                 topic: server.KAFKA_CONSUMPTION_TOPIC!,
                 messages: [
                     {
@@ -52,7 +53,7 @@ export function createPosthog(server: PluginsServer, pluginConfig: PluginConfig)
     } else {
         // Sending event to our Redis>Postgres pipeline
         const client = new Client(server.db, server.PLUGINS_CELERY_QUEUE)
-        sendEvent = async (data) => {
+        sendEvent = (data) => {
             client.sendTask(
                 'posthog.tasks.process_event.process_event_with_plugins',
                 [data.distinct_id, null, null, data, pluginConfig.team_id, data.timestamp, data.timestamp],

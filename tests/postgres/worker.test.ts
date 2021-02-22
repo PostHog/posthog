@@ -177,6 +177,7 @@ test('pause the queue if too many tasks', async () => {
             await delay(100)
         }
     }
+    await delay(100)
 
     expect(await pluginsServer.server.redis.llen(pluginsServer.server.PLUGINS_CELERY_QUEUE)).toBe(32)
     expect(await pluginsServer.server.redis.llen(pluginsServer.server.CELERY_DEFAULT_QUEUE)).toBe(10)

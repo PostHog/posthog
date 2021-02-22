@@ -216,7 +216,7 @@ export async function startPluginsServer(
         }
         if (shutdownStatus >= 3) {
             status.info('❗️', 'Shutting down forcibly!')
-            piscina?.destroy()
+            void piscina?.destroy()
             process.exit()
         }
         status.info('💤', ' Shutting down gracefully...')
@@ -256,7 +256,7 @@ export async function startPluginsServer(
         })
 
         pubSub = new Redis(server.REDIS_URL)
-        pubSub.subscribe(server.PLUGINS_RELOAD_PUBSUB_CHANNEL)
+        await pubSub.subscribe(server.PLUGINS_RELOAD_PUBSUB_CHANNEL)
         pubSub.on('message', async (channel: string, message) => {
             if (channel === server!.PLUGINS_RELOAD_PUBSUB_CHANNEL) {
                 status.info('⚡', 'Reloading plugins!')
@@ -272,9 +272,9 @@ export async function startPluginsServer(
         })
 
         // every 5 seconds set Redis keys @posthog-plugin-server/ping and @posthog-plugin-server/version
-        pingJob = schedule.scheduleJob('*/5 * * * * *', () => {
-            server!.db!.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, false)
-            server!.db!.redisSet('@posthog-plugin-server/version', version)
+        pingJob = schedule.scheduleJob('*/5 * * * * *', async () => {
+            await server!.db!.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, false)
+            await server!.db!.redisSet('@posthog-plugin-server/version', version)
         })
 
         // every 10 seconds sends stuff to StatsD
@@ -290,7 +290,7 @@ export async function startPluginsServer(
     } catch (error) {
         Sentry.captureException(error)
         status.error('💥', 'Launchpad failure!', error)
-        Sentry.flush().then(() => true) // flush in the background
+        void Sentry.flush() // flush in the background
         await closeJobs()
         process.exit(1)
     }
