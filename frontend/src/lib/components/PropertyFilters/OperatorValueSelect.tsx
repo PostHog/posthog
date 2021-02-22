@@ -9,9 +9,9 @@ interface OperatorValueSelectProps {
     type: string
     propkey: string
     operator: PropertyOperator | undefined
-    value: string | number | null
+    value: string | number | Array<string | number> | null
     columnOptions?: ColProps
-    onChange: (operator: PropertyOperator, value: string | number | string[] | null) => void
+    onChange: (operator: PropertyOperator, value: string | number | Array<string | number> | null) => void
 }
 
 interface OperatorSelectProps {
