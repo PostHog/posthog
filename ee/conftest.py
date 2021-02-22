@@ -4,9 +4,9 @@ from infi.clickhouse_orm import Database
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import Person
 from posthog.settings import (
-    CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
     CLICKHOUSE_PASSWORD,
+    CLICKHOUSE_TEST_DB,
     CLICKHOUSE_USER,
     CLICKHOUSE_VERIFY,
 )
@@ -15,7 +15,7 @@ from posthog.settings import (
 @pytest.fixture(scope="package")
 def django_db_setup(django_db_setup, django_db_keepdb):
     database = Database(
-        CLICKHOUSE_DATABASE,
+        CLICKHOUSE_TEST_DB,
         db_url=CLICKHOUSE_HTTP_URL,
         username=CLICKHOUSE_USER,
         password=CLICKHOUSE_PASSWORD,
