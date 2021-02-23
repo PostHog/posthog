@@ -138,7 +138,7 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
                         <>
                             Sending emails is not enabled in your PostHog instance.
                             <br />
-                            Remember to <b>share the invite link</b> with the team member you want to invite.
+                            Remember to <b>share the invite link</b> with each team member you want to invite.
                         </>
                     }
                 />
