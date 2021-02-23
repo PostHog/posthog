@@ -477,8 +477,8 @@ export interface FilterType {
     path_type?: PathType
     start_point?: string | number
     stickiness_days?: number
-    entityId?: string | number
-    type?: EntityType
+    entity_id?: string | number
+    entity_type?: EntityType
     people_day?: any
     people_action?: any
     formula?: any

@@ -89,8 +89,8 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
     const { action, day, breakdown_value, ...restParams } = peopleParams
     const params = filterClientSideParams({
         ...filters,
-        entityId: action.id,
-        type: action.type,
+        entity_id: action.id,
+        entity_type: action.type,
         breakdown_value,
     })
 

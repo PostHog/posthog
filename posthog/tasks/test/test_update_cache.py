@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from django.utils.timezone import now
 from freezegun import freeze_time
 
+from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.decorators import CacheType
 from posthog.models import Dashboard, DashboardItem, Event, Filter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -95,6 +96,8 @@ class TestUpdateCache(BaseTest):
                     "shown_as": "Stickiness",
                     "date_from": "2020-01-01",
                     "events": [{"id": "watched movie"}],
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "watched movie",
                 },
                 team=self.team,
                 get_earliest_timestamp=Event.objects.earliest_timestamp,
