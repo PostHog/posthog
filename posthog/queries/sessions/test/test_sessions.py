@@ -44,7 +44,6 @@ def sessions_test_factory(sessions, event_factory):
             self.assertEqual(response[0]["days"][1], "2012-01-15")
             self.assertEqual(response[0]["chartLabel"], "Average Session Length (minutes)")
 
-        @unittest.skip("Months interval is broken")
         def test_sessions_avg_length_interval(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 event_factory(team=self.team, event="1st action", distinct_id="1")
