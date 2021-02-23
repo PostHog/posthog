@@ -23,7 +23,13 @@ import {
     SessionRecordingEvent,
     TimestampFormat,
 } from './types'
-import { castTimestampOrNow, clickHouseTimestampToISO, escapeClickHouseString, sanitizeSqlIdentifier } from './utils'
+import {
+    castTimestampOrNow,
+    clickHouseTimestampToISO,
+    escapeClickHouseString,
+    sanitizeSqlIdentifier,
+    tryTwice,
+} from './utils'
 
 /** The recommended way of accessing the database. */
 export class DB {
@@ -114,7 +120,10 @@ export class DB {
     public async redisGet(key: string, defaultValue: unknown, parseJSON = true): Promise<unknown> {
         const timeout = timeoutGuard(`Getting redis key delayed. Waiting over 30 sec to get key: ${key}`)
         try {
-            const value = await this.redis.get(key)
+            const value = await tryTwice(
+                async () => await this.redis.get(key),
+                `Waited 5 sec to get redis key: ${key}, retrying once!`
+            )
             if (typeof value === 'undefined') {
                 return defaultValue
             }
