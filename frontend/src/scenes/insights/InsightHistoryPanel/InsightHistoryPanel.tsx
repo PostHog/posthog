@@ -4,7 +4,7 @@ import { Loading } from 'lib/utils'
 import { useValues, useActions } from 'kea'
 import { insightHistoryLogic } from './insightHistoryLogic'
 import { DashboardItemType } from '~/types'
-import { DashboardItem, displayMap } from 'scenes/dashboard/DashboardItem'
+import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
 import './InsightHistoryPanel.scss'
 import moment from 'moment'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -32,12 +32,12 @@ function InsightPane({
 }: {
     data: DashboardItemType[]
     loading: boolean
-    loadMore?: CallableFunction
+    loadMore?: () => void
     loadingMore: boolean
     footer: (item: DashboardItemType) => JSX.Element
 }): JSX.Element {
     const { loadTeamInsights, loadSavedInsights, loadInsights, updateInsight } = useActions(insightHistoryLogic)
-    const { renameDashboardItem, duplicateDashboardItem } = useActions(dashboardItemsModel)
+    const { duplicateDashboardItem } = useActions(dashboardItemsModel)
 
     useEffect(() => {
         loadInsights()
@@ -49,10 +49,10 @@ function InsightPane({
         <Row gutter={[16, 16]}>
             {loading && <Loading />}
             {data &&
-                data.map((insight: DashboardItemType) => (
+                data.map((insight: DashboardItemType, index: number) => (
                     <Col xs={8} key={insight.id} style={{ height: 270 }}>
                         <DashboardItem
-                            item={{ ...insight, color: undefined }}
+                            item={{ ...insight, color: null }}
                             key={insight.id + '_user'}
                             loadDashboardItems={() => {
                                 loadInsights()
@@ -60,9 +60,8 @@ function InsightPane({
                                 loadTeamInsights()
                             }}
                             saveDashboardItem={updateInsight}
-                            renameDashboardItem={renameDashboardItem}
                             onClick={() => {
-                                const _type =
+                                const _type: DisplayedType =
                                     insight.filters.insight === ViewType.RETENTION
                                         ? 'RetentionContainer'
                                         : insight.filters.display
@@ -73,10 +72,11 @@ function InsightPane({
                                     ? (item: DashboardItemType, dashboardId: number) => {
                                           duplicateDashboardItem(item, dashboardId)
                                       }
-                                    : null
+                                    : undefined
                             }
                             preventLoading={true}
                             footer={<div className="dashboard-item-footer">{footer(insight)}</div>}
+                            index={index}
                         />
                     </Col>
                 ))}
@@ -132,7 +132,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
                 >
                     <InsightPane
                         data={insights.map((insight) => ({ ...insight }))}
-                        loadMore={insightsNext && loadNextInsights}
+                        loadMore={insightsNext ? loadNextInsights : undefined}
                         loadingMore={loadingMoreInsights}
                         footer={(item) => <>Ran query {moment(item.created_at).fromNow()}</>}
                         loading={insightsLoading}
@@ -145,7 +145,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
                 >
                     <InsightPane
                         data={savedInsights}
-                        loadMore={savedInsightsNext && loadNextSavedInsights}
+                        loadMore={savedInsightsNext ? loadNextSavedInsights : undefined}
                         loadingMore={loadingMoreSavedInsights}
                         footer={(item) => <>Saved {moment(item.created_at).fromNow()}</>}
                         loading={savedInsightsLoading}
@@ -158,7 +158,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
                 >
                     <InsightPane
                         data={teamInsights}
-                        loadMore={teamInsightsNext && loadNextTeamInsights}
+                        loadMore={teamInsightsNext ? loadNextTeamInsights : undefined}
                         loadingMore={loadingMoreTeamInsights}
                         footer={(item) => (
                             <>
