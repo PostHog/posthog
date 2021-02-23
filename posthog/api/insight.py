@@ -84,6 +84,11 @@ class InsightSerializer(serializers.ModelSerializer):
         if dashboard_item.created_by:
             return UserSerializer(dashboard_item.created_by).data
 
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["filters"] = instance.dashboard_filters()
+        return representation
+
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class

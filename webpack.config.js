@@ -59,7 +59,7 @@ function createEntry(entry) {
                     : entry === 'toolbar'
                     ? './frontend/src/toolbar/index.tsx'
                     : entry === 'shared_dashboard'
-                    ? './frontend/src/scenes/dashboard/SharedDashboard.js'
+                    ? './frontend/src/scenes/dashboard/SharedDashboard.tsx'
                     : null,
         },
         watchOptions: {
