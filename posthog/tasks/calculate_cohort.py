@@ -13,7 +13,7 @@ from posthog.models import Cohort
 logger = logging.getLogger(__name__)
 
 MAX_AGE_MINUTES = 15
-PARALLEL_COHORTS = int(os.environ.get("PARALLEL_COHORTS", 5))
+PARALLEL_COHORTS = int(os.environ.get("PARALLEL_COHORTS", 2))
 
 
 def calculate_cohorts() -> None:
@@ -23,7 +23,7 @@ def calculate_cohorts() -> None:
         Cohort.objects.filter(
             is_calculating=False,
             last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES),
-            errors_calculating__lte=2,
+            errors_calculating__lte=20,
         )
         .exclude(is_static=True)
         .order_by(F("last_calculation").asc(nulls_first=True))[0:PARALLEL_COHORTS]
