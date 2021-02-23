@@ -22,6 +22,7 @@ describe('Cohorts', () => {
 
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
+        cy.get('[data-attr="cohort-name"]').click()
 
         // save
         cy.get('[data-attr="save-cohort"]').click()
