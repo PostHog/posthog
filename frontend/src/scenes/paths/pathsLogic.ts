@@ -6,6 +6,7 @@ import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
 import { FilterType, PropertyFilter } from '~/types'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 export const PAGEVIEW = '$pageview'
 export const SCREEN = '$screen'
@@ -64,7 +65,7 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
             __default: { paths: [], filter: {} } as PathResult,
             loadResults: async (refresh = false, breakpoint) => {
                 const filter = { ...values.filter, properties: values.properties }
-                if (!refresh && (props.cachedResults || props.preventLoading)) {
+                if (!refresh && (props.cachedResults || props.preventLoading) && values.filter === props.filters) {
                     return { paths: props.cachedResults, filter }
                 }
                 const params = toParams({ ...filter, ...(refresh ? { refresh: true } : {}) })
@@ -83,10 +84,6 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
         },
     }),
     reducers: ({ props }) => ({
-        initialPathname: [
-            (state: Record<string, any>) => router.selectors.location(state).pathname,
-            { noop: (a) => a },
-        ],
         filter: [
             (props.filters
                 ? cleanPathParams(props.filters as Partial<FilterType>)
@@ -123,6 +120,11 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
             insightLogic.actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
             if (!props.dashboardItemId) {
                 actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
+            }
+        },
+        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
+            if (props.dashboardItemId) {
+                actions.setFilter(filters)
             }
         },
     }),

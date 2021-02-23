@@ -359,6 +359,7 @@ export interface BillingSubscription {
 export interface DashboardItemType {
     id: number
     name: string
+    description?: string
     filters: Record<string, any>
     filters_hash: string
     order: number
@@ -366,23 +367,26 @@ export interface DashboardItemType {
     saved: boolean
     created_at: string
     layouts: Record<string, any>
-    color: string
+    color: string | null
     last_refresh: string
     refreshing: boolean
     created_by: Record<string, any>
     is_sample: boolean
+    dashboard: number
+    result: any | null
 }
 
 export interface DashboardType {
     id: number
     name: string
-    pinned: string
+    pinned: boolean
     items: DashboardItemType[]
     created_at: string
     created_by: number
     is_shared: boolean
     share_token: string
     deleted: boolean
+    filters: Record<string, any>
 }
 
 export interface OrganizationInviteType {
