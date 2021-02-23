@@ -1,6 +1,6 @@
-from typing import Any, Dict, List
+from typing import Any, Dict
 
-from django.db import transaction
+from django.db import models
 from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -65,6 +65,21 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
         return invite
 
+    def save(self, **kwargs):
+        super().save(**kwargs)
+        if self.context.get("bulk_create"):
+            organization = Organization.objects.annotate(
+                models.Count("active_invites", distinct=True), models.Count("memberships", distinct=True)
+            ).get(id=self.context["organization_id"])
+            report_bulk_invited(
+                self.context["request"].user.distinct_id,
+                invitee_count=len(self.validated_data),
+                name_count=sum(1 for invite in self.validated_data if invite["first_name"]),
+                current_invite_count=organization.active_invites__count,
+                current_member_count=organization.memberships__count,
+                email_available=is_email_available(),
+            )
+
 
 class OrganizationInviteViewSet(
     StructuredViewSetMixin,
@@ -88,36 +103,17 @@ class OrganizationInviteViewSet(
 
     @action(methods=["POST"], detail=False)
     def bulk(self, request: request.Request, **kwargs) -> response.Response:
-        input_serializer = OrganizationInviteSerializer(data=request.data, many=True)
-        if not input_serializer.is_valid():
-            raise exceptions.ValidationError("Invalid bulk invite creation payload.")
-
-        validated_data = input_serializer.validated_data
-        assert isinstance(validated_data, list)
-        if len(validated_data) > 20:
+        if not isinstance(request.data, list):
+            raise exceptions.ValidationError("This endpoint needs an array of data for bulk invite creation.")
+        if len(request.data) > 20:
             raise exceptions.ValidationError(
                 "A maximum of 20 invites can be sent in a single request.", code="max_length",
             )
 
-        output = []
-        organization = Organization.objects.get(id=self.organization_id)
-
-        with transaction.atomic():
-            for invite in validated_data:
-                output_serializer = OrganizationInviteSerializer(
-                    data=invite, context={**self.get_serializer_context(), "bulk_create": True}
-                )
-                output_serializer.is_valid(raise_exception=False)  # Don't raise, already validated before
-                output_serializer.save()
-                output.append(output_serializer.data)
-
-        report_bulk_invited(
-            request.user.distinct_id,
-            invitee_count=len(validated_data),
-            name_count=sum(1 for invite in validated_data if invite["first_name"]),
-            current_invite_count=organization.active_invites.count(),
-            current_member_count=organization.memberships.count(),
-            email_available=is_email_available(),
+        serializer = OrganizationInviteSerializer(
+            data=request.data, many=True, context={**self.get_serializer_context(), "bulk_create": True}
         )
-        print(len(output))
-        return response.Response(output, status=status.HTTP_201_CREATED)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return response.Response(serializer.validated_data, status=status.HTTP_201_CREATED)

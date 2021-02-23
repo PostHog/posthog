@@ -330,8 +330,11 @@ code.code {
 }
 
 .btn-add {
-    color: $text_muted !important;
-    border: 1px dashed $border !important;
+    color: $text_default !important;
+    // border: 1px dashed $border !important;
+    &:disabled {
+        color: $text_muted !important;
+    }
 }
 
 // Badges styles

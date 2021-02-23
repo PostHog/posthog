@@ -7,15 +7,16 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { invitesLogic } from './invitesLogic'
 
+/** State of a single invite row (with input data) in bulk invite creation. */
 interface InviteRowState {
     target_email: string
     first_name: string
     isValid: boolean
 }
 
-const EMPTY_INVITE = { target_email: '', first_name: '', isValid: true }
+const EMPTY_INVITE: InviteRowState = { target_email: '', first_name: '', isValid: true }
 
-export const bulkInviteLogic = kea<bulkInviteLogicType<InviteRowState>>({
+export const bulkInviteLogic = kea<bulkInviteLogicType<OrganizationInviteType, InviteRowState>>({
     actions: {
         updateInviteAtIndex: (payload, index: number) => ({ payload, index }),
         deleteInviteAtIndex: (index: number) => ({ index }),
@@ -24,7 +25,7 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<InviteRowState>>({
     },
     reducers: {
         invites: [
-            [EMPTY_INVITE] as InviteRowState[],
+            [EMPTY_INVITE],
             {
                 updateInviteAtIndex: (state, { payload, index }) => {
                     const newState = [...state]
@@ -36,9 +37,7 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<InviteRowState>>({
                     newState.splice(index, 1)
                     return newState
                 },
-                appendInviteRow: (state) => {
-                    return [...state, EMPTY_INVITE]
-                },
+                appendInviteRow: (state) => [...state, EMPTY_INVITE],
                 resetInviteRows: () => [EMPTY_INVITE],
             },
         ],

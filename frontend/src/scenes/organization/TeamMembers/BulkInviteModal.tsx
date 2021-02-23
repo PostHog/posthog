@@ -13,7 +13,7 @@ import { bulkInviteLogic } from './bulkInviteLogic'
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
     () => Math.random() - 0.5
 )
-const MAX_INVITES_AT_ONCE = 20
+const MAX_INVITES_AT_ONCE = 5
 
 function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean }): JSX.Element {
     const name = PLACEHOLDER_NAMES[index % PLACEHOLDER_NAMES.length]
@@ -23,7 +23,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
 
     return (
         <Row gutter={16} className="invite-row" align="middle">
-            <Col xs={11}>
+            <Col xs={isDeletable ? 11 : 12}>
                 <Input
                     placeholder={`${name.toLowerCase()}@posthog.com`}
                     type="email"
@@ -44,7 +44,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                     }}
                 />
             </Col>
-            <Col xs={11}>
+            <Col xs={isDeletable ? 11 : 12}>
                 <Input
                     placeholder={name}
                     onChange={(e) => {
@@ -57,12 +57,11 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                     }}
                 />
             </Col>
-            <Col xs={1}>
-                <CloseOutlined
-                    style={isDeletable ? { color: red.primary } : { opacity: 0.5 }}
-                    onClick={isDeletable ? () => deleteInviteAtIndex(index) : undefined}
-                />
-            </Col>
+            {isDeletable && (
+                <Col xs={2}>
+                    <CloseOutlined style={{ color: red.primary }} onClick={() => deleteInviteAtIndex(index)} />
+                </Col>
+            )}
         </Row>
     )
 }
@@ -77,6 +76,9 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
             onClose()
         }
     }, [invitedTeamMembers])
+
+    const areInvitesCreatable = invites.length + 1 < MAX_INVITES_AT_ONCE
+    const areInvitesDeletable = invites.length > 1
 
     return (
         <Modal
@@ -100,15 +102,13 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
                 <p>
                     An invite is <b>specific to an email address</b> and <b>expires after 3 days</b>.
                     <br />
-                    Name can optionally be provided for the invitee's convenience.
+                    Name can be provided for the team member's convenience.
                 </p>
                 <Row gutter={16}>
-                    <Col xs={11}>
-                        <b>
-                            Email address <i>(required)</i>
-                        </b>
+                    <Col xs={areInvitesDeletable ? 11 : 12}>
+                        <b>Email address</b>
                     </Col>
-                    <Col xs={11}>
+                    <Col xs={areInvitesDeletable ? 11 : 12}>
                         <b>
                             Name <i>(optional)</i>
                         </b>
@@ -116,18 +116,15 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
                 </Row>
 
                 {invites.map((_, index) => (
-                    <InviteRow index={index} key={index.toString()} isDeletable={invites.length > 1} />
+                    <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
                 ))}
 
                 <div className="mt">
-                    <Button
-                        block
-                        className="btn-add"
-                        onClick={appendInviteRow}
-                        disabled={invites.length + 1 >= MAX_INVITES_AT_ONCE}
-                    >
-                        <PlusOutlined /> Add another team member
-                    </Button>
+                    {areInvitesCreatable && (
+                        <Button block className="btn-add" onClick={appendInviteRow} icon={<PlusOutlined />}>
+                            Add another team member
+                        </Button>
+                    )}
                 </div>
             </div>
             {!user?.email_service_available && (
