@@ -52,7 +52,7 @@ def calculate_cohort_from_list(cohort_id: int, items: List[str]) -> None:
 
 @shared_task(ignore_result=True, max_retries=1)
 def insert_cohort_from_query(
-    cohort_id: int, insight_type: str, filter_data: Dict[str, Any], **extra_data: Dict
+    cohort_id: int, insight_type: str, filter_data: Dict[str, Any], entity_data: Dict[str, Any]
 ) -> None:
     if is_ee_enabled():
         from ee.clickhouse.queries.clickhouse_stickiness import insert_stickiness_people_into_cohort
@@ -64,15 +64,14 @@ def insert_cohort_from_query(
         from posthog.models.filters.stickiness_filter import StickinessFilter
 
         cohort = Cohort.objects.get(pk=cohort_id)
+        entity = Entity(data=entity_data)
         if insight_type == INSIGHT_STICKINESS:
             _stickiness_filter = StickinessFilter(
                 data=filter_data, team=cohort.team, get_earliest_timestamp=get_earliest_timestamp
             )
-            insert_stickiness_people_into_cohort(cohort, _stickiness_filter)
+            insert_stickiness_people_into_cohort(cohort, entity, _stickiness_filter)
         else:
-            entity_data = extra_data.pop("entity_data")
             _filter = Filter(data=filter_data)
-            entity = Entity(data=entity_data)
             insert_entity_people_into_cohort(cohort, entity, _filter)
 
         insert_cohort_people_into_pg(cohort=cohort)

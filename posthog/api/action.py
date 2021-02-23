@@ -16,9 +16,16 @@ from rest_hooks.signals import raw_hook_event
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
+from posthog.api.utils import get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.celery import update_cache_item_task
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_STICKINESS
+from posthog.constants import (
+    ENTITY_ID,
+    ENTITY_TYPE,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_EVENTS,
+    TRENDS_STICKINESS,
+)
 from posthog.decorators import CacheType, cached_function
 from posthog.models import (
     Action,
@@ -274,16 +281,11 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         }
 
 
-def filter_by_type(team: Team, filter: Filter) -> QuerySet:
+def filter_by_type(entity: Entity, team: Team, filter: Filter) -> QuerySet:
     events: Union[EventManager, QuerySet] = Event.objects.none()
     if filter.session:
         events = Event.objects.filter(team=team).filter(base.filter_events(team.pk, filter)).add_person_id(team.pk)
     else:
-        if len(filter.entities) >= 1:
-            entity = filter.entities[0]
-        else:
-            entity = Entity({"id": filter.target_entity_id, "type": filter.target_entity_type})
-
         if entity.type == TREND_FILTER_TYPE_EVENTS:
             events = base.process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(
                 base.filter_events(team.pk, filter, entity)

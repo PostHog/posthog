@@ -1,18 +1,8 @@
 from datetime import datetime
 from typing import Callable, Optional, Union
 
-from django.utils import timezone
-
 from posthog.constants import DATE_FROM, DATE_TO, STICKINESS_DAYS
-from posthog.models.entity import Entity
-from posthog.models.filters.mixins.common import (
-    BaseParamMixin,
-    DateMixin,
-    EntitiesMixin,
-    EntityIdMixin,
-    EntityTypeMixin,
-    IntervalMixin,
-)
+from posthog.models.filters.mixins.common import BaseParamMixin, DateMixin, IntervalMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
@@ -78,25 +68,3 @@ class TotalIntervalsDerivedMixin(IntervalMixin, StickinessDateMixin):
             raise ValueError(f"{self.interval} not supported")
         _num_intervals += 2
         return _num_intervals
-
-
-class TargetEntityDerivedMixin(EntitiesMixin, EntityTypeMixin, EntityIdMixin):
-    """
-    Properties
-    -----------
-    - target_entity
-    - entity_type (inherited)
-    - entity_id (inherited)
-    - entities (inherited)
-    - actions (inherited)
-    - events (inherited)
-    """
-
-    @cached_property
-    def target_entity(self) -> Entity:
-        if self.entities:
-            return self.entities[0]
-        elif self.target_entity_id and self.target_entity_type:
-            return Entity({"id": self.target_entity_id, "type": self.target_entity_type})
-        else:
-            raise ValueError("An entity must be provided for stickiness target entity to be determined")

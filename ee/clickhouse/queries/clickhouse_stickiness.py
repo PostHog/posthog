@@ -67,8 +67,8 @@ class ClickhouseStickiness(Stickiness):
         counts = sync_execute(content_sql, params)
         return self.process_result(counts, filter)
 
-    def _retrieve_people(self, filter: StickinessFilter, team: Team) -> ReturnDict:
-        return retrieve_stickiness_people(filter, team)
+    def _retrieve_people(self, target_entity: Entity, filter: StickinessFilter, team: Team) -> ReturnDict:
+        return retrieve_stickiness_people(target_entity, filter, team)
 
 
 def _format_entity_filter(entity: Entity) -> Tuple[str, Dict]:
@@ -87,10 +87,10 @@ def _format_entity_filter(entity: Entity) -> Tuple[str, Dict]:
     return entity_filter, params
 
 
-def _process_content_sql(filter: StickinessFilter, team: Team) -> Tuple[str, Dict[str, Any]]:
+def _process_content_sql(target_entity: Entity, filter: StickinessFilter, team: Team) -> Tuple[str, Dict[str, Any]]:
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
     prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
-    entity_sql, entity_params = _format_entity_filter(entity=filter.target_entity)
+    entity_sql, entity_params = _format_entity_filter(entity=target_entity)
     trunc_func = get_trunc_func_ch(filter.interval)
 
     params: Dict = {
@@ -111,9 +111,9 @@ def _process_content_sql(filter: StickinessFilter, team: Team) -> Tuple[str, Dic
     return content_sql, params
 
 
-def retrieve_stickiness_people(filter: StickinessFilter, team: Team) -> ReturnDict:
+def retrieve_stickiness_people(target_entity: Entity, filter: StickinessFilter, team: Team) -> ReturnDict:
 
-    content_sql, params = _process_content_sql(filter, team)
+    content_sql, params = _process_content_sql(target_entity, filter, team)
 
     people = sync_execute(
         PEOPLE_SQL.format(content_sql=content_sql, query="", latest_person_sql=GET_LATEST_PERSON_SQL.format(query="")),
@@ -122,8 +122,8 @@ def retrieve_stickiness_people(filter: StickinessFilter, team: Team) -> ReturnDi
     return ClickhousePersonSerializer(people, many=True).data
 
 
-def insert_stickiness_people_into_cohort(cohort: Cohort, filter: StickinessFilter) -> None:
-    content_sql, params = _process_content_sql(filter, cohort.team)
+def insert_stickiness_people_into_cohort(cohort: Cohort, target_entity: Entity, filter: StickinessFilter) -> None:
+    content_sql, params = _process_content_sql(target_entity, filter, cohort.team)
     try:
         sync_execute(
             INSERT_COHORT_ALL_PEOPLE_SQL.format(

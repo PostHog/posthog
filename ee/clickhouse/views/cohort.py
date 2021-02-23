@@ -14,12 +14,13 @@ from posthog.tasks.calculate_cohort import insert_cohort_from_query
 class ClickhouseCohortSerializer(CohortSerializer):
     earliest_timestamp_func = get_earliest_timestamp
 
-    def _handle_stickiness_people(self, cohort: Cohort, filter: StickinessFilter) -> None:
-        insert_cohort_from_query.delay(cohort.pk, INSIGHT_STICKINESS, filter.to_dict())
+    def _handle_stickiness_people(self, target_entity: Entity, cohort: Cohort, filter: StickinessFilter) -> None:
+        insert_cohort_from_query.delay(
+            cohort.pk, INSIGHT_STICKINESS, filter.to_dict(), entity_data=target_entity.to_dict()
+        )
 
-    def _handle_trend_people(self, cohort: Cohort, filter: Filter) -> None:
-        entity = Entity({"id": filter.target_entity_id, "type": filter.target_entity_type})
-        insert_cohort_from_query.delay(cohort.pk, INSIGHT_TRENDS, filter.to_dict(), entity_data=entity.to_dict())
+    def _handle_trend_people(self, target_entity: Entity, cohort: Cohort, filter: Filter) -> None:
+        insert_cohort_from_query.delay(cohort.pk, INSIGHT_TRENDS, filter.to_dict(), entity_data=target_entity.to_dict())
 
 
 def insert_cohort_people_into_pg(cohort: Cohort):

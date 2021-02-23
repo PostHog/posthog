@@ -27,7 +27,8 @@ from ee.clickhouse.sql.person import (
 )
 from ee.clickhouse.sql.stickiness.stickiness_people import STICKINESS_PEOPLE_SQL
 from posthog.api.action import ActionSerializer, ActionViewSet
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.api.utils import get_target_entity
+from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
@@ -71,11 +72,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
         filter = Filter(request=request)
-
-        if len(filter.entities) >= 1:
-            entity = filter.entities[0]
-        else:
-            entity = Entity({"id": request.GET["entityId"], "type": request.GET["type"]})
+        entity = get_target_entity(request)
 
         current_url = request.get_full_path()
         serialized_people = calculate_entity_people(team, entity, filter)

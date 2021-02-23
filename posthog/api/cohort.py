@@ -11,8 +11,9 @@ from sentry_sdk.api import capture_exception
 from posthog.api.action import calculate_people, filter_by_type
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
+from posthog.api.utils import get_target_entity
 from posthog.constants import TRENDS_STICKINESS
-from posthog.models import Cohort
+from posthog.models import Cohort, Entity
 from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -83,13 +84,14 @@ class CohortSerializer(serializers.ModelSerializer):
             try:
                 filter = Filter(request=request)
                 team = request.user.team
+                target_entity = get_target_entity(request)
                 if filter.shown_as == TRENDS_STICKINESS:
                     stickiness_filter = StickinessFilter(
                         request=request, team=team, get_earliest_timestamp=self.earliest_timestamp_func
                     )
-                    self._handle_stickiness_people(cohort, stickiness_filter)
+                    self._handle_stickiness_people(target_entity, cohort, stickiness_filter)
                 else:
-                    self._handle_trend_people(cohort, filter)
+                    self._handle_trend_people(target_entity, cohort, filter)
             except Exception as e:
                 capture_exception(e)
                 raise ValueError("This cohort has no conditions")
@@ -103,15 +105,15 @@ class CohortSerializer(serializers.ModelSerializer):
     def _calculate_static_by_people(self, people: List[str], cohort: Cohort) -> None:
         calculate_cohort_from_list.delay(cohort.pk, people)
 
-    def _handle_stickiness_people(self, cohort: Cohort, filter: StickinessFilter) -> None:
-        events = stickiness_process_entity_type(cohort.team, filter)
+    def _handle_stickiness_people(self, target_entity: Entity, cohort: Cohort, filter: StickinessFilter) -> None:
+        events = stickiness_process_entity_type(target_entity, cohort.team, filter)
         events = stickiness_format_intervals(events, filter)
         people = stickiness_fetch_people(events, cohort.team, filter)
         ids = [person.distinct_ids[0] for person in people if len(person.distinct_ids)]
         self._calculate_static_by_people(ids, cohort)
 
-    def _handle_trend_people(self, cohort: Cohort, filter: Filter) -> None:
-        events = filter_by_type(team=cohort.team, filter=filter)
+    def _handle_trend_people(self, target_entity: Entity, cohort: Cohort, filter: Filter) -> None:
+        events = filter_by_type(entity=target_entity, team=cohort.team, filter=filter)
         people = calculate_people(team=cohort.team, events=events, filter=filter)
         ids = [person.distinct_ids[0] for person in people if len(person.distinct_ids)]
         self._calculate_static_by_people(ids, cohort)
