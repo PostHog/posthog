@@ -173,11 +173,10 @@ test('pause the queue if too many tasks', async () => {
     expect(pluginsServer.piscina.completed).toBe(baseCompleted + 2)
 
     for (let i = 0; i < 50; i++) {
-        if ((await pluginsServer.server.redis.llen(pluginsServer.server.PLUGINS_CELERY_QUEUE)) === 40) {
+        if ((await pluginsServer.server.redis.llen(pluginsServer.server.PLUGINS_CELERY_QUEUE)) > 32) {
             await delay(100)
         }
     }
-    await delay(100)
 
     expect(await pluginsServer.server.redis.llen(pluginsServer.server.PLUGINS_CELERY_QUEUE)).toBe(32)
     expect(await pluginsServer.server.redis.llen(pluginsServer.server.CELERY_DEFAULT_QUEUE)).toBe(10)

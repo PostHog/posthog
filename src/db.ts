@@ -336,8 +336,10 @@ export class DB {
     }
 
     public async deletePerson(person: Person): Promise<void> {
-        await this.postgresQuery('DELETE FROM posthog_persondistinctid WHERE person_id = $1', [person.id])
-        await this.postgresQuery('DELETE FROM posthog_person WHERE id = $1', [person.id])
+        await this.postgresTransaction(async (client) => {
+            await client.query('DELETE FROM posthog_persondistinctid WHERE person_id = $1', [person.id])
+            await client.query('DELETE FROM posthog_person WHERE id = $1', [person.id])
+        })
         if (this.clickhouse) {
             await this.clickhouseQuery(`ALTER TABLE person DELETE WHERE id = '${escapeClickHouseString(person.uuid)}'`)
             await this.clickhouseQuery(
