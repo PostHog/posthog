@@ -523,6 +523,7 @@ export class EventsProcessor {
         }
 
         if (await this.shouldSendHooksTask(team)) {
+            this.pluginsServer.statsd?.increment(`hooks.send_task`)
             this.celery.sendTask('ee.tasks.webhooks_ee.post_event_to_webhook_ee', [
                 {
                     event,
