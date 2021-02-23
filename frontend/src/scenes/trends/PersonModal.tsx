@@ -42,11 +42,12 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                 >
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                         Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
-                        {(view === ViewType.TRENDS || view === ViewType.STICKINESS) && (
-                            <Button type="primary" onClick={onSaveCohort}>
-                                Save cohort
-                            </Button>
-                        )}
+                        {featureFlags['save-cohort-on-modal'] &&
+                            (view === ViewType.TRENDS || view === ViewType.STICKINESS) && (
+                                <Button type="primary" onClick={onSaveCohort}>
+                                    Save cohort
+                                </Button>
+                            )}
                     </div>
                     {featureFlags['filter_by_session_props_link'] ? (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
