@@ -16,7 +16,7 @@ import { loadPostHogJS } from '~/loadPostHogJS'
 loadPostHogJS()
 initKea()
 
-let dashboard = window.__SHARED_DASHBOARD__
+const dashboard = (window as any).__SHARED_DASHBOARD__
 ReactDOM.render(
     <Provider store={getContext().store}>
         <div style={{ minHeight: '100vh', top: 0 }}>

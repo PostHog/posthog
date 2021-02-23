@@ -2,10 +2,11 @@ import React, { useState } from 'react'
 import { Modal, Switch, Button } from 'antd'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInput } from 'lib/components/CopyToClipboard'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
-export function ShareModal({ logic, onCancel }) {
-    const { dashboard } = useValues(logic)
-    const { setIsSharedDashboard } = useActions(logic)
+export function ShareModal({ onCancel }: { onCancel: () => void }): JSX.Element {
+    const { dashboard } = useValues(dashboardLogic)
+    const { setIsSharedDashboard } = useActions(dashboardLogic)
     const [isShared, setIsShared] = useState(dashboard.is_shared)
     const url = window.location.origin
     return (
