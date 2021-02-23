@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node'
 import AdmZip from 'adm-zip'
 import { randomBytes } from 'crypto'
 import { DateTime } from 'luxon'
@@ -351,4 +352,20 @@ export function code(strings: TemplateStringsArray): string {
     const indentation = stringsConcat.match(/^\n([ ]*)/)?.[1].length ?? 0
     const dedentedCode = stringsConcat.replace(new RegExp(`^[ ]{${indentation}}`, 'gm'), '')
     return dedentedCode.trim()
+}
+
+export async function tryTwice<T extends any>(
+    callback: () => Promise<T>,
+    errorMessage: string,
+    timeoutMs = 5000
+): Promise<T> {
+    const timeout = new Promise((_, reject) => setTimeout(reject, timeoutMs))
+    try {
+        const response = await Promise.race([timeout, callback()])
+        return response as T
+    } catch (error) {
+        Sentry.captureMessage(`Had to run twice: ${errorMessage}`)
+        // try one more time
+        return await callback()
+    }
 }
