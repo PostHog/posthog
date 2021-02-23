@@ -37,7 +37,8 @@ class TestClickhouseCalculateCohort(calculate_cohort_test_factory(_create_event,
         ).json()
 
         cohort_id = response["id"]
-        params = (
+
+        _insert_cohort_from_query.assert_called_once_with(
             cohort_id,
             "STICKINESS",
             {
@@ -53,16 +54,52 @@ class TestClickhouseCalculateCohort(calculate_cohort_test_factory(_create_event,
                         "properties": [],
                     }
                 ],
-                "entity_id": "$pageview",
-                "entity_type": "events",
                 "insight": "STICKINESS",
                 "interval": "day",
                 "selected_interval": 1,
                 "shown_as": "Stickiness",
             },
+            entity_data={
+                "id": "$pageview",
+                "type": "events",
+                "order": None,
+                "name": "$pageview",
+                "math": None,
+                "math_property": None,
+                "properties": [],
+            },
         )
-        _insert_cohort_from_query.assert_called_once_with(*params)
-        insert_cohort_from_query(*params)
+        insert_cohort_from_query(
+            cohort_id,
+            "STICKINESS",
+            {
+                "date_from": "2021-01-01",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "math": None,
+                        "math_property": None,
+                        "properties": [],
+                    }
+                ],
+                "insight": "STICKINESS",
+                "interval": "day",
+                "selected_interval": 1,
+                "shown_as": "Stickiness",
+            },
+            entity_data={
+                "id": "$pageview",
+                "type": "events",
+                "order": None,
+                "name": "$pageview",
+                "math": None,
+                "math_property": None,
+                "properties": [],
+            },
+        )
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk)
         self.assertEqual(len(people), 1)
