@@ -41,6 +41,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         STATSD_PORT: 8125,
         STATSD_PREFIX: 'plugin-server.',
         SCHEDULE_LOCK_TTL: 60,
+        REDIS_POOL_MIN_SIZE: 1,
+        REDIS_POOL_MAX_SIZE: 3,
     }
 }
 
@@ -77,6 +79,8 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         STATSD_PORT: 'StatsD port',
         STATSD_PREFIX: 'StatsD prefix',
         SCHEDULE_LOCK_TTL: 'How many seconds to hold the lock for the schedule',
+        REDIS_POOL_MIN_SIZE: 'Minimum number of Redis connections to use per thread',
+        REDIS_POOL_MAX_SIZE: 'Maximum number of Redis connections to use per thread',
     }
 }
 

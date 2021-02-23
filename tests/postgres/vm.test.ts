@@ -21,15 +21,15 @@ const defaultEvent = {
 }
 
 let mockServer: PluginsServer
+let stopServer: () => Promise<void>
 
 beforeEach(async () => {
     ;(Client as any).mockClear()
-    mockServer = (await createServer())[0]
+    ;[mockServer, stopServer] = await createServer()
 })
 
 afterEach(async () => {
-    mockServer.redis.disconnect()
-    await mockServer.postgres.end()
+    await stopServer()
     jest.clearAllMocks()
 })
 

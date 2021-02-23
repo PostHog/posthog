@@ -1,3 +1,4 @@
+import * as IORedis from 'ioredis'
 import { performance } from 'perf_hooks'
 
 import { startPluginsServer } from '../../src/server'
@@ -14,6 +15,8 @@ jest.setTimeout(600000) // 10min timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 4,
+    REDIS_POOL_MIN_SIZE: 3,
+    REDIS_POOL_MAX_SIZE: 3,
     PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
     CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
     PLUGIN_SERVER_INGESTION: true,
@@ -26,6 +29,7 @@ describe('e2e celery & postgres benchmark', () => {
     let server: PluginsServer
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
+    let redis: IORedis.Redis
 
     beforeEach(async () => {
         await resetTestDatabase(`
@@ -40,14 +44,16 @@ describe('e2e celery & postgres benchmark', () => {
         server = startResponse.server
         stopServer = startResponse.stop
         queue = startResponse.queue
+        redis = await server.redisPool.acquire()
 
-        await server.redis.del(server.PLUGINS_CELERY_QUEUE)
-        await server.redis.del(server.CELERY_DEFAULT_QUEUE)
+        await redis.del(server.PLUGINS_CELERY_QUEUE)
+        await redis.del(server.CELERY_DEFAULT_QUEUE)
 
         posthog = createPosthog(server, pluginConfig39)
     })
 
     afterEach(async () => {
+        await server.redisPool.release(redis)
         await stopServer()
     })
 
@@ -62,12 +68,12 @@ describe('e2e celery & postgres benchmark', () => {
             posthog.capture('custom event', { name: 'haha', uuid, randomProperty: 'lololo' })
         }
         await queue.pause()
-        expect(await server.redis.llen(server.PLUGINS_CELERY_QUEUE)).toEqual(0)
+        expect(await redis.llen(server.PLUGINS_CELERY_QUEUE)).toEqual(0)
         for (let i = 0; i < count; i++) {
             createEvent()
         }
         await delay(1000)
-        expect(await server.redis.llen(server.PLUGINS_CELERY_QUEUE)).toEqual(count)
+        expect(await redis.llen(server.PLUGINS_CELERY_QUEUE)).toEqual(count)
         queue.resume()
 
         console.log('Starting timer')

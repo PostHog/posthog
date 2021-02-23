@@ -1,13 +1,14 @@
 import * as Sentry from '@sentry/node'
 import AdmZip from 'adm-zip'
 import { randomBytes } from 'crypto'
+import Redis from 'ioredis'
 import { DateTime } from 'luxon'
 import { Readable } from 'stream'
 import * as tar from 'tar-stream'
 import * as zlib from 'zlib'
 
 import { status } from './status'
-import { LogLevel, TimestampFormat } from './types'
+import { LogLevel, PluginsServerConfig, TimestampFormat } from './types'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
 const GRACEFUL_EXIT_PERIOD_SECONDS = 5
@@ -368,4 +369,20 @@ export async function tryTwice<T extends any>(
         // try one more time
         return await callback()
     }
+}
+
+export async function createRedis(serverConfig: PluginsServerConfig): Promise<Redis.Redis> {
+    const redis = new Redis(serverConfig.REDIS_URL, { maxRetriesPerRequest: -1 })
+    redis
+        .on('error', (error) => {
+            Sentry.captureException(error)
+            status.error('🔴', 'Redis error encountered! Trying to reconnect...\n', error)
+        })
+        .on('ready', () => {
+            if (process.env.NODE_ENV !== 'test') {
+                status.info('✅', 'Connected to Redis!')
+            }
+        })
+    await redis.info()
+    return redis
 }

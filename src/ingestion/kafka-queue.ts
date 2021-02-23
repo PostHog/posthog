@@ -129,7 +129,7 @@ export class KafkaQueue implements Queue {
 
         status.info(
             '🧩',
-            `Kafka Batch of ${batch.messages.length} events completed in ${
+            `Kafka Batch of ${pluginEvents.length} events completed in ${
                 new Date().valueOf() - batchStartTimer.valueOf()
             }ms (plugins: ${batchIngestionTimer.valueOf() - batchStartTimer.valueOf()}ms, ingestion: ${
                 new Date().valueOf() - batchIngestionTimer.valueOf()
