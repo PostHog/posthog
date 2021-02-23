@@ -266,8 +266,9 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_people(self, request: request.Request) -> Union[Dict[str, Any], List]:
         team = self.team
         filter = Filter(request=request)
+        entity = get_target_entity(request)
 
-        events = filter_by_type(team=team, filter=filter)
+        events = filter_by_type(entity=entity, team=team, filter=filter)
         people = calculate_people(team=team, events=events, filter=filter)
         serialized_people = PersonSerializer(people, context={"request": request}, many=True).data
 
