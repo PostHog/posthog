@@ -172,10 +172,13 @@ def prop_filter_json_extract(
     else:
         if is_json(prop.value) and not is_denormalized:
             clause = "AND has(%(v{prepend}_{idx})s, replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', ''))"
+            params = {
+                "k{}_{}".format(prepend, idx): prop.key,
+                "v{}_{}".format(prepend, idx): box_value(prop.value, remove_spaces=True),
+            }
         else:
             clause = "AND has(%(v{prepend}_{idx})s, {left})"
-
-        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): box_value(prop.value)}
+            params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): box_value(prop.value)}
         return (
             clause.format(
                 left=denormalized if is_denormalized else json_extract, idx=idx, prepend=prepend, prop_var=prop_var
@@ -184,10 +187,10 @@ def prop_filter_json_extract(
         )
 
 
-def box_value(value: Any) -> List[Any]:
+def box_value(value: Any, remove_spaces=False) -> List[Any]:
     if not isinstance(value, List):
         value = [value]
-    return [str(value).replace(" ", "") for value in value]
+    return [str(value).replace(" ", "") if remove_spaces else str(value) for value in value]
 
 
 def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
