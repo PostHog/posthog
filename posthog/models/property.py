@@ -36,7 +36,9 @@ class Property:
             "type": self.type,
         }
 
-    def _parse_value(self, value: ValueT) -> ValueT:
+    def _parse_value(self, value: ValueT) -> Any:
+        if isinstance(value, list):
+            return [self._parse_value(v) for v in value]
         if value == "true":
             return True
         if value == "false":
@@ -44,7 +46,7 @@ class Property:
         if isinstance(value, int):
             return value
         try:
-            return json.loads(value)  # type: ignore
+            return json.loads(value)
         except (json.JSONDecodeError, TypeError):
             return value
 
@@ -72,8 +74,11 @@ class Property:
                 | Q(**{"properties__{}".format(self.key): None})
             )
 
-        suffix = f"__{self.operator}" if self.operator else ""
-        return lookup_q(f"properties__{self.key}{suffix}", value)
+        if self.operator == "exact" or self.operator is None:
+            return lookup_q(f"properties__{self.key}", value)
+        else:
+            assert not isinstance(value, list)
+            return Q(**{f"properties__{self.key}__{self.operator}": value})
 
 
 def lookup_q(key: str, value: Any) -> Q:
