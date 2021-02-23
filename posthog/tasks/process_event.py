@@ -161,30 +161,18 @@ def _capture(
         except IntegrityError:
             pass
 
-
-def get_or_create_person(team_id: int, distinct_id: str) -> Tuple[Person, bool]:
-    person: Person
-    created = False
-
-    if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
-        try:
-            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-            created = True
-        except IntegrityError:
-            person = Person.objects.get(
-                team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
-            )
-            created = False
-    else:
-        person = Person.objects.get(
-            team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+    if properties.get("$set"):
+        update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=properties["$set"])
+    if properties.get("$set_once"):
+        update_person_properties(
+            team_id=team_id, distinct_id=distinct_id, properties=properties["$set_once"], set_once=True
         )
-        created = False
-
-    return person, created
 
 
-def _update_person_properties(team_id: int, distinct_id: str, properties: Dict, set_once: bool = False) -> None:
+def update_person_properties(team_id: int, distinct_id: str, properties: Dict, set_once: bool = False) -> None:
+    if type(properties) != type({}):
+        return
+
     try:
         person = Person.objects.get(
             team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
@@ -265,12 +253,6 @@ def handle_identify_or_alias(event: str, properties: dict, distinct_id: str, tea
         if properties.get("$anon_distinct_id"):
             _alias(
                 previous_distinct_id=properties["$anon_distinct_id"], distinct_id=distinct_id, team_id=team_id,
-            )
-        if properties.get("$set"):
-            _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=properties["$set"])
-        if properties.get("$set_once"):
-            _update_person_properties(
-                team_id=team_id, distinct_id=distinct_id, properties=properties["$set_once"], set_once=True
             )
         _set_is_identified(team_id=team_id, distinct_id=distinct_id)
 

@@ -18,7 +18,12 @@ from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.tasks.process_event import handle_identify_or_alias, sanitize_event_name, store_names_and_properties
+from posthog.tasks.process_event import (
+    handle_identify_or_alias,
+    sanitize_event_name,
+    store_names_and_properties,
+    update_person_properties,
+)
 
 if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
@@ -68,6 +73,13 @@ def _capture_ee(
             Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
         except IntegrityError:
             pass
+
+    if properties.get("$set"):
+        update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=properties["$set"])
+    if properties.get("$set_once"):
+        update_person_properties(
+            team_id=team_id, distinct_id=distinct_id, properties=properties["$set_once"], set_once=True
+        )
 
     # # determine create events
     create_event(
