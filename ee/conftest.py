@@ -65,16 +65,6 @@ def db(db):
         SESSION_RECORDING_EVENTS_TABLE_SQL,
     )
 
-    try:
-        sync_execute(EVENTS_TABLE_SQL)
-        sync_execute(EVENTS_WITH_PROPS_TABLE_SQL)
-        sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL)
-        sync_execute(PERSONS_TABLE_SQL)
-        sync_execute(PERSONS_DISTINCT_ID_TABLE_SQL)
-        sync_execute(PERSON_STATIC_COHORT_TABLE_SQL)
-    except:
-        pass
-
     yield
 
     try:
@@ -84,5 +74,12 @@ def db(db):
         sync_execute(DROP_PERSON_DISTINCT_ID_TABLE_SQL)
         sync_execute(DROP_PERSON_STATIC_COHORT_TABLE_SQL)
         sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL)
+
+        sync_execute(EVENTS_TABLE_SQL)
+        sync_execute(EVENTS_WITH_PROPS_TABLE_SQL)
+        sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL)
+        sync_execute(PERSONS_TABLE_SQL)
+        sync_execute(PERSONS_DISTINCT_ID_TABLE_SQL)
+        sync_execute(PERSON_STATIC_COHORT_TABLE_SQL)
     except:
         pass
