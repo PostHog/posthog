@@ -18,6 +18,7 @@ from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, PEOPLE_SQL, PEOPLE_THROUGH_DISTINCT_SQL, PERSON_TREND_SQL
 from ee.clickhouse.sql.stickiness.stickiness_people import STICKINESS_PEOPLE_SQL
 from posthog.api.action import ActionSerializer, ActionViewSet
+from posthog.api.utils import get_target_entity
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
@@ -62,13 +63,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
         filter = Filter(request=request)
-        entity_id = request.GET.get(ENTITY_ID)
-        entity_type = request.GET.get(ENTITY_TYPE)
-
-        if entity_id and entity_type:
-            entity = Entity({"id": entity_id, "type": entity_type})
-        else:
-            raise ValueError("An entity must be provided for target entity to be determined")
+        entity = get_target_entity(request)
 
         # adhoc date handling. parsed differently with django orm
         date_from = filter.date_from or timezone.now()
