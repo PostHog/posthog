@@ -43,6 +43,7 @@ class DashboardSerializer(serializers.ModelSerializer):
             "share_token",
             "deleted",
             "use_template",
+            "filters",
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
@@ -94,7 +95,8 @@ class DashboardSerializer(serializers.ModelSerializer):
         if self.context["view"].action == "list":
             return None
         items = dashboard.items.filter(deleted=False).order_by("order").all()
-        return DashboardItemSerializer(items, many=True).data
+        self.context.update({"dashboard": dashboard})
+        return DashboardItemSerializer(items, many=True, context=self.context).data
 
 
 class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -170,7 +172,6 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
-
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
@@ -188,7 +189,6 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Dashboard not found")
 
     def update(self, instance: Model, validated_data: Dict, **kwargs) -> DashboardItem:
-
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data.setdefault("is_sample", False)
         return super().update(instance, validated_data)
@@ -212,6 +212,11 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         dashboard_item.last_refresh = None
         dashboard_item.save()
         return None
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
+        return representation
 
 
 class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

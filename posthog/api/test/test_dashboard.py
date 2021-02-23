@@ -94,7 +94,7 @@ class TestDashboard(TransactionBaseTest):
         self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(item.filters_hash, generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)))
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(10):
             response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
 
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
@@ -140,15 +140,16 @@ class TestDashboard(TransactionBaseTest):
         self.assertEqual(len(response["results"]), 0)
 
     def test_dashboard_items(self):
-        dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team)
-        dashboard_item = self.client.post(
+        dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team, filters={"date_from": "-14d"})
+        self.client.post(
             "/api/dashboard_item/",
-            data={"filters": {"hello": "test"}, "dashboard": dashboard.pk, "name": "some_item",},
+            data={"filters": {"hello": "test", "date_from": "-7d"}, "dashboard": dashboard.pk, "name": "some_item"},
             content_type="application/json",
         )
         response = self.client.get("/api/dashboard/{}/".format(dashboard.pk)).json()
         self.assertEqual(len(response["items"]), 1)
         self.assertEqual(response["items"][0]["name"], "some_item")
+        self.assertEqual(response["items"][0]["filters"]["date_from"], "-14d")
 
         item_response = self.client.get("/api/dashboard_item/").json()
         self.assertEqual(item_response["results"][0]["name"], "some_item")

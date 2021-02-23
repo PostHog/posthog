@@ -1,7 +1,7 @@
 import React from 'react'
 import { Link } from 'lib/components/Link'
 import { SceneLoading } from 'lib/utils'
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
@@ -10,16 +10,28 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { HedgehogOverlay } from 'lib/components/HedgehogOverlay/HedgehogOverlay'
 import { hot } from 'react-hot-loader/root'
 
+interface Props {
+    id: string
+    shareToken?: string
+}
+
 export const Dashboard = hot(_Dashboard)
-function _Dashboard({ id, shareToken }) {
-    const logic = dashboardLogic({ id: parseInt(id), shareToken })
-    const { dashboard, itemsLoading, items } = useValues(logic)
+function _Dashboard({ id, shareToken }: Props): JSX.Element {
+    return (
+        <BindLogic logic={dashboardLogic} props={{ id: parseInt(id), shareToken }}>
+            <DashboardView id={id} shareToken={shareToken} />
+        </BindLogic>
+    )
+}
+
+function DashboardView({ id, shareToken }: Props): JSX.Element {
+    const { dashboard, itemsLoading, items } = useValues(dashboardLogic)
     const { user } = useValues(userLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
     return (
         <div style={{ marginTop: 32 }}>
-            {!shareToken && <DashboardHeader id={id} logic={logic} />}
+            {!shareToken && <DashboardHeader />}
 
             {dashboardsLoading ? (
                 <SceneLoading />
@@ -29,7 +41,7 @@ function _Dashboard({ id, shareToken }) {
                     <HedgehogOverlay type="sad" />
                 </>
             ) : items && items.length > 0 ? (
-                <DashboardItems logic={logic} inSharedMode={!!shareToken} />
+                <DashboardItems inSharedMode={!!shareToken} />
             ) : itemsLoading ? (
                 <SceneLoading />
             ) : user?.team?.ingested_event ? (

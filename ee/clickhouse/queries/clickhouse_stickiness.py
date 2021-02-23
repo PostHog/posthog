@@ -71,11 +71,11 @@ class ClickhouseStickiness(Stickiness):
 
         return entity_filter, params
 
-    def _retrieve_people(self, filter: StickinessFilter, team: Team) -> ReturnDict:
+    def _retrieve_people(self, target_entity: Entity, filter: StickinessFilter, team: Team) -> ReturnDict:
 
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
-        entity_sql, entity_params = self._format_entity_filter(entity=filter.target_entity)
+        entity_sql, entity_params = self._format_entity_filter(entity=target_entity)
         trunc_func = get_trunc_func_ch(filter.interval)
 
         params: Dict = {

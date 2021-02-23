@@ -12,6 +12,7 @@ Number = Union[int, float]
 def compact_number(value: Number, max_decimals: int = 1) -> str:
     """
     Returns a number in a compact format with a thousands or millions suffix if applicable.
+    Client-side equivalent utils.tsx#compactNumber
     Example:
       {% compact_number 5500000 %}
       =>  "5.5M"

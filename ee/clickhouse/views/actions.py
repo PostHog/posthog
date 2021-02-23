@@ -18,7 +18,8 @@ from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, PEOPLE_SQL, PEOPLE_THROUGH_DISTINCT_SQL, PERSON_TREND_SQL
 from ee.clickhouse.sql.stickiness.stickiness_people import STICKINESS_PEOPLE_SQL
 from posthog.api.action import ActionSerializer, ActionViewSet
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.api.utils import get_target_entity
+from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
@@ -62,12 +63,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
         filter = Filter(request=request)
-        shown_as = request.GET.get("shown_as")
-
-        if len(filter.entities) >= 1:
-            entity = filter.entities[0]
-        else:
-            entity = Entity({"id": request.GET["entityId"], "type": request.GET["type"]})
+        entity = get_target_entity(request)
 
         # adhoc date handling. parsed differently with django orm
         date_from = filter.date_from or timezone.now()
@@ -115,7 +111,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         person_filter_params: Dict[str, Any] = {}
 
         if filter.breakdown_type == "cohort" and filter.breakdown_value != "all":
-            cohort = Cohort.objects.get(pk=filter.breakdown_value)
+            cohort = Cohort.objects.get(pk=filter.breakdown_value, team_id=team.pk)
             person_filter, person_filter_params = format_filter_query(cohort)
             person_filter = "AND distinct_id IN ({})".format(person_filter)
         elif (

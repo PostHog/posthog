@@ -469,6 +469,7 @@ AUTH_USER_MODEL = "posthog.User"
 LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
+AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=strtobool)
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^/api/.*$"
 
@@ -580,5 +581,6 @@ LOGGING = {
     "loggers": {
         "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
         "axes": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+        "statsd": {"handlers": ["console"], "level": "WARNING", "propagate": True,},
     },
 }

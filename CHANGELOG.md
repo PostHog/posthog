@@ -1,5 +1,77 @@
 # Changelog
 
+### 1.21.0 - Wednesday 17 February 2021
+
+
+- [New Navigation For All](https://github.com/PostHog/posthog/pull/3167)
+
+![New Nav](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/new-navigation.png)
+
+While this might not be news to all of you, we have now released our new navigation to everyone.
+
+We had this behind a feature flag, but now all our users have access to our fresh spaceship-like navigation. What do you think? 🚀
+
+
+- [Refreshing Insights](https://github.com/PostHog/posthog/pull/3144)
+
+![Refreshing Insights](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/refreshing-insights.png)
+
+To provide a smooth user experience, we cache query results so that you don't have to wait for a query to run every time you go back to a chart you've recently looked at.
+
+However, this might mean you're sometimes looking at slightly outdated results. As such, we now clearly indicate to you if you're looking at a cached result, how long ago this result was computed, and allow you to refresh it any time you want to see an updated result. 
+
+
+- [Session Recording Filters](https://github.com/PostHog/posthog/pull/2993)
+
+![Session filters](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/session-filters.png)
+
+Our session recording filters just got **so much more powerful**.
+
+Filter by session duration, user properties, unseen recordings, actions performed in a session, and so much more. 
+
+You can now get a lot more out of your session recording sessions by tailoring the recordings to specific areas of your product you're looking into.
+
+For a start, how about [integrating PostHog with Sentry](https://posthog.com/docs/integrations/sentry-integration) and watching all recordings with an `$exception` event in them?
+
+- [Multiple Groups in Feature Flags](https://github.com/PostHog/posthog/pull/3030)
+
+![Feature Flag Multiple Groups](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/feature-flag-groups.png)
+
+Feature flags can now be rolled out to multiple different groups that use distinct settings, unlocking a whole new world of opportunities for your A/B testing and feature rollout processes.
+
+For example, you can now determine a feature flag to be rolled out to all of the following:
+
+- 100% of users in the 'Beta Testers' cohort
+- 40% of all your users
+- All users in a specific team that requested the feature from you  
+
+You can then adjust the filters and rollout percentage for each individually, giving you an even greater degree of flexibility with how you leverage our flags in your workflows.
+
+- [A New Plugins UI with Brand New Features](https://github.com/PostHog/posthog/pull/2774)
+
+![Plugins UI](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/plugins-ui.png)
+
+A lot has happened to our plugins feature since the last release, including:
+
+* An improved UI
+* The ability to reorder plugins
+* The ability to upgrade plugins (and see exactly what changed between plugin versions)
+* Autofill on commonly used plugin configuration fields
+* A new plugin configuration field type, letting plugin builders specify pre-determined choices for the user to select from
+* A ton of performance improvements
+
+- [Taxonomy Plugin](https://posthog.com/plugins/taxonomy-standardizer)
+
+![Taxonomy Plugin](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/taxonomy-plugin.png)
+
+Standardize your event names into a single naming pattern by converting the names of your events that don't match your desired pattern into the chosen format, such as `camelCase` or `snake_case`.
+
+- [Bitbucket Release Tracker Plugin (Beta)](https://posthog.com/plugins/bitbucket-release-tracker)
+
+![Bitbucket Plugin](https://github.com/PostHog/bitbucket-release-tracker/raw/main/readme-assets/release-tracker.png)
+
+Get your Bitbucket release tags into PostHog as annotations on your graphs, so you can track the impact of releases on your metrics.
+
 ### 1.20.0 - Tuesday 19 January 2021
 
 - [Plugins, Plugins, and more Plugins](/plugins)

@@ -400,6 +400,7 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(
             response.data,
             {
+                "id": str(invite.id),
                 "target_email": "t*****9@posthog.com",
                 "first_name": "",
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
@@ -416,6 +417,7 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(
             response.data,
             {
+                "id": str(invite.id),
                 "target_email": "t*****8@posthog.com",
                 "first_name": "Jane",
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
@@ -433,21 +435,29 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.data, {"target_email": "t*****9@posthog.com", "first_name": "", "organization_name": "Test, Inc",},
+            response.data,
+            {
+                "id": str(invite.id),
+                "target_email": "t*****9@posthog.com",
+                "first_name": "",
+                "organization_name": "Test, Inc",
+            },
         )
 
     def test_api_invite_sign_up_prevalidate_invalid_invite(self):
-        response = self.client.get(f"/api/signup/{uuid.uuid4()}/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.data,
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "The provided invite ID is not valid.",
-                "attr": None,
-            },
-        )
+
+        for invalid_invite in [uuid.uuid4(), "abc", "1234"]:
+            response = self.client.get(f"/api/signup/{invalid_invite}/")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.data,
+                {
+                    "type": "validation_error",
+                    "code": "invalid_input",
+                    "detail": "The provided invite ID is not valid.",
+                    "attr": None,
+                },
+            )
 
     def test_existing_user_cant_claim_invite_if_it_doesnt_match_target_email(self):
         user = self._create_user("test+39@posthog.com", "test_password")
@@ -462,8 +472,9 @@ class TestInviteSignup(APIBaseTest):
             response.data,
             {
                 "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "This invite is intended for another email address.",
+                "code": "invalid_recipient",
+                "detail": "This invite is intended for another email address: t*****9@posthog.com."
+                " You tried to sign up with test+39@posthog.com.",
                 "attr": None,
             },
         )
@@ -481,7 +492,7 @@ class TestInviteSignup(APIBaseTest):
             response.data,
             {
                 "type": "validation_error",
-                "code": "invalid_input",
+                "code": "expired",
                 "detail": "This invite has expired. Please ask your admin for a new one.",
                 "attr": None,
             },
@@ -572,7 +583,7 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(user.organization_memberships.count(), 2)
         self.assertTrue(user.organization_memberships.filter(organization=new_org).exists())
 
-        # Defaults are set correctly
+        # User is now changed to the new organization
         self.assertEqual(user.organization, new_org)
         self.assertEqual(user.team, new_team)
 
@@ -698,7 +709,7 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "123"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "type": "validation_error",
                 "code": "password_too_short",
@@ -721,7 +732,7 @@ class TestInviteSignup(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "type": "validation_error",
                 "code": "invalid_input",
@@ -748,10 +759,10 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "test_password"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "type": "validation_error",
-                "code": "invalid_input",
+                "code": "expired",
                 "detail": "This invite has expired. Please ask your admin for a new one.",
                 "attr": None,
             },

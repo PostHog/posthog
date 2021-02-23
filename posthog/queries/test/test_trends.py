@@ -1554,6 +1554,28 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(response[0]["labels"][5], "Thu. 2 January")
             self.assertEqual(response[0]["data"][5], 0)
 
+        def test_breakdown_by_empty_cohort(self):
+            p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-04T12:00:00Z",
+            )
+
+            with freeze_time("2020-01-04T13:01:01Z"):
+                event_response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-14d",
+                            "breakdown": json.dumps(["all"]),
+                            "breakdown_type": "cohort",
+                            "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(event_response[0]["label"], "$pageview - all users")
+            self.assertEqual(sum(event_response[0]["data"]), 1)
+
         def test_breakdown_by_cohort(self):
             person1, person2, person3, person4 = self._create_multiple_people()
             cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"name": "person1"}}])

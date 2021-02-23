@@ -78,6 +78,8 @@ OFFSET = "offset"
 PERIOD = "period"
 STICKINESS_DAYS = "stickiness_days"
 FORMULA = "formula"
+ENTITY_ID = "entity_id"
+ENTITY_TYPE = "entity_type"
 
 RETENTION_RECURRING = "retention_recurring"
 RETENTION_FIRST_TIME = "retention_first_time"

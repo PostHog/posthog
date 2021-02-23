@@ -89,28 +89,28 @@ class Stickiness(BaseQuery):
             response.extend(entity_resp)
         return response
 
-    def people(self, filter: StickinessFilter, team: Team, *args, **kwargs) -> ReturnDict:
-        results = self._retrieve_people(filter, team)
+    def people(self, target_entity: Entity, filter: StickinessFilter, team: Team, *args, **kwargs) -> ReturnDict:
+        results = self._retrieve_people(target_entity, filter, team)
         return results
 
-    def _retrieve_people(self, filter: StickinessFilter, team: Team) -> ReturnDict:
+    def _retrieve_people(self, target_entity: Entity, filter: StickinessFilter, team: Team) -> ReturnDict:
         from posthog.api.person import PersonSerializer
 
-        if filter.target_entity.type == TREND_FILTER_TYPE_EVENTS:
-            filtered_events = base.process_entity_for_events(
-                filter.target_entity, team_id=team.pk, order_by=None
-            ).filter(base.filter_events(team.pk, filter, filter.target_entity))
-        elif filter.target_entity.type == TREND_FILTER_TYPE_ACTIONS:
+        if target_entity.type == TREND_FILTER_TYPE_EVENTS:
+            filtered_events = base.process_entity_for_events(target_entity, team_id=team.pk, order_by=None).filter(
+                base.filter_events(team.pk, filter, target_entity)
+            )
+        elif target_entity.type == TREND_FILTER_TYPE_ACTIONS:
             actions = Action.objects.filter(deleted=False, team=team)
             actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
             try:
-                actions.get(pk=filter.target_entity.id)
+                actions.get(pk=target_entity.id)
             except Action.DoesNotExist:
                 return PersonSerializer([], many=True).data
 
-            filtered_events = base.process_entity_for_events(
-                filter.target_entity, team_id=team.pk, order_by=None
-            ).filter(base.filter_events(team.pk, filter, filter.target_entity))
+            filtered_events = base.process_entity_for_events(target_entity, team_id=team.pk, order_by=None).filter(
+                base.filter_events(team.pk, filter, target_entity)
+            )
         else:
             raise ValueError("target entity must be action or event")
 
