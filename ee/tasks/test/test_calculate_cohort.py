@@ -119,7 +119,7 @@ class TestClickhouseCalculateCohort(calculate_cohort_test_factory(_create_event,
             entity_data={
                 "id": "$pageview",
                 "type": "events",
-                "order": 0,
+                "order": None,
                 "name": "$pageview",
                 "math": None,
                 "math_property": None,
