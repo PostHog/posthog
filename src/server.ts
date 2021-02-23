@@ -3,6 +3,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { FastifyInstance } from 'fastify'
 import * as fs from 'fs'
+import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
 import { Kafka, logLevel, Producer } from 'kafkajs'
@@ -20,7 +21,7 @@ import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_WAL } from './ingestion/top
 import { startSchedule } from './services/schedule'
 import { status } from './status'
 import { PluginsServer, PluginsServerConfig, Queue } from './types'
-import { delay, UUIDT } from './utils'
+import { createRedis, delay, UUIDT } from './utils'
 import { version } from './version'
 import { startFastifyInstance, stopFastifyInstance } from './web/server'
 import { startQueue } from './worker/queue'
@@ -33,19 +34,6 @@ export async function createServer(
         ...defaultConfig,
         ...config,
     }
-
-    const redis = new Redis(serverConfig.REDIS_URL, { maxRetriesPerRequest: -1 })
-    redis
-        .on('error', (error) => {
-            Sentry.captureException(error)
-            status.error('🔴', 'Redis error encountered! Trying to reconnect...\n', error)
-        })
-        .on('ready', () => {
-            if (process.env.NODE_ENV !== 'test') {
-                status.info('✅', 'Connected to Redis!')
-            }
-        })
-    await redis.info()
 
     let kafkaSsl: ConnectionOptions | undefined
     if (
@@ -129,7 +117,22 @@ export async function createServer(
               }
             : undefined,
     })
-    const db = new DB(postgres, redis, kafkaProducer, clickhouse)
+
+    const redisPool = createPool<Redis.Redis>(
+        {
+            create: () => createRedis(serverConfig),
+            destroy: async (client) => {
+                await client.quit()
+            },
+        },
+        {
+            min: serverConfig.REDIS_POOL_MIN_SIZE,
+            max: serverConfig.REDIS_POOL_MAX_SIZE,
+            autostart: true,
+        }
+    )
+
+    const db = new DB(postgres, redisPool, kafkaProducer, clickhouse)
 
     let statsd: StatsD | undefined
     if (serverConfig.STATSD_HOST) {
@@ -151,7 +154,7 @@ export async function createServer(
         ...serverConfig,
         db,
         postgres,
-        redis,
+        redisPool,
         clickhouse,
         kafka,
         kafkaProducer,
@@ -169,7 +172,8 @@ export async function createServer(
 
     const closeServer = async () => {
         await kafkaProducer?.disconnect()
-        await server.redis.quit()
+        await redisPool.drain()
+        await redisPool.clear()
         await server.postgres.end()
     }
 
@@ -255,7 +259,8 @@ export async function startPluginsServer(
             queue?.resume()
         })
 
-        pubSub = new Redis(server.REDIS_URL, { enableAutoPipelining: true })
+        // use one extra connection for redis pubsub
+        pubSub = await createRedis(server)
         await pubSub.subscribe(server.PLUGINS_RELOAD_PUBSUB_CHANNEL)
         pubSub.on('message', async (channel: string, message) => {
             if (channel === server!.PLUGINS_RELOAD_PUBSUB_CHANNEL) {

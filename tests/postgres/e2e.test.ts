@@ -1,3 +1,5 @@
+import * as IORedis from 'ioredis'
+
 import { startPluginsServer } from '../../src/server'
 import { LogLevel } from '../../src/types'
 import { PluginsServer } from '../../src/types'
@@ -14,6 +16,7 @@ describe('e2e postgres ingestion', () => {
     let server: PluginsServer
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
+    let redis: IORedis.Redis
 
     beforeEach(async () => {
         await resetTestDatabase(`
@@ -36,14 +39,16 @@ describe('e2e postgres ingestion', () => {
         )
         server = startResponse.server
         stopServer = startResponse.stop
+        redis = await server.redisPool.acquire()
 
-        await server.redis.del(server.PLUGINS_CELERY_QUEUE)
-        await server.redis.del(server.CELERY_DEFAULT_QUEUE)
+        await redis.del(server.PLUGINS_CELERY_QUEUE)
+        await redis.del(server.CELERY_DEFAULT_QUEUE)
 
         posthog = createPosthog(server, pluginConfig39)
     })
 
     afterEach(async () => {
+        await server.redisPool.release(redis)
         await stopServer()
     })
 

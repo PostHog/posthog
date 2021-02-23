@@ -40,9 +40,10 @@ describe('e2e postgres ingestion timeout', () => {
         )
         server = startResponse.server
         stopServer = startResponse.stop
-
-        await server.redis.del(server.PLUGINS_CELERY_QUEUE)
-        await server.redis.del(server.CELERY_DEFAULT_QUEUE)
+        const redis = await server.redisPool.acquire()
+        await redis.del(server.PLUGINS_CELERY_QUEUE)
+        await redis.del(server.CELERY_DEFAULT_QUEUE)
+        await server.redisPool.release(redis)
 
         posthog = createPosthog(server, pluginConfig39)
     })
