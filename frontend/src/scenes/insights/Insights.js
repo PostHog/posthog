@@ -21,6 +21,7 @@ import {
     ACTIONS_TABLE,
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
+    ACTIONS_BAR_CHART_VALUE,
     LIFECYCLE,
     FUNNEL_VIZ,
 } from 'lib/constants'
@@ -336,10 +337,13 @@ function TrendInsight({ view }) {
                     {loading && <Loading />}
                     {(!_filters.display ||
                         _filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                        _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && <ActionsLineGraph view={view} />}
+                        _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
+                        _filters.display === ACTIONS_BAR_CHART) && <ActionsLineGraph view={view} />}
                     {_filters.display === ACTIONS_TABLE && <ActionsTable filters={_filters} view={view} />}
                     {_filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={_filters} view={view} />}
-                    {_filters.display === ACTIONS_BAR_CHART && <ActionsBarValueGraph filters={_filters} view={view} />}
+                    {_filters.display === ACTIONS_BAR_CHART_VALUE && (
+                        <ActionsBarValueGraph filters={_filters} view={view} />
+                    )}
                 </div>
             )}
             <PersonModal visible={showingPeople} view={view} />

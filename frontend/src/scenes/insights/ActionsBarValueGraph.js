@@ -14,8 +14,6 @@ export function ActionsBarValueGraph({ dashboardItemId, view, filters: filtersPa
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
     const { results, resultsLoading } = useValues(logic)
 
-    console.log({ data })
-
     function updateData() {
         const _data = [...results]
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
@@ -37,16 +35,14 @@ export function ActionsBarValueGraph({ dashboardItemId, view, filters: filtersPa
         setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
     }
 
-    useEffect(() => {
-        updateData()
-    }, [results, color])
+    useEffect(updateData, [results, color])
 
     return data && !resultsLoading ? (
         total > 0 ? (
             <LineGraph
                 pageKey={'trends-annotations'}
                 data-attr="trend-bar-value-graph"
-                type={'bar'}
+                type={'horizontalBar'}
                 color={color}
                 datasets={data}
                 labels={data[0].labels}

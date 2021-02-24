@@ -9,6 +9,7 @@ import {
     ACTIONS_BAR_CHART,
     ACTIONS_TABLE,
     FUNNEL_VIZ,
+    ACTIONS_BAR_CHART_VALUE,
 } from '~/lib/constants'
 import { chartFilterLogic } from './chartFilterLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
@@ -59,14 +60,19 @@ export function ChartFilter(props) {
                             Cumulative
                         </Select.Option>
                     </Select.OptGroup>
+                    <Select.OptGroup label={'Bar Chart'}>
+                        <Select.Option value={ACTIONS_BAR_CHART} disabled={barDisabled}>
+                            Time
+                        </Select.Option>
+                        <Select.Option value={ACTIONS_BAR_CHART_VALUE} disabled={barDisabled}>
+                            Value
+                        </Select.Option>
+                    </Select.OptGroup>
                     <Select.Option value={ACTIONS_TABLE} disabled={tableDisabled}>
                         Table
                     </Select.Option>
                     <Select.Option value={ACTIONS_PIE_CHART} disabled={pieDisabled}>
                         Pie
-                    </Select.Option>
-                    <Select.Option value={ACTIONS_BAR_CHART} disabled={barDisabled}>
-                        Bar
                     </Select.Option>
                 </>
             )}

@@ -55,8 +55,7 @@ export function LineGraph({
     const [annotationInRange, setInRange] = useState(false)
     const size = useWindowSize()
 
-    const annotationsCondition =
-        (!type || type === 'line') && datasets.length > 0 && !datasets[0].compare && !inSharedMode
+    const annotationsCondition = type === 'line' && datasets.length > 0 && !datasets[0].compare && !inSharedMode
 
     useEscapeKey(() => setFocused(false), [focused])
 
@@ -137,7 +136,7 @@ export function LineGraph({
         }
         // if chart is line graph, make duplicate lines and overlay to show dotted lines
         datasets =
-            !type || type === 'line'
+            type === 'line'
                 ? [
                       ...datasets.map((dataset, index) => {
                           let datasetCopy = Object.assign({}, dataset)
@@ -173,144 +172,148 @@ export function LineGraph({
                   ]
                 : datasets.map((dataset, index) => processDataset(dataset, index))
 
+        let options = {
+            responsive: true,
+            maintainAspectRatio: false,
+            scaleShowHorizontalLines: false,
+            tooltips: {
+                enabled: true,
+                intersect: false,
+                mode: 'nearest',
+                // If bar, we want to only show the tooltip for what we're hovering over
+                // to avoid confusion
+                axis: { bar: 'x', horizontalBar: 'y' }[type],
+                bodySpacing: 5,
+                position: 'nearest',
+                yPadding: 10,
+                xPadding: 10,
+                caretPadding: 0,
+                displayColors: false,
+                backgroundColor: '#1dc9b7',
+                titleFontColor: '#ffffff',
+                labelFontSize: 23,
+                cornerRadius: 4,
+                fontSize: 12,
+                footerSpacing: 0,
+                titleSpacing: 0,
+                footerFontStyle: 'italic',
+                callbacks: {
+                    label: function (tooltipItem, data) {
+                        let entityData = data.datasets[tooltipItem.datasetIndex]
+                        if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
+                            return null
+                        }
+                        const label = entityData.chartLabel || entityData.label || ''
+                        const formattedLabel = entityData.action ? formatLabel(label, entityData.action) : label
+
+                        const value = type !== 'horizontalBar' ? tooltipItem.yLabel : tooltipItem.xLabel
+                        return (
+                            (formattedLabel ? formattedLabel + ' — ' : '') +
+                            value.toLocaleString() +
+                            (percentage ? '%' : '')
+                        )
+                    },
+                    footer: () => (dashboardItemId || !onClick ? '' : 'Click to see users related to the datapoint'),
+                },
+                itemSort: (a, b) => b.yLabel - a.yLabel,
+            },
+            hover: {
+                mode: 'nearest',
+                onHover(evt) {
+                    if (onClick) {
+                        const point = this.getElementAtEvent(evt)
+                        if (point.length) {
+                            evt.target.style.cursor = 'pointer'
+                        } else {
+                            evt.target.style.cursor = 'default'
+                        }
+                    }
+                },
+            },
+            onClick: (_, [point]) => {
+                if (point && onClick) {
+                    const dataset = datasets[point._datasetIndex]
+                    onClick({
+                        point,
+                        dataset,
+                        index: point._index,
+                        label:
+                            typeof point._index !== 'undefined' && dataset.labels
+                                ? dataset.labels[point._index]
+                                : undefined,
+                        day:
+                            typeof point._index !== 'undefined' && dataset.days
+                                ? dataset['compare']
+                                    ? dataset.dates[point._index]
+                                    : dataset.days[point._index]
+                                : undefined,
+                        value:
+                            typeof point._index !== 'undefined' && dataset.data
+                                ? dataset.data[point._index]
+                                : undefined,
+                    })
+                }
+            },
+        }
+        if (type === 'bar') {
+            options.scales = {
+                xAxes: [{ stacked: true, ticks: { fontColor: axisLabelColor } }],
+                yAxes: [{ stacked: true, ticks: { fontColor: axisLabelColor } }],
+            }
+        } else if (type === 'line') {
+            options.scales = {
+                xAxes: [
+                    {
+                        display: true,
+                        gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
+                        ticks: {
+                            autoSkip: true,
+                            beginAtZero: true,
+                            min: 0,
+                            fontColor: axisLabelColor,
+                            precision: 0,
+                            padding: annotationsLoading || !annotationInRange ? 0 : 35,
+                        },
+                    },
+                ],
+                yAxes: [
+                    {
+                        display: true,
+                        gridLines: { color: axisLineColor, zeroLineColor: axisColor },
+                        ticks: percentage
+                            ? {
+                                  min: 0,
+                                  max: 100, // Your absolute max value
+                                  callback: function (value) {
+                                      return value.toFixed(0) + '%' // convert it to percentage
+                                  },
+                              }
+                            : {
+                                  autoSkip: true,
+                                  beginAtZero: true,
+                                  min: 0,
+                                  fontColor: axisLabelColor,
+                                  precision: 0,
+                              },
+                    },
+                ],
+            }
+        } else if (type === 'doughnut') {
+            options = {
+                responsive: true,
+                maintainAspectRatio: false,
+                hover: { mode: 'index' },
+            }
+        }
+
         myLineChart.current = new Chart(myChartRef, {
-            type: type || 'line',
+            type,
             data: {
                 //Bring in data
                 labels: labels,
                 datasets: datasets,
             },
-            options:
-                type !== 'doughnut'
-                    ? {
-                          responsive: true,
-                          maintainAspectRatio: false,
-                          scaleShowHorizontalLines: false,
-                          tooltips: {
-                              enabled: true,
-                              intersect: false,
-                              mode: 'nearest',
-                              // If bar, we want to only show the tooltip for what we're hovering over
-                              // to avoid confusion
-                              ...(type !== 'bar' ? { axis: 'x' } : {}),
-                              bodySpacing: 5,
-                              position: 'nearest',
-                              yPadding: 10,
-                              xPadding: 10,
-                              caretPadding: 0,
-                              displayColors: false,
-                              backgroundColor: '#1dc9b7',
-                              titleFontColor: '#ffffff',
-                              labelFontSize: 23,
-                              cornerRadius: 4,
-                              fontSize: 12,
-                              footerSpacing: 0,
-                              titleSpacing: 0,
-                              footerFontStyle: 'italic',
-                              callbacks: {
-                                  label: function (tooltipItem, data) {
-                                      let entityData = data.datasets[tooltipItem.datasetIndex]
-                                      if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
-                                          return null
-                                      }
-                                      const label = entityData.chartLabel || entityData.label || ''
-                                      const formattedLabel = entityData.action
-                                          ? formatLabel(label, entityData.action)
-                                          : label
-                                      return (
-                                          (formattedLabel ? formattedLabel + ' — ' : '') +
-                                          tooltipItem.yLabel.toLocaleString() +
-                                          (percentage ? '%' : '')
-                                      )
-                                  },
-                                  footer: () => (dashboardItemId ? '' : 'Click to see users related to the datapoint'),
-                              },
-                              itemSort: (a, b) => b.yLabel - a.yLabel,
-                          },
-                          hover: {
-                              mode: 'nearest',
-                              onHover(evt) {
-                                  if (onClick) {
-                                      const point = this.getElementAtEvent(evt)
-                                      if (point.length) {
-                                          evt.target.style.cursor = 'pointer'
-                                      } else {
-                                          evt.target.style.cursor = 'default'
-                                      }
-                                  }
-                              },
-                          },
-                          scales: {
-                              xAxes: [
-                                  type === 'bar'
-                                      ? { stacked: true, ticks: { fontColor: axisLabelColor } }
-                                      : {
-                                            display: true,
-                                            gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
-                                            ticks: {
-                                                autoSkip: true,
-                                                beginAtZero: true,
-                                                min: 0,
-                                                fontColor: axisLabelColor,
-                                                precision: 0,
-                                                padding: annotationsLoading || !annotationInRange ? 0 : 35,
-                                            },
-                                        },
-                              ],
-                              yAxes: [
-                                  type === 'bar'
-                                      ? { stacked: true, ticks: { fontColor: axisLabelColor } }
-                                      : {
-                                            display: true,
-                                            gridLines: { color: axisLineColor, zeroLineColor: axisColor },
-                                            ticks: percentage
-                                                ? {
-                                                      min: 0,
-                                                      max: 100, // Your absolute max value
-                                                      callback: function (value) {
-                                                          return value.toFixed(0) + '%' // convert it to percentage
-                                                      },
-                                                  }
-                                                : {
-                                                      autoSkip: true,
-                                                      beginAtZero: true,
-                                                      min: 0,
-                                                      fontColor: axisLabelColor,
-                                                      precision: 0,
-                                                  },
-                                        },
-                              ],
-                          },
-                          onClick: (_, [point]) => {
-                              if (point && onClick) {
-                                  const dataset = datasets[point._datasetIndex]
-                                  onClick({
-                                      point,
-                                      dataset,
-                                      index: point._index,
-                                      label:
-                                          typeof point._index !== 'undefined' && dataset.labels
-                                              ? dataset.labels[point._index]
-                                              : undefined,
-                                      day:
-                                          typeof point._index !== 'undefined' && dataset.days
-                                              ? dataset['compare']
-                                                  ? dataset.dates[point._index]
-                                                  : dataset.days[point._index]
-                                              : undefined,
-                                      value:
-                                          typeof point._index !== 'undefined' && dataset.data
-                                              ? dataset.data[point._index]
-                                              : undefined,
-                                  })
-                              }
-                          },
-                      }
-                    : {
-                          responsive: true,
-                          maintainAspectRatio: false,
-                          hover: { mode: 'index' },
-                      },
+            options,
         })
     }
 

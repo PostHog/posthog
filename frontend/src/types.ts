@@ -448,6 +448,7 @@ export type DisplayType =
     | 'ActionsTable'
     | 'ActionsPie'
     | 'ActionsBar'
+    | 'ActionsBarValue'
     | 'PathsViz'
     | 'FunnelViz'
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
