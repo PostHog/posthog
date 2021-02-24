@@ -1,20 +1,27 @@
 import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { PersonsTable } from './PersonsTable'
-import { Button, Input, Row, Radio } from 'antd'
+import { Button, Input, Row, Radio, Divider } from 'antd'
 import { ExportOutlined, PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { personsLogic } from './personsLogic'
 import { Link } from 'lib/components/Link'
-import { CohortType } from '~/types'
+import { CohortType, PersonType } from '~/types'
 import { LinkButton } from 'lib/components/LinkButton'
 import { ClockCircleFilled } from '@ant-design/icons'
 import { toParams } from 'lib/utils'
+import { manualCohortCreationLogic } from './manualCohortCreationLogic'
+import { Drawer } from 'lib/components/Drawer'
+import { DeleteOutlined } from '@ant-design/icons'
 
 export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading, exampleEmail } = useValues(personsLogic)
     const [searchTerm, setSearchTerm] = useState('') // Not on Kea because it's a component-specific store & to avoid changing the URL on every keystroke
+    const [isCreatingCohort, setIsCreatingCohort] = useState<boolean>(false)
+    const { selectedIds, selectedPeople } = useValues(manualCohortCreationLogic)
+    const { selectId, clearCohort, removeId } = useActions(manualCohortCreationLogic)
+    const [createCohortDrawerIsOpen, setCreateCohortDrawerIsOpen] = useState(false)
 
     useEffect(() => {
         setSearchTerm(listFilters.search)
@@ -85,6 +92,40 @@ export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
                         <ClockCircleFilled /> View sessions
                     </LinkButton>
                 ) : null}
+                {!cohort && (
+                    <div>
+                        <Button
+                            type={'primary'}
+                            disabled={!selectedIds.length && isCreatingCohort}
+                            onClick={() => {
+                                if (isCreatingCohort) {
+                                    setCreateCohortDrawerIsOpen(true)
+                                } else {
+                                    setIsCreatingCohort(true)
+                                }
+                            }}
+                        >
+                            {isCreatingCohort
+                                ? selectedIds.length
+                                    ? 'View selected'
+                                    : 'None selected'
+                                : 'Create Cohort'}
+                        </Button>
+                        {isCreatingCohort && (
+                            <Button
+                                style={{ marginLeft: 8 }}
+                                type="default"
+                                onClick={() => {
+                                    setIsCreatingCohort(false)
+                                    clearCohort()
+                                }}
+                            >
+                                Clear
+                            </Button>
+                        )}
+                    </div>
+                )}
+
                 <Button
                     type="default"
                     icon={<ExportOutlined />}
@@ -111,8 +152,64 @@ export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
                     loadNext={() => loadPersons(persons.next)}
                     allColumns
                     cohort={cohort}
+                    isCreatingCohort={isCreatingCohort}
+                    onSelectRow={(id: number) => {
+                        selectId(id)
+                    }}
+                    selectedRows={selectedIds}
                 />
             </div>
+            <Drawer
+                title={'New cohort'}
+                className="cohorts-drawer"
+                onClose={() => setCreateCohortDrawerIsOpen(false)}
+                destroyOnClose={false}
+                visible={createCohortDrawerIsOpen}
+            >
+                <form
+                    onSubmit={(e): void => {
+                        e.preventDefault()
+                    }}
+                >
+                    <div className="mb">
+                        <Input
+                            required
+                            autoFocus
+                            placeholder="Cohort name..."
+                            value={''}
+                            data-attr="cohort-name"
+                            onChange={() => {}}
+                        />
+                    </div>
+                    <div className="mt">
+                        <Button
+                            type="primary"
+                            htmlType="submit"
+                            disabled={false}
+                            data-attr="save-cohort"
+                            style={{ marginTop: '1rem' }}
+                        >
+                            Save cohort
+                        </Button>
+                    </div>
+                </form>
+                <Divider />
+                <PersonsTable
+                    people={selectedPeople}
+                    moreActions={[
+                        {
+                            title: 'Actions',
+                            render: function RenderActions(_: string, person: PersonType) {
+                                return (
+                                    <Button danger type="link" onClick={() => removeId(person.id)}>
+                                        <DeleteOutlined />
+                                    </Button>
+                                )
+                            },
+                        },
+                    ]}
+                />
+            </Drawer>
         </div>
     )
 }

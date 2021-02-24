@@ -19,6 +19,10 @@ interface PersonsTableType {
     loadNext?: () => void
     allColumns?: boolean // whether to show all columns or not
     cohort?: CohortType
+    isCreatingCohort?: boolean
+    onSelectRow?: (id: number) => void
+    selectedRows?: number[]
+    moreActions?: any
 }
 
 export function PersonsTable({
@@ -30,6 +34,10 @@ export function PersonsTable({
     loadNext,
     allColumns,
     cohort,
+    isCreatingCohort,
+    onSelectRow,
+    selectedRows,
+    moreActions,
 }: PersonsTableType): JSX.Element {
     const linkToPerson = (person: PersonType): string => {
         const backTo = cohort
@@ -88,20 +96,24 @@ export function PersonsTable({
         })
     }
 
-    columns.push({
-        key: 'actions',
-        title: '',
-        render: function Render(_: string, person: PersonType, index: number) {
-            return (
-                <>
-                    <Link to={linkToPerson(person)} data-attr={'goto-person-arrow-' + index}>
-                        <ArrowRightOutlined />
-                        {allColumns ? ' view' : ''}
-                    </Link>
-                </>
-            )
-        },
-    })
+    if (moreActions) {
+        columns.push(...moreActions)
+    } else {
+        columns.push({
+            key: 'actions',
+            title: '',
+            render: function Render(_: string, person: PersonType, index: number) {
+                return (
+                    <>
+                        <Link to={linkToPerson(person)} data-attr={'goto-person-arrow-' + index}>
+                            <ArrowRightOutlined />
+                            {allColumns ? ' view' : ''}
+                        </Link>
+                    </>
+                )
+            },
+        })
+    }
 
     return (
         <>
@@ -118,6 +130,15 @@ export function PersonsTable({
                     },
                     rowExpandable: ({ properties }) => Object.keys(properties).length > 0,
                 }}
+                {...(isCreatingCohort
+                    ? {
+                          rowSelection: {
+                              type: 'checkbox',
+                              selectedRowKeys: selectedRows || [],
+                              onSelect: (record: PersonType) => onSelectRow && onSelectRow(record.id),
+                          },
+                      }
+                    : {})}
                 dataSource={people}
                 className="persons-table"
             />

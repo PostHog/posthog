@@ -60,7 +60,6 @@ function PersonsV1({ cohort }: { cohort: CohortType }): JSX.Element {
                     }}
                     style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
                 />
-
                 <Button
                     type="default"
                     icon={<ExportOutlined />}
