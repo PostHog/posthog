@@ -204,7 +204,7 @@ def get_event(request):
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
         event_uuid = UUIDT()
-        ip = get_ip_address(request) if team.anonymize_ips else None
+        ip = None if team.anonymize_ips else get_ip_address(request)
 
         if is_ee_enabled():
             log_topics = [KAFKA_EVENTS_WAL]
