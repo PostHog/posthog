@@ -47,9 +47,9 @@ class ClickhouseTrends(ClickhouseTrendsNormal, ClickhouseLifecycle, ClickhouseTr
             result = self._run_for_entity(filter, entity, team_id)
         except Exception as e:
             capture_exception(e)
+            result = []
             if settings.TEST or settings.DEBUG:
                 raise e
-            result = []
         serialized_data = self._format_serialized(entity, result)
 
         if filter.display == TRENDS_CUMULATIVE:
