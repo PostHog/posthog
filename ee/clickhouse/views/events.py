@@ -42,6 +42,7 @@ class ClickhouseEventsViewSet(EventViewSet):
     def _query_events_list(self, filter: Filter, team: Team, request: Request, long_date_from: bool = False) -> List:
         limit = "LIMIT 101"
         conditions, condition_params = determine_event_conditions(
+            team,
             {
                 "after": (now() - timedelta(days=1)).isoformat(),
                 "before": (now() + timedelta(seconds=5)).isoformat(),
@@ -52,7 +53,10 @@ class ClickhouseEventsViewSet(EventViewSet):
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
 
         if request.GET.get("action_id"):
-            action = Action.objects.get(pk=request.GET["action_id"])
+            try:
+                action = Action.objects.get(pk=request.GET["action_id"], team_id=team.pk)
+            except Action.DoesNotExist:
+                return []
             if action.steps.count() == 0:
                 return []
             action_query, params = format_action_filter(action)
@@ -129,15 +133,7 @@ class ClickhouseEventsViewSet(EventViewSet):
     def sessions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionsFilter(request=request)
 
-        sessions, pagination = ClickhouseSessionsList().run(team=self.team, filter=filter)
-
-        if filter.distinct_id:
-            try:
-                person_ids = get_persons_by_distinct_ids(self.team.pk, [filter.distinct_id])[0].distinct_ids
-                sessions = [session for i, session in enumerate(sessions) if session["distinct_id"] in person_ids]
-            except IndexError:
-                sessions = []
-
+        sessions, pagination = ClickhouseSessionsList.run(team=self.team, filter=filter)
         return Response({"result": sessions, "pagination": pagination})
 
     # ******************************************

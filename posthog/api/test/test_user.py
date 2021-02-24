@@ -14,21 +14,42 @@ class TestUser(BaseTest):
     def test_user_team_update(self):
         response = self.client.patch(
             "/api/user/",
-            data={"team": {"opt_out_capture": True, "anonymize_ips": False, "session_recording_opt_in": True}},
+            data={"team": {"anonymize_ips": False, "session_recording_opt_in": True}},
             content_type="application/json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
-        self.assertEqual(response_data["team"]["opt_out_capture"], True)
         self.assertEqual(response_data["team"]["anonymize_ips"], False)
         self.assertEqual(response_data["team"]["session_recording_opt_in"], True)
 
         team = Team.objects.get(id=self.team.id)
-        self.assertEqual(team.opt_out_capture, True)
         self.assertEqual(team.anonymize_ips, False)
         self.assertEqual(team.session_recording_opt_in, True)
+
+    def test_event_names_job_not_run_yet(self):
+        self.team.event_names = ["test event", "another event"]
+        # test event not in event_names_with_usage
+        self.team.event_names_with_usage = [{"event": "another event", "volume": 1, "usage_count": 1}]
+        self.team.event_properties = ["test prop", "another prop"]
+        self.team.event_properties_with_usage = [{"key": "another prop", "volume": 1, "usage_count": 1}]
+        self.team.save()
+        response = self.client.get("/api/user/")
+        self.assertEqual(
+            response.json()["team"]["event_names_with_usage"],
+            [
+                {"event": "test event", "volume": None, "usage_count": None},
+                {"event": "another event", "volume": 1, "usage_count": 1},
+            ],
+        )
+        self.assertEqual(
+            response.json()["team"]["event_properties_with_usage"],
+            [
+                {"key": "test prop", "volume": None, "usage_count": None},
+                {"key": "another prop", "volume": 1, "usage_count": 1},
+            ],
+        )
 
 
 class TestUserChangePassword(BaseTest):
@@ -98,7 +119,6 @@ class TestUserAPI(APITransactionBaseTest):
 
     @patch("posthoganalytics.identify")
     def test_user_api(self, mock_identify):
-
         # create another project/user to test analytics input
         for _ in range(0, 2):
             Team.objects.create(organization=self.organization, completed_snippet_onboarding=True, ingested_event=True)
@@ -131,5 +151,9 @@ class TestUserAPI(APITransactionBaseTest):
                 "organization_id": str(self.organization.id),
                 "project_id": str(self.team.uuid),
                 "project_setup_complete": False,
+                "joined_at": self.user.date_joined,
+                "has_password_set": True,
+                "has_social_auth": False,
+                "social_providers": [],
             },
         )

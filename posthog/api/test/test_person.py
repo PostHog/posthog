@@ -1,4 +1,5 @@
 import json
+from uuid import uuid4
 
 from django.test.utils import freeze_time
 from django.utils import timezone
@@ -9,7 +10,7 @@ from posthog.tasks.process_event import process_event
 from posthog.test.base import APIBaseTest
 
 
-def test_person_factory(event_factory, person_factory, get_events, get_people):
+def factory_test_person(event_factory, person_factory, get_events, get_people):
     class TestPerson(APIBaseTest):
         def test_search(self) -> None:
             person_factory(
@@ -245,6 +246,9 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             self.assertEqual(len(get_people()), 0)
             self.assertEqual(len(get_events()), 1)
 
+            response = self.client.delete(f"/api/person/{person.pk}/")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
         def test_filters_by_endpoints_are_deprecated(self):
             person_factory(
                 team=self.team, distinct_ids=["person_1"], properties={"email": "someone@gmail.com"},
@@ -303,10 +307,33 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             )
             self.assertEqual(person[0].created_at, person3.created_at)
 
+        def test_return_non_anonymous_name(self) -> None:
+            person_factory(
+                team=self.team,
+                distinct_ids=["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
+            )
+            person_factory(
+                team=self.team, distinct_ids=["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"],
+            )
+
+            response = self.client.get("/api/person/").json()
+
+            self.assertEqual(response["results"][0]["name"], "distinct_id2")
+            self.assertEqual(response["results"][1]["name"], "distinct_id1")
+
+            self.assertEqual(
+                response["results"][0]["distinct_ids"],
+                ["distinct_id2", "17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c"],
+            )
+            self.assertEqual(
+                response["results"][1]["distinct_ids"],
+                ["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
+            )
+
     return TestPerson
 
 
 class TestPerson(
-    test_person_factory(Event.objects.create, Person.objects.create, Event.objects.all, Person.objects.all)  # type: ignore
+    factory_test_person(Event.objects.create, Person.objects.create, Event.objects.all, Person.objects.all)  # type: ignore
 ):
     pass

@@ -15,6 +15,8 @@ import {
     PlusOutlined,
     UpOutlined,
     SearchOutlined,
+    SettingOutlined,
+    UserAddOutlined,
 } from '@ant-design/icons'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -23,13 +25,35 @@ import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationM
 import { hot } from 'react-hot-loader/root'
 import { isMobile, platformCommandControlKey } from 'lib/utils'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
+import { Link } from 'lib/components/Link'
+import { LinkButton } from 'lib/components/LinkButton'
+import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
+import { UserType } from '~/types'
+
+export function WhoAmI({ user }: { user: UserType }): JSX.Element {
+    return (
+        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
+            <div className="pp">{user.name[0]?.toUpperCase()}</div>
+            <div className="details hide-lte-lg">
+                <span>{user.name}</span>
+                <span>{user.organization?.name}</span>
+            </div>
+        </div>
+    )
+}
 
 export const TopNavigation = hot(_TopNavigation)
 export function _TopNavigation(): JSX.Element {
-    const { setMenuCollapsed, setChangelogModalOpen, updateCurrentOrganization, updateCurrentProject } = useActions(
+    const {
+        setMenuCollapsed,
+        setChangelogModalOpen,
+        updateCurrentOrganization,
+        updateCurrentProject,
+        setInviteMembersModalOpen,
+    } = useActions(navigationLogic)
+    const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen, inviteMembersModalOpen } = useValues(
         navigationLogic
     )
-    const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen } = useValues(navigationLogic)
     const { user } = useValues(userLogic)
     const { logout } = useActions(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
@@ -48,23 +72,44 @@ export function _TopNavigation(): JSX.Element {
                     <span>{user?.organization?.name}</span>
                 </div>
             </div>
-            <div className="text-center">
+            <div className="text-center mt" style={{ paddingRight: 16, paddingLeft: 16 }}>
                 <div>
-                    <Button className="mt" onClick={() => push('/organization/members')}>
-                        Org settings &amp; members
+                    <Button
+                        type="primary"
+                        icon={<UserAddOutlined />}
+                        onClick={() => setInviteMembersModalOpen(true)}
+                        data-attr="top-menu-invite-team-members"
+                    >
+                        Invite Team Members
                     </Button>
+                </div>
+                <div style={{ marginTop: 12 }}>
+                    <LinkButton
+                        to="/organization/members"
+                        data-attr="top-menu-item-org-settings"
+                        style={{ width: '100%' }}
+                        icon={<SettingOutlined />}
+                    >
+                        Organization Settings
+                    </LinkButton>
                 </div>
                 {user?.is_multi_tenancy ? (
                     <div className="mt-05">
-                        <a onClick={() => push('/organization/billing')}>Billing</a>
+                        <Link to="/organization/billing" data-attr="top-menu-item-billing">
+                            Billing
+                        </Link>
                     </div>
                 ) : (
                     <div className="mt-05">
-                        <a onClick={() => push('/instance/licenses')}>Licenses</a>
+                        <Link to="/instance/licenses" data-attr="top-menu-item-licenses">
+                            Licenses
+                        </Link>
                     </div>
                 )}
                 <div className="mt-05">
-                    <a onClick={() => push('/me/settings')}>My account</a>
+                    <Link to="/me/settings" data-attr="top-menu-item-me">
+                        My account
+                    </Link>
                 </div>
             </div>
             <div className="divider mt-05" />
@@ -102,7 +147,9 @@ export function _TopNavigation(): JSX.Element {
             </div>
             <div className="divider mb-05" />
             <div className="text-center">
-                <a onClick={logout}>Log out</a>
+                <a onClick={logout} data-attr="top-menu-item-logout">
+                    Log out
+                </a>
             </div>
         </div>
     )
@@ -175,18 +222,22 @@ export function _TopNavigation(): JSX.Element {
                         )}
                         {(!user?.is_multi_tenancy || user.is_staff) && (
                             <Badge
+                                data-attr="system-status-badge"
                                 type={systemStatus ? 'success' : 'danger'}
                                 onClick={() => push('/instance/status')}
                                 tooltip={systemStatus ? 'All systems operational' : 'Potential system issue'}
                                 className="mr"
                             />
                         )}
-                        <Badge
-                            type={updateAvailable ? 'warning' : undefined}
-                            tooltip={updateAvailable ? 'New version available' : undefined}
-                            icon={<UpOutlined />}
-                            onClick={() => setChangelogModalOpen(true)}
-                        />
+                        {!user?.is_multi_tenancy && (
+                            <Badge
+                                data-attr="update-indicator-badge"
+                                type={updateAvailable ? 'warning' : undefined}
+                                tooltip={updateAvailable ? 'New version available' : 'PostHog is up-to-date'}
+                                icon={<UpOutlined />}
+                                onClick={() => setChangelogModalOpen(true)}
+                            />
+                        )}
                     </div>
                 </div>
                 <div className="project-chooser">
@@ -197,18 +248,17 @@ export function _TopNavigation(): JSX.Element {
                         </div>
                     </Dropdown>
                 </div>
-                <div>
-                    <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
-                        <div className="whoami cursor-pointer">
-                            <div className="pp">{user?.name[0]?.toUpperCase()}</div>
-                            <div className="details hide-lte-lg">
-                                <span>{user?.name}</span>
-                                <span>{user?.organization?.name}</span>
+                {user && (
+                    <div>
+                        <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
+                            <div>
+                                <WhoAmI user={user} />
                             </div>
-                        </div>
-                    </Dropdown>
-                </div>
+                        </Dropdown>
+                    </div>
+                )}
             </div>
+            <BulkInviteModal visible={inviteMembersModalOpen} onClose={() => setInviteMembersModalOpen(false)} />
             <CreateProjectModal isVisible={projectModalShown} setIsVisible={setProjectModalShown} />
             <CreateOrganizationModal isVisible={organizationModalShown} setIsVisible={setOrganizationModalShown} />
             {changelogModalOpen && <ChangelogModal onDismiss={() => setChangelogModalOpen(false)} />}

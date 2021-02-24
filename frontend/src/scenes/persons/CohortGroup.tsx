@@ -74,7 +74,6 @@ export function CohortGroup({
                         <PropertyFilters
                             endpoint="person"
                             pageKey={'cohort_' + index}
-                            className=" "
                             onChange={(properties: PropertyFilter[]) => {
                                 onChange(
                                     properties.length
@@ -95,9 +94,9 @@ export function CohortGroup({
                                 showSearch
                                 placeholder="Select action..."
                                 style={{ width: '100%' }}
-                                onChange={(value) => onChange({ action_id: value })}
+                                onChange={(value) => onChange({ action_id: value, days: group.days })}
                                 filterOption={(input, option) =>
-                                    option.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+                                    option?.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
                                 }
                                 value={group.action_id}
                             >

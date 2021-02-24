@@ -58,9 +58,8 @@ class Sessions(BaseQuery):
 
         if filter.session == SESSION_AVG:
             if not filter.date_from:
-                filter = Filter(
-                    data={
-                        **filter._data,
+                filter = filter.with_data(
+                    {
                         "date_from": Event.objects.filter(team=team)
                         .order_by("timestamp")[0]
                         .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -149,6 +148,10 @@ class Sessions(BaseQuery):
         elif interval == "month":
             for df in data_array:
                 df["date"] = (df["date"].replace(day=1) + datetime.timedelta(days=32)).replace(
+                    day=1
+                ) - datetime.timedelta(days=1)
+            for idx in range(len(date_range)):
+                date_range[idx] = (date_range[idx].replace(day=1) + datetime.timedelta(days=32)).replace(
                     day=1
                 ) - datetime.timedelta(days=1)
 

@@ -4,7 +4,7 @@ import { cohortLogic } from './cohortLogic'
 import { Button, Card, Col, Divider, Input, Row } from 'antd'
 import { AimOutlined, ArrowLeftOutlined, InboxOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import { useValues, useActions, BuiltLogic } from 'kea'
-import { CohortType } from '~/types'
+import { CohortGroupType, CohortType } from '~/types'
 import { Persons } from './Persons'
 import Dragger from 'antd/lib/upload/Dragger'
 
@@ -13,10 +13,13 @@ const isSubmitDisabled = (cohort: CohortType): boolean => {
         return false
     }
     if (cohort && cohort.groups) {
-        return !cohort.groups.some((group) => Object.keys(group).length)
+        return cohort.groups.filter(isValidGroup).length !== cohort.groups.length
     }
     return true
 }
+
+const isValidGroup = (group: CohortGroupType): boolean =>
+    !!(group.days && group.action_id) || !!(group.properties && group.properties.length > 0)
 
 function StaticCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
     const { setCohort } = useActions(logic)
@@ -74,7 +77,7 @@ function DynamicCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
                     <br />
                 </>
             )}
-            {cohort.groups.map((group: Record<string, any>, index: number) => (
+            {cohort.groups.map((group: CohortGroupType, index: number) => (
                 <React.Fragment key={index}>
                     <CohortGroup
                         group={group}
@@ -84,7 +87,7 @@ function DynamicCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
                             cohort.groups.splice(index, 1)
                             setCohort({ ...cohort })
                         }}
-                        onChange={(_group: Record<string, any>) => {
+                        onChange={(_group: CohortGroupType) => {
                             cohort.groups[index] = _group
                             setCohort({ ...cohort })
                         }}
@@ -142,7 +145,7 @@ function CohortChoice({ setCohort, cohort }: { setCohort: CallableFunction; coho
     )
 }
 
-export function Cohort(props: { onChange: CallableFunction; cohort: CohortType }): JSX.Element {
+export function Cohort(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
     const { setCohort, saveCohort } = useActions(logic)
     const { cohort, lastSavedAt } = useValues(logic)
@@ -152,7 +155,7 @@ export function Cohort(props: { onChange: CallableFunction; cohort: CohortType }
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
-                    saveCohort(cohort)
+                    saveCohort()
                 }}
             >
                 <div className="mb">

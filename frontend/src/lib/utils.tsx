@@ -3,7 +3,7 @@ import api from './api'
 import { toast } from 'react-toastify'
 import { Spin } from 'antd'
 import moment from 'moment'
-import { EventType } from '~/types'
+import { EventType, FilterType } from '~/types'
 import { lightColors } from 'lib/colors'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
@@ -118,11 +118,12 @@ export function DeleteWithUndo(
     props: PropsWithChildren<{
         endpoint: string
         object: {
-            name: string
+            name?: string
             id: number
         }
         className: string
         style: CSSProperties
+        callback: () => void
     }>
 ): JSX.Element {
     const { className, style, children } = props
@@ -192,6 +193,19 @@ export function isOperatorFlag(operator: string): boolean {
     return ['is_set', 'is_not_set'].includes(operator)
 }
 
+export function isOperatorRegex(operator: string): boolean {
+    return ['regex', 'not_regex'].includes(operator)
+}
+
+export function isValidRegex(value: string): boolean {
+    try {
+        new RegExp(value)
+        return true
+    } catch {
+        return false
+    }
+}
+
 export function formatPropertyLabel(
     item: Record<string, any>,
     cohorts: Record<string, any>[],
@@ -220,7 +234,7 @@ export function formatLabel(
     }
 ): string {
     if (action.math === 'dau') {
-        label += ` (${action.math.toUpperCase()}) `
+        label += ` (Active Users) `
     } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math)) {
         label += ` (${action.math} of ${action.math_property}) `
     } else {
@@ -441,6 +455,7 @@ export function determineDifferenceType(
 }
 
 export const dateMapping: Record<string, string[]> = {
+    Custom: [],
     Today: ['dStart'],
     Yesterday: ['-1d', 'dStart'],
     'Last 24 hours': ['-24h'],
@@ -457,7 +472,11 @@ export const dateMapping: Record<string, string[]> = {
 
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
-export function dateFilterToText(dateFrom: string | moment.Moment, dateTo: string | moment.Moment): string {
+export function dateFilterToText(
+    dateFrom: string | moment.Moment | undefined,
+    dateTo: string | moment.Moment | undefined,
+    defaultValue: string
+): string {
     if (moment.isMoment(dateFrom) && moment.isMoment(dateTo)) {
         return `${dateFrom.format('YYYY-MM-DD')} - ${dateTo.format('YYYY-MM-DD')}`
     }
@@ -469,9 +488,9 @@ export function dateFilterToText(dateFrom: string | moment.Moment, dateTo: strin
     if (dateFrom === 'dStart') {
         return 'Today'
     } // Changed to "last 24 hours" but this is backwards compatibility
-    let name = 'Last 7 days'
+    let name = defaultValue
     Object.entries(dateMapping).map(([key, value]) => {
-        if (value[0] === dateFrom && value[1] === dateTo) {
+        if (value[0] === dateFrom && value[1] === dateTo && key !== 'Custom') {
             name = key
         }
     })[0]
@@ -581,25 +600,28 @@ export function sampleSingle<T>(items: T[]): T[] {
 export function identifierToHuman(identifier: string | number): string {
     const words: string[] = []
     let currentWord: string = ''
-    for (const character of String(identifier).trim()) {
-        if (character === '_' || character === '-') {
-            if (currentWord) {
-                words.push(currentWord)
+    String(identifier)
+        .trim()
+        .split('')
+        .forEach((character) => {
+            if (character === '_' || character === '-') {
+                if (currentWord) {
+                    words.push(currentWord)
+                }
+                currentWord = ''
+            } else if (
+                character === character.toLowerCase() &&
+                (!'0123456789'.includes(character) ||
+                    (currentWord && '0123456789'.includes(currentWord[currentWord.length - 1])))
+            ) {
+                currentWord += character
+            } else {
+                if (currentWord) {
+                    words.push(currentWord)
+                }
+                currentWord = character.toLowerCase()
             }
-            currentWord = ''
-        } else if (
-            character === character.toLowerCase() &&
-            (!'0123456789'.includes(character) ||
-                (currentWord && '0123456789'.includes(currentWord[currentWord.length - 1])))
-        ) {
-            currentWord += character
-        } else {
-            if (currentWord) {
-                words.push(currentWord)
-            }
-            currentWord = character.toLowerCase()
-        }
-    }
+        })
     if (currentWord) {
         words.push(currentWord)
     }
@@ -655,4 +677,73 @@ export function midEllipsis(input: string, maxLength: number): string {
     const middle = Math.ceil(input.length / 2)
     const excess = Math.ceil((input.length - maxLength) / 2)
     return `${input.substring(0, middle - excess)}...${input.substring(middle + excess)}`
+}
+
+export const disableMinuteFor: Record<string, boolean> = {
+    dStart: false,
+    '-1d': false,
+    '-7d': true,
+    '-14d': true,
+    '-30d': true,
+    '-90d': true,
+    mStart: true,
+    '-1mStart': true,
+    yStart: true,
+    all: true,
+    other: false,
+}
+
+export const disableHourFor: Record<string, boolean> = {
+    dStart: false,
+    '-1d': false,
+    '-7d': false,
+    '-14d': false,
+    '-30d': false,
+    '-90d': true,
+    mStart: false,
+    '-1mStart': false,
+    yStart: true,
+    all: true,
+    other: false,
+}
+
+export function autocorrectInterval(filters: Partial<FilterType>): string {
+    if (!filters.interval) {
+        return 'day'
+    } // undefined/uninitialized
+
+    const minute_disabled = disableMinuteFor[filters.date_from || 'other'] && filters.interval === 'minute'
+    const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
+
+    if (minute_disabled) {
+        return 'hour'
+    } else if (hour_disabled) {
+        return 'day'
+    } else {
+        return filters.interval
+    }
+}
+
+function suffixFormatted(value: number, base: number, suffix: string, maxDecimals: number): string {
+    /* Helper function for compactNumber */
+    const multiplier = 10 ** maxDecimals
+    return `${Math.round((value * multiplier) / base) / multiplier}${suffix}`
+}
+
+export function compactNumber(value: number, maxDecimals: number = 1): string {
+    /*
+    Returns a number in a compact format with a thousands or millions suffix if applicable.
+    Server-side equivalent posthog_filters.py#compact_number
+    Example:
+      compactNumber(5500000)
+      =>  "5.5M"
+    */
+    if (value < 1000) {
+        return Math.floor(value).toString()
+    } else if (value < 1000000) {
+        return suffixFormatted(value, 1000, 'K', maxDecimals)
+    } else if (value < 1000000000) {
+        return suffixFormatted(value, 1000000, 'M', maxDecimals)
+    }
+    return suffixFormatted(value, 1000000000, 'B', maxDecimals)
 }

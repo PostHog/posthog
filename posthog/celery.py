@@ -30,7 +30,7 @@ app.autodiscover_tasks()
 app.conf.broker_pool_limit = 0
 
 # How frequently do we want to calculate action -> event relationships if async is enabled
-ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
+ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 5
 
 if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
@@ -72,7 +72,7 @@ def setup_periodic_tasks(sender, **kwargs):
         sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
         sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
 
-    sender.add_periodic_task(60, calculate_cohort.s(), name="recalculate cohorts")
+    sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
     if settings.ASYNC_EVENT_ACTION_MAPPING:
         sender.add_periodic_task(

@@ -15,7 +15,7 @@ function InviteRow({ index }: { index: number }): JSX.Element {
     const name = PLACEHOLDER_NAMES[index % 2]
 
     const { invites } = useValues(bulkInviteLogic)
-    const { updateInviteAtIndex } = useActions(bulkInviteLogic)
+    const { updateInviteAtIndex, inviteTeamMembers } = useActions(bulkInviteLogic)
 
     return (
         <Row gutter={16} className="invite-row">
@@ -33,6 +33,11 @@ function InviteRow({ index }: { index: number }): JSX.Element {
                         updateInviteAtIndex({ email: e.target.value, isValid }, index)
                     }}
                     value={invites[index].email}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            inviteTeamMembers()
+                        }
+                    }}
                 />
             </Col>
             <Col xs={12}>
@@ -40,6 +45,11 @@ function InviteRow({ index }: { index: number }): JSX.Element {
                     placeholder={name}
                     onChange={(e) => {
                         updateInviteAtIndex({ first_name: e.target.value }, index)
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            inviteTeamMembers()
+                        }
                     }}
                 />
             </Col>

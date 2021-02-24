@@ -49,21 +49,21 @@ function _Plugins(): JSX.Element {
 
             {user.team?.plugins_opt_in ? (
                 <>
-                    <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}>
-                        <TabPane tab="Installed" key={PluginTab.Installed}>
-                            <InstalledTab />
-                        </TabPane>
-                        {user.plugin_access.install && (
-                            <>
-                                <TabPane tab="Repository" key={PluginTab.Repository}>
-                                    <RepositoryTab />
-                                </TabPane>
-                                <TabPane tab="Advanced" key={PluginTab.Advanced}>
-                                    <AdvancedTab />
-                                </TabPane>
-                            </>
-                        )}
-                    </Tabs>
+                    {user.plugin_access.install ? (
+                        <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}>
+                            <TabPane tab="Installed" key={PluginTab.Installed}>
+                                <InstalledTab />
+                            </TabPane>
+                            <TabPane tab="Repository" key={PluginTab.Repository}>
+                                <RepositoryTab />
+                            </TabPane>
+                            <TabPane tab="Advanced" key={PluginTab.Advanced}>
+                                <AdvancedTab />
+                            </TabPane>
+                        </Tabs>
+                    ) : (
+                        <InstalledTab />
+                    )}
                     <PluginDrawer />
                 </>
             ) : (

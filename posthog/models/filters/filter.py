@@ -13,6 +13,9 @@ from posthog.models.filters.mixins.common import (
     DateMixin,
     DisplayDerivedMixin,
     EntitiesMixin,
+    EntityIdMixin,
+    EntityTypeMixin,
+    FormulaMixin,
     InsightMixin,
     IntervalMixin,
     OffsetMixin,
@@ -27,6 +30,8 @@ class Filter(
     PropertyMixin,
     IntervalMixin,
     EntitiesMixin,
+    EntityIdMixin,
+    EntityTypeMixin,
     DisplayDerivedMixin,
     SelectorMixin,
     ShownAsMixin,
@@ -39,6 +44,7 @@ class Filter(
     OffsetMixin,
     DateMixin,
     BaseFilter,
+    FormulaMixin,
 ):
     """
     Filters allow us to describe what events to show/use in various places in the system, for example Trends or Funnels.
@@ -60,3 +66,4 @@ class Filter(
             raise ValueError("You need to define either a data dict or a request")
 
         self._data = data
+        self.kwargs = kwargs
