@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Input, Button, Radio } from 'antd'
 import { useActions } from 'kea'
 import { personsLogic } from './personsLogic'
-import { PlusOutlined, SaveOutlined, BulbOutlined } from '@ant-design/icons'
+import { PlusOutlined, SaveOutlined, BulbOutlined, StopOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
 import { IconText } from 'lib/components/icons'
 import Modal from 'antd/lib/modal/Modal'
 
@@ -103,10 +103,14 @@ export const NewPropertyComponent = (): JSX.Element => {
                                 buttonStyle="solid"
                             >
                                 <Radio.Button value="true" defaultChecked>
-                                    True
+                                    <CheckOutlined /> True
                                 </Radio.Button>
-                                <Radio.Button value="false">False</Radio.Button>
-                                <Radio.Button value="null">Null</Radio.Button>
+                                <Radio.Button value="false">
+                                    <CloseOutlined /> False
+                                </Radio.Button>
+                                <Radio.Button value="null">
+                                    <StopOutlined /> Null
+                                </Radio.Button>
                             </Radio.Group>
                         </div>
                     ) : (
@@ -114,6 +118,7 @@ export const NewPropertyComponent = (): JSX.Element => {
                             placeholder="try email@example.com, gold, 1"
                             onChange={(e) => setState({ ...state, value: e.target.value })}
                             id="propertyValue"
+                            onKeyDown={(e) => e.key === 'Enter' && saveProperty()}
                         />
                     )}
                 </div>
