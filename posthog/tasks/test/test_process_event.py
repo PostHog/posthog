@@ -51,7 +51,7 @@ def factory_test_process_event(
             with self.assertNumQueries(num_queries):
                 process_event(
                     2,
-                    "",
+                    "127.0.0.1",
                     "",
                     {
                         "event": "$autocapture",
@@ -836,7 +836,7 @@ def factory_test_process_event(
             self.assertListEqual(self.team.event_properties_numerical, [])
             process_event(
                 "xxx",
-                "",
+                "127.0.0.1",
                 "",
                 {"event": "purchase", "properties": {"price": 299.99, "name": "AirPods Pro"},},
                 self.team.pk,
