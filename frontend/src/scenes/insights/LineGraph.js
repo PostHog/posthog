@@ -25,7 +25,7 @@ export function LineGraph({
     labels,
     color,
     type,
-    isInProgress,
+    isInProgress = false,
     onClick,
     ['data-attr']: dataAttr,
     dashboardItemId,

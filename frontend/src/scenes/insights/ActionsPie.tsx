@@ -14,6 +14,7 @@ export function ActionsPie({
     filters: filtersParam,
     color,
     cachedResults,
+    inSharedMode,
 }: ChartParams): JSX.Element {
     const [data, setData] = useState<Record<string, any>[] | null>(null)
     const [total, setTotal] = useState(0)
@@ -55,6 +56,8 @@ export function ActionsPie({
                         type="doughnut"
                         datasets={data}
                         labels={data[0].labels}
+                        inSharedMode={inSharedMode}
+                        dashboardItemId={dashboardItemId}
                     />
                 </div>
                 <h1>
