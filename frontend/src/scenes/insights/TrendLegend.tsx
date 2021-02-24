@@ -59,6 +59,7 @@ export function TrendLegend(): JSX.Element {
         <Table
             dataSource={indexedResults}
             columns={columns}
+            size="small"
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             style={{ marginTop: '1rem' }}
