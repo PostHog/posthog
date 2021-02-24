@@ -1,79 +1,34 @@
 import React, { useState } from 'react'
-import { Row, Col, Input, Button, Select } from 'antd'
-import { useActions, useValues } from 'kea'
+import { Input, Button, Radio } from 'antd'
+import { useActions } from 'kea'
 import { personsLogic } from './personsLogic'
-import { PlusOutlined, CloseOutlined, CheckOutlined, BulbOutlined } from '@ant-design/icons'
+import { PlusOutlined, SaveOutlined, BulbOutlined } from '@ant-design/icons'
 import { IconText } from 'lib/components/icons'
+import Modal from 'antd/lib/modal/Modal'
 
 interface NewPropertyInterface {
     creating: boolean
+    propertyType: 'string' | 'boolean'
     key?: string | null
     value?: string | number | boolean | null
 }
 
 export const NewPropertyComponent = (): JSX.Element => {
-    const initialState = { creating: false } as NewPropertyInterface
+    const initialState = { creating: false, propertyType: 'string' } as NewPropertyInterface
     const [state, setState] = useState(initialState)
-    const { newProperty, editingNewProperty } = useValues(personsLogic)
-    const { setNewProperty, saveNewProperty } = useActions(personsLogic)
+    const { editProperty, setHasNewKeys } = useActions(personsLogic)
+
+    const saveProperty = (): void => {
+        if (state.key && state.value !== undefined) {
+            editProperty(state.key, state.value)
+            setHasNewKeys()
+            setState(initialState)
+        }
+    }
 
     return (
-        <div className="mb">
-            {state.creating ? (
-                <>
-                    <h3 className="l3" style={{ marginBottom: 16 }}>
-                        Adding new property
-                    </h3>
-                    <Row gutter={8}>
-                        <Col span={1}>
-                            <span
-                                className="cursor-pointer text-muted"
-                                style={{ height: '100%', display: 'flex', alignItems: 'center', paddingRight: 16 }}
-                                onClick={() => setState(initialState)}
-                            >
-                                <CloseOutlined />
-                            </span>
-                        </Col>
-                        <Col span={11}>
-                            <Input
-                                autoFocus
-                                placeholder="Key"
-                                onChange={(e) =>
-                                    setNewProperty([(e.target as HTMLInputElement).value, newProperty[1] || ''])
-                                }
-                            />
-                        </Col>
-                        <Col span={11}>
-                            <Input.Group compact>
-                                <Select defaultValue="string">
-                                    <Select.Option value="string">
-                                        <IconText />
-                                    </Select.Option>
-                                    <Select.Option value="boolean">
-                                        <BulbOutlined />
-                                    </Select.Option>
-                                </Select>
-                                <Input
-                                    style={{ width: 'calc(100% - 56px)' }}
-                                    placeholder="Value"
-                                    onChange={(e) =>
-                                        setNewProperty([newProperty[0] || '', (e.target as HTMLInputElement).value])
-                                    }
-                                />
-                            </Input.Group>
-                        </Col>
-                        <Col span={1}>
-                            <span
-                                className="cursor-pointer text-success"
-                                style={{ height: '100%', display: 'flex', alignItems: 'center' }}
-                                onClick={() => setState(initialState)}
-                            >
-                                <CheckOutlined />
-                            </span>
-                        </Col>
-                    </Row>
-                </>
-            ) : (
+        <>
+            <div className="mb">
                 <div className="text-right">
                     <Button
                         data-attr="add-prop-button"
@@ -84,7 +39,86 @@ export const NewPropertyComponent = (): JSX.Element => {
                         New property
                     </Button>
                 </div>
-            )}
-        </div>
+            </div>
+            <Modal
+                visible={state.creating}
+                destroyOnClose
+                onCancel={() => setState(initialState)}
+                title="Adding new property"
+                okText={
+                    <>
+                        <SaveOutlined style={{ marginRight: 4 }} />
+                        Save Property
+                    </>
+                }
+                okButtonProps={{ disabled: !state.key || state.value === undefined }}
+                onOk={saveProperty}
+            >
+                <div className="input-set">
+                    <label htmlFor="propertyKey">Key</label>
+                    <Input
+                        id="propertyKey"
+                        autoFocus
+                        placeholder="try email, first_name, is_verified, membership_level, total_revenue"
+                        onChange={(e) => setState({ ...state, key: e.target.value })}
+                    />
+                </div>
+                <div className="input-set">
+                    <label htmlFor="propertyType">Type of Property</label>
+                    <div>
+                        <Radio.Group
+                            value={state.propertyType}
+                            onChange={(e) =>
+                                setState({
+                                    ...state,
+                                    propertyType: e.target.value,
+                                    value: e.target.value === 'string' ? undefined : 'true',
+                                })
+                            }
+                            id="propertyType"
+                            buttonStyle="solid"
+                        >
+                            <Radio.Button value="string">
+                                <IconText /> Text or Number
+                            </Radio.Button>
+                            <Radio.Button value="boolean">
+                                <BulbOutlined /> Boolean or Null
+                            </Radio.Button>
+                        </Radio.Group>
+                    </div>
+                </div>
+
+                <div className="input-set">
+                    <label htmlFor="propertyValue">Value</label>
+                    {state.propertyType === 'boolean' ? (
+                        <div>
+                            <Radio.Group
+                                value={state.value}
+                                onChange={(e) =>
+                                    setState({
+                                        ...state,
+                                        value: e.target.value,
+                                    })
+                                }
+                                id="propertyValue"
+                                buttonStyle="solid"
+                            >
+                                <Radio.Button value="true" defaultChecked>
+                                    True
+                                </Radio.Button>
+                                <Radio.Button value="false">False</Radio.Button>
+                                <Radio.Button value="null">Null</Radio.Button>
+                            </Radio.Group>
+                        </div>
+                    ) : (
+                        <Input
+                            placeholder="try email@example.com, gold, 1"
+                            onChange={(e) => setState({ ...state, value: e.target.value })}
+                            id="propertyValue"
+                        />
+                    )}
+                </div>
+            </Modal>
+        </>
     )
 }

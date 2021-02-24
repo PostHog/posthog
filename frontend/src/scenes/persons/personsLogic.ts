@@ -20,9 +20,8 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
     },
     actions: {
         setListFilters: (payload) => ({ payload }),
-        editProperty: (key, newValue) => ({ key, newValue }),
-        setNewProperty: (newProperty) => ({ newProperty }),
-        saveNewProperty: true,
+        editProperty: (key: string, newValue: string | number | boolean | null) => ({ key, newValue }),
+        setHasNewKeys: true,
     },
     reducers: {
         listFilters: [
@@ -31,16 +30,10 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 setListFilters: (state, { payload }) => ({ ...state, ...payload }),
             },
         ],
-        newProperty: [
-            [],
-            {
-                setNewProperty: (_, { newProperty }) => newProperty,
-            },
-        ],
         hasNewKeys: [
             false,
             {
-                saveNewProperty: () => true,
+                setHasNewKeys: () => true,
             },
         ],
     },
@@ -52,7 +45,6 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 return match?.properties?.email || 'example@gmail.com'
             },
         ],
-        editingNewProperty: [(s) => [s.newProperty], (newProperty: string[]): boolean => newProperty.length !== 0],
     },
     listeners: ({ actions, values }) => ({
         deletePersonSuccess: () => {
@@ -71,20 +63,17 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                     parsedValue = attemptedParsedNumber
                 }
 
-                const lowercaseValue = parsedValue.toLowerCase()
-                if (lowercaseValue === 'true' || lowercaseValue === 'false') {
-                    parsedValue = lowercaseValue === 'true'
+                if (newValue !== undefined) {
+                    person.properties = { [key]: parsedValue, ...person.properties } // To add property at the top (if new)
+                } else {
+                    delete person.properties[key]
                 }
 
-                person.properties[key] = parsedValue
+                console.log(key, newValue, person.properties)
                 actions.setPerson(person) // To update the UI immediately while the request is being processed
                 const response = await api.update(`api/person/${person.id}`, person)
                 actions.setPerson(response)
             }
-        },
-        saveNewProperty: () => {
-            actions.editProperty(values.newProperty[0], values.newProperty[1])
-            actions.setNewProperty([])
         },
     }),
     loaders: ({ values, actions }) => ({
