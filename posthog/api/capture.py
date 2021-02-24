@@ -207,13 +207,8 @@ def get_event(request):
 
         if is_ee_enabled():
             log_topics = [KAFKA_EVENTS_WAL]
-            plugin_server_ingestion = settings.PLUGIN_SERVER_INGESTION and (
-                not getattr(settings, "MULTI_TENANCY", False)
-                or str(team.organization_id) in getattr(settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", [])
-                or random() < 0.9
-            )
 
-            if plugin_server_ingestion:
+            if settings.PLUGIN_SERVER_INGESTION:
                 log_topics.append(KAFKA_EVENTS_PLUGIN_INGESTION)
                 statsd.Counter("%s_posthog_cloud_plugin_server_ingestion" % (settings.STATSD_PREFIX,)).increment()
 
@@ -230,7 +225,7 @@ def get_event(request):
             )
 
             # must done after logging because process_event_ee modifies the event, e.g. by removing $elements
-            if not plugin_server_ingestion:
+            if not settings.PLUGIN_SERVER_INGESTION:
                 process_event_ee(
                     distinct_id=distinct_id,
                     ip=get_ip_address(request),
