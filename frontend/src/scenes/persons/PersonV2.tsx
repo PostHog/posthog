@@ -13,7 +13,7 @@ import { DownOutlined, DeleteOutlined, MergeCellsOutlined, LoadingOutlined } fro
 import moment from 'moment'
 import { MergePerson } from './MergePerson'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { AddNewPropertyField } from './AddNewPropertyField'
+import { NewPropertyComponent } from './NewPropertyComponent'
 
 const { TabPane } = Tabs
 
@@ -136,6 +136,8 @@ function _PersonV2(): JSX.Element {
                         </Tabs>
                         {person && (
                             <>
+                                <NewPropertyComponent />
+                                <h3 className="l3">Properties list</h3>
                                 <PropertiesTable
                                     properties={person.properties}
                                     onEdit={editProperty}
@@ -143,8 +145,6 @@ function _PersonV2(): JSX.Element {
                                     onDelete={(key) => editProperty(key, undefined)}
                                     className="persons-page-props-table"
                                 />
-                                <br />
-                                <AddNewPropertyField />
                             </>
                         )}
                         {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}
