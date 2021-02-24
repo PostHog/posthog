@@ -47,6 +47,7 @@ import './Insights.scss'
 import { ErrorMessage, TimeOut } from './EmptyStates'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { People } from 'scenes/funnels/People'
+import { ActionsBarValueGraph } from 'scenes/insights/ActionsBarValueGraph'
 
 const { TabPane } = Tabs
 
@@ -335,10 +336,10 @@ function TrendInsight({ view }) {
                     {loading && <Loading />}
                     {(!_filters.display ||
                         _filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                        _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
-                        _filters.display === ACTIONS_BAR_CHART) && <ActionsLineGraph view={view} />}
+                        _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && <ActionsLineGraph view={view} />}
                     {_filters.display === ACTIONS_TABLE && <ActionsTable filters={_filters} view={view} />}
                     {_filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={_filters} view={view} />}
+                    {_filters.display === ACTIONS_BAR_CHART && <ActionsBarValueGraph filters={_filters} view={view} />}
                 </div>
             )}
             <PersonModal visible={showingPeople} view={view} />
