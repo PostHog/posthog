@@ -1,6 +1,7 @@
-import json
 from typing import Optional
 
+import statsd
+from django.conf import settings
 from django.db import models
 from rest_hooks.models import AbstractHook
 
@@ -26,6 +27,7 @@ def find_and_fire_hook(
         # action_performed is a resource_id-filterable hook
         hooks = hooks.filter(models.Q(resource_id=instance.pk))
     for hook in hooks:
+        statsd.Counter("%s_posthog_cloud_hooks_rest_fired" % (settings.STATSD_PREFIX,)).increment()
         hook.deliver_hook(instance, payload_override)
 
 

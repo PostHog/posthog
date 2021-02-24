@@ -1,4 +1,3 @@
-import re
 from typing import Any, Dict, Sequence, cast
 
 import requests
@@ -50,7 +49,6 @@ def post_event_to_webhook_ee(self: Task, event: Dict[str, Any], team_id: int, si
             # REST hooks
             if is_zapier_available:
                 action.on_perform(ephemeral_postgres_event)
-                statsd.Counter("%s_posthog_cloud_hooks_rest_fired" % (settings.STATSD_PREFIX,)).increment()
             # webhooks
             if team.slack_incoming_webhook and action.post_to_slack:
                 message_text, message_markdown = get_formatted_message(action, ephemeral_postgres_event, site_url)
