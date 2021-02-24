@@ -11,7 +11,6 @@ def adjust_teams_for_stricter_requirements(apps, schema_editor):
         Team.objects.filter(organization_id__isnull=True).update(organization_id=first_organization.id)
     else:
         Team.objects.filter(organization_id__isnull=True).delete()
-    Team.objects.filter(opt_out_capture=True).update(anonymize_ips=True)
     Team.objects.filter(models.Q(name__isnull=True) | models.Q(name="")).update(name="Project X")
 
 
