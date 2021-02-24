@@ -67,10 +67,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/clickhouse/-/clickhouse-1.7.0.tgz#21fa1e8cfa0637b688f91964e0efeedbf4cf7a3c"
   integrity sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==
 
-"@posthog/plugin-server@0.9.26":
-  version "0.9.26"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.9.26.tgz#94186d980eab883f2643057e45b14fd921098f66"
-  integrity sha512-bsCuyrYzSkd4n/MIdmCsLehkzbObSYy33Xy8+jDLTiejPHry46oi+jIPU0ZM+2Z36DI0wwA3Dlk2JvlDCS4iWQ==
+"@posthog/plugin-server@0.9.28":
+  version "0.9.28"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.9.28.tgz#ded1b872c15a10b505cbf0414e241630a404fdb9"
+  integrity sha512-Ez3x3bJ5N4mVXXKiWwP60bgmvJEZ7f9Jkw2gch+M01BnbDbgJm0EPQYFqfpRLwD4ibeMU6iJ1RvPtKjSd+P7IQ==
   dependencies:
     "@babel/standalone" "^7.12.16"
     "@google-cloud/bigquery" "^5.5.0"
@@ -78,6 +78,7 @@
     "@sentry/node" "^5.29.0"
     "@sentry/tracing" "^5.29.0"
     adm-zip "^0.4.16"
+    fast-deep-equal "^3.1.3"
     fastify "^3.8.0"
     generic-pool "^3.7.1"
     hot-shots "^8.2.1"
@@ -491,7 +492,7 @@ fast-decode-uri-component@^1.0.1:
   resolved "https://registry.yarnpkg.com/fast-decode-uri-component/-/fast-decode-uri-component-1.0.1.tgz#46f8b6c22b30ff7a81357d4f59abfae938202543"
   integrity sha512-WKgKWg5eUxvRZGwW8FvfbaH7AXSh2cL+3j5fMGzUMCxWBJ3dV3a7Wz8y2f/uQ0e3B6WmodD3oS54jTQ9HVTIIg==
 
-fast-deep-equal@^3.1.1:
+fast-deep-equal@^3.1.1, fast-deep-equal@^3.1.3:
   version "3.1.3"
   resolved "https://registry.yarnpkg.com/fast-deep-equal/-/fast-deep-equal-3.1.3.tgz#3a7d56b559d6cbc3eb512325244e619a65c6c525"
   integrity sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==
