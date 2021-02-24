@@ -24,6 +24,7 @@ export function ActionsBarValueGraph({ dashboardItemId, view, filters: filtersPa
             {
                 labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
+                actions: _data.map((item) => item.action),
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,
                 hoverBorderColor: colorList,

@@ -204,13 +204,15 @@ export function LineGraph({
                         if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
                             return null
                         }
-                        const label = entityData.chartLabel || entityData.label || ''
-                        const formattedLabel = entityData.action ? formatLabel(label, entityData.action) : label
+                        const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
+                        const action =
+                            entityData.action || (entityData.actions && entityData.actions[tooltipItem.index])
+                        const formattedLabel = action ? formatLabel(label, action) : label
 
                         let value = tooltipItem.yLabel.toLocaleString()
                         if (type === 'horizontalBar') {
                             const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
-                            value = `${tooltipItem.xLabel} (${perc}%)`
+                            value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
                         }
                         return (formattedLabel ? formattedLabel + ' — ' : '') + value + (percentage ? '%' : '')
                     },
@@ -324,11 +326,7 @@ export function LineGraph({
 
         myLineChart.current = new Chart(myChartRef, {
             type,
-            data: {
-                //Bring in data
-                labels: labels,
-                datasets: datasets,
-            },
+            data: { labels, datasets },
             options,
         })
     }
