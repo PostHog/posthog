@@ -58,7 +58,9 @@ def print_warning(warning_lines: Sequence[str]):
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEBUG = get_from_env("DEBUG", False, type_cast=strtobool)
-TEST = "test" in sys.argv or get_from_env("TEST", False, type_cast=strtobool)  # type: bool
+TEST = (
+    "test" in sys.argv or sys.argv[0].endswith("pytest") or get_from_env("TEST", False, type_cast=strtobool)
+)  # type: bool
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=strtobool)
 SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=strtobool)
 
@@ -154,12 +156,6 @@ PRIMARY_DB = os.getenv("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 EE_AVAILABLE = False
 
 PLUGIN_SERVER_INGESTION = get_from_env("PLUGIN_SERVER_INGESTION", False, type_cast=strtobool)
-
-if PRIMARY_DB == RDBMS.CLICKHOUSE:
-    TEST_RUNNER = os.getenv("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
-else:
-    TEST_RUNNER = os.getenv("TEST_RUNNER", "django.test.runner.DiscoverRunner")
-
 
 ASYNC_EVENT_ACTION_MAPPING = get_from_env("ASYNC_EVENT_ACTION_MAPPING", False, type_cast=strtobool)
 
@@ -469,6 +465,7 @@ AUTH_USER_MODEL = "posthog.User"
 LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
+AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=strtobool)
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^/api/.*$"
 
@@ -499,7 +496,7 @@ EMAIL_USE_SSL = get_from_env("EMAIL_USE_SSL", False, type_cast=strtobool)
 DEFAULT_FROM_EMAIL = os.getenv("EMAIL_DEFAULT_FROM", os.getenv("DEFAULT_FROM_EMAIL", "root@localhost"))
 EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO")
 
-MULTI_TENANCY = False  # overriden by posthog-production
+MULTI_TENANCY = False  # overriden by posthog-cloud
 
 CACHES = {
     "default": {

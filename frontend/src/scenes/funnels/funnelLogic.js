@@ -4,6 +4,7 @@ import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { autocorrectInterval, objectsEqual, toParams } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '../../models/funnelsModel'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 function wait(ms = 1000) {
     return new Promise((resolve) => {
@@ -63,7 +64,7 @@ export const funnelLogic = kea({
     loaders: ({ props, values, actions }) => ({
         results: {
             loadResults: async (refresh = false, breakpoint) => {
-                if (!refresh && props.cachedResults) {
+                if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return props.cachedResults
                 }
                 const { from_dashboard } = values.filters
@@ -153,7 +154,7 @@ export const funnelLogic = kea({
         ],
     }),
 
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions, values, props }) => ({
         setSteps: async () => {
             if (values.stepsWithCount[0]?.people?.length > 0) {
                 actions.loadPeople(values.stepsWithCount)
@@ -177,6 +178,11 @@ export const funnelLogic = kea({
         },
         clearFunnel: async () => {
             insightLogic.actions.setAllFilters({})
+        },
+        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters) => {
+            if (props.dashboardItemId) {
+                actions.setFilters(filters, true)
+            }
         },
     }),
     actionToUrl: ({ actions, values, props }) => ({

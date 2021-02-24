@@ -35,7 +35,7 @@ function _App(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
-        if (scene === Scene.Signup && !preflight.cloud && preflight.initiated) {
+        if (scene === Scene.Signup && preflight && !preflight.cloud && preflight.initiated) {
             // If user is on an initiated self-hosted instance, redirect away from signup
             replace('/login')
             return
@@ -44,8 +44,8 @@ function _App(): JSX.Element | null {
 
     useEffect(() => {
         if (user) {
-            // If user is already logged in, redirect away from unauthenticated routes like signup
-            if (sceneConfig.unauthenticated) {
+            // If user is already logged in, redirect away from unauthenticated-only routes like signup
+            if (sceneConfig.onlyUnauthenticated) {
                 replace('/')
                 return
             }
@@ -86,7 +86,7 @@ function _App(): JSX.Element | null {
     )
 
     if (!user) {
-        return sceneConfig.unauthenticated ? (
+        return sceneConfig.onlyUnauthenticated || sceneConfig.allowUnauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
                 <SceneComponent {...params} />
                 {essentialElements}

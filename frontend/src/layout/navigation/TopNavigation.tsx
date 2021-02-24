@@ -28,6 +28,20 @@ import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPalett
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
 import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
+import { UserType } from '~/types'
+import { CreateInviteModalWithButton } from 'scenes/organization/TeamMembers/CreateInviteModal'
+
+export function WhoAmI({ user }: { user: UserType }): JSX.Element {
+    return (
+        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
+            <div className="pp">{user.name[0]?.toUpperCase()}</div>
+            <div className="details hide-lte-lg">
+                <span>{user.name}</span>
+                <span>{user.organization?.name}</span>
+            </div>
+        </div>
+    )
+}
 
 export const TopNavigation = hot(_TopNavigation)
 export function _TopNavigation(): JSX.Element {
@@ -61,16 +75,21 @@ export function _TopNavigation(): JSX.Element {
             </div>
             <div className="text-center mt" style={{ paddingRight: 16, paddingLeft: 16 }}>
                 <div>
-                    <Button
-                        type="primary"
-                        icon={<UserAddOutlined />}
-                        onClick={() => setInviteMembersModalOpen(true)}
-                        data-attr="top-menu-invite-team-members"
-                    >
-                        Invite Team Members
-                    </Button>
+                    {user?.email_service_available ? (
+                        <Button
+                            type="primary"
+                            icon={<UserAddOutlined />}
+                            onClick={() => setInviteMembersModalOpen(true)}
+                            data-attr="top-menu-invite-team-members"
+                            style={{ width: '100%' }}
+                        >
+                            Invite Team Members
+                        </Button>
+                    ) : (
+                        <CreateInviteModalWithButton block />
+                    )}
                 </div>
-                <div style={{ marginTop: 12 }}>
+                <div style={{ marginTop: 10 }}>
                     <LinkButton
                         to="/organization/members"
                         data-attr="top-menu-item-org-settings"
@@ -235,17 +254,15 @@ export function _TopNavigation(): JSX.Element {
                         </div>
                     </Dropdown>
                 </div>
-                <div>
-                    <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
-                        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
-                            <div className="pp">{user?.name[0]?.toUpperCase()}</div>
-                            <div className="details hide-lte-lg">
-                                <span>{user?.name}</span>
-                                <span>{user?.organization?.name}</span>
+                {user && (
+                    <div>
+                        <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
+                            <div>
+                                <WhoAmI user={user} />
                             </div>
-                        </div>
-                    </Dropdown>
-                </div>
+                        </Dropdown>
+                    </div>
+                )}
             </div>
             <BulkInviteModal visible={inviteMembersModalOpen} onClose={() => setInviteMembersModalOpen(false)} />
             <CreateProjectModal isVisible={projectModalShown} setIsVisible={setProjectModalShown} />

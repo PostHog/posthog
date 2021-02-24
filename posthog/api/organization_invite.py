@@ -1,7 +1,8 @@
-from typing import Any, Dict, List, cast
+from typing import Any, Dict, cast
 
-from django.db import transaction
-from rest_framework import exceptions, mixins, serializers, viewsets
+from django.db import models
+from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
@@ -10,7 +11,7 @@ from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
-from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
+from posthog.permissions import OrganizationMemberPermissions
 from posthog.tasks.email import send_invite
 
 
@@ -65,39 +66,6 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         return invite
 
 
-class BulkCreateOrganizationSerializer(serializers.Serializer):
-    invites = OrganizationInviteSerializer(many=True)
-
-    def validate_invites(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        if len(data) > 20:
-            raise serializers.ValidationError(
-                "A maximum of 20 invites can be sent in a single request.", code="max_length",
-            )
-        return data
-
-    def create(self, validated_data: Dict[str, Any]) -> Dict[str, Any]:
-        output = []
-        organization = Organization.objects.get(id=self.context["organization_id"])
-
-        with transaction.atomic():
-            for invite in validated_data["invites"]:
-                self.context["bulk_create"] = True
-                serializer = OrganizationInviteSerializer(data=invite, context=self.context)
-                serializer.is_valid(raise_exception=False)  # Don't raise, already validated before
-                output.append(serializer.save())
-
-        report_bulk_invited(
-            self.context["request"].user.distinct_id,
-            invitee_count=len(validated_data["invites"]),
-            name_count=sum(1 for invite in validated_data["invites"] if invite["first_name"]),
-            current_invite_count=organization.active_invites.count(),
-            current_member_count=organization.memberships.count(),
-            email_available=is_email_available(),
-        )
-
-        return {"invites": output}
-
-
 class OrganizationInviteViewSet(
     StructuredViewSetMixin,
     mixins.DestroyModelMixin,
@@ -106,7 +74,7 @@ class OrganizationInviteViewSet(
     viewsets.GenericViewSet,
 ):
     serializer_class = OrganizationInviteSerializer
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions, OrganizationAdminWritePermissions]
+    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     queryset = OrganizationInvite.objects.all()
     lookup_field = "id"
     ordering = "-created_at"
@@ -118,25 +86,30 @@ class OrganizationInviteViewSet(
             .order_by(self.ordering)
         )
 
-    def get_serializer_context(self):
-        """
-        Extra context provided to the serializer class.
-        """
-        parents_query_dict = self.get_parents_query_dict()
-        return {
-            **super().get_serializer_context(),
-            "organization_id": (
-                self.request.user.organization.id
-                if parents_query_dict["organization_id"] == "@current"
-                else parents_query_dict["organization_id"]
-            ),
-        }
+    @action(methods=["POST"], detail=False)
+    def bulk(self, request: request.Request, **kwargs) -> response.Response:
+        data = cast(Any, request.data)
+        if not isinstance(data, list):
+            raise exceptions.ValidationError("This endpoint needs an array of data for bulk invite creation.")
+        if len(data) > 20:
+            raise exceptions.ValidationError(
+                "A maximum of 20 invites can be sent in a single request.", code="max_length",
+            )
 
+        serializer = OrganizationInviteSerializer(
+            data=data, many=True, context={**self.get_serializer_context(), "bulk_create": True}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
 
-class OrganizationInviteBulkViewSet(StructuredViewSetMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
-    serializer_class = BulkCreateOrganizationSerializer
-    permission_classes = (
-        IsAuthenticated,
-        OrganizationMemberPermissions,
-        OrganizationAdminWritePermissions,
-    )
+        organization = Organization.objects.get(id=self.organization_id)
+        report_bulk_invited(
+            self.request.user.distinct_id,
+            invitee_count=len(serializer.validated_data),
+            name_count=sum(1 for invite in serializer.validated_data if invite.get("first_name")),
+            current_invite_count=organization.active_invites.count(),
+            current_member_count=organization.memberships.count(),
+            email_available=is_email_available(),
+        )
+
+        return response.Response(serializer.data, status=status.HTTP_201_CREATED)

@@ -2,12 +2,18 @@ import './ActionsPie.scss'
 
 import React, { useState, useEffect } from 'react'
 import { Loading } from 'lib/utils'
-import { LineGraph } from './LineGraph'
+import { LineGraph } from '../../insights/LineGraph'
 import { getChartColors } from 'lib/colors'
 import { useValues } from 'kea'
-import { trendsLogic } from 'scenes/insights/trendsLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
-export function ActionsPie({ dashboardItemId, view, filters: filtersParam, color, cachedResults }) {
+export function ActionsPie({
+    dashboardItemId = null,
+    view,
+    filters: filtersParam,
+    color = null,
+    cachedResults = null,
+}) {
     const [data, setData] = useState(null)
     const [total, setTotal] = useState(0)
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })

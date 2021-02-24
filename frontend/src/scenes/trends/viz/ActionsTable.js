@@ -1,11 +1,11 @@
 import React from 'react'
-import { Loading, formatLabel } from '../../lib/utils'
+import { Loading, formatLabel } from 'lib/utils'
 import { Table } from 'antd'
 import PropTypes from 'prop-types'
 import { useValues } from 'kea'
-import { trendsLogic } from 'scenes/insights/trendsLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
-export function ActionsTable({ dashboardItemId = null, view, filters: filtersParam, cachedResults }) {
+export function ActionsTable({ dashboardItemId = null, view, filters: filtersParam, cachedResults = null }) {
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
     const { filters, results, resultsLoading } = useValues(logic)
 

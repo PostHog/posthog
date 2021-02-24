@@ -31,7 +31,7 @@ def parse_prop_clauses(
 
     for idx, prop in enumerate(filters):
         if prop.type == "cohort":
-            cohort = Cohort.objects.get(pk=prop.value)
+            cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
             person_id_query, cohort_filter_params = format_filter_query(cohort)
             params = {**params, **cohort_filter_params}
             final.append(

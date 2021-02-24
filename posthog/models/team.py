@@ -2,6 +2,7 @@ from typing import Dict, Optional
 
 import posthoganalytics
 from django.contrib.postgres.fields import ArrayField, JSONField
+from django.core.validators import MinLengthValidator
 from django.db import models
 from django.utils import timezone
 
@@ -76,13 +77,18 @@ class TeamManager(models.Manager):
 
 class Team(models.Model):
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team", null=True
+        "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
     api_token: models.CharField = models.CharField(
-        max_length=200, null=True, unique=True, default=generate_random_token
+        max_length=200,
+        unique=True,
+        default=generate_random_token,
+        validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
     )
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
-    name: models.CharField = models.CharField(max_length=200, null=True, default="Default Project")
+    name: models.CharField = models.CharField(
+        max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")],
+    )
     slack_incoming_webhook: models.CharField = models.CharField(max_length=500, null=True, blank=True)
     event_names: JSONField = JSONField(default=list)
     event_names_with_usage: JSONField = JSONField(default=list)
@@ -97,20 +103,16 @@ class Team(models.Model):
     uuid: models.UUIDField = models.UUIDField(default=UUIDT, editable=False, unique=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
     session_recording_retention_period_days: models.IntegerField = models.IntegerField(null=True, default=None)
-
     plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
+    signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    is_demo: models.BooleanField = models.BooleanField(default=False)
 
-    # DEPRECATED: replaced with env variable OPT_OUT_CAPTURE and User field anonymized_data
-    # However, we still honor teams that have set this previously
+    # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
-
-    # DEPRECATED: with organizations, all users belonging to the organization get access to all its teams right away
-    # This may be brought back into use with a more robust approach (and some constraint checks)
+    # DEPRECATED, DISUSED: now managing access in an Organization-centric way
     users: models.ManyToManyField = models.ManyToManyField(
         "User", blank=True, related_name="teams_deprecated_relationship"
     )
-    signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    is_demo: models.BooleanField = models.BooleanField(default=False)
 
     objects = TeamManager()
 

@@ -150,6 +150,10 @@ class Sessions(BaseQuery):
                 df["date"] = (df["date"].replace(day=1) + datetime.timedelta(days=32)).replace(
                     day=1
                 ) - datetime.timedelta(days=1)
+            for idx in range(len(date_range)):
+                date_range[idx] = (date_range[idx].replace(day=1) + datetime.timedelta(days=32)).replace(
+                    day=1
+                ) - datetime.timedelta(days=1)
 
         datewise_data = {d["date"]: d["count"] for d in data_array}
         values = [(key, datewise_data.get(key, 0)) for key in date_range]
