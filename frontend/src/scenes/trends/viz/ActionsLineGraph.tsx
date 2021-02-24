@@ -9,7 +9,7 @@ import { ACTIONS_BAR_CHART, ShownAsValue } from 'lib/constants'
 import { ChartParams } from '~/types'
 
 export function ActionsLineGraph({
-    dashboardItemId = null,
+    dashboardItemId,
     color = 'white',
     filters: filtersParam,
     cachedResults,

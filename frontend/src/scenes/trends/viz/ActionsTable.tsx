@@ -7,7 +7,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { ChartParams } from '~/types'
 
 export function ActionsTable({
-    dashboardItemId = null,
+    dashboardItemId,
     view,
     filters: filtersParam,
     cachedResults,

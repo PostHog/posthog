@@ -12,7 +12,7 @@ export function ActionsPie({
     dashboardItemId,
     view,
     filters: filtersParam,
-    color,
+    color = 'white',
     cachedResults,
     inSharedMode,
 }: ChartParams): JSX.Element {

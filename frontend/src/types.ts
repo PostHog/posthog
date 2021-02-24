@@ -528,10 +528,10 @@ export interface TrendResult {
 }
 
 export interface ChartParams {
-    dashboardItemId: number | null
-    color: string
-    filters?: FilterType
-    inSharedMode: boolean
+    dashboardItemId?: number
+    color?: string
+    filters?: Partial<FilterType>
+    inSharedMode?: boolean
     cachedResults?: TrendResult
     view: ViewType
 }
