@@ -8,7 +8,7 @@ import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { LineGraphEmptyState } from './EmptyStates'
 
-export function ActionsBarValueGraph({ dashboardItemId, view, filters: filtersParam, color, cachedResults }) {
+export function ActionsBarValueGraph({ dashboardItemId, view, filters: filtersParam, color = 'white', cachedResults }) {
     const [data, setData] = useState(null)
     const [total, setTotal] = useState(0)
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })

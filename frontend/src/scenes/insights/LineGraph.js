@@ -298,6 +298,21 @@ export function LineGraph({
                     },
                 ],
             }
+        } else if (type === 'horizontalBar') {
+            options.scales = {
+                xAxes: [
+                    {
+                        display: true,
+                        ticks: {
+                            autoSkip: true,
+                            beginAtZero: true,
+                            min: 0,
+                            fontColor: axisLabelColor,
+                            precision: 0,
+                        },
+                    },
+                ],
+            }
         } else if (type === 'doughnut') {
             options = {
                 responsive: true,
