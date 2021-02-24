@@ -205,6 +205,22 @@ def factory_test_process_event(
 
             self.assertLess(difference, 1)
 
+        def test_ip_none(self) -> None:
+            Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
+
+            process_event(
+                "asdfasdfasdf",
+                None,
+                "",
+                {"event": "$pageview", "properties": {"distinct_id": "asdfasdfasdf", "token": self.team.api_token,},},
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+
+            event = get_events()[0]
+            self.assertEqual(event.properties.get("$ip", None), None)
+
         def test_ip_capture(self) -> None:
             user = self._create_user("tim")
             Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
