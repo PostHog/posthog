@@ -11,7 +11,14 @@ import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { Tabs, Row, Col, Card, Button } from 'antd'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, ACTIONS_PIE_CHART, LIFECYCLE, FUNNEL_VIZ } from 'lib/constants'
+import {
+    ACTIONS_LINE_GRAPH_LINEAR,
+    ACTIONS_LINE_GRAPH_CUMULATIVE,
+    ACTIONS_TABLE,
+    ACTIONS_PIE_CHART,
+    LIFECYCLE,
+    FUNNEL_VIZ,
+} from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
