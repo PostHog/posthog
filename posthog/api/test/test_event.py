@@ -9,7 +9,7 @@ from posthog.test.base import TransactionBaseTest
 from posthog.utils import relative_date_parse
 
 
-def test_event_api_factory(event_factory, person_factory, action_factory):
+def factory_test_event_api(event_factory, person_factory, action_factory):
     class TestEvents(TransactionBaseTest):
         TESTS_API = True
         ENDPOINT = "event"
@@ -372,5 +372,5 @@ def _create_action(**kwargs):
     return action
 
 
-class TestEvent(test_event_api_factory(Event.objects.create, Person.objects.create, _create_action)):  # type: ignore
+class TestEvent(factory_test_event_api(Event.objects.create, Person.objects.create, _create_action)):  # type: ignore
     pass

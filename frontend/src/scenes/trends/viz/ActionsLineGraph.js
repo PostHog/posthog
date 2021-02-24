@@ -1,18 +1,18 @@
 import React, { useState } from 'react'
-import { Loading } from '../../lib/utils'
-import { LineGraph } from './LineGraph'
+import { Loading } from '../../../lib/utils'
+import { LineGraph } from '../../insights/LineGraph'
 import { useActions, useValues } from 'kea'
-import { trendsLogic } from 'scenes/insights/trendsLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { router } from 'kea-router'
-import { LineGraphEmptyState } from './EmptyStates'
+import { LineGraphEmptyState } from '../../insights/EmptyStates'
 import { ACTIONS_BAR_CHART, LIFECYCLE } from 'lib/constants'
 
 export function ActionsLineGraph({
     dashboardItemId = null,
     color = 'white',
-    filters: filtersParam,
-    cachedResults,
-    inSharedMode,
+    filters: filtersParam = null,
+    cachedResults = null,
+    inSharedMode = false,
     view,
 }) {
     const logic = trendsLogic({

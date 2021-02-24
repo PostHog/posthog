@@ -1,14 +1,21 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import moment from 'moment'
-import { trendsLogic } from 'scenes/insights/trendsLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { Link } from 'lib/components/Link'
 import { ArrowRightOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ViewType } from 'scenes/insights/insightLogic'
 
-export function PersonModal({ visible, view }) {
+interface Props {
+    visible: boolean
+    view: ViewType
+    onSaveCohort: () => void
+}
+
+export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element {
     const { people, filters, peopleModalURL, loadingMorePeople } = useValues(
         trendsLogic({ dashboardItemId: null, view })
     )
@@ -19,7 +26,7 @@ export function PersonModal({ visible, view }) {
         filters.shown_as === 'Stickiness'
             ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
             : `"${people?.label}" on ${people?.day ? moment(people.day).format('ll') : '...'}`
-    const closeModal = () => setShowingPeople(false)
+    const closeModal = (): void => setShowingPeople(false)
     return (
         <Modal
             title={title}
@@ -33,7 +40,15 @@ export function PersonModal({ visible, view }) {
                 <div
                     style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                 >
-                    Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                        Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
+                        {featureFlags['save-cohort-on-modal'] &&
+                            (view === ViewType.TRENDS || view === ViewType.STICKINESS) && (
+                                <Button type="primary" onClick={onSaveCohort}>
+                                    Save cohort
+                                </Button>
+                            )}
+                    </div>
                     {featureFlags['filter_by_session_props_link'] ? (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                             <Link

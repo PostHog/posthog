@@ -1,7 +1,7 @@
 import React from 'react'
 import { Table } from 'antd'
 import { useActions, useValues } from 'kea'
-import { IndexedTrendResult, trendsLogic } from './trendsLogic'
+import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 

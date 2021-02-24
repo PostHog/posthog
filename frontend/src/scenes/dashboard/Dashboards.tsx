@@ -11,6 +11,7 @@ import { hot } from 'react-hot-loader/root'
 import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 import { PageHeader } from 'lib/components/PageHeader'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
+import { DashboardType } from '~/types'
 
 export const Dashboards = hot(_Dashboards)
 function _Dashboards(): JSX.Element {
@@ -24,7 +25,7 @@ function _Dashboards(): JSX.Element {
             title: '',
             width: 24,
             align: 'center',
-            render: function RenderPin({ id, pinned }) {
+            render: function RenderPin({ id, pinned }: DashboardType) {
                 return (
                     <span
                         onClick={() => (pinned ? unpinDashboard(id) : pinDashboard(id))}
@@ -53,7 +54,7 @@ function _Dashboards(): JSX.Element {
             title: 'Actions',
             align: 'center',
             width: 120,
-            render: function RenderActions({ id }) {
+            render: function RenderActions({ id }: DashboardType) {
                 return (
                     <span
                         style={{ cursor: 'pointer' }}

@@ -18,13 +18,25 @@ import {
     LockOutlined,
     UnlockOutlined,
     ShareAltOutlined,
+    ReloadOutlined,
+    CalendarOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
 import moment from 'moment'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardType } from '~/types'
+import { DateFilter } from 'lib/components/DateFilter'
 
-export function DashboardHeader({ logic }) {
-    const { dashboard, draggingEnabled } = useValues(logic)
-    const { addNewDashboard, renameDashboard, enableDragging, disableDragging } = useActions(logic)
+export function DashboardHeader(): JSX.Element {
+    const { dashboard, draggingEnabled } = useValues(dashboardLogic)
+    const {
+        addNewDashboard,
+        renameDashboard,
+        enableDragging,
+        disableDragging,
+        updateAndRefreshDashboard,
+        refreshAllDashboardItems,
+    } = useActions(dashboardLogic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [fullScreen, setFullScreen] = useState(false)
@@ -33,7 +45,7 @@ export function DashboardHeader({ logic }) {
     return (
         <div className={`dashboard-header${fullScreen ? ' full-screen' : ''}`}>
             {fullScreen ? <FullScreen onExit={() => setFullScreen(false)} /> : null}
-            {showShareModal && <ShareModal logic={logic} onCancel={() => setShowShareModal(false)} />}
+            {showShareModal && <ShareModal onCancel={() => setShowShareModal(false)} />}
             {dashboardsLoading ? (
                 <Loading />
             ) : (
@@ -47,9 +59,9 @@ export function DashboardHeader({ logic }) {
                             bordered={false}
                             dropdownMatchSelectWidth={false}
                         >
-                            {!dashboard ? <Select.Option value={null}>Not Found</Select.Option> : null}
-                            {dashboards.map((dash) => (
-                                <Select.Option key={dash.id} value={parseInt(dash.id)}>
+                            {!dashboard ? <Select.Option value="">Not Found</Select.Option> : null}
+                            {dashboards.map((dash: DashboardType) => (
+                                <Select.Option key={dash.id} value={dash.id}>
                                     {dash.name || <span style={{ color: 'var(--gray)' }}>Untitled</span>}
                                 </Select.Option>
                             ))}
@@ -66,11 +78,25 @@ export function DashboardHeader({ logic }) {
                     </div>
                     {dashboard ? (
                         <div className="dashboard-meta">
+                            <Tooltip title="Select time period">
+                                <DateFilter
+                                    defaultValue="Custom"
+                                    showCustom
+                                    onChange={updateAndRefreshDashboard}
+                                    makeLabel={(key) => (
+                                        <>
+                                            <CalendarOutlined />
+                                            <span className="hide-when-small"> {key}</span>
+                                        </>
+                                    )}
+                                />
+                            </Tooltip>
+
                             {!fullScreen ? (
                                 <Tooltip title={dashboard.pinned ? 'Pinned into sidebar' : 'Pin into sidebar'}>
                                     <Button
                                         className="button-box-when-small"
-                                        type={dashboard.pinned ? 'primary' : ''}
+                                        type={dashboard.pinned ? 'primary' : undefined}
                                         onClick={() =>
                                             dashboard.pinned ? unpinDashboard(dashboard.id) : pinDashboard(dashboard.id)
                                         }
@@ -83,7 +109,7 @@ export function DashboardHeader({ logic }) {
                             <Tooltip title={'Share dashboard.'}>
                                 <Button
                                     className="button-box-when-small enable-dragging-button"
-                                    type={dashboard.is_shared ? 'primary' : ''}
+                                    type={dashboard.is_shared ? 'primary' : undefined}
                                     onClick={() => setShowShareModal(true)}
                                     data-attr="dashboard-share-button"
                                 >
@@ -94,10 +120,16 @@ export function DashboardHeader({ logic }) {
                                 </Button>
                             </Tooltip>
 
+                            <Tooltip title="Click here to reload all dashboard items">
+                                <Button className="button-box" onClick={refreshAllDashboardItems}>
+                                    <ReloadOutlined />
+                                </Button>
+                            </Tooltip>
+
                             <Tooltip title="Click here or long press on a panel to rearrange the dashboard.">
                                 <Button
                                     className="button-box enable-dragging-button"
-                                    type={draggingEnabled === 'off' ? 'primary' : ''}
+                                    type={draggingEnabled === 'off' ? 'primary' : undefined}
                                     onClick={draggingEnabled === 'off' ? enableDragging : disableDragging}
                                 >
                                     {draggingEnabled !== 'off' ? <UnlockOutlined /> : <LockOutlined />}
@@ -118,7 +150,7 @@ export function DashboardHeader({ logic }) {
 
                             {!fullScreen ? (
                                 <Dropdown
-                                    trigger="click"
+                                    trigger={['click']}
                                     overlay={
                                         <Menu>
                                             <Menu.Item icon={<EditOutlined />} onClick={renameDashboard}>
