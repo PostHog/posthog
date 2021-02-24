@@ -200,9 +200,9 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
             breakdown_value,
             next,
         }),
-        setIndexedResults: (results) => ({ results }),
+        setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
         toggleVisibility: (index: number) => ({ index }),
-        setVisibility: (entry: Record<number, any>) => ({ entry }),
+        setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
     }),
 
     reducers: ({ props }) => ({
@@ -250,7 +250,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
         visibilityMap: [
             {} as Record<number, any>,
             {
-                setVisibility: (state: Record<number, any>, { entry }: { entry: Record<number, any> }) => ({
+                setVisibilityById: (state: Record<number, any>, { entry }: { entry: Record<number, any> }) => ({
                     ...state,
                     ...entry,
                 }),
@@ -309,13 +309,6 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                     filters: [...(params.filters || []), SESSIONS_WITH_RECORDINGS_FILTER],
                 })}`,
             }),
-        ],
-        selectedIds: [
-            () => [selectors.visibilityMap],
-            (visibilityMap) =>
-                Object.entries(visibilityMap)
-                    .filter(([, value]) => value)
-                    .map(([key]) => parseInt(key)),
         ],
     }),
 
@@ -383,7 +376,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
             }
 
             const indexedResults = values.results.map((element, index) => {
-                actions.setVisibility({ [`${index}`]: true })
+                actions.setVisibilityById({ [`${index}`]: true })
                 return { ...element, id: index }
             })
             actions.setIndexedResults(indexedResults)
