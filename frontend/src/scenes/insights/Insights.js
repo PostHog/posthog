@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 
 import { Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
@@ -307,13 +307,19 @@ function _Insights() {
                                         <FunnelPeople />
                                     </Card>
                                 )}
-                            <Card>
-                                {(!allFilters.display ||
-                                    allFilters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                                    allFilters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && (
-                                    <TrendLegend view={ViewType.TRENDS} />
+                            {(!allFilters.display ||
+                                allFilters.display === ACTIONS_LINE_GRAPH_LINEAR ||
+                                allFilters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) &&
+                                (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) && (
+                                    <Card>
+                                        <BindLogic
+                                            logic={trendsLogic}
+                                            props={{ dashboardItemId: null, view: activeView }}
+                                        >
+                                            <TrendLegend />
+                                        </BindLogic>
+                                    </Card>
                                 )}
-                            </Card>
                         </Col>
                     </>
                 )}

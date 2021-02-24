@@ -22,7 +22,7 @@ const noop = () => {}
 
 export function LineGraph({
     datasets,
-    visibilityMap,
+    visibilityMap = null,
     labels,
     color,
     type,

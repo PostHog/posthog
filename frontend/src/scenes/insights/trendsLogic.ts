@@ -32,6 +32,20 @@ interface ActionFilter {
     type: EntityType
 }
 
+export interface TrendResult {
+    action: ActionFilter
+    count: number
+    data: number[]
+    days: string[]
+    label: string
+    labels: string[]
+    breakdown_value?: string
+}
+
+export interface IndexedTrendResult extends TrendResult {
+    id: number
+}
+
 interface TrendPeople {
     people: PersonType[]
     breakdown_value?: string

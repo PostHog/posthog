@@ -1,23 +1,18 @@
 import React from 'react'
 import { Table } from 'antd'
 import { useActions, useValues } from 'kea'
-import { trendsLogic } from './trendsLogic'
-import { ViewType } from './insightLogic'
+import { IndexedTrendResult, trendsLogic } from './trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 
-interface Props {
-    view: ViewType
-}
-
-export function TrendLegend({ view }: Props): JSX.Element {
-    const { indexedResults, visibilityMap, filters } = useValues(trendsLogic({ dashboardItemId: null, view }))
-    const { toggleVisibility } = useActions(trendsLogic({ dashboardItemId: null, view }))
+export function TrendLegend(): JSX.Element {
+    const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
+    const { toggleVisibility } = useActions(trendsLogic)
 
     const columns = [
         {
             title: '',
-            render: function RenderChckbox({}, item, index: number) {
+            render: function RenderCheckbox({}, item: IndexedTrendResult, index: number) {
                 // legend will always be on insight page where the background is white
                 return (
                     <PHCheckbox
@@ -32,8 +27,8 @@ export function TrendLegend({ view }: Props): JSX.Element {
         },
         {
             title: 'Label',
-            render: function RenderLabel({}, item) {
-                return item.action.name
+            render: function RenderLabel({}, item: IndexedTrendResult) {
+                return item.action?.name || item.label
             },
             fixed: 'left',
             width: 150,
@@ -42,7 +37,7 @@ export function TrendLegend({ view }: Props): JSX.Element {
             ? [
                   {
                       title: 'Breakdown Value',
-                      render: function RenderBreakdownValue({}, item) {
+                      render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
                           return item.breakdown_value
                       },
                       fixed: 'left',
@@ -51,9 +46,9 @@ export function TrendLegend({ view }: Props): JSX.Element {
               ]
             : []),
         ...(indexedResults && indexedResults.length > 0
-            ? indexedResults[0].data.map(({}, index) => ({
+            ? indexedResults[0].data.map(({}, index: number) => ({
                   title: indexedResults[0].labels[index],
-                  render: function RenderPeriod({}, item) {
+                  render: function RenderPeriod({}, item: IndexedTrendResult) {
                       return item.data[index]
                   },
               }))

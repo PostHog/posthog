@@ -11,6 +11,7 @@ export const PHCheckbox = ({ checked, color = 'blue', ...props }: Props): JSX.El
         style={{
             display: 'inline-block',
             verticalAlign: 'middle',
+            cursor: 'pointer',
         }}
     >
         <div
