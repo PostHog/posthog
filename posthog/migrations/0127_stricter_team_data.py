@@ -12,6 +12,8 @@ def adjust_teams_for_stricter_requirements(apps, schema_editor):
     else:
         Team.objects.filter(organization_id__isnull=True).delete()
     Team.objects.filter(models.Q(name__isnull=True) | models.Q(name="")).update(name="Project X")
+    for team in Team.objects.filter(opt_out_capture=True):
+        team.organization.members.update(anonymize_data=True)
 
 
 class Migration(migrations.Migration):
