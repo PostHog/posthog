@@ -1,6 +1,7 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
+import equal from 'fast-deep-equal'
 import { Producer } from 'kafkajs'
 import { DateTime, Duration } from 'luxon'
 import * as fetch from 'node-fetch'
@@ -152,14 +153,6 @@ export class EventsProcessor {
             if (properties['$anon_distinct_id']) {
                 await this.alias(properties['$anon_distinct_id'], distinctId, teamId)
             }
-            if (properties['$set'] || properties['$set_once']) {
-                await this.updatePersonProperties(
-                    teamId,
-                    distinctId,
-                    properties['$set'] || {},
-                    properties['$set_once'] || {}
-                )
-            }
             await this.setIsIdentified(teamId, distinctId)
         }
     }
@@ -218,6 +211,11 @@ export class EventsProcessor {
             )
         }
         const updatedProperties: Properties = { ...propertiesOnce, ...personFound.properties, ...properties }
+
+        if (equal(personFound.properties, updatedProperties)) {
+            return personFound
+        }
+
         return await this.db.updatePerson(personFound, { properties: updatedProperties })
     }
 
@@ -371,6 +369,15 @@ export class EventsProcessor {
                     distinctId,
                 ])
             } catch {}
+        }
+
+        if (properties['$set'] || properties['$set_once']) {
+            await this.updatePersonProperties(
+                teamId,
+                distinctId,
+                properties['$set'] || {},
+                properties['$set_once'] || {}
+            )
         }
 
         return await this.createEvent(eventUuid, event, team, distinctId, properties, timestamp, elementsList, siteUrl)
