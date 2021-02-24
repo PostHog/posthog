@@ -31,6 +31,7 @@ export function LineGraph({
     dashboardItemId,
     inSharedMode,
     percentage,
+    totalValue,
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
@@ -206,12 +207,12 @@ export function LineGraph({
                         const label = entityData.chartLabel || entityData.label || ''
                         const formattedLabel = entityData.action ? formatLabel(label, entityData.action) : label
 
-                        const value = type !== 'horizontalBar' ? tooltipItem.yLabel : tooltipItem.xLabel
-                        return (
-                            (formattedLabel ? formattedLabel + ' — ' : '') +
-                            value.toLocaleString() +
-                            (percentage ? '%' : '')
-                        )
+                        let value = tooltipItem.yLabel.toLocaleString()
+                        if (type === 'horizontalBar') {
+                            const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
+                            value = `${tooltipItem.xLabel} (${perc}%)`
+                        }
+                        return (formattedLabel ? formattedLabel + ' — ' : '') + value + (percentage ? '%' : '')
                     },
                     footer: () => (dashboardItemId || !onClick ? '' : 'Click to see users related to the datapoint'),
                 },

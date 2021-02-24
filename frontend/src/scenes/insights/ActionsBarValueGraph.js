@@ -47,6 +47,7 @@ export function ActionsBarValueGraph({ dashboardItemId, view, filters: filtersPa
                 datasets={data}
                 labels={data[0].labels}
                 dashboardItemId={dashboardItemId}
+                totalValue={total}
             />
         ) : (
             <LineGraphEmptyState color={color} />
