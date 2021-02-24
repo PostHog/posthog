@@ -13,7 +13,7 @@ import { bulkInviteLogic } from './bulkInviteLogic'
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
     () => Math.random() - 0.5
 )
-const MAX_INVITES_AT_ONCE = 5
+const MAX_INVITES_AT_ONCE = 20
 
 function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean }): JSX.Element {
     const name = PLACEHOLDER_NAMES[index % PLACEHOLDER_NAMES.length]
@@ -79,6 +79,7 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
 
     const areInvitesCreatable = invites.length + 1 < MAX_INVITES_AT_ONCE
     const areInvitesDeletable = invites.length > 1
+    const validInvitesCount = invites.filter((invite) => invite.isValid && invite.target_email).length
 
     return (
         <Modal
@@ -89,10 +90,7 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
                 onClose()
             }}
             onOk={inviteTeamMembers}
-            okText={`Invite ${pluralize(
-                invites.filter((invite) => invite.isValid && invite.target_email).length,
-                'team member'
-            )}`}
+            okText={validInvitesCount ? `Invite ${pluralize(validInvitesCount, 'team member')}` : 'Invite team members'}
             destroyOnClose
             okButtonProps={{ disabled: !canSubmit, loading: invitedTeamMembersLoading }}
             cancelButtonProps={{ disabled: invitedTeamMembersLoading }}
@@ -121,7 +119,7 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
 
                 <div className="mt">
                     {areInvitesCreatable && (
-                        <Button block className="btn-add" onClick={appendInviteRow} icon={<PlusOutlined />}>
+                        <Button block onClick={appendInviteRow} icon={<PlusOutlined />}>
                             Add another team member
                         </Button>
                     )}

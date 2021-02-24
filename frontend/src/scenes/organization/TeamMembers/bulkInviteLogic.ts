@@ -77,7 +77,7 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<OrganizationInviteType, I
     listeners: ({ values, actions }) => ({
         inviteTeamMembersSuccess: (): void => {
             const inviteCount = values.invitedTeamMembers.length
-            toast.success(`Invited ${inviteCount} new team ${inviteCount === 1 ? 'member' : 'members'}.`)
+            toast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
             organizationLogic.actions.loadCurrentOrganization()
             invitesLogic.actions.loadInvites()
             actions.resetInviteRows()

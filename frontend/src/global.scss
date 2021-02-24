@@ -335,14 +335,6 @@ code.code {
     margin-left: 5px;
 }
 
-.btn-add {
-    color: $text_default !important;
-    // border: 1px dashed $border !important;
-    &:disabled {
-        color: $text_muted !important;
-    }
-}
-
 // Badges styles
 .badge {
     border-radius: 50%;
