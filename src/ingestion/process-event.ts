@@ -537,7 +537,7 @@ export class EventsProcessor {
                     properties,
                     distinct_id: distinctId,
                     timestamp,
-                    elements_list: elements,
+                    elements_chain: elementsChain,
                 },
                 team.id,
                 siteUrl,
