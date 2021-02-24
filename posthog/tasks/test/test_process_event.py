@@ -29,7 +29,7 @@ def get_elements(event_id: Union[int, UUID]) -> List[Element]:
     return [e for e in ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by("order")]
 
 
-def test_process_event_factory(
+def factory_test_process_event(
     process_event: Callable, get_events: Callable, get_session_recording_events: Callable, get_elements: Callable
 ) -> Callable:
     class TestProcessEvent(BaseTest):
@@ -889,5 +889,5 @@ def test_process_event_factory(
     return TestProcessEvent
 
 
-class TestProcessEvent(test_process_event_factory(_process_event, Event.objects.all, SessionRecordingEvent.objects.all, get_elements)):  # type: ignore
+class TestProcessEvent(factory_test_process_event(_process_event, Event.objects.all, SessionRecordingEvent.objects.all, get_elements)):  # type: ignore
     pass
