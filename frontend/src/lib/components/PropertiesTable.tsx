@@ -27,7 +27,7 @@ const typeToIcon: Record<string, JSX.Element> = {
 
 interface BasePropertyType {
     rootKey?: string // The key name of the object if it's nested
-    onEdit?: (key: string | undefined, newValue: any, oldValue?: any) => void // If set, it will allow inline editing
+    onEdit?: (key: string, newValue: any, oldValue?: any) => void // If set, it will allow inline editing
     nestingLevel?: number
 }
 
@@ -89,7 +89,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
 
     const handleValueChange = (newValue: any, save: boolean): void => {
         setEditing(false)
-        if (save && onEdit && newValue != value) {
+        if (rootKey !== undefined && save && onEdit && newValue != value) {
             onEdit(rootKey, newValue, value)
         }
     }

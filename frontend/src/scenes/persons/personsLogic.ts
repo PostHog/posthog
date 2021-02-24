@@ -20,7 +20,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
     },
     actions: {
         setListFilters: (payload) => ({ payload }),
-        editProperty: (key: string, newValue: string | number | boolean | null) => ({ key, newValue }),
+        editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         setHasNewKeys: true,
     },
     reducers: {
