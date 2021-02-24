@@ -16,12 +16,11 @@ interface NewPropertyInterface {
 export const NewPropertyComponent = (): JSX.Element => {
     const initialState = { creating: false, propertyType: 'string' } as NewPropertyInterface
     const [state, setState] = useState(initialState)
-    const { editProperty, setHasNewKeys } = useActions(personsLogic)
+    const { editProperty } = useActions(personsLogic)
 
     const saveProperty = (): void => {
         if (state.key && state.value !== undefined) {
             editProperty(state.key, state.value)
-            setHasNewKeys()
             setState(initialState)
         }
     }

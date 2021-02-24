@@ -63,10 +63,16 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                     parsedValue = attemptedParsedNumber
                 }
 
-                if (newValue !== undefined) {
+                const lowercaseValue = typeof parsedValue === 'string' && parsedValue.toLowerCase()
+                if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
+                    parsedValue = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
+                }
+
+                if (!Object.keys(person.properties).includes(key)) {
+                    actions.setHasNewKeys()
                     person.properties = { [key]: parsedValue, ...person.properties } // To add property at the top (if new)
                 } else {
-                    delete person.properties[key]
+                    person.properties[key] = newValue
                 }
 
                 console.log(key, newValue, person.properties)
