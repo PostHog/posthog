@@ -11,8 +11,9 @@ interface Props {
 }
 
 export function TrendLegend({ view }: Props): JSX.Element {
-    const { indexedResults, visibilityMap } = useValues(trendsLogic({ dashboardItemId: null, view }))
+    const { indexedResults, visibilityMap, filters } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { toggleVisibility } = useActions(trendsLogic({ dashboardItemId: null, view }))
+
     const columns = [
         {
             title: '',
@@ -26,17 +27,37 @@ export function TrendLegend({ view }: Props): JSX.Element {
                     />
                 )
             },
-        },
-        {
-            title: 'ID',
-            dataIndex: 'id',
-            key: 'id',
+            fixed: 'left',
+            width: 60,
         },
         {
             title: 'Label',
-            dataIndex: 'label',
-            key: 'label',
+            render: function RenderLabel({}, item) {
+                return item.action.name
+            },
+            fixed: 'left',
+            width: 150,
         },
+        ...(filters.breakdown
+            ? [
+                  {
+                      title: 'Breakdown Value',
+                      render: function RenderBreakdownValue({}, item) {
+                          return item.breakdown_value
+                      },
+                      fixed: 'left',
+                      width: 150,
+                  },
+              ]
+            : []),
+        ...(indexedResults && indexedResults.length > 0
+            ? indexedResults[0].data.map(({}, index) => ({
+                  title: indexedResults[0].labels[index],
+                  render: function RenderPeriod({}, item) {
+                      return item.data[index]
+                  },
+              }))
+            : []),
     ]
 
     return (
@@ -46,6 +67,7 @@ export function TrendLegend({ view }: Props): JSX.Element {
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             style={{ marginTop: '1rem' }}
+            scroll={indexedResults && indexedResults.length > 0 ? { x: indexedResults[0].data.length * 160 } : {}}
         />
     )
 }

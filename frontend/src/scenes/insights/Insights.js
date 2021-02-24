@@ -308,7 +308,11 @@ function _Insights() {
                                     </Card>
                                 )}
                             <Card>
-                                <TrendLegend view={ViewType.TRENDS} />
+                                {(!allFilters.display ||
+                                    allFilters.display === ACTIONS_LINE_GRAPH_LINEAR ||
+                                    allFilters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && (
+                                    <TrendLegend view={ViewType.TRENDS} />
+                                )}
                             </Card>
                         </Col>
                     </>
