@@ -392,6 +392,7 @@ export interface DashboardType {
 export interface OrganizationInviteType {
     id: string
     target_email: string
+    first_name: string
     is_expired: boolean
     emailing_attempt_made: boolean
     created_by: UserNestedType | null

@@ -5,73 +5,68 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { invitesLogic } from './invitesLogic'
 
-interface InviteType {
-    email: string
-    first_name?: string
+/** State of a single invite row (with input data) in bulk invite creation. */
+interface InviteRowState {
+    target_email: string
+    first_name: string
     isValid: boolean
 }
 
-interface BulkInviteResponse {
-    invites: OrganizationInviteType[]
-}
+const EMPTY_INVITE: InviteRowState = { target_email: '', first_name: '', isValid: true }
 
-const DEFAULT_INVITE = { email: '', first_name: '', isValid: true }
-const DEFAULT_INVITES = [DEFAULT_INVITE, DEFAULT_INVITE, DEFAULT_INVITE]
-
-export const bulkInviteLogic = kea<bulkInviteLogicType<BulkInviteResponse, InviteType>>({
+export const bulkInviteLogic = kea<bulkInviteLogicType<OrganizationInviteType, InviteRowState>>({
     actions: {
         updateInviteAtIndex: (payload, index: number) => ({ payload, index }),
-        addMoreInvites: true,
-        resetInvites: true,
+        deleteInviteAtIndex: (index: number) => ({ index }),
+        appendInviteRow: true,
+        resetInviteRows: true,
     },
     reducers: {
         invites: [
-            DEFAULT_INVITES as InviteType[],
+            [EMPTY_INVITE],
             {
                 updateInviteAtIndex: (state, { payload, index }) => {
                     const newState = [...state]
                     newState[index] = { ...state[index], ...payload }
                     return newState
                 },
-                addMoreInvites: (state) => {
-                    return [...state, DEFAULT_INVITE, DEFAULT_INVITE]
+                deleteInviteAtIndex: (state, { index }) => {
+                    const newState = [...state]
+                    newState.splice(index, 1)
+                    return newState
                 },
-                resetInvites: () => DEFAULT_INVITES,
+                appendInviteRow: (state) => [...state, EMPTY_INVITE],
+                resetInviteRows: () => [EMPTY_INVITE],
             },
         ],
     },
     selectors: {
         canSubmit: [
             (selectors) => [selectors.invites],
-            (invites: InviteType[]) =>
-                invites.filter(({ email }) => !!email).length > 0 &&
+            (invites: InviteRowState[]) =>
+                invites.filter(({ target_email }) => !!target_email).length > 0 &&
                 invites.filter(({ isValid }) => !isValid).length == 0,
         ],
     },
     loaders: ({ values }) => ({
         invitedTeamMembers: [
-            { invites: [] } as BulkInviteResponse,
+            [] as OrganizationInviteType[],
             {
                 inviteTeamMembers: async () => {
                     if (!values.canSubmit) {
                         return { invites: [] }
                     }
 
-                    const payload = {
-                        invites: [] as { target_email: string | null; first_name?: string | null }[],
-                    }
-
-                    for (const invite of values.invites) {
-                        if (!invite.email) {
-                            continue
-                        }
-                        payload.invites.push({ target_email: invite.email, first_name: invite.first_name })
-                    }
+                    const payload: Pick<
+                        OrganizationInviteType,
+                        'target_email' | 'first_name'
+                    >[] = values.invites.filter((invite) => invite.target_email)
 
                     eventUsageLogic.actions.reportBulkInviteAttempted(
-                        payload.invites.length,
-                        payload.invites.filter((invite) => !!invite.first_name).length
+                        payload.length,
+                        payload.filter((invite) => !!invite.first_name).length
                     )
 
                     return await api.create('api/organizations/@current/invites/bulk/', payload)
@@ -81,9 +76,11 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<BulkInviteResponse, Invit
     }),
     listeners: ({ values, actions }) => ({
         inviteTeamMembersSuccess: (): void => {
-            toast.success(`Invites sent to ${values.invitedTeamMembers.invites.length} new team members.`)
+            const inviteCount = values.invitedTeamMembers.length
+            toast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
             organizationLogic.actions.loadCurrentOrganization()
-            actions.resetInvites()
+            invitesLogic.actions.loadInvites()
+            actions.resetInviteRows()
         },
     }),
 })
