@@ -115,9 +115,9 @@ class BreakdownAggregateTrends(ClickhouseTrendsBreakdown):
 
     def parse(self, result: List[Any]) -> List[Dict]:
         parsed_results = []
-        for idx, stats in enumerate(result):
-            additional_values = self.breakdown_result_descriptors(stats[1], self.filter, self.entity)
-            parsed_result = {"aggregated_value": stats[0], **additional_values}
+        for total, breakdown_value in result:
+            additional_values = self.breakdown_result_descriptors(breakdown_value, self.filter, self.entity)
+            parsed_result = {"aggregated_value": total, **additional_values}
             parsed_results.append(parsed_result)
 
         return parsed_results
