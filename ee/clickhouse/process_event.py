@@ -32,7 +32,7 @@ if settings.STATSD_HOST is not None:
 def _capture_ee(
     event_uuid: UUID,
     person_uuid: UUID,
-    ip: str,
+    ip: Optional[str],
     site_url: str,
     team_id: int,
     event: str,
@@ -60,7 +60,7 @@ def _capture_ee(
 
     team = Team.objects.select_related("organization").get(pk=team_id)
 
-    if not team.anonymize_ips and "$ip" not in properties:
+    if ip and not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
 
     event = sanitize_event_name(event)
@@ -116,7 +116,7 @@ if is_ee_enabled():
 
     def process_event_ee(
         distinct_id: str,
-        ip: str,
+        ip: Optional[str],
         site_url: str,
         data: dict,
         team_id: int,
@@ -165,7 +165,7 @@ else:
 
     def process_event_ee(
         distinct_id: str,
-        ip: str,
+        ip: Optional[str],
         site_url: str,
         data: dict,
         team_id: int,
@@ -179,7 +179,7 @@ else:
 
 def log_event(
     distinct_id: str,
-    ip: str,
+    ip: Optional[str],
     site_url: str,
     data: dict,
     team_id: int,
