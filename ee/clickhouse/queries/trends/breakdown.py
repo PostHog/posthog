@@ -270,7 +270,7 @@ class CohortBreakdownFilterConstructor(BreakdownFilterConstructor):
             queries.append(cohort_query)
         return queries, params
 
-    def _format_all_query(self) -> str:
+    def _format_all_query(self) -> Tuple[str, Dict]:
         parsed_date_from, parsed_date_to, date_params = parse_timestamps(
             filter=self.filter, team_id=self.team_id, table="all_events."
         )
