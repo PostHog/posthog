@@ -22,9 +22,9 @@ jobs:
               id: login-ecr
               uses: aws-actions/amazon-ecr-login@v1
 
-            - name: Fetch posthog-production
+            - name: Fetch posthog-cloud
               run: |
-                  curl -L https://github.com/posthog/posthog-production/tarball/master | tar --strip-components=1 -xz --
+                  curl -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
                   mkdir deploy/
 
             - name: Checkout master

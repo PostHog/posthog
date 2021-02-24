@@ -161,9 +161,9 @@ jobs:
                     - '9009:9009'
 
         steps:
-            - name: Fetch posthog-production
+            - name: Fetch posthog-cloud
               run: |
-                  curl -L https://github.com/posthog/posthog-production/tarball/master | tar --strip-components=1 -xz --
+                  curl -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
                   mkdir deploy/
 
             - name: Checkout master
@@ -172,7 +172,7 @@ jobs:
                   ref: 'master'
                   path: 'deploy/'
 
-            - name: Link posthog-production at master
+            - name: Link posthog-cloud at master
               run: |
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
@@ -213,7 +213,7 @@ jobs:
               with:
                   path: 'deploy/'
 
-            - name: Link posthog-production at current branch
+            - name: Link posthog-cloud at current branch
               run: |
                   cp deploy/ee/conftest.py multi_tenancy/conftest.py
                   cp deploy/ee/conftest.py messaging/conftest.py
@@ -241,7 +241,7 @@ jobs:
                   touch frontend/dist/shared_dashboard.html
                   pytest posthog --reuse-db -m "not skip_on_multitenancy"
 
-            - name: Run cloud tests (posthog-production)
+            - name: Run cloud tests (posthog-cloud)
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   PRIMARY_DB: 'clickhouse'
