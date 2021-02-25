@@ -97,8 +97,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
 
 
 def get_actions(queryset: QuerySet, params: dict, team_id: int) -> QuerySet:
-    if params.get("include_count"):
-        queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
+    queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
 
     queryset = queryset.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
     return queryset.filter(team_id=team_id).order_by("-id")

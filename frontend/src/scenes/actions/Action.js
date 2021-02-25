@@ -71,7 +71,7 @@ function _Action({ id }) {
     const { push } = useActions(router)
     const { user } = useValues(userLogic)
     const { fetchEvents } = useActions(eventsTableLogic({ fixedFilters }))
-    const { isComplete } = useValues(actionLogic({ id, onComplete: fetchEvents }))
+    const { isComplete, action } = useValues(actionLogic({ id, onComplete: fetchEvents }))
     const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
 
     return (
@@ -80,6 +80,7 @@ function _Action({ id }) {
                 apiURL=""
                 actionId={id}
                 user={user}
+                action={action}
                 onSave={(action) => {
                     if (!id) {
                         push(`/action/${action.id}`)

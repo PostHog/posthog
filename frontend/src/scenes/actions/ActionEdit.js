@@ -11,14 +11,15 @@ import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { actionsModel } from '~/models'
 
-export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryToken }) {
+export function ActionEdit({ action, actionId, apiURL, onSave, user, simmer, temporaryToken }) {
     let logic = actionEditLogic({
         id: actionId,
         apiURL,
+        action,
         onSave: (action, createNew) => onSave(action, !actionId, createNew),
         temporaryToken,
     })
-    const { action, actionLoading, errorActionId } = useValues(logic)
+    const { actionLoading, errorActionId } = useValues(logic)
     const { setAction, saveAction } = useActions(logic)
     const { loadActions } = useActions(actionsModel)
 
