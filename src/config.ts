@@ -1,5 +1,6 @@
 import os from 'os'
 
+import { KAFKA_EVENTS_PLUGIN_INGESTION } from './ingestion/topics'
 import { LogLevel, PluginsServerConfig } from './types'
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
@@ -23,8 +24,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_CLIENT_CERT_B64: null,
         KAFKA_CLIENT_CERT_KEY_B64: null,
         KAFKA_TRUSTED_CERT_B64: null,
-        KAFKA_CONSUMPTION_TOPIC: null,
-        PLUGIN_SERVER_INGESTION: false,
+        KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         PLUGINS_CELERY_QUEUE: 'posthog-plugins',
         REDIS_URL: 'redis://127.0.0.1',
         BASE_DIR: '.',
@@ -48,7 +48,6 @@ export function getDefaultConfig(): PluginsServerConfig {
 
 export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
     return {
-        PLUGIN_SERVER_INGESTION: 'Ingest events via plugin-server',
         CELERY_DEFAULT_QUEUE: 'Celery outgoing queue',
         PLUGINS_CELERY_QUEUE: 'Celery incoming queue',
         DATABASE_URL: 'Postgres database URL',

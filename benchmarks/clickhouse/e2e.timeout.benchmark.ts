@@ -20,7 +20,6 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
     KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
     WORKER_CONCURRENCY: 4,
     TASK_TIMEOUT: 5,
-    PLUGIN_SERVER_INGESTION: true,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_BATCH_PARALELL_PROCESSING: true,
     LOG_LEVEL: LogLevel.Log,

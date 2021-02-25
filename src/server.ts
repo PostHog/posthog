@@ -17,7 +17,6 @@ import { ConnectionOptions } from 'tls'
 import { defaultConfig } from './config'
 import { DB } from './db'
 import { EventsProcessor } from './ingestion/process-event'
-import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_WAL } from './ingestion/topics'
 import { startSchedule } from './services/schedule'
 import { status } from './status'
 import { PluginsServer, PluginsServerConfig, Queue } from './types'
@@ -78,13 +77,6 @@ export async function createServer(
             rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
         })
         await clickhouse.querying('SELECT 1') // test that the connection works
-
-        if (!serverConfig.KAFKA_CONSUMPTION_TOPIC) {
-            // When ingesting events, listen to the "INGESTION" topic, otherwise listen to the "WAL" and discard
-            serverConfig.KAFKA_CONSUMPTION_TOPIC = serverConfig.PLUGIN_SERVER_INGESTION
-                ? KAFKA_EVENTS_PLUGIN_INGESTION
-                : KAFKA_EVENTS_WAL
-        }
 
         kafka = new Kafka({
             clientId: `plugin-server-v${version}-${new UUIDT()}`,

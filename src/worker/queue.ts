@@ -8,6 +8,7 @@ import { IngestEventResponse } from '../ingestion/ingest-event'
 import { KafkaQueue } from '../ingestion/kafka-queue'
 import { status } from '../status'
 import { PluginsServer, Queue } from '../types'
+import { UUIDT } from '../utils'
 
 export type WorkerMethods = {
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
@@ -66,26 +67,22 @@ function startQueueRedis(server: PluginsServer, piscina: Piscina | undefined, wo
             now: string,
             sent_at?: string
         ) => {
-            const event = { distinct_id, ip, site_url, team_id, now, sent_at, ...data } as PluginEvent
+            const event = {
+                distinct_id,
+                ip,
+                site_url,
+                team_id,
+                now,
+                sent_at,
+                uuid: new UUIDT().toString(),
+                ...data,
+            } as PluginEvent
             try {
                 pauseQueueIfWorkerFull(celeryQueue, server, piscina)
                 const processedEvent = await workerMethods.processEvent(event)
                 if (processedEvent) {
-                    if (server.PLUGIN_SERVER_INGESTION) {
-                        pauseQueueIfWorkerFull(celeryQueue, server, piscina)
-                        await workerMethods.ingestEvent(processedEvent)
-                    } else {
-                        const { distinct_id, ip, site_url, team_id, now, sent_at, ...data } = processedEvent
-                        client.sendTask('posthog.tasks.process_event.process_event', [], {
-                            distinct_id,
-                            ip,
-                            site_url,
-                            data,
-                            team_id,
-                            now,
-                            sent_at,
-                        })
-                    }
+                    pauseQueueIfWorkerFull(celeryQueue, server, piscina)
+                    await workerMethods.ingestEvent(processedEvent)
                 }
             } catch (e) {
                 Sentry.captureException(e)
@@ -103,13 +100,7 @@ async function startQueueKafka(server: PluginsServer, workerMethods: WorkerMetho
     const kafkaQueue: Queue = new KafkaQueue(
         server,
         (batch: PluginEvent[]) => workerMethods.processEventBatch(batch),
-        server.PLUGIN_SERVER_INGESTION
-            ? async (event) => {
-                  await workerMethods.ingestEvent(event)
-              }
-            : async () => {
-                  // no op, but defining to avoid undefined issues
-              }
+        async (event) => void (await workerMethods.ingestEvent(event))
     )
     await kafkaQueue.start()
 
