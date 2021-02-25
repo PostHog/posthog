@@ -19,6 +19,7 @@ export function TrendLegend(): JSX.Element {
                         color={getChartColors('white')[index]}
                         checked={visibilityMap[item.id]}
                         onChange={() => toggleVisibility(item.id)}
+                        disabled={indexedResults.length === 1}
                     />
                 )
             },
@@ -28,7 +29,11 @@ export function TrendLegend(): JSX.Element {
         {
             title: 'Label',
             render: function RenderLabel({}, item: IndexedTrendResult) {
-                return item.action?.name || item.label
+                return (
+                    <span style={{ cursor: 'pointer' }} onClick={() => toggleVisibility(item.id)}>
+                        {item.action?.name || item.label}
+                    </span>
+                )
             },
             fixed: 'left',
             width: 150,

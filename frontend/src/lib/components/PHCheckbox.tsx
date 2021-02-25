@@ -4,14 +4,15 @@ interface Props {
     checked: boolean
     onChange: () => void
     color: string
+    disabled?: boolean
 }
 
-export const PHCheckbox = ({ checked, color = 'blue', ...props }: Props): JSX.Element => (
+export const PHCheckbox = ({ checked, color = 'blue', disabled = false, ...props }: Props): JSX.Element => (
     <div
         style={{
             display: 'inline-block',
             verticalAlign: 'middle',
-            cursor: 'pointer',
+            cursor: disabled ? 'none' : 'pointer',
         }}
     >
         <div
@@ -19,11 +20,11 @@ export const PHCheckbox = ({ checked, color = 'blue', ...props }: Props): JSX.El
                 display: 'inline-block',
                 width: '16px',
                 height: '16px',
-                background: checked ? color : 'lightgray',
+                background: checked ? (disabled ? 'gray' : color) : 'lightgray',
                 borderRadius: '3px',
                 transition: 'all 150ms',
             }}
-            onClick={props.onChange}
+            onClick={!disabled ? props.onChange : () => {}}
         >
             <svg
                 style={{
