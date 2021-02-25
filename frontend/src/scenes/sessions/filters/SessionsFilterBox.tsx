@@ -90,7 +90,7 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                 id: cohort.id,
                 cohort,
             })),
-            renderInfo: function cohorts({ item }) {
+            renderInfo: function renderCohortInfo({ item }) {
                 return (
                     <>
                         <UsergroupAddOutlined /> Cohorts

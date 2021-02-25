@@ -48,9 +48,9 @@ export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
 
 export enum ShownAsValue {
-    VOLUME = 'Volume',
-    STICKINESS = 'Stickiness',
-    LIFECYCLE = 'Lifecycle',
+    VOLUME = 'Volume', // eslint-disable-line
+    STICKINESS = 'Stickiness', // eslint-disable-line
+    LIFECYCLE = 'Lifecycle', // eslint-disable-line
 }
 
 export const PROPERTY_MATH_TYPE = 'property'

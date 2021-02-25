@@ -86,7 +86,7 @@ export function ActionFilterDropdown({
                         name: event.event,
                         ...event,
                     })),
-                    renderInfo: function suggestions({ item }) {
+                    renderInfo: function RenderSuggestions({ item }) {
                         return (
                             <>
                                 <FireOutlined /> Suggestions

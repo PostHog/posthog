@@ -40,7 +40,7 @@ function PropertyPaneContents({
         optionGroups.push({
             type: 'element',
             label: 'Elements',
-            options: ['tag_name', 'text', 'href', 'selector'].map((value) => ({ value, label: value })),
+            options: ['tag_name', 'text', 'href', 'selector'].map((v) => ({ value: v, label: v })),
         })
     }
 
@@ -59,12 +59,12 @@ function PropertyPaneContents({
                                           propkey,
                                   }
                         }
-                        onChange={(type, value) =>
+                        onChange={(type_, value_) =>
                             setThisFilter(
-                                value,
+                                value_,
                                 undefined,
-                                value === '$active_feature_flags' ? 'icontains' : operator,
-                                type
+                                value_ === '$active_feature_flags' ? 'icontains' : operator,
+                                type_
                             )
                         }
                         optionGroups={optionGroups}
@@ -140,9 +140,10 @@ export function PropertyFilter({ index, onComplete, logic }) {
     let { key, value, operator, type } = filters[index]
     const [activeKey, setActiveKey] = useState(type === 'cohort' ? 'cohort' : 'property')
 
-    const setThisFilter = useCallback((key, value, operator, type) => setFilter(index, key, value, operator, type), [
-        index,
-    ])
+    const setThisFilter = useCallback(
+        (key_, value_, operator_, type_) => setFilter(index, key_, value_, operator_, type_),
+        [index]
+    )
 
     const displayOperatorAndValue = key && type !== 'cohort'
 

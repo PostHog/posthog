@@ -101,15 +101,15 @@ export function LineGraph({
     }, [myLineChart.current, size, type, annotationsCondition])
 
     function calculateBoundaries() {
-        const leftExtent = myLineChart.current.scales['x-axis-0'].left
+        const leftExtentValue = myLineChart.current.scales['x-axis-0'].left
         const rightExtent = myLineChart.current.scales['x-axis-0'].right
         const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
-        const delta = rightExtent - leftExtent
-        const interval = delta / (ticks - 1)
-        const topExtent = myLineChart.current.scales['x-axis-0'].top + 8
-        setLeftExtent(leftExtent)
-        setInterval(interval)
-        setTopExtent(topExtent)
+        const delta = rightExtent - leftExtentValue
+        const newInterval = delta / (ticks - 1)
+        const newTopExtent = myLineChart.current.scales['x-axis-0'].top + 8
+        setLeftExtent(leftExtentValue)
+        setInterval(newInterval)
+        setTopExtent(newTopExtent)
     }
 
     function processDataset(dataset, index) {

@@ -46,20 +46,20 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
     const onClose = () => {
         removeLocalFilter({ value: filter.id, type: filter.type, index })
     }
-    const onMathSelect = (_, math) => {
+    const onMathSelect = (_, newMath) => {
         updateFilterMath({
-            math,
-            math_property: MATHS[math]?.onProperty ? mathProperty : undefined,
-            onProperty: MATHS[math]?.onProperty,
+            newMath,
+            math_property: MATHS[newMath]?.onProperty ? mathProperty : undefined,
+            onProperty: MATHS[newMath]?.onProperty,
             value: filter.id,
             type: filter.type,
             index: index,
         })
     }
-    const onMathPropertySelect = (_, mathProperty) => {
+    const onMathPropertySelect = (_, mathProp) => {
         updateFilterMath({
             math: filter.math,
-            math_property: mathProperty,
+            math_property: mathProp,
             value: filter.id,
             type: filter.type,
             index: index,

@@ -33,8 +33,8 @@ export function PropertySelect({ optionGroups, value, onChange, placeholder, aut
             labelInValue
             value={value || undefined}
             filterOption={(input, option) => option?.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
-            onChange={(_, { value, type }) => {
-                onChange(type, value.replace(/^(event_|person_|element_)/gi, ''))
+            onChange={(_, option: any) => {
+                onChange(option.type, option.value.replace(/^(event_|person_|element_)/gi, ''))
             }}
             style={{ width: '100%' }}
             virtual={false}

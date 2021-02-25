@@ -8,10 +8,10 @@ import { DownOutlined } from '@ant-design/icons'
 import { PERSON_DISTINCT_ID_MAX_SIZE } from 'lib/constants'
 import { Button } from 'antd'
 
-export function PersonTable({ properties }) {
+export function PersonTable({ properties: outerProperties }) {
     const keyMappingKeys = Object.keys(keyMapping.event)
     const onChange = properties.onChange._handleChange
-    const props = { ...properties.props, distinct_id: properties.distinct_id }
+    const props = { ...outerProperties.props, distinct_id: outerProperties.distinct_id }
     const [mapShowAllValuesForKey, setMapShowAllValuesForKey] = useState([])
 
     const columns = [

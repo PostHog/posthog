@@ -20,9 +20,9 @@ const SaveModal: React.FC<SaveChartModalProps> = (props) => {
         onCancel()
     }
 
-    function _onSubmit(input: string): void {
+    function _onSubmit(value: string): void {
         setInput('')
-        onSubmit(input)
+        onSubmit(value)
     }
 
     return (

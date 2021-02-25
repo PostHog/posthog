@@ -205,7 +205,7 @@ export function stepMatchesHref(step: ActionStepType, href: string): boolean {
 }
 
 function matchRuleShort(str: string, rule: string): boolean {
-    const escapeRegex = (str: string): string => str.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
+    const escapeRegex = (s: string): string => s.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
     return new RegExp('^' + rule.split('%').map(escapeRegex).join('.*') + '$').test(str)
 }
 

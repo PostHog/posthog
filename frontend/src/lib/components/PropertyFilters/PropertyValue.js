@@ -20,27 +20,27 @@ export function PropertyValue({
     const [optionsCache, setOptionsCache] = useState({})
     const [options, setOptions] = useState({})
 
-    function loadPropertyValues(value) {
+    function loadPropertyValues(value_) {
         if (type === 'cohort') {
             return
         }
         let key = propertyKey.split('__')[0]
         setOptions({ [propertyKey]: { ...options[propertyKey], status: 'loading' }, ...options })
-        setOptionsCache({ ...optionsCache, [value]: 'loading' })
+        setOptionsCache({ ...optionsCache, [value_]: 'loading' })
         if (outerOptions) {
             setOptions({
                 [propertyKey]: { values: [...new Set([...outerOptions.map((option) => option)])], status: true },
                 ...options,
             })
-            setOptionsCache({ ...optionsCache, [value]: true })
+            setOptionsCache({ ...optionsCache, [value_]: true })
         } else {
-            api.get(endpoint || 'api/' + type + '/values/?key=' + key + (value ? '&value=' + value : '')).then(
+            api.get(endpoint || 'api/' + type + '/values/?key=' + key + (value_ ? '&value=' + value_ : '')).then(
                 (propValues) => {
                     setOptions({
                         [propertyKey]: { values: [...new Set([...propValues.map((option) => option)])], status: true },
                         ...options,
                     })
-                    setOptionsCache({ ...optionsCache, [value]: true })
+                    setOptionsCache({ ...optionsCache, [value_]: true })
                 }
             )
         }

@@ -87,9 +87,9 @@ export function OperatorSelect({ operator, operators, onChange }: OperatorSelect
                 onChange(newOperator.value as PropertyOperator)
             }}
         >
-            {operators.map((operator) => (
-                <Select.Option key={operator} value={operator || 'exact'}>
-                    {operatorMap[operator || 'exact']}
+            {operators.map((op) => (
+                <Select.Option key={op} value={op || 'exact'}>
+                    {operatorMap[op || 'exact']}
                 </Select.Option>
             ))}
         </Select>

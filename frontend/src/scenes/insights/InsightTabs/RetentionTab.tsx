@@ -25,11 +25,11 @@ export function RetentionTab(): JSX.Element {
     const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
 
     const entityLogic = entityFilterLogic({
-        setFilters: (filters) => {
-            if (filters.events.length > 0) {
-                setFilters({ target_entity: filters.events[0] })
-            } else if (filters.actions.length > 0) {
-                setFilters({ target_entity: filters.actions[0] })
+        setFilters: (newFilters: Record<string, any>) => {
+            if (newFilters.events.length > 0) {
+                setFilters({ target_entity: newFilters.events[0] })
+            } else if (newFilters.actions.length > 0) {
+                setFilters({ target_entity: newFilters.actions[0] })
             } else {
                 setFilters({ target_entity: null })
             }
@@ -41,11 +41,11 @@ export function RetentionTab(): JSX.Element {
     })
 
     const entityLogicReturning = entityFilterLogic({
-        setFilters: (filters) => {
-            if (filters.events.length > 0) {
-                setFilters({ returning_entity: filters.events[0] })
+        setFilters: (newFilters: Record<string, any>) => {
+            if (newFilters.events.length > 0) {
+                setFilters({ returning_entity: newFilters.events[0] })
             } else if (filters.actions.length > 0) {
-                setFilters({ returning_entity: filters.actions[0] })
+                setFilters({ returning_entity: newFilters.actions[0] })
             } else {
                 setFilters({ returning_entity: null })
             }

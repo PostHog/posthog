@@ -7,16 +7,16 @@ interface SelectorCountProps {
 
 export function SelectorCount({ selector }: SelectorCountProps): JSX.Element {
     const [matches, selectorError] = useMemo(() => {
-        let selectorError = false
-        let matches = 0
+        let hasError = false
+        let matchesCount = 0
         if (selector) {
             try {
-                matches = querySelectorAllDeep(selector).length
+                matchesCount = querySelectorAllDeep(selector).length
             } catch {
-                selectorError = true
+                hasError = true
             }
         }
-        return [matches, selectorError]
+        return [matchesCount, hasError]
     }, [selector])
 
     return (
