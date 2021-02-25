@@ -11,7 +11,14 @@ import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { Tabs, Row, Col, Card, Button } from 'antd'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, ACTIONS_PIE_CHART, LIFECYCLE, FUNNEL_VIZ } from 'lib/constants'
+import {
+    ACTIONS_LINE_GRAPH_LINEAR,
+    ACTIONS_TABLE,
+    ACTIONS_PIE_CHART,
+    ACTIONS_BAR_CHART_VALUE,
+    LIFECYCLE,
+    FUNNEL_VIZ,
+} from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -40,18 +47,17 @@ const { TabPane } = Tabs
 
 const showIntervalFilter = function (activeView, filter) {
     switch (activeView) {
-        case ViewType.TRENDS:
-        case ViewType.STICKINESS:
-        case ViewType.LIFECYCLE:
-        case ViewType.SESSIONS:
-            return true
         case ViewType.FUNNELS:
             return filter.display === ACTIONS_LINE_GRAPH_LINEAR
         case ViewType.RETENTION:
         case ViewType.PATHS:
             return false
+        case ViewType.TRENDS:
+        case ViewType.STICKINESS:
+        case ViewType.LIFECYCLE:
+        case ViewType.SESSIONS:
         default:
-            return true // sometimes insights aren't set for trends
+            return ![ACTIONS_PIE_CHART, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE].includes(filter.display) // sometimes insights aren't set for trends
     }
 }
 
