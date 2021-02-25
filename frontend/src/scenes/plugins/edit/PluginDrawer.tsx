@@ -1,22 +1,19 @@
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Input, Popconfirm, Select, Switch, Tooltip } from 'antd'
+import { Button, Form, Popconfirm, Switch, Tooltip } from 'antd'
 import { DeleteOutlined, CodeOutlined, LockFilled } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Link } from 'lib/components/Link'
 import { Drawer } from 'lib/components/Drawer'
 import { LocalPluginTag } from 'scenes/plugins/plugin/LocalPluginTag'
-import { UploadField } from './UploadField'
 import { defaultConfigForPlugin, getConfigSchemaArray } from 'scenes/plugins/utils'
 import Markdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from './PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
-import { Modal } from 'antd'
-import { ExclamationCircleOutlined } from '@ant-design/icons'
-import { UploadFile } from 'antd/es/upload/interface'
+import { PluginField } from 'scenes/plugins/edit/PluginField'
 
 function EnabledDisabledSwitch({
     value,
@@ -33,17 +30,23 @@ function EnabledDisabledSwitch({
     )
 }
 
+const SecretFieldIcon = (): JSX.Element => (
+    <>
+        <Tooltip
+            placement="topLeft"
+            title="This is a secret write-only field. Its value is not available after saving."
+        >
+            <LockFilled style={{ marginRight: 5 }} />
+        </Tooltip>
+    </>
+)
+
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { editingPlugin, loading, editingSource, editingPluginInitialChanges, warningShown } = useValues(pluginsLogic)
-    const {
-        editPlugin,
-        savePluginConfig,
-        uninstallPlugin,
-        setEditingSource,
-        generateApiKeysIfNeeded,
-        setWarningShown,
-    } = useActions(pluginsLogic)
+    const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
+    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, generateApiKeysIfNeeded } = useActions(
+        pluginsLogic
+    )
     const [form] = Form.useForm()
 
     const canDelete = user?.plugin_access.install
@@ -72,69 +75,6 @@ export function PluginDrawer(): JSX.Element {
 
     const isValidField = (fieldConfig: PluginConfigSchema): boolean =>
         fieldConfig.type !== 'choice' || isValidChoiceConfig(fieldConfig)
-
-    const SecretFieldIcon = (): JSX.Element => (
-        <>
-            <Tooltip
-                placement="topLeft"
-                title="This is a secret write-only field. Its value is not available after saving."
-            >
-                <LockFilled style={{ marginRight: 5 }} />
-            </Tooltip>
-        </>
-    )
-
-    interface DisplayWarningProps {
-        e: React.MouseEvent | React.KeyboardEvent
-        value?: UploadFile | null
-        key?: string
-    }
-
-    function displayWarning({ e, value }: { e: React.MouseEvent; value: UploadFile | null }): void
-    function displayWarning({ e, key }: { e: React.KeyboardEvent; key: string }): void
-
-    function displayWarning({ e, value, key }: DisplayWarningProps): void {
-        let clonedNativeEvent: MouseEvent | KeyboardEvent
-        const { nativeEvent, target } = e
-
-        // Only show warning the first time a user tries to edit a secret field
-        if (warningShown) {
-            return
-        }
-
-        // Handle overload
-        if (key) {
-            // from input
-            if (form.getFieldsValue()[key || ''] !== '****************') {
-                return
-            }
-            clonedNativeEvent = new KeyboardEvent('keydown', nativeEvent)
-        } else {
-            // from file upload
-            if (value?.name !== 'Secret Attachment') {
-                return
-            }
-            clonedNativeEvent = new MouseEvent('click', nativeEvent)
-        }
-
-        // Prevent changes from happening if the user doesn't click 'ok'
-        e.stopPropagation()
-        e.preventDefault()
-        setWarningShown(true)
-
-        Modal.confirm({
-            title: 'Confirm Change',
-            icon: <ExclamationCircleOutlined />,
-            content: `You're about to change a field with an existing secret configuration. Are you sure you want to override the existing value?`,
-            okText: 'Yes',
-            cancelText: 'No',
-            onOk: () => {
-                target.dispatchEvent(clonedNativeEvent) // if user clicked ok, let the changes happen
-                return false
-            },
-            onCancel: () => setWarningShown(false), // show the warning again if the user didn't accept at first
-        })
-    }
 
     return (
         <>
@@ -264,29 +204,7 @@ export function PluginDrawer(): JSX.Element {
                                                 },
                                             ]}
                                         >
-                                            {fieldConfig.type === 'attachment' ? (
-                                                <UploadField displayWarning={displayWarning} />
-                                            ) : fieldConfig.type === 'string' ? (
-                                                <Input
-                                                    onKeyDown={(e) =>
-                                                        displayWarning({ e: e, key: fieldConfig.key ?? '' })
-                                                    }
-                                                />
-                                            ) : fieldConfig.type === 'choice' ? (
-                                                <Select dropdownMatchSelectWidth={false}>
-                                                    {fieldConfig.choices.map((choice) => (
-                                                        <Select.Option value={choice} key={choice}>
-                                                            {choice}
-                                                        </Select.Option>
-                                                    ))}
-                                                </Select>
-                                            ) : (
-                                                <strong style={{ color: 'var(--danger)' }}>
-                                                    Unknown field type "<code>{fieldConfig.type}</code>".
-                                                    <br />
-                                                    You may need to upgrade PostHog!
-                                                </strong>
-                                            )}
+                                            <PluginField fieldConfig={fieldConfig} />
                                         </Form.Item>
                                     ) : (
                                         <p style={{ color: 'var(--danger)' }}>
