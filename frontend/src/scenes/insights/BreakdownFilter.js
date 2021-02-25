@@ -86,6 +86,7 @@ function CohortFilter({ breakdown, onChange }) {
                             value={item.id}
                             type="cohort"
                             label={limitTextLength(item.name)}
+                            title={item.name}
                             data-attr={'cohort-breakdown-' + index}
                         >
                             {item.name}
