@@ -19,8 +19,8 @@ export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
     const { persons, listFilters, personsLoading, exampleEmail } = useValues(personsLogic)
     const [searchTerm, setSearchTerm] = useState('') // Not on Kea because it's a component-specific store & to avoid changing the URL on every keystroke
     const [isCreatingCohort, setIsCreatingCohort] = useState<boolean>(false)
-    const { selectedIds, selectedPeople } = useValues(manualCohortCreationLogic)
-    const { selectId, clearCohort, removeId } = useActions(manualCohortCreationLogic)
+    const { selectedIds, selectedPeople, cohortName } = useValues(manualCohortCreationLogic)
+    const { selectId, clearCohort, removeId, setCohortName, saveCohort } = useActions(manualCohortCreationLogic)
     const [createCohortDrawerIsOpen, setCreateCohortDrawerIsOpen] = useState(false)
 
     useEffect(() => {
@@ -169,6 +169,7 @@ export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
                 <form
                     onSubmit={(e): void => {
                         e.preventDefault()
+                        saveCohort()
                     }}
                 >
                     <div className="mb">
@@ -176,9 +177,9 @@ export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
                             required
                             autoFocus
                             placeholder="Cohort name..."
-                            value={''}
+                            value={cohortName}
                             data-attr="cohort-name"
-                            onChange={() => {}}
+                            onChange={(e) => setCohortName(e.target.value)}
                         />
                     </div>
                     <div className="mt">

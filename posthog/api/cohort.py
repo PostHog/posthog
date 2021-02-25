@@ -1,4 +1,5 @@
 import csv
+import json
 from typing import Any, Dict, List, Optional
 
 import posthoganalytics
@@ -13,7 +14,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.api.utils import get_target_entity
 from posthog.constants import TRENDS_STICKINESS
-from posthog.models import Cohort, Entity
+from posthog.models import Cohort, Entity, Person
 from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -80,6 +81,14 @@ class CohortSerializer(serializers.ModelSerializer):
     def _handle_static(self, cohort: Cohort, request: Request):
         if request.FILES.get("csv"):
             self._calculate_static_by_csv(request.FILES["csv"], cohort)
+        elif request.data.get("users"):
+            userIds = request.data.get("users")
+            parsed_ids = [int(id) for id in userIds.split(",")]
+            ids = [
+                person.distinct_ids[0]
+                for person in Person.objects.filter(id__in=parsed_ids, team_id=self.context["team_id"])
+            ]
+            self._calculate_static_by_people(ids, cohort)
         else:
             try:
                 filter = Filter(request=request)
