@@ -174,7 +174,7 @@ export function LineGraph({
               ]
             : datasets.map((dataset, index) => processDataset(dataset, index))
 
-        if (isLineGraph) {
+        if (isLineGraph && visibilityMap) {
             datasets = datasets.filter((data) => visibilityMap[data.id])
         }
 

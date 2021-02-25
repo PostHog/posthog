@@ -309,9 +309,10 @@ function _Insights() {
                                         <FunnelPeople />
                                     </Card>
                                 )}
-                            {(!allFilters.display ||
-                                allFilters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                                allFilters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) &&
+                            {featureFlags['trend-legend'] &&
+                                (!allFilters.display ||
+                                    allFilters.display === ACTIONS_LINE_GRAPH_LINEAR ||
+                                    allFilters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) &&
                                 (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) && (
                                     <Card>
                                         <BindLogic
