@@ -188,6 +188,10 @@ export const operatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
+export function isOperatorMulti(operator: string): boolean {
+    return ['exact', 'is_not'].includes(operator)
+}
+
 export function isOperatorFlag(operator: string): boolean {
     // these filter operators can only be just set, no additional parameter
     return ['is_set', 'is_not_set'].includes(operator)

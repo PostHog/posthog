@@ -183,7 +183,7 @@ export interface PropertyFilter {
 
 interface BasePropertyFilter {
     key: string
-    value: string | number | null
+    value: string | number | Array<string | number> | null
     label?: string
 }
 
