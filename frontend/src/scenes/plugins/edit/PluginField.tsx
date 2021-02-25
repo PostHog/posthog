@@ -21,7 +21,7 @@ export function PluginField({
                     onChange?.('')
                 }}
             >
-                Edit secret field
+                Edit secret {fieldConfig.type === 'attachment' ? 'attachment' : 'field'}
             </Button>
         )
     }
