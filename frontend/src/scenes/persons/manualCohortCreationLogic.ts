@@ -34,6 +34,7 @@ export const manualCohortCreationLogic = kea<manualCohortCreationLogicType<Perso
             '' as string,
             {
                 setCohortName: ({}, { cohortName }) => cohortName,
+                clearCohort: () => '',
             },
         ],
     },
@@ -50,7 +51,6 @@ export const manualCohortCreationLogic = kea<manualCohortCreationLogicType<Perso
                 is_static: true,
                 users: values.selectedIds,
             }
-            console.log(cohortParams)
             cohortLogic({
                 cohort: {
                     id: 'new',

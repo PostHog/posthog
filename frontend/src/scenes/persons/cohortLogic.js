@@ -50,7 +50,6 @@ export const cohortLogic = kea({
     listeners: ({ sharedListeners, actions, values }) => ({
         saveCohort: async ({ cohortParams, filterParams }, breakpoint) => {
             let cohort = { ...values.cohort, ...cohortParams }
-            console.log(cohort)
             const cohortFormData = new FormData()
             for (const [key, value] of Object.entries(cohort)) {
                 if (key === 'groups') {

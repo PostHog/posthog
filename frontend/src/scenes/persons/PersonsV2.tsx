@@ -170,6 +170,9 @@ export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
                     onSubmit={(e): void => {
                         e.preventDefault()
                         saveCohort()
+                        setCreateCohortDrawerIsOpen(false)
+                        clearCohort()
+                        setIsCreatingCohort(false)
                     }}
                 >
                     <div className="mb">
