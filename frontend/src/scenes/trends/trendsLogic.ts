@@ -41,7 +41,7 @@ export interface TrendResult {
     days: string[]
     label: string
     labels: string[]
-    breakdown_value?: string
+    breakdown_value?: string | number
 }
 
 export interface IndexedTrendResult extends TrendResult {

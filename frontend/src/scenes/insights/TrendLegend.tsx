@@ -5,6 +5,8 @@ import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 import { MATHS } from 'lib/constants'
+import { cohortsModel } from '~/models'
+import { CohortType } from '~/types'
 
 function formatLabel(item: IndexedTrendResult): string {
     const name = item.action?.name || item.label
@@ -15,9 +17,20 @@ function formatLabel(item: IndexedTrendResult): string {
     return name + (mathLabel ? ' — ' + mathLabel : '') + (propLabel ? ' — ' + propLabel : '')
 }
 
+function formatBreakdownLabel(breakdown_value: string | number | undefined, cohorts: CohortType[]): string {
+    if (breakdown_value && typeof breakdown_value == 'number') {
+        return cohorts.filter((c) => c.id == breakdown_value)[0]?.name || breakdown_value.toString()
+    } else if (typeof breakdown_value == 'string') {
+        return breakdown_value === 'nan' ? 'Other' : breakdown_value
+    } else {
+        return ''
+    }
+}
+
 export function TrendLegend(): JSX.Element {
     const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
+    const { cohorts } = useValues(cohortsModel)
     const isSingleEntity = indexedResults.length === 1
 
     const columns = [
@@ -57,7 +70,7 @@ export function TrendLegend(): JSX.Element {
                   {
                       title: 'Breakdown Value',
                       render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
-                          return item.breakdown_value === 'nan' ? 'Other' : item.breakdown_value
+                          return formatBreakdownLabel(item.breakdown_value, cohorts)
                       },
                       fixed: 'left',
                       width: 150,
