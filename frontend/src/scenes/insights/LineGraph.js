@@ -432,4 +432,7 @@ LineGraph.propTypes = {
     type: PropTypes.string,
     onClick: PropTypes.func,
     totalValue: PropTypes.number,
+    isInProgress: PropTypes.bool,
+    inSharedMode: PropTypes.bool,
+    percentage: PropTypes.bool,
 }

@@ -5,14 +5,32 @@ import { getChartColors } from 'lib/colors'
 import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LineGraphEmptyState } from '../../insights/EmptyStates'
+import { ViewType } from 'scenes/insights/insightLogic'
 
-export function ActionsBarValueGraph({ dashboardItemId, view, filters: filtersParam, color = 'white', cachedResults }) {
-    const [data, setData] = useState(null)
+interface Props {
+    dashboardItemId?: number | null
+    view: ViewType
+    color?: string
+    inSharedMode?: boolean | null
+    filters?: Record<string, unknown>
+    cachedResults?: any
+}
+
+type DataSet = any
+
+export function ActionsBarValueGraph({
+    dashboardItemId = null,
+    view,
+    filters: filtersParam,
+    color = 'white',
+    cachedResults,
+}: Props): JSX.Element {
+    const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
     const { results, resultsLoading } = useValues(logic)
 
-    function updateData() {
+    function updateData(): void {
         const _data = [...results]
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
 
@@ -39,7 +57,6 @@ export function ActionsBarValueGraph({ dashboardItemId, view, filters: filtersPa
     return data && !resultsLoading ? (
         total > 0 ? (
             <LineGraph
-                pageKey={'trends-annotations'}
                 data-attr="trend-bar-value-graph"
                 type={'horizontalBar'}
                 color={color}
