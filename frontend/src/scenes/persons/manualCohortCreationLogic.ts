@@ -42,8 +42,12 @@ export const manualCohortCreationLogic = kea<manualCohortCreationLogicType<Perso
         selectId: async () => actions.fetchPeople(),
         removeId: async () => actions.fetchPeople(),
         fetchPeople: async () => {
-            const result = await api.get('api/person?id=' + values.selectedIds.join(','))
-            actions.setPeople(result.results)
+            if (values.selectedIds.length) {
+                const result = await api.get('api/person?id=' + values.selectedIds.join(','))
+                actions.setPeople(result.results)
+            } else {
+                actions.setPeople([])
+            }
         },
         saveCohort: () => {
             const cohortParams = {

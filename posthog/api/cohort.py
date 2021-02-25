@@ -82,7 +82,7 @@ class CohortSerializer(serializers.ModelSerializer):
         if request.FILES.get("csv"):
             self._calculate_static_by_csv(request.FILES["csv"], cohort)
         elif request.data.get("users"):
-            userIds = request.data.get("users")
+            userIds = request.data.get("users", [])
             parsed_ids = [int(id) for id in userIds.split(",")]
             ids = [
                 person.distinct_ids[0]
