@@ -102,7 +102,7 @@ export function LoginSignup({ invite }: LoginSignupProps): JSX.Element {
                         />
                         <div className="password-login">
                             <h3 className="l3 text-center">
-                                {socialAuthAvailable ? 'Or create your own passowrd' : 'Create your PostHog account'}
+                                {socialAuthAvailable ? 'Or create your own password' : 'Create your PostHog account'}
                             </h3>
                             <form onSubmit={handleFormSubmit}>
                                 <div className="input-set">
