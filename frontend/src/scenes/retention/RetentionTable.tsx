@@ -158,6 +158,7 @@ export function RetentionTable({
                                                                 to={`/person/${encodeURIComponent(
                                                                     personAppearances.person.distinct_ids[0]
                                                                 )}`}
+                                                                data-attr="retention-person-link"
                                                             >
                                                                 {personAppearances.person.name}
                                                             </Link>
