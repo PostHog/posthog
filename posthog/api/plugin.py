@@ -28,11 +28,10 @@ from posthog.plugins import (
     reload_plugins_on_workers,
 )
 from posthog.plugins.utils import load_json_file
-from posthog.redis import get_client
 from posthog.utils import is_plugin_server_alive
 
-SECRET_ATTACHMENT_NAME = "Secret Attachment"
-SECRET_STRING_NAME = "****************"
+# Keep this in sync with: frontend/scenes/plugins/utils.ts
+SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
 
 
 class PluginSerializer(serializers.ModelSerializer):
@@ -203,14 +202,12 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
         new_plugin_config = plugin_config.config.copy()
 
-        secret_fields = set(
-            [field["key"] for field in plugin_config.plugin.config_schema if "secret" in field and field["secret"]]
-        )
+        secret_fields = _get_secret_fields_for_plugin(plugin_config.plugin)
 
         # do not send the real value to the client
-        for key in new_plugin_config.keys():
-            if key in secret_fields:
-                new_plugin_config[key] = SECRET_STRING_NAME
+        for key in secret_fields:
+            if new_plugin_config.get(key):
+                new_plugin_config[key] = SECRET_FIELD_VALUE
 
         for attachment in attachments:
             if attachment.key not in secret_fields:
@@ -223,10 +220,10 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                 }
             else:
                 new_plugin_config[attachment.key] = {
-                    "uid": 1,
+                    "uid": -1,
                     "saved": True,
-                    "size": 1,
-                    "name": SECRET_ATTACHMENT_NAME,
+                    "size": -1,
+                    "name": SECRET_FIELD_VALUE,
                     "type": "application/octet-stream",
                 }
 
@@ -246,13 +243,12 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
         self._fix_formdata_config_json(validated_data)
         validated_data.pop("plugin", None)
-        old_plugin_config = plugin_config.config
 
-        # Handles updates to secret fields
-        if "config" in validated_data:
-            for config_item in validated_data["config"].items():
-                if config_item[1] == SECRET_STRING_NAME:  # prevent overriding value with "masked" value
-                    validated_data["config"][config_item[0]] = old_plugin_config[config_item[0]]
+        # Keep old value for secret fields if no new value in the request
+        secret_fields = _get_secret_fields_for_plugin(plugin_config.plugin)
+        for key in secret_fields:
+            if validated_data["config"].get(key) is None:  # explicitly checking None to allow ""
+                validated_data["config"][key] = plugin_config.config.get(key)
 
         response = super().update(plugin_config, validated_data)
         self._update_plugin_attachments(plugin_config)
@@ -344,3 +340,8 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             reload_plugins_on_workers()
 
         return Response(PluginConfigSerializer(plugin_configs, many=True).data)
+
+
+def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:
+    secret_fields = set([field["key"] for field in plugin.config_schema if "secret" in field and field["secret"]])
+    return secret_fields
