@@ -1,5 +1,5 @@
 import React from 'react'
-import { Loading, formatLabel } from 'lib/utils'
+import { Loading, formatLabel, limitTextLength } from 'lib/utils'
 import { Table } from 'antd'
 import PropTypes from 'prop-types'
 import { useValues } from 'kea'
@@ -22,9 +22,11 @@ export function ActionsTable({ dashboardItemId = null, view, filters: filtersPar
                         title: filters.session ? 'Session Attribute' : 'Action',
                         dataIndex: 'label',
                         render: function renderLabel(_, { label, action }) {
+                            label = limitTextLength(label)
+                            const content = filters.session || filters.formula ? label : formatLabel(label, action)
                             return (
-                                <div style={{ wordBreak: 'break-all' }}>
-                                    {filters.session ? label : filters.formula ? label : formatLabel(label, action)}
+                                <div style={{ wordBreak: 'break-all' }} title={content}>
+                                    {content}
                                 </div>
                             )
                         },

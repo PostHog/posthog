@@ -5,6 +5,7 @@ import {
     isURL,
     capitalizeFirstLetter,
     compactNumber,
+    limitTextLength,
     pluralize,
 } from './utils'
 
@@ -109,6 +110,25 @@ describe('compactNumber()', () => {
         expect(compactNumber(8283310234)).toEqual('8.3B')
     })
 })
+
+describe('limitTextLength()', () => {
+    it('returns cut text appropriately', () => {
+        expect(limitTextLength('Hello World!', 11)).toStrictEqual('Hello World…')
+        expect(limitTextLength('Hello World!', 2)).toStrictEqual('H…')
+        expect(limitTextLength('   Good Afternoon World!', 16)).toStrictEqual('Good Afternoon…')
+    })
+    it('returns truncated text appropriately', () => {
+        expect(limitTextLength('Abcdf', 1)).toStrictEqual('…')
+        expect(limitTextLength('Goodbye World.', 0)).toStrictEqual('…')
+        expect(limitTextLength('Wxyz', -22)).toStrictEqual('…')
+    })
+    it('returns unchanged text appropriately', () => {
+        expect(limitTextLength('Hello World!')).toStrictEqual('Hello World!')
+        expect(limitTextLength('Hello World!', 12)).toStrictEqual('Hello World!')
+        expect(limitTextLength('QWERTY', 99)).toStrictEqual('QWERTY')
+    })
+})
+
 describe('pluralize()', () => {
     it('handles singular cases', () => {
         expect(pluralize(1, 'member')).toEqual('1 member')

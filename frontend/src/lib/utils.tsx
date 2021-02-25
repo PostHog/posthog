@@ -210,6 +210,15 @@ export function isValidRegex(value: string): boolean {
     }
 }
 
+export function limitTextLength(text: string, maxLength: number = 50): string {
+    if (maxLength < 0) {
+        // Avoid case where maxLength is negative, resulting in reverse slicing
+        maxLength = 0
+    }
+    const ellipsisAdjustedMaxLength = maxLength > 0 ? maxLength - 1 : 0
+    return text.length > maxLength ? text.trim().slice(0, ellipsisAdjustedMaxLength).trimEnd().concat('…') : text
+}
+
 export function formatPropertyLabel(
     item: Record<string, any>,
     cohorts: Record<string, any>[],
