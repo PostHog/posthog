@@ -126,7 +126,9 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
 // props:
 // - dashboardItemId
 // - filters
-export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeople, PropertyFilter, ToastId>>({
+export const trendsLogic = kea<
+    trendsLogicType<TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter, ToastId>
+>({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
     },
