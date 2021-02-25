@@ -64,7 +64,11 @@ class Paths(BaseQuery):
                 if event is None
                 else Q()
             )
-            .filter(properties_to_Q(filter.properties, team_id=team.pk) if filter and filter.properties else Q())
+            .filter(
+                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
+                if filter and filter.properties
+                else Q()
+            )
             .annotate(
                 previous_timestamp=Window(
                     expression=Lag("timestamp", default=None),

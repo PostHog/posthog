@@ -1,13 +1,17 @@
-from typing import Dict, Optional
+import re
+from typing import Dict, List, Optional
 
 import posthoganalytics
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.core.validators import MinLengthValidator
 from django.db import models
+from django.db.models.query_utils import Q
 from django.utils import timezone
 
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_TABLE
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
+from posthog.models.organization import Organization
+from posthog.utils import generic_emails
 
 from .dashboard import Dashboard
 from .dashboard_item import DashboardItem
@@ -17,7 +21,26 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 
 
 class TeamManager(models.Manager):
+    def set_test_account_filters(self, organization: Optional[Organization]) -> List:
+        filters = [
+            {"key": "$current_url", "operator": "not_icontains", "value": "http://localhost"},
+            {"key": "$current_url", "operator": "not_icontains", "value": "http://127.0.0.1"},
+        ]
+        if organization:
+            q = Q()
+            for email in generic_emails:
+                q |= Q(email__icontains=email)
+            example_emails = organization.members.exclude(q).only("email")
+            if len(example_emails) > 0:
+                example_email = re.search("@[\w.]+", example_emails[0].email)
+                if example_email:
+                    return [
+                        {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},
+                    ] + filters
+        return filters
+
     def create_with_data(self, user=None, **kwargs) -> "Team":
+        kwargs["test_account_filters"] = self.set_test_account_filters(kwargs.get("organization"))
         team = Team.objects.create(**kwargs)
 
         # Create default dashboard
@@ -106,6 +129,8 @@ class Team(models.Model):
     plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
+
+    test_account_filters: JSONField = JSONField(default=list)
 
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)

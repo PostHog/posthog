@@ -50,6 +50,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "anonymize_ips",
             "completed_snippet_onboarding",
             "ingested_event",
+            "test_account_filters",
             "uuid",
             "is_demo",
         )

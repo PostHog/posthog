@@ -14,6 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FilterType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { Formula } from './Formula'
+import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 
 interface TrendTabProps {
     view: string
@@ -149,6 +150,10 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                 </Tooltip>
             </h4>
             <ShownAsFilter filters={filters} onChange={(_filters: Partial<FilterType>): void => setFilters(_filters)} />
+            <TestAccountFilter
+                filters={filters}
+                onChange={(_filters: Partial<FilterType>): void => setFilters(_filters)}
+            />
         </>
     )
 }

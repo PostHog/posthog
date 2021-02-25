@@ -20,6 +20,7 @@ import { Link } from 'lib/components/Link'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { userLogic } from 'scenes/userLogic'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
+import { TestAccountFilters } from './TestAccountFilters'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -132,6 +133,15 @@ function _ProjectSettings(): JSX.Element {
                 </CodeSnippet>
                 Write-only means it can only create new events. It can't read events or any of your other data stored
                 with PostHog, so it's safe to use in public apps.
+                <Divider />
+                <h2 className="subtitle" id="testaccounts">
+                    Filtering out test accounts and team members
+                </h2>
+                <p>
+                    You can add filters here that will allow you to filter out test account and team members from your.
+                    These filters will be added to all queries.
+                </p>
+                <TestAccountFilters />
                 <Divider />
                 <h2 className="subtitle" id="urls">
                     Permitted Domains/URLs

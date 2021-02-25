@@ -612,3 +612,22 @@ def is_valid_regex(value: Any) -> bool:
         return True
     except re.error:
         return False
+
+
+# List of generic emails that we don't want to use to filter out test accounts
+generic_emails = [
+    "@gmail.com",
+    "@hotmail.com",
+    "@qq.com",
+    "@protonmail.com",
+    "@hey.com",
+    "@yahoo.com",
+    "@oal.com",
+    "@live.com",
+    "@outlook.com",
+    "@msn.com",
+    "@free.fr",
+    "@yandex.ru",
+    "@mac.com",
+    "@aol.com",
+]
