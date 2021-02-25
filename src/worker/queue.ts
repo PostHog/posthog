@@ -59,7 +59,7 @@ function startQueueRedis(server: PluginsServer, piscina: Piscina | undefined, wo
         'posthog.tasks.process_event.process_event_with_plugins',
         async (
             distinct_id: string,
-            ip: string,
+            ip: string | null,
             site_url: string,
             data: Record<string, unknown>,
             team_id: number,

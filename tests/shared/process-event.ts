@@ -92,7 +92,7 @@ export const createProcessEventTests = (
 
     async function processEvent(
         distinctId: string,
-        ip: string,
+        ip: string | null,
         siteUrl: string,
         data: PluginEvent,
         teamId: number,
@@ -210,7 +210,7 @@ export const createProcessEventTests = (
 
         await processEvent(
             '2',
-            '',
+            '127.0.0.1',
             '',
             ({
                 event: '$autocapture',
@@ -238,7 +238,7 @@ export const createProcessEventTests = (
         // capture a second time to verify e.g. event_names is not ['$autocapture', '$autocapture']
         await processEvent(
             '2',
-            '',
+            '127.0.0.1',
             '',
             ({
                 event: '$autocapture',
@@ -401,6 +401,26 @@ export const createProcessEventTests = (
         const [event] = await server.db.fetchEvents()
         const difference = tomorrow.diff(DateTime.fromISO(event.timestamp), 'seconds').seconds
         expect(difference).toBeLessThan(1)
+    })
+
+    test('ip none', async () => {
+        await createPerson(server, team, ['asdfasdfasdf'])
+
+        await processEvent(
+            'asdfasdfasdf',
+            null,
+            '',
+            ({
+                event: '$pageview',
+                properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
+            } as any) as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+        const [event] = await server.db.fetchEvents()
+        expect(Object.keys(event.properties)).not.toContain('$ip')
     })
 
     test('ip capture', async () => {
@@ -1103,7 +1123,7 @@ export const createProcessEventTests = (
 
         await processEvent(
             'xxx',
-            '',
+            '127.0.0.1',
             '',
             ({ event: 'purchase', properties: { price: 299.99, name: 'AirPods Pro' } } as any) as PluginEvent,
             team.id,
