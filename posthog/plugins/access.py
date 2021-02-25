@@ -3,7 +3,6 @@ from uuid import UUID
 
 from django.conf import settings
 
-from posthog.models import organization
 from posthog.models.organization import Organization
 
 
@@ -15,16 +14,30 @@ def guard_cloud(organization_or_id: Optional[Union[Organization, UUID, str]]):
         if not organization_or_id
         else str(organization_or_id if isinstance(organization_or_id, (str, UUID)) else organization_or_id.id)
     )
-    return (
-        settings.TEST
-        or not getattr(settings, "MULTI_TENANCY", False)
-        or (organization_id and organization_id in getattr(settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", []))
+    return settings.TEST or not getattr(settings, "MULTI_TENANCY", False)
+
+
+def can_install_plugins_via_api(organization_or_id: Union[Organization, str, UUID]) -> bool:
+    if not settings.PLUGINS_INSTALL_VIA_API:
+        return False
+    if settings.MULTI_TENANCY:
+        return True
+    organization: Organization = (
+        organization_or_id
+        if isinstance(organization_or_id, Organization)
+        else Organization.objects.get(id=organization_or_id)
     )
+    return organization.plugins_access_level >= Organization.PluginsAccessLevel.INSTALLATION
 
 
-def can_install_plugins_via_api(organization_or_id: Optional[Union[Organization, UUID]]) -> bool:
-    return bool(settings.PLUGINS_INSTALL_VIA_API and guard_cloud(organization_or_id))
-
-
-def can_configure_plugins_via_api(organization_or_id: Optional[Union[Organization, UUID]]) -> bool:
-    return bool(settings.PLUGINS_CONFIGURE_VIA_API and guard_cloud(organization_or_id))
+def can_configure_plugins_via_api(organization_or_id: Union[Organization, str, UUID]) -> bool:
+    if not settings.PLUGINS_CONFIGURE_VIA_API:
+        return False
+    if settings.MULTI_TENANCY:
+        return True
+    organization: Organization = (
+        organization_or_id
+        if isinstance(organization_or_id, Organization)
+        else Organization.objects.get(id=organization_or_id)
+    )
+    return organization.plugins_access_level >= Organization.PluginsAccessLevel.CONFIGURATION
