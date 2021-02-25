@@ -102,7 +102,7 @@ def store_names_and_properties(team: Team, event: str, properties: Dict) -> None
 
 
 def _capture(
-    ip: str,
+    ip: Optional[str],
     site_url: str,
     team_id: int,
     event: str,
@@ -138,7 +138,7 @@ def _capture(
         "ingested_event",
     ).get(pk=team_id)
 
-    if not team.anonymize_ips and "$ip" not in properties:
+    if ip and not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
 
     event = sanitize_event_name(event)
@@ -259,7 +259,7 @@ def handle_identify_or_alias(event: str, properties: dict, distinct_id: str, tea
 
 @shared_task(name="posthog.tasks.process_event.process_event", ignore_result=True)
 def process_event(
-    distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
+    distinct_id: str, ip: Optional[str], site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
 ) -> None:
     properties = data.get("properties", {})
     if data.get("$set"):

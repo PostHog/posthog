@@ -49,17 +49,19 @@ function _App(): JSX.Element | null {
                 replace('/')
                 return
             }
-            // Redirect to org/project creation if necessary
-            if (!currentOrganizationLoading && !currentOrganization?.id) {
-                if (location.pathname !== '/organization/create') {
-                    replace('/organization/create')
+            // Redirect to org/project creation if there's no org/project respectively, unless using invite
+            if (scene !== Scene.InviteSignup) {
+                if (!currentOrganizationLoading && !currentOrganization?.id) {
+                    if (location.pathname !== '/organization/create') {
+                        replace('/organization/create')
+                    }
+                    return
+                } else if (!currentTeamLoading && !currentTeam?.id) {
+                    if (location.pathname !== '/project/create') {
+                        replace('/project/create')
+                    }
+                    return
                 }
-                return
-            } else if (!currentTeamLoading && !currentTeam?.id) {
-                if (location.pathname !== '/project/create') {
-                    replace('/project/create')
-                }
-                return
             }
         }
 

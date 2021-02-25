@@ -21,7 +21,7 @@ from ee.clickhouse.sql.trends.volume import (
     VOLUME_SQL,
     VOLUME_TOTAL_AGGREGATE_SQL,
 )
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_PIE, TRENDS_TABLE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_DISPLAY_BY_VALUE
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -58,7 +58,7 @@ class ClickhouseTrendsNormal:
         params = {**params, **entity_params}
         content_sql_params = {**content_sql_params, **entity_format_params}
 
-        if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
+        if filter.display in TRENDS_DISPLAY_BY_VALUE:
             agg_query = self._determine_single_aggregate_query(filter, entity)
             content_sql = agg_query.format(**content_sql_params)
 

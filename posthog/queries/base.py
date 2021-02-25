@@ -1,5 +1,5 @@
 import copy
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, cast
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Exists, OuterRef, Q, QuerySet
@@ -166,11 +166,10 @@ def properties_to_Q(properties: List[Property], team_id: int, is_person_query: b
 
         for item in cohort_properties:
             if item.key == "id":
+                cohort_id = int(cast(Union[str, int], item.value))
                 filters &= Q(
                     Exists(
-                        CohortPeople.objects.filter(cohort_id=int(item.value), person_id=OuterRef("person_id"),).only(
-                            "id"
-                        )
+                        CohortPeople.objects.filter(cohort_id=cohort_id, person_id=OuterRef("person_id"),).only("id")
                     )
                 )
     return filters

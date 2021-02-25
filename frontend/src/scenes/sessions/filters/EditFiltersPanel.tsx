@@ -94,6 +94,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                                             justifyContent: 'space-between',
                                             alignItems: 'center',
                                         }}
+                                        data-attr="edit-session-filter"
                                     >
                                         <strong>{item.label}</strong>
                                         <DownOutlined style={{ fontSize: 12, color: '#bfbfbf' }} />

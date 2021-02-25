@@ -22,13 +22,13 @@ export function ActionsLineGraph({
         filters: filtersParam,
         cachedResults,
     })
-    const { filters, results, resultsLoading } = useValues(logic)
+    const { filters, indexedResults, resultsLoading, visibilityMap } = useValues(logic)
     const { loadPeople } = useActions(logic)
 
     const [{ fromItem }] = useState(router.values.hashParams)
 
-    return results && !resultsLoading ? (
-        results.reduce((total, item) => total + item.count, 0) !== 0 ? (
+    return indexedResults && !resultsLoading ? (
+        indexedResults.reduce((total, item) => total + item.count, 0) !== 0 ? (
             <LineGraph
                 data-attr="trend-line-graph"
                 type={
@@ -37,8 +37,9 @@ export function ActionsLineGraph({
                         : 'line'
                 }
                 color={color}
-                datasets={results}
-                labels={(results[0] && results[0].labels) || []}
+                datasets={indexedResults}
+                visibilityMap={visibilityMap}
+                labels={(indexedResults[0] && indexedResults[0].labels) || []}
                 isInProgress={!filters.date_to}
                 dashboardItemId={dashboardItemId || fromItem}
                 inSharedMode={inSharedMode}

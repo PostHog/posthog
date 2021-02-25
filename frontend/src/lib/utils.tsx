@@ -188,6 +188,10 @@ export const operatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
+export function isOperatorMulti(operator: string): boolean {
+    return ['exact', 'is_not'].includes(operator)
+}
+
 export function isOperatorFlag(operator: string): boolean {
     // these filter operators can only be just set, no additional parameter
     return ['is_set', 'is_not_set'].includes(operator)
@@ -237,8 +241,6 @@ export function formatLabel(
         label += ` (Active Users) `
     } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math)) {
         label += ` (${action.math} of ${action.math_property}) `
-    } else {
-        label += ' (Total) '
     }
     if (action?.properties?.length) {
         label += ` (${action.properties
@@ -573,6 +575,9 @@ export function uniqueBy<T>(items: T[], uniqueResolver: (item: T) => any): T[] {
 }
 
 export function sample<T>(items: T[], size: number): T[] {
+    if (!items.length) {
+        throw Error('Items array is empty!')
+    }
     if (size > items.length) {
         throw Error('Sample size cannot exceed items array length!')
     }
@@ -589,11 +594,11 @@ export function sample<T>(items: T[], size: number): T[] {
     return results
 }
 
-export function sampleSingle<T>(items: T[]): T[] {
+export function sampleOne<T>(items: T[]): T {
     if (!items.length) {
         throw Error('Items array is empty!')
     }
-    return [items[Math.floor(Math.random() * items.length)]]
+    return items[Math.floor(Math.random() * items.length)]
 }
 
 /** Convert camelCase, PascalCase or snake_case to Title Case. */
@@ -722,6 +727,14 @@ export function autocorrectInterval(filters: Partial<FilterType>): string {
     } else {
         return filters.interval
     }
+}
+
+export function pluralize(count: number, singular: string, plural?: string, includeNumber: boolean = true): string {
+    if (!plural) {
+        plural = singular + 's'
+    }
+    const form = count === 1 ? singular : plural
+    return includeNumber ? `${count} ${form}` : form
 }
 
 function suffixFormatted(value: number, base: number, suffix: string, maxDecimals: number): string {
