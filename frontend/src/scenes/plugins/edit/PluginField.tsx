@@ -2,6 +2,7 @@ import { UploadField } from 'scenes/plugins/edit/UploadField'
 import { Button, Input, Select } from 'antd'
 import React, { useState } from 'react'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
+import { SECRET_FIELD_VALUE } from 'scenes/plugins/utils'
 
 export function PluginField({
     value,
@@ -13,12 +14,17 @@ export function PluginField({
     fieldConfig: PluginConfigSchema
 }): JSX.Element {
     const [editingSecret, setEditingSecret] = useState(false)
-    if (fieldConfig.secret && !editingSecret && value) {
+    if (
+        fieldConfig.secret &&
+        !editingSecret &&
+        value &&
+        (value === SECRET_FIELD_VALUE || value.name === SECRET_FIELD_VALUE)
+    ) {
         return (
             <Button
                 onClick={() => {
+                    onChange?.(fieldConfig.default || '')
                     setEditingSecret(true)
-                    onChange?.('')
                 }}
             >
                 Edit secret {fieldConfig.type === 'attachment' ? 'attachment' : 'field'}
