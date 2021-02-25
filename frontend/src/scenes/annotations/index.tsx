@@ -1,9 +1,9 @@
 import { hot } from 'react-hot-loader/root'
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Tag, Button, Modal, Input, DatePicker, Row, Spin, Menu, Dropdown } from 'antd'
+import { Table, Tag, Button, Modal, Input, Row, Spin, Menu, Dropdown } from 'antd'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import moment from 'moment'
+import * as dayjs from 'dayjs'
 import { annotationsModel } from '~/models/annotationsModel'
 import { annotationsTableLogic } from './logic'
 import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, DownOutlined } from '@ant-design/icons'
@@ -12,6 +12,10 @@ import { userLogic } from 'scenes/userLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
 import { createdByColumn } from 'lib/components/Table'
+
+import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
+import generatePicker from 'antd/es/date-picker/generatePicker'
+const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 const { TextArea } = Input
 
@@ -49,7 +53,7 @@ function _Annotations(): JSX.Element {
         {
             title: 'Date Marker',
             render: function RenderDateMarker(annotation): JSX.Element {
-                return <span>{moment(annotation.date_marker).format('YYYY-MM-DD')}</span>
+                return <span>{dayjs(annotation.date_marker).format('YYYY-MM-DD')}</span>
             },
         },
         {
@@ -167,7 +171,7 @@ interface CreateAnnotationModalProps {
     onCancel: () => void
     onDelete: () => void
     onRestore: () => void
-    onSubmit: (input: string, date: moment.Moment) => void
+    onSubmit: (input: string, date: dayjs.Dayjs) => void
     annotation?: any
 }
 
@@ -180,7 +184,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
     const [scope, setScope] = useState<AnnotationScope>(AnnotationScope.Project)
     const [textInput, setTextInput] = useState('')
     const [modalMode, setModalMode] = useState<ModalMode>(ModalMode.CREATE)
-    const [selectedDate, setDate] = useState<moment.Moment>(moment())
+    const [selectedDate, setDate] = useState<dayjs.Dayjs>(dayjs())
     const { user } = useValues(userLogic)
 
     useEffect(() => {

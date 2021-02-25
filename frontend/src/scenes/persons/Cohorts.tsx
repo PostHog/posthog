@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import moment from 'moment'
+import * as dayjs from 'dayjs'
 import { DeleteWithUndo } from 'lib/utils'
 import { Tooltip, Table, Spin, Button, Input } from 'antd'
 import { ExportOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -16,6 +16,8 @@ import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './cohorts.scss'
 import Fuse from 'fuse.js'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
+import relativeTime from 'dayjs/plugin/relativeTime'
+dayjs.extend(relativeTime)
 
 const cohortsUrlLogic = kea({
     actions: {
@@ -93,7 +95,7 @@ function _Cohorts(): JSX.Element {
                         Calculating <Spin />
                     </span>
                 ) : (
-                    moment(cohort.last_calculation).fromNow()
+                    dayjs(cohort.last_calculation).fromNow()
                 )
             },
         },

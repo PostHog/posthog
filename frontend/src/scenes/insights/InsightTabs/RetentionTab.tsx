@@ -11,10 +11,14 @@ import {
     retentionOptions,
     retentionOptionDescriptions,
 } from 'scenes/retention/retentionTableLogic'
-import { Button, DatePicker, Select, Tooltip } from 'antd'
+import { Button, Select, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
 import { CloseButton } from 'lib/components/CloseButton'
-import moment from 'moment'
+import * as dayjs from 'dayjs'
+
+import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
+import generatePicker from 'antd/es/date-picker/generatePicker'
+const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 export function RetentionTab(): JSX.Element {
     const node = useRef<HTMLElement>(null)
@@ -144,8 +148,8 @@ export function RetentionTab(): JSX.Element {
                         use12Hours
                         format={filters.period === 'Hour' ? 'YYYY-MM-DD, h a' : 'YYYY-MM-DD'}
                         className="mb-05"
-                        value={filters.date_to && moment(filters.date_to)}
-                        onChange={(date_to): void => setFilters({ date_to: date_to && moment(date_to).toISOString() })}
+                        value={filters.date_to && dayjs(filters.date_to)}
+                        onChange={(date_to): void => setFilters({ date_to: date_to && dayjs(date_to).toISOString() })}
                         allowClear={false}
                     />
                     {filters.date_to && (

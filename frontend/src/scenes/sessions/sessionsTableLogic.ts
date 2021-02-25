@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import moment from 'moment'
+import * as dayjs from 'dayjs'
 import equal from 'fast-deep-equal'
 import { toParams } from 'lib/utils'
 import { sessionsTableLogicType } from './sessionsTableLogicType'
@@ -8,7 +8,7 @@ import { EventType, PropertyFilter, SessionsPropertyFilter, SessionType } from '
 import { router } from 'kea-router'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 
-type Moment = moment.Moment
+type Moment = dayjs.Dayjs
 
 type SessionRecordingId = string
 
@@ -148,10 +148,10 @@ export const sessionsTableLogic = kea<
             actions.loadSessions(true)
         },
         previousDay: () => {
-            actions.setFilters(values.properties, moment(values.selectedDate).add(-1, 'day'))
+            actions.setFilters(values.properties, dayjs(values.selectedDate).add(-1, 'day'))
         },
         nextDay: () => {
-            actions.setFilters(values.properties, moment(values.selectedDate).add(1, 'day'))
+            actions.setFilters(values.properties, dayjs(values.selectedDate).add(1, 'day'))
         },
         loadSessionEvents: async ({ session }, breakpoint) => {
             if (!values.loadedSessionEvents[session.global_session_id]) {
@@ -170,7 +170,7 @@ export const sessionsTableLogic = kea<
     }),
     actionToUrl: ({ values }) => {
         const buildURL = (overrides: Partial<Params> = {}): [string, Params] => {
-            const today = moment().startOf('day').format('YYYY-MM-DD')
+            const today = dayjs().startOf('day').format('YYYY-MM-DD')
 
             const { properties } = router.values.searchParams // eslint-disable-line
 
@@ -194,7 +194,7 @@ export const sessionsTableLogic = kea<
     },
     urlToAction: ({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
-            const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
+            const newDate = params.date ? dayjs(params.date).startOf('day') : dayjs().startOf('day')
 
             if (
                 JSON.stringify(params.properties || []) !== JSON.stringify(values.properties) ||

@@ -10,9 +10,12 @@ import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
 import { DownOutlined, DeleteOutlined, MergeCellsOutlined, LoadingOutlined } from '@ant-design/icons'
-import moment from 'moment'
+import * as dayjs from 'dayjs'
 import { MergePerson } from './MergePerson'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
+
+import relativeTime from 'dayjs/plugin/relativeTime'
+dayjs.extend(relativeTime)
 
 const { TabPane } = Tabs
 
@@ -96,7 +99,7 @@ function _PersonV2(): JSX.Element {
                                 </div>
                                 <div className="item-group">
                                     <label>First seen</label>
-                                    <div>{moment(person.created_at).fromNow()}</div>
+                                    <div>{dayjs(person.created_at).fromNow()}</div>
                                 </div>
                                 <div className="text-center mt">
                                     <a onClick={() => setMergeModalOpen(true)}>

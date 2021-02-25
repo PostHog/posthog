@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { Moment } from 'moment'
+import * as dayjs from 'dayjs'
 import { dateFilterLogicType } from 'lib/components/DateFilter/dateFilterLogicType'
 import { objectsEqual } from 'lib/utils'
 
@@ -9,9 +9,9 @@ interface UrlParams {
     date_to?: string
 }
 
-export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Moment>>({
+export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, dayjs.Dayjs>>({
     actions: () => ({
-        setDates: (dateFrom: string | Moment | undefined, dateTo: string | Moment | undefined) => ({
+        setDates: (dateFrom: string | dayjs.Dayjs | undefined, dateTo: string | dayjs.Dayjs | undefined) => ({
             dateFrom,
             dateTo,
         }),
@@ -19,8 +19,8 @@ export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Moment>>({
     reducers: () => ({
         dates: [
             {
-                dateFrom: undefined as string | Moment | undefined,
-                dateTo: undefined as string | Moment | undefined,
+                dateFrom: undefined as string | dayjs.Dayjs | undefined,
+                dateTo: undefined as string | dayjs.Dayjs | undefined,
             },
             {
                 setDates: (_, dates) => dates,

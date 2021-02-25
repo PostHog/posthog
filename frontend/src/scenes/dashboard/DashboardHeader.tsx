@@ -22,7 +22,7 @@ import {
     CalendarOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
-import moment from 'moment'
+import * as dayjs from 'dayjs'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardType } from '~/types'
 import { DateFilter } from 'lib/components/DateFilter'
@@ -70,8 +70,8 @@ export function DashboardHeader(): JSX.Element {
                         {dashboard.created_by ? (
                             <div className="dashboard-header-created-by">
                                 Created by {dashboard.created_by.first_name || dashboard.created_by.email || '-'} on{' '}
-                                {moment(dashboard.created_at).format(
-                                    moment(dashboard.created_at).year() === moment().year() ? 'MMMM Do' : 'MMMM Do YYYY'
+                                {dayjs(dashboard.created_at).format(
+                                    dayjs(dashboard.created_at).year() === dayjs().year() ? 'MMMM Do' : 'MMMM Do YYYY'
                                 )}
                             </div>
                         ) : null}

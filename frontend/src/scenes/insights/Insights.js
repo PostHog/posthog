@@ -3,7 +3,9 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
-import moment from 'moment'
+import * as dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+dayjs.extend(relativeTime)
 import { DateFilter } from 'lib/components/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 
@@ -248,7 +250,7 @@ function _Insights() {
                                 <div>
                                     {lastRefresh && (
                                         <small style={{ position: 'absolute', marginTop: -21, right: 24 }}>
-                                            Computed {moment(lastRefresh).fromNow()}
+                                            Computed {dayjs(lastRefresh).fromNow()}
                                             <Button
                                                 size="small"
                                                 type="link"

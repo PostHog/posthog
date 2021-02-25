@@ -1,9 +1,14 @@
 import React, { useRef, useEffect, useState } from 'react'
-import { Select, DatePicker, Button } from 'antd'
+import { Select, Button } from 'antd'
 import { useValues, useActions } from 'kea'
-import moment from 'moment'
+import * as dayjs from 'dayjs'
 import { dateFilterLogic } from './dateFilterLogic'
 import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
+
+import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
+import generatePicker from 'antd/es/date-picker/generatePicker'
+
+const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 interface Props {
     defaultValue: string
@@ -30,9 +35,9 @@ export function DateFilter({
 
     const { setDates } = useActions(dateFilterLogic)
     const [rangeDateFrom, setRangeDateFrom] = useState(
-        dateFrom && isDate.test(dateFrom as string) ? moment(dateFrom) : undefined
+        dateFrom && isDate.test(dateFrom as string) ? dayjs(dateFrom) : undefined
     )
-    const [rangeDateTo, setRangeDateTo] = useState(dateTo && isDate.test(dateTo as string) ? moment(dateTo) : undefined)
+    const [rangeDateTo, setRangeDateTo] = useState(dateTo && isDate.test(dateTo as string) ? dayjs(dateTo) : undefined)
     const [dateRangeOpen, setDateRangeOpen] = useState(false)
     const [open, setOpen] = useState(false)
 
@@ -82,7 +87,7 @@ export function DateFilter({
 
     function onApplyClick(): void {
         onClickOutside()
-        setDate(moment(rangeDateFrom).format('YYYY-MM-DD'), moment(rangeDateTo).format('YYYY-MM-DD'))
+        setDate(dayjs(rangeDateFrom).format('YYYY-MM-DD'), dayjs(rangeDateTo).format('YYYY-MM-DD'))
     }
 
     return (
@@ -144,11 +149,11 @@ export function DateFilter({
 function DatePickerDropdown(props: {
     onClickOutside: () => void
     onClick: (e: React.MouseEvent) => void
-    onDateFromChange: (date: moment.Moment | undefined) => void
-    onDateToChange: (date: moment.Moment | undefined) => void
+    onDateFromChange: (date: dayjs.Dayjs | undefined) => void
+    onDateToChange: (date: dayjs.Dayjs | undefined) => void
     onApplyClick: () => void
-    rangeDateFrom: string | moment.Moment | undefined
-    rangeDateTo: string | moment.Moment | undefined
+    rangeDateFrom: string | dayjs.Dayjs | undefined
+    rangeDateTo: string | dayjs.Dayjs | undefined
 }): JSX.Element {
     const dropdownRef = useRef<HTMLDivElement | null>(null)
     const [calendarOpen, setCalendarOpen] = useState(false)
@@ -186,14 +191,14 @@ function DatePickerDropdown(props: {
                 <DatePicker.RangePicker
                     defaultValue={[
                         props.rangeDateFrom
-                            ? moment.isMoment(props.rangeDateFrom)
+                            ? dayjs.isDayjs(props.rangeDateFrom)
                                 ? props.rangeDateFrom
-                                : moment(props.rangeDateFrom)
+                                : dayjs(props.rangeDateFrom)
                             : null,
                         props.rangeDateTo
-                            ? moment.isMoment(props.rangeDateTo)
+                            ? dayjs.isDayjs(props.rangeDateTo)
                                 ? props.rangeDateTo
-                                : moment(props.rangeDateTo)
+                                : dayjs(props.rangeDateTo)
                             : null,
                     ]}
                     onOpenChange={(open) => {

@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import moment from 'moment'
+import * as dayjs from 'dayjs'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { ExportOutlined, SearchOutlined } from '@ant-design/icons'
@@ -14,6 +14,11 @@ import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { hot } from 'react-hot-loader/root'
+
+import relativeTime from 'dayjs/plugin/relativeTime'
+dayjs.extend(relativeTime)
+import LocalizedFormat from 'dayjs/plugin/localizedFormat'
+dayjs.extend(LocalizedFormat)
 
 export const EventsTable = hot(_EventsTable)
 function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
@@ -154,7 +159,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                     return { props: { colSpan: 0 } }
                 }
                 return (
-                    <Tooltip title={moment(event.timestamp).format('LLL')}>{moment(event.timestamp).fromNow()}</Tooltip>
+                    <Tooltip title={dayjs(event.timestamp).format('LLL')}>{dayjs(event.timestamp).fromNow()}</Tooltip>
                 )
             },
         },
