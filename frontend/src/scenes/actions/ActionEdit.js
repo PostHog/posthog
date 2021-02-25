@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { uuid, Loading, deleteWithUndo } from 'lib/utils'
+import { uuid, deleteWithUndo } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
@@ -11,23 +11,20 @@ import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { actionsModel } from '~/models'
 
-export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryToken }) {
+export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, user, simmer, temporaryToken }) {
     let logic = actionEditLogic({
         id: actionId,
         apiURL,
+        action: loadedAction,
         onSave: (action, createNew) => onSave(action, !actionId, createNew),
         temporaryToken,
     })
-    const { action, actionLoading, errorActionId } = useValues(logic)
+    const { action, errorActionId } = useValues(logic)
     const { setAction, saveAction } = useActions(logic)
     const { loadActions } = useActions(actionsModel)
 
     const [edited, setEdited] = useState(false)
     const slackEnabled = user?.team?.slack_incoming_webhook
-
-    if (actionLoading || !action) {
-        return <Loading />
-    }
 
     const newAction = () => {
         setAction({ ...action, steps: [...action.steps, { isNew: uuid() }] })
