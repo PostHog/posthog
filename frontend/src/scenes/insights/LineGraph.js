@@ -22,7 +22,6 @@ const noop = () => {}
 
 export function LineGraph({
     datasets,
-    visibilityMap = null,
     labels,
     color,
     type,
@@ -63,7 +62,7 @@ export function LineGraph({
 
     useEffect(() => {
         buildChart()
-    }, [datasets, color, visibilityMap])
+    }, [datasets, color])
 
     // annotation related effects
 
@@ -137,46 +136,42 @@ export function LineGraph({
             myLineChart.current.destroy()
         }
         // if chart is line graph, make duplicate lines and overlay to show dotted lines
-        const isLineGraph = type === 'line'
-        datasets = isLineGraph
-            ? [
-                  ...datasets.map((dataset, index) => {
-                      let datasetCopy = Object.assign({}, dataset)
-                      let data = [...dataset.data]
-                      let _labels = [...dataset.labels]
-                      let days = [...dataset.days]
-                      data.pop()
-                      _labels.pop()
-                      days.pop()
-                      datasetCopy.data = data
-                      datasetCopy.labels = _labels
-                      datasetCopy.days = days
-                      return processDataset(datasetCopy, index)
-                  }),
-                  ...datasets.map((dataset, index) => {
-                      let datasetCopy = Object.assign({}, dataset)
-                      let datasetLength = datasetCopy.data.length
-                      datasetCopy.dotted = true
+        datasets =
+            type === 'line'
+                ? [
+                      ...datasets.map((dataset, index) => {
+                          let datasetCopy = Object.assign({}, dataset)
+                          let data = [...dataset.data]
+                          let _labels = [...dataset.labels]
+                          let days = [...dataset.days]
+                          data.pop()
+                          _labels.pop()
+                          days.pop()
+                          datasetCopy.data = data
+                          datasetCopy.labels = _labels
+                          datasetCopy.days = days
+                          return processDataset(datasetCopy, index)
+                      }),
+                      ...datasets.map((dataset, index) => {
+                          let datasetCopy = Object.assign({}, dataset)
+                          let datasetLength = datasetCopy.data.length
+                          datasetCopy.dotted = true
 
-                      // if last date is still active show dotted line
-                      if (isInProgress) {
-                          datasetCopy.borderDash = [10, 10]
-                      }
+                          // if last date is still active show dotted line
+                          if (isInProgress) {
+                              datasetCopy.borderDash = [10, 10]
+                          }
 
-                      datasetCopy.data =
-                          datasetCopy.data.length > 2
-                              ? datasetCopy.data.map((datum, idx) =>
-                                    idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
-                                )
-                              : datasetCopy.data
-                      return processDataset(datasetCopy, index)
-                  }),
-              ]
-            : datasets.map((dataset, index) => processDataset(dataset, index))
-
-        if (isLineGraph) {
-            datasets = datasets.filter((data) => visibilityMap[data.id])
-        }
+                          datasetCopy.data =
+                              datasetCopy.data.length > 2
+                                  ? datasetCopy.data.map((datum, idx) =>
+                                        idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
+                                    )
+                                  : datasetCopy.data
+                          return processDataset(datasetCopy, index)
+                      }),
+                  ]
+                : datasets.map((dataset, index) => processDataset(dataset, index))
 
         let options = {
             responsive: true,
