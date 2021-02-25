@@ -102,9 +102,18 @@ else:
             return result
 
     def sync_execute(query, args=None, settings=None):
+        client = SyncClient(
+            host=CLICKHOUSE_HOST,
+            database=CLICKHOUSE_DATABASE,
+            secure=CLICKHOUSE_SECURE,
+            user=CLICKHOUSE_USER,
+            password=CLICKHOUSE_PASSWORD,
+            ca_certs=CLICKHOUSE_CA,
+            verify=CLICKHOUSE_VERIFY,
+        )
         start_time = time()
         try:
-            result = ch_client.execute(query, args, settings=settings)
+            result = client.execute(query, args, settings=settings)
         finally:
             execution_time = time() - start_time
             g = statsd.Gauge("%s_clickhouse_sync_execution_time" % (STATSD_PREFIX,))
@@ -114,6 +123,7 @@ else:
                 print("Execution time: %.6fs" % (execution_time,))
             if _save_query_user_id:
                 save_query(query, args, execution_time)
+        client.disconnect()
         return result
 
     substitute_params = (
