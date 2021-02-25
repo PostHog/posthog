@@ -37,7 +37,7 @@ describe('formatLabel()', () => {
     given('action', () => ({}))
 
     it('formats the label', () => {
-        expect(given.subject).toEqual('some_event (Total) ')
+        expect(given.subject).toEqual('some_event')
     })
 
     describe('DAU queries', () => {
@@ -60,7 +60,7 @@ describe('formatLabel()', () => {
         given('action', () => ({ properties: [{ value: 'hello' }, { operator: 'gt', value: 5 }] }))
 
         it('is formatted', () => {
-            expect(given.subject).toEqual('some_event (Total)  (= hello, > 5)')
+            expect(given.subject).toEqual('some_event (= hello, > 5)')
         })
     })
 })

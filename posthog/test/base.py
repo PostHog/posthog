@@ -46,7 +46,8 @@ class TestMixin(ErrorResponsesMixin):
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
 
     def setUp(self):
-        super().setUp()  # type: ignore
+        if hasattr(super(), "setUp"):
+            super().setUp()  # type: ignore
         self.organization: Organization = Organization.objects.create(name=self.TESTS_ORGANIZATION_NAME)
         self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
         if self.TESTS_EMAIL:

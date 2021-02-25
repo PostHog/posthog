@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.trends.util import parse_response
-from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE, TRENDS_TABLE
+from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 
@@ -35,7 +35,7 @@ class ClickhouseTrendsFormula:
             if filter.breakdown_type == "cohort"
             else ", trim(BOTH '\"' FROM sub_A.breakdown_value)"
         )
-        is_aggregate = filter.display in [TRENDS_TABLE, TRENDS_PIE]
+        is_aggregate = filter.display in TRENDS_DISPLAY_BY_VALUE
 
         sql = """SELECT
             {date_select}
