@@ -51,7 +51,7 @@ def factory_test_process_event(
             with self.assertNumQueries(num_queries):
                 process_event(
                     2,
-                    "",
+                    "127.0.0.1",
                     "",
                     {
                         "event": "$autocapture",
@@ -204,6 +204,22 @@ def factory_test_process_event(
             difference = abs((tomorrow - event.timestamp).seconds)
 
             self.assertLess(difference, 1)
+
+        def test_ip_none(self) -> None:
+            Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
+
+            process_event(
+                "asdfasdfasdf",
+                None,
+                "",
+                {"event": "$pageview", "properties": {"distinct_id": "asdfasdfasdf", "token": self.team.api_token,},},
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+
+            event = get_events()[0]
+            self.assertEqual(event.properties.get("$ip", None), None)
 
         def test_ip_capture(self) -> None:
             user = self._create_user("tim")
@@ -836,7 +852,7 @@ def factory_test_process_event(
             self.assertListEqual(self.team.event_properties_numerical, [])
             process_event(
                 "xxx",
-                "",
+                "127.0.0.1",
                 "",
                 {"event": "purchase", "properties": {"price": 299.99, "name": "AirPods Pro"},},
                 self.team.pk,

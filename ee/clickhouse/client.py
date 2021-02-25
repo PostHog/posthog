@@ -137,17 +137,20 @@ def _key_hash(query: str, args: Any) -> bytes:
     return key
 
 
-def format_sql(sql, params):
+def format_sql(sql, params, colorize=True):
 
     sql = substitute_params(sql, params or {})
     sql = sqlparse.format(sql, reindent_aligned=True)
-    try:
-        import pygments.formatters
-        import pygments.lexers
+    if colorize:
+        try:
+            import pygments.formatters
+            import pygments.lexers
 
-        sql = pygments.highlight(sql, pygments.lexers.get_lexer_by_name("sql"), pygments.formatters.TerminalFormatter())
-    except:
-        pass
+            sql = pygments.highlight(
+                sql, pygments.lexers.get_lexer_by_name("sql"), pygments.formatters.TerminalFormatter()
+            )
+        except:
+            pass
 
     return sql
 
@@ -162,7 +165,12 @@ def save_query(sql: str, params: Dict, execution_time: float) -> None:
         queries = json.loads(get_safe_cache(key) or "[]")
 
         queries.insert(
-            0, {"timestamp": now().isoformat(), "query": format_sql(sql, params), "execution_time": execution_time}
+            0,
+            {
+                "timestamp": now().isoformat(),
+                "query": format_sql(sql, params, colorize=False),
+                "execution_time": execution_time,
+            },
         )
         cache.set(key, json.dumps(queries), timeout=120)
     except Exception as e:

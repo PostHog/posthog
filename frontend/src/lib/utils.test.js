@@ -1,4 +1,12 @@
-import { formatLabel, identifierToHuman, midEllipsis, isURL, capitalizeFirstLetter, compactNumber } from './utils'
+import {
+    formatLabel,
+    identifierToHuman,
+    midEllipsis,
+    isURL,
+    capitalizeFirstLetter,
+    compactNumber,
+    pluralize,
+} from './utils'
 
 describe('capitalizeFirstLetter()', () => {
     it('returns the capitalized string', () => {
@@ -99,5 +107,17 @@ describe('compactNumber()', () => {
         expect(compactNumber(5392)).toEqual('5.4K')
         expect(compactNumber(2833102, 2)).toEqual('2.83M')
         expect(compactNumber(8283310234)).toEqual('8.3B')
+    })
+})
+describe('pluralize()', () => {
+    it('handles singular cases', () => {
+        expect(pluralize(1, 'member')).toEqual('1 member')
+        expect(pluralize(1, 'bacterium', 'bacteria', true)).toEqual('1 bacterium')
+        expect(pluralize(1, 'word', null, false)).toEqual('word')
+    })
+    it('handles plural cases', () => {
+        expect(pluralize(28321, 'member')).toEqual('28321 members')
+        expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
+        expect(pluralize(3, 'word', null, false)).toEqual('words')
     })
 })

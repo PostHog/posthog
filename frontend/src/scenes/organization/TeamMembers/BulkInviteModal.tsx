@@ -1,38 +1,42 @@
-import { Button, Col, Input, Row } from 'antd'
+import { Alert, Button, Col, Input, Row } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import { useActions, useValues } from 'kea'
 import React, { useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined, CloseOutlined } from '@ant-design/icons'
+import { red } from '@ant-design/colors'
 import './BulkInviteModal.scss'
-import { isEmail } from 'lib/utils'
+import { isEmail, pluralize } from 'lib/utils'
 import { bulkInviteLogic } from './bulkInviteLogic'
 
-const PLACEHOLDER_NAMES = ['Jane', 'John']
-const MAX_INVITES = 20
+/** Shuffled placeholder names */
+const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
+    () => Math.random() - 0.5
+)
+const MAX_INVITES_AT_ONCE = 20
 
-function InviteRow({ index }: { index: number }): JSX.Element {
-    const name = PLACEHOLDER_NAMES[index % 2]
+function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean }): JSX.Element {
+    const name = PLACEHOLDER_NAMES[index % PLACEHOLDER_NAMES.length]
 
     const { invites } = useValues(bulkInviteLogic)
-    const { updateInviteAtIndex, inviteTeamMembers } = useActions(bulkInviteLogic)
+    const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(bulkInviteLogic)
 
     return (
-        <Row gutter={16} className="invite-row">
-            <Col xs={12}>
+        <Row gutter={16} className="invite-row" align="middle">
+            <Col xs={isDeletable ? 11 : 12}>
                 <Input
                     placeholder={`${name.toLowerCase()}@posthog.com`}
                     type="email"
-                    className={`error-on-blur${!invites[index].isValid ? ' errored' : ''}`}
+                    className={`error-on-blur${!invites[index]?.isValid ? ' errored' : ''}`}
                     onChange={(e) => {
                         const { value } = e.target
                         let isValid = true
                         if (value && !isEmail(value)) {
                             isValid = false
                         }
-                        updateInviteAtIndex({ email: e.target.value, isValid }, index)
+                        updateInviteAtIndex({ target_email: e.target.value, isValid }, index)
                     }}
-                    value={invites[index].email}
+                    value={invites[index]?.target_email}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                             inviteTeamMembers()
@@ -40,7 +44,7 @@ function InviteRow({ index }: { index: number }): JSX.Element {
                     }}
                 />
             </Col>
-            <Col xs={12}>
+            <Col xs={isDeletable ? 11 : 12}>
                 <Input
                     placeholder={name}
                     onChange={(e) => {
@@ -53,6 +57,11 @@ function InviteRow({ index }: { index: number }): JSX.Element {
                     }}
                 />
             </Col>
+            {isDeletable && (
+                <Col xs={2}>
+                    <CloseOutlined style={{ color: red.primary }} onClick={() => deleteInviteAtIndex(index)} />
+                </Col>
+            )}
         </Row>
     )
 }
@@ -60,60 +69,75 @@ function InviteRow({ index }: { index: number }): JSX.Element {
 export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClose: () => void }): JSX.Element {
     const { user } = useValues(userLogic)
     const { invites, canSubmit, invitedTeamMembersLoading, invitedTeamMembers } = useValues(bulkInviteLogic)
-    const { addMoreInvites, resetInvites, inviteTeamMembers } = useActions(bulkInviteLogic)
+    const { appendInviteRow, resetInviteRows, inviteTeamMembers } = useActions(bulkInviteLogic)
 
     useEffect(() => {
-        if (invitedTeamMembers.invites.length) {
+        if (invitedTeamMembers.length) {
             onClose()
         }
     }, [invitedTeamMembers])
 
+    const areInvitesCreatable = invites.length + 1 < MAX_INVITES_AT_ONCE
+    const areInvitesDeletable = invites.length > 1
+    const validInvitesCount = invites.filter((invite) => invite.isValid && invite.target_email).length
+
     return (
-        <>
-            <Modal
-                title={`Invite your team members${user?.organization ? ' to ' + user?.organization?.name : ''}`}
-                visible={visible}
-                onCancel={() => {
-                    resetInvites()
-                    onClose()
-                }}
-                onOk={inviteTeamMembers}
-                okText="Invite team members"
-                destroyOnClose
-                okButtonProps={{ disabled: !canSubmit, loading: invitedTeamMembersLoading }}
-                cancelButtonProps={{ disabled: invitedTeamMembersLoading }}
-                closable={!invitedTeamMembersLoading}
-            >
-                <div className="bulk-invite-modal">
-                    <div>
-                        Invite as many team members as you want. <b>Names are optional</b>, but it will speed up the
-                        process for your teammates.
-                    </div>
-                    <Row gutter={16} className="mt">
-                        <Col xs={12}>
-                            <b>Email (required)</b>
-                        </Col>
-                        <Col xs={12}>
-                            <b>First Name</b>
-                        </Col>
-                    </Row>
+        <Modal
+            title={`Inviting team members${user?.organization ? ' to ' + user?.organization?.name : ''}`}
+            visible={visible}
+            onCancel={() => {
+                resetInviteRows()
+                onClose()
+            }}
+            onOk={inviteTeamMembers}
+            okText={validInvitesCount ? `Invite ${pluralize(validInvitesCount, 'team member')}` : 'Invite team members'}
+            destroyOnClose
+            okButtonProps={{ disabled: !canSubmit, loading: invitedTeamMembersLoading }}
+            cancelButtonProps={{ disabled: invitedTeamMembersLoading }}
+            closable={!invitedTeamMembersLoading}
+        >
+            <div className="bulk-invite-modal">
+                <p>
+                    An invite is <b>specific to an email address</b> and <b>expires after 3 days</b>.
+                    <br />
+                    Name can be provided for the team member's convenience.
+                </p>
+                <Row gutter={16}>
+                    <Col xs={areInvitesDeletable ? 11 : 12}>
+                        <b>Email address</b>
+                    </Col>
+                    <Col xs={areInvitesDeletable ? 11 : 12}>
+                        <b>
+                            Name <i>(optional)</i>
+                        </b>
+                    </Col>
+                </Row>
 
-                    {invites.map((_, index) => (
-                        <InviteRow index={index} key={index.toString()} />
-                    ))}
+                {invites.map((_, index) => (
+                    <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
+                ))}
 
-                    <div className="mt">
-                        <Button
-                            block
-                            className="btn-add"
-                            onClick={addMoreInvites}
-                            disabled={invites.length + 2 >= MAX_INVITES}
-                        >
-                            <PlusOutlined /> Add more team members
+                <div className="mt">
+                    {areInvitesCreatable && (
+                        <Button block onClick={appendInviteRow} icon={<PlusOutlined />}>
+                            Add another team member
                         </Button>
-                    </div>
+                    )}
                 </div>
-            </Modal>
-        </>
+            </div>
+            {!user?.email_service_available && (
+                <Alert
+                    type="warning"
+                    style={{ marginTop: 16 }}
+                    message={
+                        <>
+                            Sending emails is not enabled in your PostHog instance.
+                            <br />
+                            Remember to <b>share the invite link</b> with each team member you want to invite.
+                        </>
+                    }
+                />
+            )}
+        </Modal>
     )
 }
