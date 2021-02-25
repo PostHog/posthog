@@ -216,7 +216,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             if cached_result:
                 task_id = cached_result.get("task_id", None)
                 if not task_id:
-                    return cached_result["data"]
+                    return cached_result["result"]
                 else:
                     return {"result": result}
 
