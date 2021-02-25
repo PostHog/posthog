@@ -48,7 +48,7 @@ export class EventsProcessor {
 
     public async processEvent(
         distinctId: string,
-        ip: string,
+        ip: string | null,
         siteUrl: string,
         data: PluginEvent,
         teamId: number,
@@ -316,7 +316,7 @@ export class EventsProcessor {
     private async captureEE(
         eventUuid: string,
         personUuid: string,
-        ip: string,
+        ip: string | null,
         siteUrl: string,
         teamId: number,
         event: string,
@@ -350,7 +350,7 @@ export class EventsProcessor {
             throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
         }
 
-        if (!team.anonymize_ips && !('$ip' in properties)) {
+        if (ip && !team.anonymize_ips && !('$ip' in properties)) {
             properties['$ip'] = ip
         }
 
