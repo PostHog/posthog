@@ -18,8 +18,8 @@ import {
 import { ViewType, insightLogic } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
+import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
-import { ActionType, EntityType, FilterType, PersonType, PropertyFilter } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
 import { toast, ToastId } from 'react-toastify'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -32,16 +32,6 @@ export interface ActionFilter {
     order: number
     properties: PropertyFilter[]
     type: EntityType
-}
-
-export interface TrendResult {
-    action: ActionFilter
-    count: number
-    data: number[]
-    days: string[]
-    label: string
-    labels: string[]
-    breakdown_value?: string | number
 }
 
 export interface IndexedTrendResult extends TrendResult {
@@ -140,7 +130,9 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
 // props:
 // - dashboardItemId
 // - filters
-export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeople, PropertyFilter, ToastId>>({
+export const trendsLogic = kea<
+    trendsLogicType<TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter, ToastId>
+>({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
     },
@@ -151,7 +143,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
 
     loaders: ({ values, props }) => ({
         results: {
-            __default: [],
+            __default: [] as TrendResult[],
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return props.cachedResults

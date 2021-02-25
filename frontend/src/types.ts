@@ -510,6 +510,39 @@ interface DisabledSetupState {
 
 export type SetupState = EnabledSetupState | DisabledSetupState
 
+export interface ActionFilter {
+    id: number | string
+    math?: string
+    math_property?: string
+    name: string
+    order: number
+    properties: PropertyFilter[]
+    type: EntityType
+}
+
+export interface TrendResult {
+    action: ActionFilter
+    count: number
+    data: number[]
+    days: string[]
+    label: string
+    labels: string[]
+    breakdown_value?: string | number
+}
+
+export interface TrendResultWithAggregate extends TrendResult {
+    aggregated_value: number
+}
+
+export interface ChartParams {
+    dashboardItemId?: number
+    color?: string
+    filters?: Partial<FilterType>
+    inSharedMode?: boolean
+    cachedResults?: TrendResult
+    view: ViewType
+}
+
 export interface PrevalidatedInvite {
     id: string
     target_email: string
