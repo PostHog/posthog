@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { PropertyOperator } from '~/types'
 import { Col, Select } from 'antd'
-import { isOperatorFlag, operatorMap } from 'lib/utils'
+import { isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
 import { PropertyValue } from 'lib/components/PropertyFilters/PropertyValue'
 import { ColProps } from 'antd/lib/col'
 
@@ -42,6 +42,12 @@ export function OperatorValueSelect({
                             onChange(newOperator, newOperator)
                         } else if (isOperatorFlag(currentOperator || 'exact')) {
                             onChange(newOperator, null)
+                        } else if (
+                            isOperatorMulti(currentOperator || 'exact') &&
+                            !isOperatorMulti(newOperator) &&
+                            Array.isArray(value)
+                        ) {
+                            onChange(newOperator, value[0])
                         } else if (value) {
                             onChange(newOperator, value)
                         }
