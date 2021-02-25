@@ -87,6 +87,14 @@ describe('<Sessions />', () => {
         cy.wait('@api_sessions').map(helpers.getSearchParameters).should('include', {
             filters: '[{"type":"person","key":"$browser","value":"Chrome","label":"$browser","operator":"exact"}]',
         })
+
+        cy.get('[data-attr="edit-session-filter"]').click()
+        cy.focused().type('unseen').type('{downarrow}').type('{enter}')
+        cy.get('[data-attr="sessions-apply-filters"]').click()
+
+        cy.wait('@api_sessions').map(helpers.getSearchParameters).should('include', {
+            filters: '[{"type":"recording","key":"unseen","value":1,"label":"Unseen recordings"}]',
+        })
     })
 
     describe('sessions with recordings', () => {
