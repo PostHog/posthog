@@ -4,10 +4,21 @@ import { useActions, useValues } from 'kea'
 import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
+import { MATHS } from 'lib/constants'
+
+function formatLabel(item: IndexedTrendResult): string {
+    const name = item.action?.name || item.label
+    const math = item.action?.math
+    const mathLabel = math ? MATHS[math].name : ''
+    const propNum = item.action?.properties.length
+    const propLabel = propNum ? propNum + (propNum === 1 ? ' property' : ' properties') : ''
+    return name + (mathLabel ? ' — ' + mathLabel : '') + (propLabel ? ' — ' + propLabel : '')
+}
 
 export function TrendLegend(): JSX.Element {
     const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
+    const isSingleEntity = indexedResults.length === 1
 
     const columns = [
         {
@@ -19,7 +30,7 @@ export function TrendLegend(): JSX.Element {
                         color={getChartColors('white')[index]}
                         checked={visibilityMap[item.id]}
                         onChange={() => toggleVisibility(item.id)}
-                        disabled={indexedResults.length === 1}
+                        disabled={isSingleEntity}
                     />
                 )
             },
@@ -30,8 +41,11 @@ export function TrendLegend(): JSX.Element {
             title: 'Label',
             render: function RenderLabel({}, item: IndexedTrendResult) {
                 return (
-                    <span style={{ cursor: 'pointer' }} onClick={() => toggleVisibility(item.id)}>
-                        {item.action?.name || item.label}
+                    <span
+                        style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
+                        onClick={() => !isSingleEntity && toggleVisibility(item.id)}
+                    >
+                        {formatLabel(item)}
                     </span>
                 )
             },
@@ -43,7 +57,7 @@ export function TrendLegend(): JSX.Element {
                   {
                       title: 'Breakdown Value',
                       render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
-                          return item.breakdown_value
+                          return item.breakdown_value === 'nan' ? 'Other' : item.breakdown_value
                       },
                       fixed: 'left',
                       width: 150,

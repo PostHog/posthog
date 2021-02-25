@@ -12,7 +12,7 @@ export const PHCheckbox = ({ checked, color = 'blue', disabled = false, ...props
         style={{
             display: 'inline-block',
             verticalAlign: 'middle',
-            cursor: disabled ? 'none' : 'pointer',
+            cursor: disabled ? undefined : 'pointer',
         }}
     >
         <div
@@ -20,7 +20,7 @@ export const PHCheckbox = ({ checked, color = 'blue', disabled = false, ...props
                 display: 'inline-block',
                 width: '16px',
                 height: '16px',
-                background: checked ? (disabled ? 'gray' : color) : 'lightgray',
+                background: checked ? color : 'lightgray',
                 borderRadius: '3px',
                 transition: 'all 150ms',
             }}

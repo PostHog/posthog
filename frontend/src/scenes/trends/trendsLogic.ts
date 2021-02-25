@@ -24,7 +24,7 @@ import { trendsLogicType } from './trendsLogicType'
 import { toast, ToastId } from 'react-toastify'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
-interface ActionFilter {
+export interface ActionFilter {
     id: number | string
     math?: string
     math_property?: string
