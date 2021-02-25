@@ -36,6 +36,7 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import SaveModal from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { DashboardItemType, DashboardType, DisplayType } from '~/types'
+import { ActionsBarValueGraph } from 'scenes/trends/viz'
 
 interface Props {
     item: DashboardItemType
@@ -86,6 +87,14 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     ActionsBar: {
         className: 'bar',
         element: ActionsLineGraph,
+        icon: BarChartOutlined,
+        viewText: 'View graph',
+        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
+            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+    },
+    ActionsBarValue: {
+        className: 'bar',
+        element: ActionsBarValueGraph,
         icon: BarChartOutlined,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
