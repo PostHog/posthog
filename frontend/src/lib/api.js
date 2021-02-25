@@ -63,7 +63,7 @@ class Api {
         }
         return await getJSONOrThrow(response)
     }
-    async create(url, data) {
+    async create(url, data = undefined) {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }

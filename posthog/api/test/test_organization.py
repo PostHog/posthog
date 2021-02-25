@@ -3,6 +3,7 @@ import uuid
 from typing import cast
 from unittest.mock import patch
 
+import pytest
 import pytz
 from django.test import tag
 from rest_framework import status
@@ -147,7 +148,7 @@ class TestOrganizationAPI(APIBaseTest):
 class TestSignup(APIBaseTest):
     CONFIG_USER_EMAIL = None
 
-    @tag("skip_on_multitenancy")
+    @pytest.mark.skip_on_multitenancy
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
     @patch("posthog.api.organization.posthoganalytics.capture")
     def test_api_sign_up(self, mock_capture):
@@ -210,7 +211,7 @@ class TestSignup(APIBaseTest):
         # Assert that the password was correctly saved
         self.assertTrue(user.check_password("notsecure"))
 
-    @tag("skip_on_multitenancy")
+    @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_initiated_self_hosted(self):
         with self.settings(MULTI_TENANCY=False):
             response = self.client.post(
@@ -231,7 +232,7 @@ class TestSignup(APIBaseTest):
                 },
             )
 
-    @tag("skip_on_multitenancy")
+    @pytest.mark.skip_on_multitenancy
     @patch("posthog.api.organization.posthoganalytics.capture")
     @patch("posthoganalytics.identify")
     def test_signup_minimum_attrs(self, mock_identify, mock_capture):

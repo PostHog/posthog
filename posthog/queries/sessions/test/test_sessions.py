@@ -1,3 +1,5 @@
+import unittest
+
 from freezegun import freeze_time
 
 from posthog.models import Event

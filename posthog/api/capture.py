@@ -204,22 +204,18 @@ def get_event(request):
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
         event_uuid = UUIDT()
+        ip = None if team.anonymize_ips else get_ip_address(request)
 
         if is_ee_enabled():
             log_topics = [KAFKA_EVENTS_WAL]
-            plugin_server_ingestion = settings.PLUGIN_SERVER_INGESTION and (
-                not getattr(settings, "MULTI_TENANCY", False)
-                or str(team.organization_id) in getattr(settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", [])
-                or random() < 0.10
-            )
 
-            if plugin_server_ingestion:
+            if settings.PLUGIN_SERVER_INGESTION:
                 log_topics.append(KAFKA_EVENTS_PLUGIN_INGESTION)
                 statsd.Counter("%s_posthog_cloud_plugin_server_ingestion" % (settings.STATSD_PREFIX,)).increment()
 
             log_event(
                 distinct_id=distinct_id,
-                ip=get_ip_address(request),
+                ip=ip,
                 site_url=request.build_absolute_uri("/")[:-1],
                 data=event,
                 team_id=team.id,
@@ -230,10 +226,10 @@ def get_event(request):
             )
 
             # must done after logging because process_event_ee modifies the event, e.g. by removing $elements
-            if not plugin_server_ingestion:
+            if not settings.PLUGIN_SERVER_INGESTION:
                 process_event_ee(
                     distinct_id=distinct_id,
-                    ip=get_ip_address(request),
+                    ip=ip,
                     site_url=request.build_absolute_uri("/")[:-1],
                     data=event,
                     team_id=team.id,
@@ -252,15 +248,7 @@ def get_event(request):
             celery_app.send_task(
                 name=task_name,
                 queue=celery_queue,
-                args=[
-                    distinct_id,
-                    get_ip_address(request),
-                    request.build_absolute_uri("/")[:-1],
-                    event,
-                    team.id,
-                    now.isoformat(),
-                    sent_at,
-                ],
+                args=[distinct_id, ip, request.build_absolute_uri("/")[:-1], event, team.id, now.isoformat(), sent_at,],
             )
     timer.stop("event_endpoint")
     return cors_response(request, JsonResponse({"status": 1}))

@@ -6,6 +6,7 @@ import {
     capitalizeFirstLetter,
     compactNumber,
     limitTextLength,
+    pluralize,
 } from './utils'
 
 describe('capitalizeFirstLetter()', () => {
@@ -44,7 +45,7 @@ describe('formatLabel()', () => {
         given('action', () => ({ math: 'dau' }))
 
         it('is formatted', () => {
-            expect(given.subject).toEqual('some_event (DAU) ')
+            expect(given.subject).toEqual('some_event (Active Users) ')
         })
     })
 
@@ -125,5 +126,18 @@ describe('limitTextLength()', () => {
         expect(limitTextLength('Hello World!')).toStrictEqual('Hello World!')
         expect(limitTextLength('Hello World!', 12)).toStrictEqual('Hello World!')
         expect(limitTextLength('QWERTY', 99)).toStrictEqual('QWERTY')
+    })
+})
+
+describe('pluralize()', () => {
+    it('handles singular cases', () => {
+        expect(pluralize(1, 'member')).toEqual('1 member')
+        expect(pluralize(1, 'bacterium', 'bacteria', true)).toEqual('1 bacterium')
+        expect(pluralize(1, 'word', null, false)).toEqual('word')
+    })
+    it('handles plural cases', () => {
+        expect(pluralize(28321, 'member')).toEqual('28321 members')
+        expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
+        expect(pluralize(3, 'word', null, false)).toEqual('words')
     })
 })

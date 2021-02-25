@@ -7,23 +7,11 @@ import moment from 'moment'
 import { DateFilter } from 'lib/components/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 
-import { ActionsPie } from './ActionsPie'
-import { ActionsTable } from './ActionsTable'
-import { ActionsLineGraph } from './ActionsLineGraph'
-import { PersonModal } from './PersonModal'
 import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { Tabs, Row, Col, Card, Button } from 'antd'
-import {
-    ACTIONS_LINE_GRAPH_LINEAR,
-    ACTIONS_LINE_GRAPH_CUMULATIVE,
-    ACTIONS_TABLE,
-    ACTIONS_PIE_CHART,
-    ACTIONS_BAR_CHART,
-    LIFECYCLE,
-    FUNNEL_VIZ,
-} from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, ACTIONS_PIE_CHART, LIFECYCLE, FUNNEL_VIZ } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -36,7 +24,6 @@ import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './Insigh
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic, logicFromInsight, ViewType } from './insightLogic'
-import { trendsLogic } from './trendsLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
@@ -47,6 +34,7 @@ import './Insights.scss'
 import { ErrorMessage, TimeOut } from './EmptyStates'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { People } from 'scenes/funnels/People'
+import { TrendInsight } from 'scenes/trends/Trends'
 
 const { TabPane } = Tabs
 
@@ -175,8 +163,8 @@ function _Insights() {
                         <Col xs={24} xl={7}>
                             <Card className="" style={{ overflow: 'visible' }}>
                                 <div>
-                                    {/* 
-                                These are insight specific filters. 
+                                    {/*
+                                These are insight specific filters.
                                 They each have insight specific logics
                                 */}
                                     {featureFlags['remove-shownas']
@@ -208,8 +196,8 @@ function _Insights() {
                             )}
                         </Col>
                         <Col xs={24} xl={17}>
-                            {/* 
-                        These are filters that are reused between insight features. 
+                            {/*
+                        These are filters that are reused between insight features.
                         They each have generic logic that updates the url
                         */}
                             <Card
@@ -230,7 +218,13 @@ function _Insights() {
                                             />
                                         )}
 
-                                        {showDateFilter[activeView] && <DateFilter disabled={dateFilterDisabled} />}
+                                        {showDateFilter[activeView] && (
+                                            <DateFilter
+                                                defaultValue="Last 7 days"
+                                                disabled={dateFilterDisabled}
+                                                bordered={false}
+                                            />
+                                        )}
 
                                         {showComparePrevious[activeView] && <CompareFilter />}
                                         <SaveToDashboard
@@ -311,32 +305,6 @@ function _Insights() {
                 )}
             </Row>
         </div>
-    )
-}
-
-function TrendInsight({ view }) {
-    const { filters: _filters, loading, showingPeople } = useValues(trendsLogic({ dashboardItemId: null, view }))
-
-    return (
-        <>
-            {(_filters.actions || _filters.events || _filters.session) && (
-                <div
-                    style={{
-                        minHeight: 'calc(90vh - 16rem)',
-                        position: 'relative',
-                    }}
-                >
-                    {loading && <Loading />}
-                    {(!_filters.display ||
-                        _filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                        _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
-                        _filters.display === ACTIONS_BAR_CHART) && <ActionsLineGraph view={view} />}
-                    {_filters.display === ACTIONS_TABLE && <ActionsTable filters={_filters} view={view} />}
-                    {_filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={_filters} view={view} />}
-                </div>
-            )}
-            <PersonModal visible={showingPeople} view={view} />
-        </>
     )
 }
 

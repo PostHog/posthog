@@ -243,7 +243,7 @@ export function formatLabel(
     }
 ): string {
     if (action.math === 'dau') {
-        label += ` (${action.math.toUpperCase()}) `
+        label += ` (Active Users) `
     } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math)) {
         label += ` (${action.math} of ${action.math_property}) `
     } else {
@@ -464,6 +464,7 @@ export function determineDifferenceType(
 }
 
 export const dateMapping: Record<string, string[]> = {
+    Custom: [],
     Today: ['dStart'],
     Yesterday: ['-1d', 'dStart'],
     'Last 24 hours': ['-24h'],
@@ -480,7 +481,11 @@ export const dateMapping: Record<string, string[]> = {
 
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
-export function dateFilterToText(dateFrom: string | moment.Moment, dateTo: string | moment.Moment): string {
+export function dateFilterToText(
+    dateFrom: string | moment.Moment | undefined,
+    dateTo: string | moment.Moment | undefined,
+    defaultValue: string
+): string {
     if (moment.isMoment(dateFrom) && moment.isMoment(dateTo)) {
         return `${dateFrom.format('YYYY-MM-DD')} - ${dateTo.format('YYYY-MM-DD')}`
     }
@@ -492,9 +497,9 @@ export function dateFilterToText(dateFrom: string | moment.Moment, dateTo: strin
     if (dateFrom === 'dStart') {
         return 'Today'
     } // Changed to "last 24 hours" but this is backwards compatibility
-    let name = 'Last 7 days'
+    let name = defaultValue
     Object.entries(dateMapping).map(([key, value]) => {
-        if (value[0] === dateFrom && value[1] === dateTo) {
+        if (value[0] === dateFrom && value[1] === dateTo && key !== 'Custom') {
             name = key
         }
     })[0]
@@ -577,6 +582,9 @@ export function uniqueBy<T>(items: T[], uniqueResolver: (item: T) => any): T[] {
 }
 
 export function sample<T>(items: T[], size: number): T[] {
+    if (!items.length) {
+        throw Error('Items array is empty!')
+    }
     if (size > items.length) {
         throw Error('Sample size cannot exceed items array length!')
     }
@@ -593,11 +601,11 @@ export function sample<T>(items: T[], size: number): T[] {
     return results
 }
 
-export function sampleSingle<T>(items: T[]): T[] {
+export function sampleOne<T>(items: T[]): T {
     if (!items.length) {
         throw Error('Items array is empty!')
     }
-    return [items[Math.floor(Math.random() * items.length)]]
+    return items[Math.floor(Math.random() * items.length)]
 }
 
 /** Convert camelCase, PascalCase or snake_case to Title Case. */
@@ -726,6 +734,14 @@ export function autocorrectInterval(filters: Partial<FilterType>): string {
     } else {
         return filters.interval
     }
+}
+
+export function pluralize(count: number, singular: string, plural?: string, includeNumber: boolean = true): string {
+    if (!plural) {
+        plural = singular + 's'
+    }
+    const form = count === 1 ? singular : plural
+    return includeNumber ? `${count} ${form}` : form
 }
 
 function suffixFormatted(value: number, base: number, suffix: string, maxDecimals: number): string {

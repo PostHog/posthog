@@ -15,8 +15,8 @@ export function loadPostHogJS(): void {
     } else {
         posthog.init('fake token', {
             autocapture: false,
-            loaded: function (posthog) {
-                posthog.opt_out_capturing()
+            loaded: function (ph) {
+                ph.opt_out_capturing()
             },
         })
     }

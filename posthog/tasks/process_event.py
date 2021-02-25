@@ -102,7 +102,7 @@ def store_names_and_properties(team: Team, event: str, properties: Dict) -> None
 
 
 def _capture(
-    ip: str,
+    ip: Optional[str],
     site_url: str,
     team_id: int,
     event: str,
@@ -138,7 +138,7 @@ def _capture(
         "ingested_event",
     ).get(pk=team_id)
 
-    if not team.anonymize_ips and "$ip" not in properties:
+    if ip and not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
 
     event = sanitize_event_name(event)
@@ -161,30 +161,18 @@ def _capture(
         except IntegrityError:
             pass
 
-
-def get_or_create_person(team_id: int, distinct_id: str) -> Tuple[Person, bool]:
-    person: Person
-    created = False
-
-    if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
-        try:
-            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-            created = True
-        except IntegrityError:
-            person = Person.objects.get(
-                team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
-            )
-            created = False
-    else:
-        person = Person.objects.get(
-            team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+    if properties.get("$set"):
+        update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=properties["$set"])
+    if properties.get("$set_once"):
+        update_person_properties(
+            team_id=team_id, distinct_id=distinct_id, properties=properties["$set_once"], set_once=True
         )
-        created = False
-
-    return person, created
 
 
-def _update_person_properties(team_id: int, distinct_id: str, properties: Dict, set_once: bool = False) -> None:
+def update_person_properties(team_id: int, distinct_id: str, properties: Dict, set_once: bool = False) -> None:
+    if type(properties) != type({}):
+        return
+
     try:
         person = Person.objects.get(
             team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
@@ -266,18 +254,12 @@ def handle_identify_or_alias(event: str, properties: dict, distinct_id: str, tea
             _alias(
                 previous_distinct_id=properties["$anon_distinct_id"], distinct_id=distinct_id, team_id=team_id,
             )
-        if properties.get("$set"):
-            _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=properties["$set"])
-        if properties.get("$set_once"):
-            _update_person_properties(
-                team_id=team_id, distinct_id=distinct_id, properties=properties["$set_once"], set_once=True
-            )
         _set_is_identified(team_id=team_id, distinct_id=distinct_id)
 
 
 @shared_task(name="posthog.tasks.process_event.process_event", ignore_result=True)
 def process_event(
-    distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
+    distinct_id: str, ip: Optional[str], site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
 ) -> None:
     properties = data.get("properties", {})
     if data.get("$set"):

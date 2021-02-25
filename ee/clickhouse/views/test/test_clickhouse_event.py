@@ -8,7 +8,7 @@ from freezegun import freeze_time
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.base import TransactionBaseTest
-from posthog.api.test.test_event import test_event_api_factory
+from posthog.api.test.test_event import factory_test_event_api
 from posthog.models import Action, ActionStep, Event, Person
 
 
@@ -30,7 +30,7 @@ def _create_person(**kwargs):
 
 
 class ClickhouseTestEventApi(
-    ClickhouseTestMixin, test_event_api_factory(_create_event, _create_person, _create_action)  # type: ignore
+    ClickhouseTestMixin, factory_test_event_api(_create_event, _create_person, _create_action)  # type: ignore
 ):
     def test_live_action_events(self):
         pass

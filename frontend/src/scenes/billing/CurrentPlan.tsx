@@ -6,7 +6,6 @@ import defaultImg from 'public/plan-default.svg'
 import { Link } from 'lib/components/Link'
 import { IconExternalLink } from 'lib/components/icons'
 import { ToolOutlined, WarningOutlined } from '@ant-design/icons'
-import { LinkButton } from 'lib/components/LinkButton'
 import { UTM_TAGS } from './billingLogic'
 import { PlanInterface } from '~/types'
 
@@ -27,9 +26,9 @@ export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
                     }
                     action={
                         user.billing.subscription_url && (
-                            <LinkButton to={user.billing.subscription_url}>
-                                <ToolOutlined /> Finish setup
-                            </LinkButton>
+                            <Button href={user.billing.subscription_url} icon={<ToolOutlined />}>
+                                Finish setup
+                            </Button>
                         )
                     }
                     showIcon

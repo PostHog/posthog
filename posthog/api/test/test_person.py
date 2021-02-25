@@ -10,7 +10,7 @@ from posthog.tasks.process_event import process_event
 from posthog.test.base import APIBaseTest
 
 
-def test_person_factory(event_factory, person_factory, get_events, get_people):
+def factory_test_person(event_factory, person_factory, get_events, get_people):
     class TestPerson(APIBaseTest):
         def test_search(self) -> None:
             person_factory(
@@ -334,6 +334,6 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
 
 
 class TestPerson(
-    test_person_factory(Event.objects.create, Person.objects.create, Event.objects.all, Person.objects.all)  # type: ignore
+    factory_test_person(Event.objects.create, Person.objects.create, Event.objects.all, Person.objects.all)  # type: ignore
 ):
     pass

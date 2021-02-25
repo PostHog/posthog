@@ -32,7 +32,6 @@ from posthog.api import (
 from posthog.demo import demo
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_signed_up
-from posthog.models.organization import Organization
 
 from .api.organization import OrganizationSignupSerializer
 from .models import OrganizationInvite, Team, User
@@ -87,97 +86,6 @@ class TeamInviteSurrogate:
 
     def use(self, user: Any, *args, **kwargs) -> None:
         user.join(organization=self.organization)
-
-
-def signup_to_organization_view(request, invite_id):
-    """
-    TODO: DEPRECATED in favor of posthog.api.organization.OrganizationInviteSignupSerializer
-    """
-    if not invite_id:
-        return redirect("/")
-    if not User.objects.exists():
-        return redirect("/preflight")
-    try:
-        invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
-            "organization"
-        ).get(id=invite_id)
-    except (OrganizationInvite.DoesNotExist, ValidationError):
-        try:
-            invite = TeamInviteSurrogate(invite_id)
-        except Team.DoesNotExist:
-            return redirect("/")
-
-    organization = cast(Organization, invite.organization)
-    user = request.user
-    if request.method == "POST":
-        if request.user.is_authenticated:
-            user = cast(User, request.user)
-            try:
-                invite.use(user)
-            except ValueError as e:
-                return render_template(
-                    "signup_to_organization.html",
-                    request=request,
-                    context={
-                        "user": user,
-                        "custom_error": str(e),
-                        "organization": organization,
-                        "invite_id": invite_id,
-                    },
-                )
-            else:
-                posthoganalytics.capture(
-                    user.distinct_id, "user joined from invite", properties={"organization_id": organization.id},
-                )
-                return redirect("/")
-        else:
-            email = request.POST["email"]
-            password = request.POST["password"]
-            first_name = request.POST.get("name")
-            email_opt_in = request.POST.get("emailOptIn") == "on"
-            valid_inputs = (
-                is_input_valid("name", first_name)
-                and is_input_valid("email", email)
-                and is_input_valid("password", password)
-            )
-            already_exists = User.objects.filter(email=email).exists()
-            custom_error = None
-            try:
-                invite.validate(user=None, email=email)
-            except ValueError as e:
-                custom_error = str(e)
-            if already_exists or not valid_inputs or custom_error:
-                return render_template(
-                    "signup_to_organization.html",
-                    request=request,
-                    context={
-                        "email": email,
-                        "name": first_name,
-                        "already_exists": already_exists,
-                        "custom_error": custom_error,
-                        "invalid_input": not valid_inputs,
-                        "organization": organization,
-                        "invite_id": invite_id,
-                    },
-                )
-            user = User.objects.create_user(email, password, first_name=first_name, email_opt_in=email_opt_in)
-            invite.use(user, prevalidated=True)
-            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-
-            report_user_signed_up(
-                user.distinct_id,
-                is_instance_first_user=False,
-                is_organization_first_user=False,
-                new_onboarding_enabled=(not organization.setup_section_2_completed),
-                backend_processor="signup_to_organization_view",
-            )
-
-            return redirect("/")
-    return render_template(
-        "signup_to_organization.html",
-        request,
-        context={"organization": organization, "user": user, "invite_id": invite_id},
-    )
 
 
 class CompanyNameForm(forms.Form):

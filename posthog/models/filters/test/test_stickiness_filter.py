@@ -21,8 +21,8 @@ class TestStickinessFilter(BaseTest):
             filter.to_dict(),
             {
                 "compare": True,
-                "date_from": "2020-01-01T20:00:00+00:00",
-                "date_to": "2020-02-01T20:00:00+00:00",
+                "date_from": "2020-01-01T20:00:00Z",
+                "date_to": "2020-02-01T20:00:00Z",
                 "events": [
                     {
                         "id": "$pageview",
@@ -34,7 +34,7 @@ class TestStickinessFilter(BaseTest):
                         "properties": [],
                     }
                 ],
-                "actions": [],
+                "insight": "TRENDS",
                 "interval": "month",
             },
         )

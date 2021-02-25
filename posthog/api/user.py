@@ -65,7 +65,6 @@ def user(request):
 
         if team is not None and "team" in data:
             team.app_urls = data["team"].get("app_urls", team.app_urls)
-            team.opt_out_capture = data["team"].get("opt_out_capture", team.opt_out_capture)
             team.slack_incoming_webhook = data["team"].get("slack_incoming_webhook", team.slack_incoming_webhook)
             team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
             team.session_recording_opt_in = data["team"].get("session_recording_opt_in", team.session_recording_opt_in)
@@ -137,7 +136,6 @@ def user(request):
                 "name": team.name,
                 "app_urls": team.app_urls,
                 "api_token": team.api_token,
-                "opt_out_capture": team.opt_out_capture,
                 "anonymize_ips": team.anonymize_ips,
                 "slack_incoming_webhook": team.slack_incoming_webhook,
                 "event_names": team.event_names,

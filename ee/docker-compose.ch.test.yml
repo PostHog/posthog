@@ -36,6 +36,7 @@ services:
             DEBUG: 'true'
             PRIMARY_DB: 'clickhouse'
             PLUGIN_SERVER_INGESTION: 'true'
+            TEST: 'true'
         depends_on:
             - db
             - redis

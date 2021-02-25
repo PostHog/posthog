@@ -196,11 +196,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     except (Team.DoesNotExist, AttributeError):
         team = Team.objects.first()
 
-    if os.environ.get("OPT_OUT_CAPTURE"):
-        # Prioritise instance-level config
-        context["opt_out_capture"] = True
-    else:
-        context["opt_out_capture"] = team.opt_out_capture if team else False
+    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
 
     # TODO: BEGINS DEPRECATED CODE
     # Code deprecated in favor of posthog.api.authentication.AuthenticationSerializer
@@ -476,7 +472,7 @@ def is_plugin_server_alive() -> bool:
 def get_plugin_server_version() -> Optional[str]:
     cache_key_value = get_client().get("@posthog-plugin-server/version")
     if cache_key_value:
-        return cache_key_value.decode("utf-8")
+        return cache_key_value.decode("utf-8").strip('"')
     return None
 
 

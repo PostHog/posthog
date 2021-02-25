@@ -5,6 +5,7 @@ import posthoganalytics
 from django.core.cache import cache
 from django.db.models import Count, Exists, OuterRef, Prefetch, QuerySet
 from django.db.models.signals import post_save
+from django.db.models.sql.query import Query
 from django.dispatch import receiver
 from django.utils.timezone import now
 from rest_framework import authentication, request, serializers, viewsets
@@ -15,9 +16,16 @@ from rest_hooks.signals import raw_hook_event
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
+from posthog.api.utils import get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.celery import update_cache_item_task
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_STICKINESS
+from posthog.constants import (
+    ENTITY_ID,
+    ENTITY_TYPE,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_EVENTS,
+    TRENDS_STICKINESS,
+)
 from posthog.decorators import CacheType, cached_function
 from posthog.models import (
     Action,
@@ -30,7 +38,9 @@ from posthog.models import (
     Person,
     RetentionFilter,
 )
+from posthog.models.event import EventManager
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import base, retention, stickiness, trends
 from posthog.tasks.calculate_action import calculate_action
@@ -256,70 +266,79 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_people(self, request: request.Request) -> Union[Dict[str, Any], List]:
         team = self.team
         filter = Filter(request=request)
-        offset = int(request.GET.get("offset", 0))
+        entity = get_target_entity(request)
 
-        def _calculate_people(events: QuerySet, offset: int):
-            events = events.values("person_id").distinct()
-
-            if request.GET.get("breakdown_type") == "cohort" and request.GET.get("breakdown_value") != "all":
-                events = events.filter(
-                    Exists(
-                        CohortPeople.objects.filter(
-                            cohort_id=int(request.GET["breakdown_value"]), person_id=OuterRef("person_id"),
-                        ).only("id")
-                    )
-                )
-            if request.GET.get("breakdown_type") == "person":
-                events = events.filter(
-                    Exists(
-                        Person.objects.filter(
-                            **{
-                                "id": OuterRef("person_id"),
-                                "team_id": self.team.pk,
-                                "properties__{}".format(request.GET["breakdown"]): request.GET["breakdown_value"],
-                            }
-                        ).only("id")
-                    )
-                )
-
-            people = Person.objects.filter(team=team, id__in=[p["person_id"] for p in events[offset : offset + 100]])
-
-            people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-
-            return PersonSerializer(people, context={"request": request}, many=True).data
-
-        filtered_events: QuerySet = QuerySet()
-        if request.GET.get("session"):
-            filtered_events = (
-                Event.objects.filter(team=team).filter(base.filter_events(team.pk, filter)).add_person_id(team.pk)
-            )
-        else:
-            if len(filter.entities) >= 1:
-                entity = filter.entities[0]
-            else:
-                entity = Entity({"id": request.GET["entityId"], "type": request.GET["type"]})
-
-            if entity.type == TREND_FILTER_TYPE_EVENTS:
-                filtered_events = base.process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(
-                    base.filter_events(team.pk, filter, entity)
-                )
-            elif entity.type == TREND_FILTER_TYPE_ACTIONS:
-                actions = super().get_queryset()
-                actions = actions.filter(deleted=False)
-                try:
-                    action = actions.get(pk=entity.id)
-                except Action.DoesNotExist:
-                    return []
-                filtered_events = base.process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(
-                    base.filter_events(team.pk, filter, entity)
-                )
-
-        people = _calculate_people(events=filtered_events, offset=offset)
+        events = filter_by_type(entity=entity, team=team, filter=filter)
+        people = calculate_people(team=team, events=events, filter=filter)
+        serialized_people = PersonSerializer(people, context={"request": request}, many=True).data
 
         current_url = request.get_full_path()
-        next_url = paginated_result(people, request, offset)
+        next_url = paginated_result(serialized_people, request, filter.offset)
 
-        return {"results": [{"people": people, "count": len(people)}], "next": next_url, "previous": current_url[1:]}
+        return {
+            "results": [{"people": serialized_people, "count": len(serialized_people)}],
+            "next": next_url,
+            "previous": current_url[1:],
+        }
+
+
+def filter_by_type(entity: Entity, team: Team, filter: Filter) -> QuerySet:
+    events: Union[EventManager, QuerySet] = Event.objects.none()
+    if filter.session:
+        events = Event.objects.filter(team=team).filter(base.filter_events(team.pk, filter)).add_person_id(team.pk)
+    else:
+        if entity.type == TREND_FILTER_TYPE_EVENTS:
+            events = base.process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(
+                base.filter_events(team.pk, filter, entity)
+            )
+        elif entity.type == TREND_FILTER_TYPE_ACTIONS:
+            actions = Action.objects.filter(deleted=False)
+            try:
+                actions.get(pk=entity.id)
+            except Action.DoesNotExist:
+                return events
+            events = base.process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(
+                base.filter_events(team.pk, filter, entity)
+            )
+    return events
+
+
+def _filter_cohort_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
+    if filter.breakdown_type == "cohort" and filter.breakdown_value != "all":
+        events = events.filter(
+            Exists(
+                CohortPeople.objects.filter(
+                    cohort_id=int(filter.breakdown_value), person_id=OuterRef("person_id"),
+                ).only("id")
+            )
+        )
+    return events
+
+
+def _filter_person_prop_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
+    if filter.breakdown_type == "person":
+        events = events.filter(
+            Exists(
+                Person.objects.filter(
+                    **{"id": OuterRef("person_id"), "properties__{}".format(filter.breakdown): filter.breakdown_value,}
+                ).only("id")
+            )
+        )
+    return events
+
+
+def calculate_people(team: Team, events: QuerySet, filter: Filter, use_offset: bool = True) -> QuerySet:
+    events = events.values("person_id").distinct()
+    events = _filter_cohort_breakdown(events, filter)
+    events = _filter_person_prop_breakdown(events, filter)
+
+    people = Person.objects.filter(
+        team=team,
+        id__in=[p["person_id"] for p in (events[filter.offset : filter.offset + 100] if use_offset else events)],
+    )
+
+    people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+    return people
 
 
 @receiver(post_save, sender=Action, dispatch_uid="hook-action-defined")
