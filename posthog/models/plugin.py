@@ -1,5 +1,8 @@
 from django.contrib.postgres.fields import JSONField
 from django.db import models
+from django.utils import timezone
+
+from .utils import UUIDModel, sane_repr
 
 
 class Plugin(models.Model):
@@ -64,3 +67,21 @@ class PluginStorage(models.Model):
     plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
     key: models.CharField = models.CharField(max_length=200)
     value: models.TextField = models.TextField(blank=True, null=True)
+
+
+class PluginLogEntry(UUIDModel):
+    class Type(models.TextChoices):
+        INFO = "INFO", "info"
+        WARN = "WARN", "warn"
+        ERROR = "ERROR", "error"
+
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
+    plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
+    timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now)
+    type: models.CharField = models.CharField(max_length=20, choices=Type.choices)
+    message: models.CharField = models.CharField(max_length=500)
+
+    def __str__(self):
+        return f"[{self.timestamp.isoformat()}] {self.type}: {self.message}"
+
+    __repr__ = sane_repr("team_id", "plugin_id", "timestamp", "type", "message")
