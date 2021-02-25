@@ -565,6 +565,11 @@ fastq@^1.6.1:
   dependencies:
     reusify "^1.0.4"
 
+fflate@^0.4.1:
+  version "0.4.8"
+  resolved "https://registry.yarnpkg.com/fflate/-/fflate-0.4.8.tgz#f90b82aefbd8ac174213abb338bd7ef848f0f5ae"
+  integrity sha512-FJqqoDBR00Mdj9ppamLa/Y7vxm+PRmNWA67N846RvsoYVMKB4q3y/de5PA7gUmRMYK/8CMz2GDZQmCRN1wBcWA==
+
 file-uri-to-path@1.0.0:
   version "1.0.0"
   resolved "https://registry.yarnpkg.com/file-uri-to-path/-/file-uri-to-path-1.0.0.tgz#553a7b8446ff6f684359c445f1e37a05dacc33dd"
@@ -1043,6 +1048,13 @@ posthog-js-lite@^0.0.5:
   version "0.0.5"
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.5.tgz#984a619190d1c4ef003cb81194d0a6276491d2e8"
   integrity sha512-xHVZ9qbBdoqK7G1JVA4k6nheWu50aiEwjJIPQw7Zhi705aX5wr2W8zxdmvtadeEE5qbJNg+/uZ7renOQoqcbJw==
+
+posthog-js@1.8.8:
+  version "1.8.8"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.8.8.tgz#c936968e04495e6dbe67ecdb8b9d4af873354cc3"
+  integrity sha512-7bHeqwxEh7pSjTNWZigv8uxTycD68Ila0pOVmJbAoQiQZIHHu9yJkcPy8MX9SjvXsWr7ySVed0yTSNycGV6xCA==
+  dependencies:
+    fflate "^0.4.1"
 
 protobufjs@^6.10.2:
   version "6.10.2"
