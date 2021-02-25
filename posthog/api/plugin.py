@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 import requests
 from dateutil import parser
@@ -342,6 +342,6 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response(PluginConfigSerializer(plugin_configs, many=True).data)
 
 
-def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:
+def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
     secret_fields = set([field["key"] for field in plugin.config_schema if "secret" in field and field["secret"]])
     return secret_fields
