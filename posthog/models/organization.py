@@ -43,7 +43,7 @@ class OrganizationManager(models.Manager):
 
 
 class Organization(UUIDModel):
-    class PluginsAccess(models.IntegerChoices):
+    class PluginsAccessLevel(models.IntegerChoices):
         NONE = 0, "none"
         CONFIGURATION = 2, "configuration"
         INSTALLATION = 4, "installation"
@@ -60,8 +60,8 @@ class Organization(UUIDModel):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)  # Onboarding (#2822)
     personalization: JSONField = JSONField(default=dict, null=False)
-    plugins_access: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=PluginsAccess.NONE, choices=PluginsAccess.choices
+    plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        default=PluginsAccessLevel.NONE, choices=PluginsAccessLevel.choices
     )
 
     objects = OrganizationManager()
