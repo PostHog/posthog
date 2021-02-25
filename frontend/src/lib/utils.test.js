@@ -111,16 +111,19 @@ describe('compactNumber()', () => {
 })
 
 describe('limitTextLength()', () => {
-    it('returns the limited string', () => {
-        expect(limitTextLength('Posthog', 5).length).toEqual(8)
-        expect(limitTextLength('PostHog is a complete product analytics stack', 25).length).toEqual(28)
-        expect(limitTextLength('Hello World!').length).toBeLessThan(45)
-        expect(limitTextLength('Hello World!').length).not.toBeGreaterThan(45)
-        expect(
-            limitTextLength('PostHog is a complete product analytics stack, to deploy on your infrastructure.').length
-        ).toBeGreaterThan(45)
-        expect(
-            limitTextLength('PostHog is a complete product analytics stack, to deploy on your infrastructure.').length
-        ).not.toBeLessThan(45)
+    it('returns cut text appropriately', () => {
+        expect(limitTextLength('Hello World!', 11)).toStrictEqual('Hello World…')
+        expect(limitTextLength('Hello World!', 2)).toStrictEqual('H…')
+        expect(limitTextLength('   Good Afternoon World!', 16)).toStrictEqual('Good Afternoon…')
+    })
+    it('returns truncated text appropriately', () => {
+        expect(limitTextLength('Abcdf', 1)).toStrictEqual('…')
+        expect(limitTextLength('Goodbye World.', 0)).toStrictEqual('…')
+        expect(limitTextLength('Wxyz', -22)).toStrictEqual('…')
+    })
+    it('returns unchanged text appropriately', () => {
+        expect(limitTextLength('Hello World!')).toStrictEqual('Hello World!')
+        expect(limitTextLength('Hello World!', 12)).toStrictEqual('Hello World!')
+        expect(limitTextLength('QWERTY', 99)).toStrictEqual('QWERTY')
     })
 })

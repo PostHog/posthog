@@ -206,15 +206,13 @@ export function isValidRegex(value: string): boolean {
     }
 }
 
-export function limitTextLength(text: string, maxLength?: number): string {
-    if (maxLength) {
-        return text.slice(0, maxLength).concat('...')
+export function limitTextLength(text: string, maxLength: number = 50): string {
+    if (maxLength < 0) {
+        // Avoid case where maxLength is negative, resulting in reverse slicing
+        maxLength = 0
     }
-    if (text.length > 45) {
-        return text.slice(0, 45).concat('...')
-    } else {
-        return text
-    }
+    const ellipsisAdjustedMaxLength = maxLength > 0 ? maxLength - 1 : 0
+    return text.length > maxLength ? text.trim().slice(0, ellipsisAdjustedMaxLength).trimEnd().concat('…') : text
 }
 
 export function formatPropertyLabel(
