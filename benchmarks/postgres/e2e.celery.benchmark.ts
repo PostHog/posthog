@@ -19,7 +19,6 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
     REDIS_POOL_MAX_SIZE: 3,
     PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
     CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
-    PLUGIN_SERVER_INGESTION: true,
     LOG_LEVEL: LogLevel.Log,
     KAFKA_ENABLED: false,
 }
@@ -72,7 +71,7 @@ describe('e2e celery & postgres benchmark', () => {
         for (let i = 0; i < count; i++) {
             createEvent()
         }
-        await delay(1000)
+        await delay(3000)
         expect(await redis.llen(server.PLUGINS_CELERY_QUEUE)).toEqual(count)
         queue.resume()
 

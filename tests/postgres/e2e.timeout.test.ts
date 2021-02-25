@@ -32,7 +32,6 @@ describe('e2e postgres ingestion timeout', () => {
                 TASK_TIMEOUT: 2,
                 PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
                 CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
-                PLUGIN_SERVER_INGESTION: true,
                 LOG_LEVEL: LogLevel.Log,
                 KAFKA_ENABLED: false,
             },
