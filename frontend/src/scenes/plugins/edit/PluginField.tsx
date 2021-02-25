@@ -13,7 +13,7 @@ export function PluginField({
     fieldConfig: PluginConfigSchema
 }): JSX.Element {
     const [editingSecret, setEditingSecret] = useState(false)
-    if (!editingSecret && fieldConfig.secret && value === '****************') {
+    if (fieldConfig.secret && !editingSecret && value) {
         return (
             <Button
                 onClick={() => {
