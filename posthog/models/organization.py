@@ -43,6 +43,12 @@ class OrganizationManager(models.Manager):
 
 
 class Organization(UUIDModel):
+    class PluginsAccess(models.IntegerChoices):
+        NONE = 0, "none"
+        CONFIGURATION = 2, "configuration"
+        INSTALLATION = 4, "installation"
+        ROOT = 6, "root"
+
     members: models.ManyToManyField = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
@@ -54,6 +60,9 @@ class Organization(UUIDModel):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)  # Onboarding (#2822)
     personalization: JSONField = JSONField(default=dict, null=False)
+    plugins_access: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        default=PluginsAccess.NONE, choices=PluginsAccess.choices
+    )
 
     objects = OrganizationManager()
 
