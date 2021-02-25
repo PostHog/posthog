@@ -431,4 +431,5 @@ LineGraph.propTypes = {
     options: PropTypes.object,
     type: PropTypes.string,
     onClick: PropTypes.func,
+    totalValue: PropTypes.number,
 }
