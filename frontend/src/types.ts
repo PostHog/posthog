@@ -527,6 +527,11 @@ export interface TrendResult {
     days: string[]
     label: string
     labels: string[]
+    breakdown_value?: string | number
+}
+
+export interface TrendResultWithAggregate extends TrendResult {
+    aggregated_value: number
 }
 
 export interface ChartParams {

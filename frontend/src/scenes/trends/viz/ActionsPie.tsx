@@ -6,7 +6,7 @@ import { LineGraph } from '../../insights/LineGraph'
 import { getChartColors } from 'lib/colors'
 import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { ChartParams } from '~/types'
+import { ChartParams, TrendResultWithAggregate } from '~/types'
 
 export function ActionsPie({
     dashboardItemId,
@@ -22,7 +22,7 @@ export function ActionsPie({
     const { results, resultsLoading } = useValues(logic)
 
     function updateData(): void {
-        const _data = results
+        const _data = results as TrendResultWithAggregate[]
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
 
         const colorList = getChartColors(color)

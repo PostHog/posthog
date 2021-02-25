@@ -34,16 +34,6 @@ export interface ActionFilter {
     type: EntityType
 }
 
-export interface TrendResult {
-    action: ActionFilter
-    count: number
-    data: number[]
-    days: string[]
-    label: string
-    labels: string[]
-    breakdown_value?: string | number
-}
-
 export interface IndexedTrendResult extends TrendResult {
     id: number
 }
