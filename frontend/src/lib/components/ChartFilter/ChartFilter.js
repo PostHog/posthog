@@ -25,6 +25,7 @@ export function ChartFilter(props) {
     const tableDisabled = false
     const pieDisabled = filters.session || filters.insight === ViewType.RETENTION
     const barDisabled = filters.session || filters.retentionType
+    const barValueDisabled = barDisabled || filters.shown_as === STICKINESS
     const defaultDisplay = filters.retentionType
         ? ACTIONS_TABLE
         : filters.insight === ViewType.FUNNELS
@@ -64,7 +65,7 @@ export function ChartFilter(props) {
                         <Select.Option value={ACTIONS_BAR_CHART} disabled={barDisabled}>
                             Time
                         </Select.Option>
-                        <Select.Option value={ACTIONS_BAR_CHART_VALUE} disabled={barDisabled}>
+                        <Select.Option value={ACTIONS_BAR_CHART_VALUE} disabled={barValueDisabled}>
                             Value
                         </Select.Option>
                     </Select.OptGroup>
