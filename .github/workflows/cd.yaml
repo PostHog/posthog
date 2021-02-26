@@ -154,7 +154,7 @@ jobs:
               id: changelog
               run: |
                   cd plugin-server
-                  PULL_REQUESTS=$(git log v${{ steps.yarn-upgrade.outputs.outgoing-version }}..v${{ env.REPO_VERSION }} --pretty=format:%s --reverse | sed -e '/^.*\d*)$/!d' -e 's;(#;(PostHog/plugin-server#;' -e 's/^/- /')
+                  PULL_REQUESTS=$(git log v${{ steps.yarn-upgrade.outputs.outgoing-version }}..v${{ env.REPO_VERSION }} --pretty=format:%s --grep='^.*\d*)$' --reverse | sed -e 's;(#;(PostHog/plugin-server#;' -e 's/^/- /'
                   # Escape characters that are problematic for GitHub Actions set-output
                   PULL_REQUESTS="${PULL_REQUESTS//'%'/'%25'}"
                   PULL_REQUESTS="${PULL_REQUESTS//$'\n'/'%0A'}"
