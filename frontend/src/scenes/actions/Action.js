@@ -82,9 +82,9 @@ function _Action({ id }) {
                     actionId={id}
                     user={user}
                     action={action}
-                    onSave={(action) => {
+                    onSave={(newAction) => {
                         if (!id) {
-                            push(`/action/${action.id}`)
+                            push(`/action/${newAction.id}`)
                         }
                         loadAction()
                     }}

@@ -66,7 +66,7 @@ export function PropertyValue({
                 style={{ width: '100%', ...style }}
                 onChange={(_, payload) => {
                     if (isOperatorMulti(operator) && payload.length > 0) {
-                        onSet(payload.map(({ value }) => value))
+                        onSet(payload.map((option) => option.value))
                     } else {
                         onSet((payload && payload.value) || null)
                     }
