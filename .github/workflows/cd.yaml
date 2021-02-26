@@ -154,7 +154,7 @@ jobs:
               id: changelog
               run: |
                   cd plugin-server
-                  PULL_REQUESTS=$(git log v${{ steps.yarn-upgrade.outputs.outgoing-version }}..v${{ env.REPO_VERSION }} --pretty=format:"%s" | sed -e '/^.*\d*)$/!d' -e 's/^/- /')
+                  PULL_REQUESTS=$(git log v${{ steps.yarn-upgrade.outputs.outgoing-version }}..v${{ env.REPO_VERSION }} --pretty=format:"%s" | sed -e '/^.*\d*)$/!d' -e 's/^/- /' | tac)
                   # Escape characters that are problematic for GitHub Actions set-output
                   PULL_REQUESTS="${PULL_REQUESTS//'%'/'%25'}"
                   PULL_REQUESTS="${PULL_REQUESTS//$'\n'/'%0A'}"
@@ -176,7 +176,7 @@ jobs:
 
                       Plugin server version ${{ env.REPO_VERSION }} has been released. This updates PostHog to use it.
 
-                      #### https://github.com/PostHog/plugin-server/compare/v${{ steps.yarn-upgrade.outputs.outgoing-version }}...v${{ env.REPO_VERSION }}
+                      https://github.com/PostHog/plugin-server/compare/v${{ steps.yarn-upgrade.outputs.outgoing-version }}...v${{ env.REPO_VERSION }}:
 
                       ${{ steps.changelog.outputs.pull-requests }}
 
