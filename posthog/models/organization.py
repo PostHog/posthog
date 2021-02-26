@@ -8,6 +8,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
+from posthog.email import is_email_available
 from posthog.utils import mask_email_address
 
 from .utils import UUIDModel, sane_repr
@@ -181,22 +182,34 @@ class OrganizationInvite(UUIDModel):
     created_by: models.ForeignKey = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
-        related_name="organization_invites",
-        related_query_name="organization_invite",
+        related_name="organization_invites_created",
+        related_query_name="organization_invite_created",
         null=True,
     )
-    emailing_attempt_made: models.BooleanField = models.BooleanField(default=False)
+    used_by: models.ForeignKey = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        related_name="organization_invites_used",
+        related_query_name="organization_invite_used",
+        null=True,
+    )
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    used_at: models.DateTimeField = models.DateTimeField(null=True)
+    emailing_attempt_made: models.BooleanField = models.BooleanField(default=False)
 
     def validate(self, *, user: Any = None, email: Optional[str] = None) -> None:
-        _email = email or (hasattr(user, "email") and user.email)
+        _email = email or getattr(user, "email", None)
 
         if _email and _email != self.target_email:
             raise exceptions.ValidationError(
                 f"This invite is intended for another email address: {mask_email_address(self.target_email)}"
                 f". You tried to sign up with {_email}.",
                 code="invalid_recipient",
+            )
+
+        if self.used_at is not None:
+            raise exceptions.ValidationError(
+                "This invite has already been used. Please ask your admin for a new one.", code="used",
             )
 
         if self.is_expired():
@@ -221,7 +234,13 @@ class OrganizationInvite(UUIDModel):
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization)
-        OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
+        if is_email_available(with_absolute_urls=True):
+            from posthog.tasks.email import send_member_join
+
+            send_member_join.apply_async(kwargs={"invite_id": self.id}, countdown=10)
+        self.used_by = user
+        self.used_at = timezone.now()
+        self.save()
 
     def is_expired(self) -> bool:
         """Check if invite is older than INVITE_DAYS_VALIDITY days."""

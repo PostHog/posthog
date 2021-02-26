@@ -17,6 +17,7 @@ from posthog.tasks.email import send_invite
 
 class OrganizationInviteSerializer(serializers.ModelSerializer):
     created_by = UserSerializer(many=False, read_only=True)
+    used_by = UserSerializer(many=False, read_only=True)
 
     class Meta:
         model = OrganizationInvite
@@ -27,13 +28,14 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "emailing_attempt_made",
             "is_expired",
             "created_by",
+            "used_by",
             "created_at",
-            "updated_at",
+            "used_at",
         ]
         read_only_fields = [
             "id",
             "created_at",
-            "updated_at",
+            "used_at",
             "emailing_attempt_made",
         ]
         extra_kwargs = {"target_email": {"required": True, "allow_null": False}}
@@ -82,6 +84,7 @@ class OrganizationInviteViewSet(
     def get_queryset(self):
         return (
             self.filter_queryset_by_parents_lookups(super().get_queryset())
+            .filter(used_at__isnull=True)
             .select_related("created_by")
             .order_by(self.ordering)
         )
