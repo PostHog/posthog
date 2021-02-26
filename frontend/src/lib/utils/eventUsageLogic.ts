@@ -43,9 +43,10 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
         }),
         reportPersonPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
-            propertyType: string,
-            totalProperties: number
-        ) => ({ action, propertyType, totalProperties }),
+            totalProperties: number,
+            oldPropertyType?: string,
+            newPropertyType?: string
+        ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -231,9 +232,10 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
                 error: error,
             })
         },
-        reportPersonPropertyUpdated: async ({ action, propertyType, totalProperties }) => {
+        reportPersonPropertyUpdated: async ({ action, totalProperties, oldPropertyType, newPropertyType }) => {
             posthog.capture(`person property ${action}`, {
-                property_type: propertyType,
+                old_property_type: oldPropertyType !== 'undefined' ? oldPropertyType : undefined,
+                new_property_type: newPropertyType !== 'undefined' ? newPropertyType : undefined,
                 total_properties: totalProperties,
             })
         },

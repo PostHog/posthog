@@ -54,22 +54,26 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
         },
         editProperty: async ({ key, newValue }) => {
             const person = values.person
-            let action: 'added' | 'updated' | 'removed'
-            let propertyType: string = typeof newValue
+
             if (person) {
                 let parsedValue = newValue
+
+                // Instrumentation stuff
+                let action: 'added' | 'updated' | 'removed'
+                const oldPropertyType = person.properties[key] === null ? 'null' : typeof person.properties[key]
+                let newPropertyType: string = typeof newValue
 
                 // If the property is a number, store it as a number
                 const attemptedParsedNumber = Number(newValue)
                 if (!Number.isNaN(attemptedParsedNumber) && typeof newValue !== 'boolean') {
                     parsedValue = attemptedParsedNumber
-                    propertyType = 'number'
+                    newPropertyType = 'number'
                 }
 
                 const lowercaseValue = typeof parsedValue === 'string' && parsedValue.toLowerCase()
                 if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
                     parsedValue = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
-                    propertyType = parsedValue !== null ? 'boolean' : 'null'
+                    newPropertyType = parsedValue !== null ? 'boolean' : 'null'
                 }
 
                 if (!Object.keys(person.properties).includes(key)) {
@@ -78,6 +82,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                     action = 'added'
                 } else {
                     person.properties[key] = parsedValue
+                    action = parsedValue !== undefined ? 'updated' : 'removed'
                 }
 
                 actions.setPerson(person) // To update the UI immediately while the request is being processed
@@ -87,8 +92,9 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 console.log(person.properties)
                 eventUsageLogic.actions.reportPersonPropertyUpdated(
                     action,
-                    propertyType,
-                    Object.keys(person.properties).length
+                    Object.keys(person.properties).length,
+                    oldPropertyType,
+                    newPropertyType
                 )
             }
         },
