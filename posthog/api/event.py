@@ -168,7 +168,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         monday = now() + timedelta(days=-now().weekday())
         # Don't allow events too far into the future
         queryset = self.get_queryset().filter(timestamp__lte=now() + timedelta(seconds=5))
-        next_url = None
+        next_url: Optional[str] = None
 
         if is_csv_request:
             events = queryset[:100000]
@@ -179,7 +179,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             path = request.get_full_path()
             reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
             if not is_csv_request and len(events) > 100:
-                next_url: Optional[str] = request.build_absolute_uri(
+                next_url = request.build_absolute_uri(
                     "{}{}{}={}".format(
                         path,
                         "&" if "?" in path else "?",
