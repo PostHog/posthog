@@ -86,6 +86,7 @@ function cleanFilters(filters: Partial<FilterType>): Record<string, any> {
         actions: Array.isArray(filters.actions) ? filters.actions : undefined,
         events: Array.isArray(filters.events) ? filters.events : undefined,
         properties: filters.properties || [],
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
     }
 }
 
@@ -474,6 +475,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                             order: 0,
                         },
                     ]
+                    cleanSearchParams.filter_test_accounts = true
                 }
 
                 if (searchParams.insight === ViewType.STICKINESS) {

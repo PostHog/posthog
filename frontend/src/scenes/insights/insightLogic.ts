@@ -187,6 +187,7 @@ export const insightLogic = kea<insightLogicType>({
             const urlParams = {
                 insight: type,
                 properties: values.allFilters.properties,
+                filter_test_accounts: true,
             }
             return ['/insights', urlParams]
         },

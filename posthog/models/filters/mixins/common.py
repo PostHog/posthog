@@ -72,7 +72,10 @@ class ShownAsMixin(BaseParamMixin):
 class FilterTestAccountsMixin(BaseParamMixin):
     @cached_property
     def filter_test_accounts(self) -> Optional[bool]:
-        return self._data.get(FILTER_TEST_ACCOUNTS, None)
+        setting = self._data.get(FILTER_TEST_ACCOUNTS, None)
+        if setting == True or setting == "true":
+            return True
+        return None
 
     @include_dict
     def filter_out_team_members_to_dict(self):

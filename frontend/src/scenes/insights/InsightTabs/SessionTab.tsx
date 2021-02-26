@@ -4,6 +4,8 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { SessionFilter } from 'lib/components/SessionsFilter'
 import { ViewType } from '../insightLogic'
 import { trendsLogic } from '../../trends/trendsLogic'
+import { TestAccountFilter } from '../TestAccountFilter'
+import { FilterType } from '~/types'
 
 export function SessionTab(): JSX.Element {
     const { filters } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
@@ -16,6 +18,10 @@ export function SessionTab(): JSX.Element {
             <hr />
             <h4 className="secondary">Filters</h4>
             <PropertyFilters pageKey="trends-sessions" />
+            <TestAccountFilter
+                filters={filters}
+                onChange={(_filters: Partial<FilterType>): void => setFilters(_filters)}
+            />
         </>
     )
 }

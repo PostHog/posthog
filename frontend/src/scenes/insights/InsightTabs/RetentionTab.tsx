@@ -15,6 +15,8 @@ import { Button, DatePicker, Select, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
 import { CloseButton } from 'lib/components/CloseButton'
 import moment from 'moment'
+import { FilterType } from '~/types'
+import { TestAccountFilter } from '../TestAccountFilter'
 
 export function RetentionTab(): JSX.Element {
     const node = useRef<HTMLElement>(null)
@@ -25,10 +27,10 @@ export function RetentionTab(): JSX.Element {
     const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
 
     const entityLogic = entityFilterLogic({
-        setFilters: (filters) => {
-            if (filters.events.length > 0) {
+        setFilters: (filters: FilterType) => {
+            if (filters.events && filters.events.length > 0) {
                 setFilters({ target_entity: filters.events[0] })
-            } else if (filters.actions.length > 0) {
+            } else if (filters.actions && filters.actions.length > 0) {
                 setFilters({ target_entity: filters.actions[0] })
             } else {
                 setFilters({ target_entity: null })
@@ -41,10 +43,10 @@ export function RetentionTab(): JSX.Element {
     })
 
     const entityLogicReturning = entityFilterLogic({
-        setFilters: (filters) => {
-            if (filters.events.length > 0) {
+        setFilters: (filters: FilterType) => {
+            if (filters.events && filters.events.length > 0) {
                 setFilters({ returning_entity: filters.events[0] })
-            } else if (filters.actions.length > 0) {
+            } else if (filters.actions && filters.actions.length > 0) {
                 setFilters({ returning_entity: filters.actions[0] })
             } else {
                 setFilters({ returning_entity: null })
@@ -172,6 +174,10 @@ export function RetentionTab(): JSX.Element {
                         ))}
                     </Select>
                 </div>
+                <TestAccountFilter
+                    filters={filters}
+                    onChange={(_filters: Partial<FilterType>): void => setFilters(_filters)}
+                />
             </>
         </div>
     )
