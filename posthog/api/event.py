@@ -164,34 +164,31 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return events
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        queryset = self.get_queryset()
-        monday = now() + timedelta(days=-now().weekday())
-        # don't allow events too far into the future
-        queryset = queryset.filter(timestamp__lte=now() + timedelta(seconds=5),)
-        events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[:100]
-
         is_csv_request = self.request.accepted_renderer.format == "csv"
+        monday = now() + timedelta(days=-now().weekday())
+        # Don't allow events too far into the future
+        queryset = self.get_queryset().filter(timestamp__lte=now() + timedelta(seconds=5))
+        next_url = None
 
-        if not is_csv_request and len(events) < 100:
-            events = queryset[:100]
-        elif is_csv_request:
+        if is_csv_request:
             events = queryset[:100000]
+        else:
+            events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[:101]
+            if len(events) < 100:
+                events = queryset[:100]
+            path = request.get_full_path()
+            reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
+            if not is_csv_request and len(events) > 100:
+                next_url: Optional[str] = request.build_absolute_uri(
+                    "{}{}{}={}".format(
+                        path,
+                        "&" if "?" in path else "?",
+                        "after" if reverse else "before",
+                        events[99].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                    )
+                )
 
         prefetched_events = self._prefetch_events(list(events))
-        path = request.get_full_path()
-
-        reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
-        if not is_csv_request and len(events) > 100:
-            next_url: Optional[str] = request.build_absolute_uri(
-                "{}{}{}={}".format(
-                    path,
-                    "&" if "?" in path else "?",
-                    "after" if reverse else "before",
-                    events[99].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                )
-            )
-        else:
-            next_url = None
 
         return response.Response(
             {
