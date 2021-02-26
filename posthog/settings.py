@@ -554,7 +554,12 @@ if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
 
 
 def show_toolbar(request):
-    return request.path.startswith("/api/") or request.path.startswith("/decide/") or request.path.startswith("/e/")
+    return (
+        request.path.startswith("/api/")
+        or request.path.startswith("/decide/")
+        or request.path.startswith("/e/")
+        or request.path.startswith("/__debug__")
+    )
 
 
 DEBUG_TOOLBAR_CONFIG = {
