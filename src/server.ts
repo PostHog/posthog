@@ -21,9 +21,10 @@ import { startSchedule } from './services/schedule'
 import { status } from './status'
 import { PluginsServer, PluginsServerConfig, Queue } from './types'
 import { createRedis, delay, UUIDT } from './utils'
-import { version } from './version'
 import { startFastifyInstance, stopFastifyInstance } from './web/server'
 import { startQueue } from './worker/queue'
+
+const { version } = require('../package.json')
 
 export async function createServer(
     config: Partial<PluginsServerConfig> = {},
@@ -271,7 +272,7 @@ export async function startPluginsServer(
         // every 5 seconds set Redis keys @posthog-plugin-server/ping and @posthog-plugin-server/version
         pingJob = schedule.scheduleJob('*/5 * * * * *', async () => {
             await server!.db!.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, false)
-            await server!.db!.redisSet('@posthog-plugin-server/version', version)
+            await server!.db!.redisSet('@posthog-plugin-server/version', version, undefined, false)
         })
 
         // every 10 seconds sends stuff to StatsD

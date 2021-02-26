@@ -4,7 +4,8 @@ import { PluginConfig, PluginsServer, RawEventMessage } from 'types'
 
 import Client from '../../celery/client'
 import { UUIDT } from '../../utils'
-import { version } from '../../version'
+
+const { version } = require('../../../package.json')
 
 interface InternalData {
     distinct_id: string
