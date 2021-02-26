@@ -122,13 +122,20 @@ jobs:
             - name: Check out main repo
               uses: actions/checkout@v2
               with:
-                  repository: 'PostHog/posthog'
+                  path: posthog
+                  repository: PostHog/posthog
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+
+            - name: Check out plugin server repo
+              uses: actions/checkout@v2
+              with:
+                  path: plugin-server
+                  fetch-depth: 0
 
             - name: Install new plugin server version in main repo
               id: yarn-upgrade
               run: |
-                  cd plugins/
+                  cd posthog/plugins/
                   OUTGOING_VERSION=$(jq '.dependencies["@posthog/plugin-server"]' package.json -r)
                   echo "::set-output name=outgoing-version::$OUTGOING_VERSION"
                   for i in $(seq 1 $RETRY_TIMES); do
@@ -143,11 +150,19 @@ jobs:
                   RETRY_TIMES: 20
                   RETRY_WAIT_SECONDS: 5
 
+            - name: Determine changelog
+              id: changelog
+              run: |
+                  cd plugin-server
+                  PULL_REQUESTS=$(git log v${{ steps.yarn-upgrade.outputs.outgoing-version }}..v${{ env.REPO_VERSION }} --pretty=format:"%s" | sed -e '/^.*\d*)$/!d' -e 's/^/- /')
+                  echo "::set-output name=pull-requests::$PULL_REQUESTS"
+
             - name: Create main repo pull request
               id: main-repo-pr
               uses: peter-evans/create-pull-request@v3
               with:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  path: posthog
                   commit-message: Update plugin server to ${{ env.REPO_VERSION }}
                   branch: plugin-server-${{ env.REPO_VERSION }}
                   delete-branch: true
@@ -157,7 +172,9 @@ jobs:
 
                       Plugin server version ${{ env.REPO_VERSION }} has been released. This updates PostHog to use it.
 
-                      https://github.com/PostHog/plugin-server/compare/v${{ steps.yarn-upgrade.outputs.outgoing-version }}...v${{ env.REPO_VERSION }} • [GitHub releases](https://github.com/PostHog/plugin-server/releases) • [npm releases](https://www.npmjs.com/package/@posthog/plugin-server?activeTab=version)
+                      #### https://github.com/PostHog/plugin-server/compare/v${{ steps.yarn-upgrade.outputs.outgoing-version }}...v${{ env.REPO_VERSION }}
+
+                      ${{ steps.changelog.outputs.pull-requests }}
 
             - name: Output pull request result
               run: |
