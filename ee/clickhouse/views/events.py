@@ -83,11 +83,11 @@ class ClickhouseEventsViewSet(EventViewSet):
         team = self.team
         filter = Filter(request=request)
 
-        query_result = self._query_events_list(filter, team, request)
+        query_result = self._query_events_list(filter, team, request, limit=limit)
 
         # Retry the query without the 1 day optimization
         if len(query_result) < limit and not request.GET.get("after"):
-            query_result = self._query_events_list(filter, team, request, long_date_from=True)
+            query_result = self._query_events_list(filter, team, request, long_date_from=True, limit=limit)
 
         result = ClickhouseEventSerializer(
             query_result[0:limit], many=True, context={"people": self._get_people(query_result, team),},
