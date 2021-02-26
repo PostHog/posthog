@@ -1,3 +1,4 @@
+import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import crypto from 'crypto'
 
@@ -162,4 +163,22 @@ export function timeoutGuard(message: string, timeout = defaultConfig.TASK_TIMEO
         console.log(`⌛⌛⌛ ${message}`)
         Sentry.captureMessage(message)
     }, timeout)
+}
+
+const campaignParams = new Set(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'])
+const initialParams = new Set(['$browser', '$browser_version', '$current_url', '$os', '$referring_domain', '$referrer'])
+const combinedParams = new Set([...campaignParams, ...initialParams])
+
+/** If we get new UTM params, make sure we set those  **/
+export function personInitialAndUTMProperties(properties: Properties): Properties {
+    const propertiesCopy = { ...properties }
+    const maybeSet = Object.entries(properties).filter(([key, value]) => campaignParams.has(key))
+    const maybeSetInitial = Object.entries(properties)
+        .filter(([key, value]) => combinedParams.has(key))
+        .map(([key, value]) => [`$initial_${key.replace('$', '')}`, value])
+    if (Object.keys(maybeSet).length > 0) {
+        propertiesCopy.$set = { ...(properties.$set || {}), ...Object.fromEntries(maybeSet) }
+        propertiesCopy.$set_once = { ...(properties.$set_once || {}), ...Object.fromEntries(maybeSetInitial) }
+    }
+    return propertiesCopy
 }

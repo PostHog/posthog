@@ -217,6 +217,13 @@ export const createProcessEventTests = (
                 properties: {
                     distinct_id: 2,
                     token: team.api_token,
+                    $browser: 'Chrome',
+                    $current_url: 'https://test.com',
+                    $os: 'Mac OS X',
+                    $browser_version: 80,
+                    $initial_referring_domain: 'https://google.com',
+                    $initial_referrer_url: 'https://google.com/?q=posthog',
+                    utm_medium: 'twitter',
                     $elements: [
                         { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
                         { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
@@ -230,12 +237,23 @@ export const createProcessEventTests = (
         )
 
         if (database === 'clickhouse') {
-            expect(queryCounter).toBe(9)
+            expect(queryCounter).toBe(11)
         } else if (database === 'postgresql') {
-            expect(queryCounter).toBe(12)
+            expect(queryCounter).toBe(14)
         }
 
+        let persons = await server.db.fetchPersons()
+        expect(persons[0].properties).toEqual({
+            $initial_browser: 'Chrome',
+            $initial_browser_version: 80,
+            $initial_utm_medium: 'twitter',
+            $initial_current_url: 'https://test.com',
+            $initial_os: 'Mac OS X',
+            utm_medium: 'twitter',
+        })
+
         // capture a second time to verify e.g. event_names is not ['$autocapture', '$autocapture']
+        // Also pass new utm params in to override
         await processEvent(
             '2',
             '127.0.0.1',
@@ -245,6 +263,7 @@ export const createProcessEventTests = (
                 properties: {
                     distinct_id: 2,
                     token: team.api_token,
+                    utm_medium: 'instagram',
                     $elements: [
                         { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
                         { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
@@ -258,9 +277,17 @@ export const createProcessEventTests = (
         )
 
         const events = await server.db.fetchEvents()
-        const persons = await server.db.fetchPersons()
+        persons = await server.db.fetchPersons()
         expect(events.length).toEqual(2)
         expect(persons.length).toEqual(1)
+        expect(persons[0].properties).toEqual({
+            $initial_browser: 'Chrome',
+            $initial_browser_version: 80,
+            $initial_utm_medium: 'twitter',
+            $initial_current_url: 'https://test.com',
+            $initial_os: 'Mac OS X',
+            utm_medium: 'instagram',
+        })
 
         const [person] = persons
         const distinctIds = await server.db.fetchDistinctIdValues(person)
@@ -285,10 +312,52 @@ export const createProcessEventTests = (
         team = await getFirstTeam(server)
         expect(team.event_names).toEqual(['$autocapture'])
         expect(team.event_names_with_usage).toEqual([{ event: '$autocapture', volume: null, usage_count: null }])
-        expect(team.event_properties).toEqual(['distinct_id', 'token', '$ip'])
+        expect(team.event_properties).toEqual([
+            'distinct_id',
+            'token',
+            '$browser',
+            '$current_url',
+            '$os',
+            '$browser_version',
+            '$initial_referring_domain',
+            '$initial_referrer_url',
+            'utm_medium',
+            '$ip',
+        ])
         expect(team.event_properties_with_usage).toEqual([
             { key: 'distinct_id', usage_count: null, volume: null },
             { key: 'token', usage_count: null, volume: null },
+            { key: '$browser', usage_count: null, volume: null },
+            {
+                key: '$current_url',
+                usage_count: null,
+                volume: null,
+            },
+            {
+                key: '$os',
+                usage_count: null,
+                volume: null,
+            },
+            {
+                key: '$browser_version',
+                usage_count: null,
+                volume: null,
+            },
+            {
+                key: '$initial_referring_domain',
+                usage_count: null,
+                volume: null,
+            },
+            {
+                key: '$initial_referrer_url',
+                usage_count: null,
+                volume: null,
+            },
+            {
+                key: 'utm_medium',
+                usage_count: null,
+                volume: null,
+            },
             { key: '$ip', usage_count: null, volume: null },
         ])
     })
