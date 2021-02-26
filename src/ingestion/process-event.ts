@@ -24,7 +24,7 @@ import {
 } from '../types'
 import { castTimestampOrNow, UUID, UUIDT } from '../utils'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from './topics'
-import { elementsToString, sanitizeEventName, timeoutGuard } from './utils'
+import { elementsToString, personInitialAndUTMProperties, sanitizeEventName, timeoutGuard } from './utils'
 
 export class EventsProcessor {
     pluginsServer: PluginsServer
@@ -326,7 +326,6 @@ export class EventsProcessor {
         sentAt: DateTime | null
     ): Promise<IEvent> {
         event = sanitizeEventName(event)
-
         const elements: Record<string, any>[] | undefined = properties['$elements']
         let elementsList: Element[] = []
         if (elements && elements.length) {
@@ -370,6 +369,8 @@ export class EventsProcessor {
                 ])
             } catch {}
         }
+
+        properties = personInitialAndUTMProperties(properties)
 
         if (properties['$set'] || properties['$set_once']) {
             await this.updatePersonProperties(
