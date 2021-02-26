@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 
 import { Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
@@ -11,7 +11,15 @@ import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { Tabs, Row, Col, Card, Button } from 'antd'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, ACTIONS_PIE_CHART, LIFECYCLE, FUNNEL_VIZ } from 'lib/constants'
+import {
+    ACTIONS_LINE_GRAPH_LINEAR,
+    ACTIONS_LINE_GRAPH_CUMULATIVE,
+    ACTIONS_TABLE,
+    ACTIONS_PIE_CHART,
+    ACTIONS_BAR_CHART_VALUE,
+    LIFECYCLE,
+    FUNNEL_VIZ,
+} from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -34,24 +42,25 @@ import './Insights.scss'
 import { ErrorMessage, TimeOut } from './EmptyStates'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { People } from 'scenes/funnels/People'
+import { TrendLegend } from './TrendLegend'
 import { TrendInsight } from 'scenes/trends/Trends'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 const { TabPane } = Tabs
 
 const showIntervalFilter = function (activeView, filter) {
     switch (activeView) {
-        case ViewType.TRENDS:
-        case ViewType.STICKINESS:
-        case ViewType.LIFECYCLE:
-        case ViewType.SESSIONS:
-            return true
         case ViewType.FUNNELS:
             return filter.display === ACTIONS_LINE_GRAPH_LINEAR
         case ViewType.RETENTION:
         case ViewType.PATHS:
             return false
+        case ViewType.TRENDS:
+        case ViewType.STICKINESS:
+        case ViewType.LIFECYCLE:
+        case ViewType.SESSIONS:
         default:
-            return true // sometimes insights aren't set for trends
+            return ![ACTIONS_PIE_CHART, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE].includes(filter.display) // sometimes insights aren't set for trends
     }
 }
 
@@ -298,6 +307,20 @@ function _Insights() {
                                 allFilters.display === FUNNEL_VIZ && (
                                     <Card>
                                         <FunnelPeople />
+                                    </Card>
+                                )}
+                            {featureFlags['trend-legend'] &&
+                                (!allFilters.display ||
+                                    allFilters.display === ACTIONS_LINE_GRAPH_LINEAR ||
+                                    allFilters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) &&
+                                (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) && (
+                                    <Card>
+                                        <BindLogic
+                                            logic={trendsLogic}
+                                            props={{ dashboardItemId: null, view: activeView }}
+                                        >
+                                            <TrendLegend />
+                                        </BindLogic>
                                     </Card>
                                 )}
                         </Col>

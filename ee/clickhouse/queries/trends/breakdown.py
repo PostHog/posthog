@@ -1,9 +1,8 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from django.db.models.manager import BaseManager
-from django.utils import timezone
 
-from ee.clickhouse.client import substitute_params, sync_execute
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -23,7 +22,7 @@ from ee.clickhouse.sql.trends.breakdown import (
 )
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from ee.clickhouse.sql.trends.top_person_props import TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_PIE, TRENDS_TABLE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_DISPLAY_BY_VALUE
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
@@ -102,7 +101,7 @@ class ClickhouseTrendsBreakdown:
         params = {**params, **_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
-        if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
+        if filter.display in TRENDS_DISPLAY_BY_VALUE:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
             content_sql = breakdown_query.format(
                 breakdown_filter=breakdown_filter,
@@ -134,7 +133,7 @@ class ClickhouseTrendsBreakdown:
             return breakdown_query, params, self._parse_trend_result(filter, entity)
 
     def _get_breakdown_query(self, filter: Filter):
-        if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
+        if filter.display in TRENDS_DISPLAY_BY_VALUE:
             return BREAKDOWN_AGGREGATE_QUERY_SQL
 
         return BREAKDOWN_QUERY_SQL

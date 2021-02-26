@@ -1,19 +1,22 @@
 import json
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Exists, OuterRef, Q
 
+from posthog.models import cohort
 from posthog.utils import is_valid_regex
+
+ValueT = Union[str, int, List[str]]
 
 
 class Property:
     key: str
     operator: Optional[str]
-    value: str
+    value: ValueT
     type: str
 
     def __init__(
-        self, key: str, value: str, operator: Optional[str] = None, type: Optional[str] = None, **kwargs
+        self, key: str, value: ValueT, operator: Optional[str] = None, type: Optional[str] = None, **kwargs
     ) -> None:
         self.key = key
         self.value = value
@@ -33,7 +36,9 @@ class Property:
             "type": self.type,
         }
 
-    def _parse_value(self, value: Union[int, str]) -> Union[int, str, bool]:
+    def _parse_value(self, value: ValueT) -> Any:
+        if isinstance(value, list):
+            return [self._parse_value(v) for v in value]
         if value == "true":
             return True
         if value == "false":
@@ -50,10 +55,11 @@ class Property:
 
         value = self._parse_value(self.value)
         if self.type == "cohort":
-            return Q(Exists(CohortPeople.objects.filter(cohort_id=int(value), person_id=OuterRef("id"),).only("id")))
+            cohort_id = int(cast(Union[str, int], value))
+            return Q(Exists(CohortPeople.objects.filter(cohort_id=cohort_id, person_id=OuterRef("id"),).only("id")))
 
         if self.operator == "is_not":
-            return Q(~Q(**{"properties__{}".format(self.key): value}) | ~Q(properties__has_key=self.key))
+            return Q(~lookup_q(f"properties__{self.key}", value) | ~Q(properties__has_key=self.key))
         if self.operator == "is_set":
             return Q(**{"properties__{}__isnull".format(self.key): False})
         if self.operator == "is_not_set":
@@ -67,4 +73,16 @@ class Property:
                 | ~Q(properties__has_key=self.key)
                 | Q(**{"properties__{}".format(self.key): None})
             )
-        return Q(**{"properties__{}{}".format(self.key, f"__{self.operator}" if self.operator else ""): value})
+
+        if self.operator == "exact" or self.operator is None:
+            return lookup_q(f"properties__{self.key}", value)
+        else:
+            assert not isinstance(value, list)
+            return Q(**{f"properties__{self.key}__{self.operator}": value})
+
+
+def lookup_q(key: str, value: Any) -> Q:
+    # exact and is_not operators can pass lists as arguments. Handle those lookups!
+    if isinstance(value, list):
+        return Q(**{f"{key}__in": value})
+    return Q(**{key: value})

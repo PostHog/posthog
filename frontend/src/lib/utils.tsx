@@ -5,6 +5,7 @@ import { Spin } from 'antd'
 import moment from 'moment'
 import { EventType, FilterType } from '~/types'
 import { lightColors } from 'lib/colors'
+import { ActionFilter } from 'scenes/trends/trendsLogic'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
@@ -188,6 +189,10 @@ export const operatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
+export function isOperatorMulti(operator: string): boolean {
+    return ['exact', 'is_not'].includes(operator)
+}
+
 export function isOperatorFlag(operator: string): boolean {
     // these filter operators can only be just set, no additional parameter
     return ['is_set', 'is_not_set'].includes(operator)
@@ -225,20 +230,11 @@ export function formatProperty(property: Record<string, any>): string {
 }
 
 // Format a label that gets returned from the /insights api
-export function formatLabel(
-    label: string,
-    action: {
-        math: string
-        math_property?: string
-        properties?: { operator: string; value: any }[]
-    }
-): string {
+export function formatLabel(label: string, action: ActionFilter): string {
     if (action.math === 'dau') {
         label += ` (Active Users) `
-    } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math)) {
+    } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math || '')) {
         label += ` (${action.math} of ${action.math_property}) `
-    } else {
-        label += ' (Total) '
     }
     if (action?.properties?.length) {
         label += ` (${action.properties

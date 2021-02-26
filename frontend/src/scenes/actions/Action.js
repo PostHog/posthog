@@ -71,22 +71,25 @@ function _Action({ id }) {
     const { push } = useActions(router)
     const { user } = useValues(userLogic)
     const { fetchEvents } = useActions(eventsTableLogic({ fixedFilters }))
-    const { isComplete } = useValues(actionLogic({ id, onComplete: fetchEvents }))
+    const { isComplete, action } = useValues(actionLogic({ id, onComplete: fetchEvents }))
     const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
 
     return (
         <div>
-            <ActionEdit
-                apiURL=""
-                actionId={id}
-                user={user}
-                onSave={(action) => {
-                    if (!id) {
-                        push(`/action/${action.id}`)
-                    }
-                    loadAction()
-                }}
-            />
+            {(!id || action) && (
+                <ActionEdit
+                    apiURL=""
+                    actionId={id}
+                    user={user}
+                    action={action}
+                    onSave={(action) => {
+                        if (!id) {
+                            push(`/action/${action.id}`)
+                        }
+                        loadAction()
+                    }}
+                />
+            )}
             {id && !isComplete && (
                 <div style={{ marginBottom: '10rem' }}>
                     <h2 className="subtitle">Events</h2>
@@ -96,7 +99,7 @@ function _Action({ id }) {
             )}
             {isComplete && (
                 <div style={{ marginTop: 64 }}>
-                    <EventsTable key={isComplete} fixedFilters={fixedFilters} filtersEnabled={false} />
+                    {id && <EventsTable key={isComplete} fixedFilters={fixedFilters} filtersEnabled={false} />}
                 </div>
             )}
         </div>
