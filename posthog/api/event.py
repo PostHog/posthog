@@ -174,7 +174,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             events = queryset[:100000]
         else:
             events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[:101]
-            if len(events) < 100:
+            if len(events) < 101:
                 events = queryset[:101]
             path = request.get_full_path()
             reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
