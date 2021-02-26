@@ -154,19 +154,6 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
 
 @pytest.fixture
-def base_test_mixin_fixture():
-    kls = TestMixin()
-    kls.setUp()
-
-    return kls
-
-
-@pytest.fixture
-def team(base_test_mixin_fixture):
-    return base_test_mixin_fixture.team
-
-
-@pytest.fixture
 def test_events(db, team) -> List[UUID]:
     return [
         _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"email": "test@posthog.com"},),
