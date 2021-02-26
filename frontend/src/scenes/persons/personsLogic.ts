@@ -54,23 +54,28 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
         },
         editProperty: async ({ key, newValue }) => {
             const person = values.person
+            let action: 'added' | 'updated' | 'removed'
+            let propertyType: string = typeof newValue
             if (person) {
                 let parsedValue = newValue
 
                 // If the property is a number, store it as a number
                 const attemptedParsedNumber = Number(newValue)
-                if (!Number.isNaN(attemptedParsedNumber)) {
+                if (!Number.isNaN(attemptedParsedNumber) && typeof newValue !== 'boolean') {
                     parsedValue = attemptedParsedNumber
+                    propertyType = 'number'
                 }
 
                 const lowercaseValue = typeof parsedValue === 'string' && parsedValue.toLowerCase()
                 if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
                     parsedValue = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
+                    propertyType = parsedValue !== null ? 'boolean' : 'null'
                 }
 
                 if (!Object.keys(person.properties).includes(key)) {
                     actions.setHasNewKeys()
                     person.properties = { [key]: parsedValue, ...person.properties } // To add property at the top (if new)
+                    action = 'added'
                 } else {
                     person.properties[key] = parsedValue
                 }
@@ -78,6 +83,13 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 actions.setPerson(person) // To update the UI immediately while the request is being processed
                 const response = await api.update(`api/person/${person.id}`, person)
                 actions.setPerson(response)
+
+                console.log(person.properties)
+                eventUsageLogic.actions.reportPersonPropertyUpdated(
+                    action,
+                    propertyType,
+                    Object.keys(person.properties).length
+                )
             }
         },
     }),
