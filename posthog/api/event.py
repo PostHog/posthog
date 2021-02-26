@@ -14,7 +14,6 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import Element, ElementGroup, Event, Filter, Person, PersonDistinctId
 from posthog.models.action import Action
 from posthog.models.event import EventManager
@@ -103,6 +102,8 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = EventSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
+    CSV_EXPORT_LIMIT = 100_000  # Return at most this number of events in CSV export
+
     def get_queryset(self):
         queryset = cast(EventManager, super().get_queryset()).add_person_id(self.team_id)
 
@@ -171,7 +172,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         next_url: Optional[str] = None
 
         if is_csv_request:
-            events = queryset[:100000]
+            events = queryset[: self.CSV_EXPORT_LIMIT]
         else:
             events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[:101]
             if len(events) < 101:
