@@ -168,14 +168,14 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         monday = now() + timedelta(days=-now().weekday())
         # don't allow events too far into the future
         queryset = queryset.filter(timestamp__lte=now() + timedelta(seconds=5),)
-        events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[0:101]
+        events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[:100]
 
         is_csv_request = self.request.accepted_renderer.format == "csv"
 
-        if not is_csv_request and len(events) < 101:
-            events = queryset[0:101]
+        if not is_csv_request and len(events) < 100:
+            events = queryset[:100]
         elif is_csv_request:
-            events = queryset[0:100000]
+            events = queryset[:100000]
 
         prefetched_events = self._prefetch_events(list(events))
         path = request.get_full_path()
