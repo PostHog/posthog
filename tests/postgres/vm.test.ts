@@ -728,7 +728,11 @@ test('posthog in runEvery', async () => {
         expect.objectContaining({
             distinct_id: 'plugin-id-60',
             event: 'my-new-event',
-            properties: expect.objectContaining({ $lib: 'posthog-plugin-server', random: 'properties' }),
+            properties: expect.objectContaining({
+                $lib: 'posthog-plugin-server',
+                random: 'properties',
+                distinct_id: 'plugin-id-60',
+            }),
         }),
         2,
         mockSendTask.mock.calls[0][1][5],
@@ -775,4 +779,42 @@ test('posthog in runEvery with timestamp', async () => {
         mockSendTask.mock.calls[0][1][6],
     ])
     expect(mockSendTask.mock.calls[0][2]).toEqual({})
+})
+
+test('posthog.capture accepts user-defined distinct id', async () => {
+    const indexJs = `
+        function runEveryMinute(meta) {
+            posthog.capture('my-new-event', { random: 'properties', distinct_id: 'custom id' })
+            return 'haha'
+        }
+    `
+    await resetTestDatabase(indexJs)
+    const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
+
+    expect(Client).not.toHaveBeenCalled
+
+    const response = await vm.tasks.runEveryMinute.exec()
+    expect(response).toBe('haha')
+
+    const mockClientInstance = (Client as any).mock.instances[1]
+    const mockSendTask = mockClientInstance.sendTask
+
+    expect(mockSendTask.mock.calls[0][0]).toEqual('posthog.tasks.process_event.process_event_with_plugins')
+    expect(mockSendTask.mock.calls[0][1]).toEqual([
+        'custom id',
+        null,
+        null,
+        expect.objectContaining({
+            distinct_id: 'custom id',
+            event: 'my-new-event',
+            properties: expect.objectContaining({
+                $lib: 'posthog-plugin-server',
+                random: 'properties',
+                distinct_id: 'custom id',
+            }),
+        }),
+        2,
+        mockSendTask.mock.calls[0][1][5],
+        mockSendTask.mock.calls[0][1][6],
+    ])
 })
