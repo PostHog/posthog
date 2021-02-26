@@ -36,6 +36,9 @@ clickhouse-driver==0.2.0
     # via
     #   -r requirements.in
     #   aioch
+    #   clickhouse-pool
+clickhouse-pool==0.4.3
+    # via -r requirements.in
 cryptography==3.3.2
     # via
     #   kafka-helper
