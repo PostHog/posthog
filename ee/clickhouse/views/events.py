@@ -42,7 +42,7 @@ class ClickhouseEventsViewSet(EventViewSet):
     def _query_events_list(
         self, filter: Filter, team: Team, request: Request, long_date_from: bool = False, limit: int = 100
     ) -> List:
-        limit = f"LIMIT {limit}"
+        limit_sql = f"LIMIT {limit + 1}"
         conditions, condition_params = determine_event_conditions(
             team,
             {
@@ -67,12 +67,12 @@ class ClickhouseEventsViewSet(EventViewSet):
 
         if prop_filters != "":
             return sync_execute(
-                SELECT_EVENT_WITH_PROP_SQL.format(conditions=conditions, limit=limit, filters=prop_filters),
+                SELECT_EVENT_WITH_PROP_SQL.format(conditions=conditions, limit=limit_sql, filters=prop_filters),
                 {"team_id": team.pk, **condition_params, **prop_filter_params},
             )
         else:
             return sync_execute(
-                SELECT_EVENT_WITH_ARRAY_PROPS_SQL.format(conditions=conditions, limit=limit),
+                SELECT_EVENT_WITH_ARRAY_PROPS_SQL.format(conditions=conditions, limit=limit_sql),
                 {"team_id": team.pk, **condition_params},
             )
 
@@ -93,11 +93,11 @@ class ClickhouseEventsViewSet(EventViewSet):
             query_result[0:limit], many=True, context={"people": self._get_people(query_result, team),},
         ).data
 
-        next_url = None
+        next_url: Optional[str] = None
         if not is_csv_request and len(query_result) > 100:
             path = request.get_full_path()
             reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
-            next_url: Optional[str] = request.build_absolute_uri(
+            next_url = request.build_absolute_uri(
                 "{}{}{}={}".format(
                     path,
                     "&" if "?" in path else "?",
