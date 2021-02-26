@@ -48,7 +48,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
     }
     const onMathSelect = (_, newMath) => {
         updateFilterMath({
-            newMath,
+            math: newMath,
             math_property: MATHS[newMath]?.onProperty ? mathProperty : undefined,
             onProperty: MATHS[newMath]?.onProperty,
             value: filter.id,
