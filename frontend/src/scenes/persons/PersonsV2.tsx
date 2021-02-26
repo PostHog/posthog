@@ -157,7 +157,7 @@ export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
                     }}
                     onSelectAll={(selected: boolean, changedIds: number[]) => {
                         if (selected) {
-                            setSelectedIds([...new Set([...selectedIds, ...changedIds])])
+                            setSelectedIds([...selectedIds, ...changedIds])
                         } else {
                             setSelectedIds(selectedIds.filter((item) => !changedIds.includes(item)))
                         }

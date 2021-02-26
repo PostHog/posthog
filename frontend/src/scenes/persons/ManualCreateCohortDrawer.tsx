@@ -5,6 +5,7 @@ import { useValues, useActions } from 'kea'
 import { Input, Button, Divider } from 'antd'
 import { PersonsTable } from './PersonsTable'
 import { DeleteOutlined } from '@ant-design/icons'
+import { PersonType } from '~/types'
 
 interface Props {
     visible: boolean
