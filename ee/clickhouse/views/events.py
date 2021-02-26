@@ -40,7 +40,8 @@ class ClickhouseEventsViewSet(EventViewSet):
         return distinct_to_person
 
     def _query_events_list(self, filter: Filter, team: Team, request: Request, long_date_from: bool = False) -> List:
-        limit = "LIMIT 101"
+        is_csv_request = self.request.accepted_renderer.format == "csv"
+        limit = f"LIMIT {self.CSV_EXPORT_LIMIT if is_csv_request else 101}"
         conditions, condition_params = determine_event_conditions(
             team,
             {
