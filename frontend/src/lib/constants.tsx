@@ -19,6 +19,13 @@ export enum OrganizationMembershipLevel {
     Owner = 15,
 }
 
+export enum OrganizationPluginsAccessLevel {
+    None = 0,
+    Configuration = 2,
+    Installation = 4,
+    Root = 6,
+}
+
 export const organizationMembershipLevelToName = new Map<number, string>([
     [OrganizationMembershipLevel.Member, 'member'],
     [OrganizationMembershipLevel.Admin, 'administrator'],
