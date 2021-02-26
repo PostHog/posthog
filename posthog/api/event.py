@@ -175,10 +175,10 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         else:
             events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[:101]
             if len(events) < 100:
-                events = queryset[:100]
+                events = queryset[:101]
             path = request.get_full_path()
             reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
-            if not is_csv_request and len(events) > 100:
+            if len(events) > 100:
                 next_url = request.build_absolute_uri(
                     "{}{}{}={}".format(
                         path,
@@ -187,6 +187,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                         events[99].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                     )
                 )
+            events = events[:100]
 
         prefetched_events = self._prefetch_events(list(events))
 
