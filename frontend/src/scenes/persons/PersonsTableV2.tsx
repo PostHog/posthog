@@ -21,6 +21,7 @@ interface PersonsTableType {
     cohort?: CohortType
     isCreatingCohort?: boolean
     onSelectRow?: (id: number) => void
+    onSelectAll?: (selected: boolean, changedIds: number[]) => void
     selectedRows?: number[]
     moreActions?: any
 }
@@ -36,6 +37,7 @@ export function PersonsTable({
     cohort,
     isCreatingCohort,
     onSelectRow,
+    onSelectAll,
     selectedRows,
     moreActions,
 }: PersonsTableType): JSX.Element {
@@ -136,6 +138,12 @@ export function PersonsTable({
                               type: 'checkbox',
                               selectedRowKeys: selectedRows || [],
                               onSelect: (record: PersonType) => onSelectRow && onSelectRow(record.id),
+                              onSelectAll: (selected, _, changedRows) =>
+                                  onSelectAll &&
+                                  onSelectAll(
+                                      selected,
+                                      changedRows.map((row) => row.id)
+                                  ),
                           },
                       }
                     : {})}

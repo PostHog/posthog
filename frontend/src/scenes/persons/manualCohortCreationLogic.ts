@@ -7,6 +7,7 @@ import { cohortLogic } from 'scenes/persons/cohortLogic'
 export const manualCohortCreationLogic = kea<manualCohortCreationLogicType<PersonType>>({
     actions: {
         selectId: (id: number) => ({ id }),
+        setSelectedIds: (ids: number[]) => ({ ids }),
         removeId: (idToRemove: number) => ({ idToRemove }),
         fetchPeople: true,
         setPeople: (people: PersonType[]) => ({ people }),
@@ -21,6 +22,7 @@ export const manualCohortCreationLogic = kea<manualCohortCreationLogicType<Perso
                 selectId: (state, { id }) => [...state, id],
                 removeId: (state, { idToRemove }) => state.filter((id) => id !== idToRemove),
                 clearCohort: () => [],
+                setSelectedIds: ({}, { ids }) => ids,
             },
         ],
         selectedPeople: [
@@ -41,6 +43,7 @@ export const manualCohortCreationLogic = kea<manualCohortCreationLogicType<Perso
     listeners: ({ actions, values }) => ({
         selectId: async () => actions.fetchPeople(),
         removeId: async () => actions.fetchPeople(),
+        setSelectedIds: async () => actions.fetchPeople(),
         fetchPeople: async () => {
             if (values.selectedIds.length) {
                 const result = await api.get('api/person?id=' + values.selectedIds.join(','))

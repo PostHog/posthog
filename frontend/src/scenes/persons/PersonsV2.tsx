@@ -1,26 +1,25 @@
 import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { PersonsTable } from './PersonsTable'
-import { Button, Input, Row, Radio, Divider } from 'antd'
+import { Button, Input, Row, Radio } from 'antd'
 import { ExportOutlined, PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { personsLogic } from './personsLogic'
 import { Link } from 'lib/components/Link'
-import { CohortType, PersonType } from '~/types'
+import { CohortType } from '~/types'
 import { LinkButton } from 'lib/components/LinkButton'
 import { ClockCircleFilled } from '@ant-design/icons'
 import { toParams } from 'lib/utils'
 import { manualCohortCreationLogic } from './manualCohortCreationLogic'
-import { Drawer } from 'lib/components/Drawer'
-import { DeleteOutlined } from '@ant-design/icons'
+import { ManualCreateCohortDrawer } from './ManualCreateCohortDrawer'
 
 export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading, exampleEmail } = useValues(personsLogic)
     const [searchTerm, setSearchTerm] = useState('') // Not on Kea because it's a component-specific store & to avoid changing the URL on every keystroke
     const [isCreatingCohort, setIsCreatingCohort] = useState<boolean>(false)
-    const { selectedIds, selectedPeople, cohortName } = useValues(manualCohortCreationLogic)
-    const { selectId, clearCohort, removeId, setCohortName, saveCohort } = useActions(manualCohortCreationLogic)
+    const { selectedIds } = useValues(manualCohortCreationLogic)
+    const { selectId, clearCohort, removeId, setSelectedIds } = useActions(manualCohortCreationLogic)
     const [createCohortDrawerIsOpen, setCreateCohortDrawerIsOpen] = useState(false)
 
     useEffect(() => {
@@ -154,66 +153,28 @@ export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
                     cohort={cohort}
                     isCreatingCohort={isCreatingCohort}
                     onSelectRow={(id: number) => {
-                        selectId(id)
+                        selectedIds.includes(id) ? removeId(id) : selectId(id)
+                    }}
+                    onSelectAll={(selected: boolean, changedIds: number[]) => {
+                        if (selected) {
+                            setSelectedIds([...new Set([...selectedIds, ...changedIds])])
+                        } else {
+                            setSelectedIds(selectedIds.filter((item) => !changedIds.includes(item)))
+                        }
                     }}
                     selectedRows={selectedIds}
                 />
             </div>
-            <Drawer
-                title={'New cohort'}
-                className="cohorts-drawer"
-                onClose={() => setCreateCohortDrawerIsOpen(false)}
-                destroyOnClose={false}
+            <ManualCreateCohortDrawer
                 visible={createCohortDrawerIsOpen}
-            >
-                <form
-                    onSubmit={(e): void => {
-                        e.preventDefault()
-                        saveCohort()
-                        setCreateCohortDrawerIsOpen(false)
-                        clearCohort()
-                        setIsCreatingCohort(false)
-                    }}
-                >
-                    <div className="mb">
-                        <Input
-                            required
-                            autoFocus
-                            placeholder="Cohort name..."
-                            value={cohortName}
-                            data-attr="cohort-name"
-                            onChange={(e) => setCohortName(e.target.value)}
-                        />
-                    </div>
-                    <div className="mt">
-                        <Button
-                            type="primary"
-                            htmlType="submit"
-                            disabled={false}
-                            data-attr="save-cohort"
-                            style={{ marginTop: '1rem' }}
-                        >
-                            Save cohort
-                        </Button>
-                    </div>
-                </form>
-                <Divider />
-                <PersonsTable
-                    people={selectedPeople}
-                    moreActions={[
-                        {
-                            title: 'Actions',
-                            render: function RenderActions(_: string, person: PersonType) {
-                                return (
-                                    <Button danger type="link" onClick={() => removeId(person.id)}>
-                                        <DeleteOutlined />
-                                    </Button>
-                                )
-                            },
-                        },
-                    ]}
-                />
-            </Drawer>
+                onClose={() => {
+                    setCreateCohortDrawerIsOpen(false)
+                }}
+                onSubmit={() => {
+                    setCreateCohortDrawerIsOpen(false)
+                    setIsCreatingCohort(false)
+                }}
+            />
         </div>
     )
 }
