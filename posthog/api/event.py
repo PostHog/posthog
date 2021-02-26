@@ -177,7 +177,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         elif is_csv_request:
             events = queryset[0:100000]
 
-        prefetched_events = self._prefetch_events([event for event in events])
+        prefetched_events = self._prefetch_events(list(events))
         path = request.get_full_path()
 
         reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
@@ -197,7 +197,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             {
                 "next": next_url,
                 "results": EventSerializer(
-                    prefetched_events[0:100], many=True, context={"format": self.request.accepted_renderer.format}
+                    prefetched_events, many=True, context={"format": self.request.accepted_renderer.format}
                 ).data,
             }
         )
