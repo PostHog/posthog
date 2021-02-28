@@ -38,6 +38,10 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
 
 
 class TransactionBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
+    """
+    DEPRECATED in favor of APIBaseTest.
+    """
+
     pass
 
 
