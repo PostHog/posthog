@@ -1,29 +1,26 @@
 from typing import Dict, Optional
 
-import posthoganalytics
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.core.validators import MinLengthValidator
 from django.db import models
-from django.utils import timezone
 
-from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_TABLE
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 
 from .dashboard import Dashboard
-from .dashboard_item import DashboardItem
 from .utils import UUIDT, generate_random_token, sane_repr
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
 
 class TeamManager(models.Manager):
-    def create_with_data(self, user=None, **kwargs) -> "Team":
+    def create_with_data(self, user=None, default_dashboards: bool = True, **kwargs) -> "Team":
         team = Team.objects.create(**kwargs)
 
-        # Create default dashboard
+        # Create default dashboards (skipped for demo projects)
         # TODO: Support multiple dashboard flavors based on #2822 personalization
-        dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team)
-        create_dashboard_from_template("DEFAULT_APP", dashboard)
+        if default_dashboards:
+            dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team)
+            create_dashboard_from_template("DEFAULT_APP", dashboard)
         return team
 
     def create(self, *args, **kwargs) -> "Team":

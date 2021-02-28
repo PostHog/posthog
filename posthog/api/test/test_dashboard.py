@@ -145,9 +145,9 @@ class TestDashboard(APIBaseTest):
 
         # retrieve
         response = self.client.get("/api/dashboard/").json()
-        pk = Dashboard.objects.all()[0].pk
-        self.assertEqual(response["results"][0]["id"], pk)
-        self.assertEqual(response["results"][0]["name"], "Default")
+        pk = Dashboard.objects.first().pk  # type: ignore
+        self.assertEqual(response["results"][0]["id"], pk)  # type: ignore
+        self.assertEqual(response["results"][0]["name"], "Default")  # type: ignore
 
         # delete (soft)
         self.client.patch(

@@ -368,17 +368,20 @@ class TestSignup(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "Jane",
                 "email": "hedgehog75@posthog.com",
-                "redirect_url": "/ingestion",
+                "redirect_url": "/personalization",
             },
         )
 
-        dashboard: Dashboard = Dashboard.objects.last()  # type: ignore
+        dashboard: Dashboard = Dashboard.objects.first()  # type: ignore
         self.assertEqual(dashboard.team, user.team)
-        self.assertEqual(dashboard.items.count(), 7)
-        self.assertEqual(dashboard.name, "My App Dashboard")
+        self.assertEqual(dashboard.items.count(), 1)
+        self.assertEqual(dashboard.name, "Web Analytics")
         self.assertEqual(
-            dashboard.items.all()[0].description, "Shows the number of unique users that use your app everyday."
+            dashboard.items.all()[0].description, "Shows a conversion funnel from sign up to watching a movie."
         )
+
+        # Particularly assert that the default dashboards are not created (because we create special demo dashboards)
+        self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 3)  # Web, app & revenue demo dashboards
 
 
 class TestInviteSignup(APIBaseTest):
