@@ -339,7 +339,7 @@ class TestSignup(APIBaseTest):
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
 
-    @patch("posthoganalytics.feature_enabled", side_effect=lambda feature, *args: feature == "1694-dashboards")
+    @patch("posthoganalytics.feature_enabled")
     def test_default_dashboard_is_created_on_signup(self, mock_feature_enabled):
         """
         Tests that the default web app dashboard is created on signup.
@@ -360,7 +360,6 @@ class TestSignup(APIBaseTest):
         user: User = User.objects.order_by("-pk").get()
 
         mock_feature_enabled.assert_any_call("new-onboarding-2822", user.distinct_id)
-        mock_feature_enabled.assert_any_call("1694-dashboards", user.distinct_id)
 
         self.assertEqual(
             response.data,

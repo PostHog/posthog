@@ -21,44 +21,9 @@ class TeamManager(models.Manager):
         team = Team.objects.create(**kwargs)
 
         # Create default dashboard
-        if user and posthoganalytics.feature_enabled("1694-dashboards", user.distinct_id):
-            # Create app template dashboard if feature flag is active
-            dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team,)
-            create_dashboard_from_template("DEFAULT_APP", dashboard)
-        else:
-            # DEPRECATED: Will be retired in favor of dashboard_templates.py
-            dashboard = Dashboard.objects.create(
-                name="Default", pinned=True, team=team, share_token=generate_random_token()
-            )
-
-            DashboardItem.objects.create(
-                team=team,
-                dashboard=dashboard,
-                name="Pageviews this week",
-                filters={TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}]},
-                last_refresh=timezone.now(),
-            )
-            DashboardItem.objects.create(
-                team=team,
-                dashboard=dashboard,
-                name="Most popular browsers this week",
-                filters={
-                    TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}],
-                    "display": TRENDS_TABLE,
-                    "breakdown": "$browser",
-                },
-                last_refresh=timezone.now(),
-            )
-            DashboardItem.objects.create(
-                team=team,
-                dashboard=dashboard,
-                name="Daily Active Users",
-                filters={
-                    TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}]
-                },
-                last_refresh=timezone.now(),
-            )
-
+        # TODO: Support multiple dashboard flavors based on #2822 personalization
+        dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team)
+        create_dashboard_from_template("DEFAULT_APP", dashboard)
         return team
 
     def create(self, *args, **kwargs) -> "Team":
