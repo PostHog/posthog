@@ -10,7 +10,7 @@ amqp==2.5.2
     # via
     #   -r requirements.in
     #   kombu
-asgiref==3.2.7
+asgiref==3.3.1
     # via
     #   -r requirements.in
     #   django

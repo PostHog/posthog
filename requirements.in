@@ -2,7 +2,7 @@
 
 git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
 amqp==2.5.2
-asgiref==3.2.7
+asgiref==3.3.1
 aioch==0.0.2
 celery==4.4.2
 celery-redbeat==0.13.0
