@@ -71,8 +71,13 @@ services:
             - db:db
             - redis:redis
     plugins:
-        image: posthog/plugin-server:0.11.1
+        build:
+            context: ../
+            dockerfile: production.Dockerfile
+        command: ./bin/plugin-server --no-restart-loop
         restart: on-failure
+        volumes:
+            - ..:/code
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_ENABLED: 'true'
