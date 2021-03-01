@@ -199,7 +199,7 @@ six==1.14.0
     #   social-auth-app-django
     #   social-auth-core
     #   tenacity
-social-auth-app-django==3.1.0
+social-auth-app-django==4.0.0
     # via -r requirements.in
 social-auth-core==3.3.3
     # via
