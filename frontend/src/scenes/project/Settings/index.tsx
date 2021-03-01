@@ -118,7 +118,12 @@ function _ProjectSettings(): JSX.Element {
                         {
                             Icon: ReloadOutlined,
                             popconfirmProps: {
-                                title: 'Reset project API key, invalidating the current one?',
+                                title: (
+                                    <>
+                                        Reset the project's API Key?{' '}
+                                        <b>This will invalidate the current API key and cannot be undone.</b>
+                                    </>
+                                ),
                                 okText: 'Reset Key',
                                 okType: 'danger',
                                 icon: <ReloadOutlined style={{ color: red.primary }} />,
@@ -127,6 +132,7 @@ function _ProjectSettings(): JSX.Element {
                             callback: resetToken,
                         },
                     ]}
+                    copyDescription="project API key"
                 >
                     {currentTeam?.api_token}
                 </CodeSnippet>

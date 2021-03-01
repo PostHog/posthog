@@ -70,11 +70,12 @@ SyntaxHighlighter.registerLanguage(Language.Markup, markup)
 SyntaxHighlighter.registerLanguage(Language.HTTP, http)
 
 export interface CodeSnippetProps {
-    children: string | undefined
+    children?: string
     language?: Language
     wrap?: boolean
     actions?: Action[]
     style?: React.CSSProperties
+    copyDescription?: string
 }
 
 export function CodeSnippet({
@@ -83,6 +84,7 @@ export function CodeSnippet({
     wrap = false,
     style = {},
     actions,
+    copyDescription = 'code snippet',
 }: CodeSnippetProps): JSX.Element {
     return (
         <div className="code-container" style={style}>
@@ -100,7 +102,7 @@ export function CodeSnippet({
                 <CopyOutlined
                     className="action-icon"
                     onClick={() => {
-                        copyToClipboard(children, 'code snippet')
+                        children && copyToClipboard(children, copyDescription)
                     }}
                 />
             </div>
