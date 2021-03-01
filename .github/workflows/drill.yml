@@ -12,13 +12,13 @@ jobs:
             - name: Check if PR body is shame-worthy
               id: is-shame-worthy
               run: |
-                  FILTERED_BODY=$(
+                  FILTERED_BODY=$( \
                       sed -r -e \
                       '/^(\*Please describe)|(\*If this affects the frontend)|(## (Changes|Checklist))|(^- \[ ?\])/d' \
-                      <<< "${{ github.event.pull_request.body }}"
+                      <<< "${{ github.event.pull_request.body }}" \
                   )
                   echo "::debug::Filtered PR body to $FILTERED_BODY"
-                  if [[ $FILTERED_BODY = *[!\ ]* ]]; then
+                  if [[ -z "${FILTERED_BODY//[[:space:]]/}" ]]; then
                       echo "::set-output name=is-shame-worthy::true"
                   else
                       echo "::set-output name=is-shame-worthy::false"
