@@ -35,7 +35,6 @@ services:
             SECRET_KEY: 'alsdfjiosdajfklalsdjkf'
             DEBUG: 'true'
             PRIMARY_DB: 'clickhouse'
-            PLUGIN_SERVER_INGESTION: 'true'
         depends_on:
             - db
             - redis

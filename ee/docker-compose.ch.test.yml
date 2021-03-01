@@ -35,7 +35,6 @@ services:
             SECRET_KEY: 'alsdfjiosdajfklalsdjkf'
             DEBUG: 'true'
             PRIMARY_DB: 'clickhouse'
-            PLUGIN_SERVER_INGESTION: 'true'
             TEST: 'true'
         depends_on:
             - db
@@ -78,7 +77,6 @@ services:
             KAFKA_ENABLED: 'true'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
-            PLUGIN_SERVER_INGESTION: 'true'
         depends_on:
             - db
             - redis
