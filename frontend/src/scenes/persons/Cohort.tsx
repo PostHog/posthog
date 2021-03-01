@@ -155,7 +155,7 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
-                    saveCohort(cohort)
+                    saveCohort()
                 }}
             >
                 <div className="mb">

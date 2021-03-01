@@ -66,7 +66,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
                 if (statusLoading) {
                     return true
                 }
-                const aliveMetrics = ['redis_alive', 'db_alive']
+                const aliveMetrics = ['redis_alive', 'db_alive', 'plugin_sever_alive']
                 let aliveSignals = 0
                 for (const metric of statusMetrics) {
                     if (metric.key && aliveMetrics.includes(metric.key) && metric.value) {

@@ -32,6 +32,7 @@ export enum Scene {
     // Onboarding / setup routes
     PreflightCheck = 'preflightCheck',
     Signup = 'signup',
+    InviteSignup = 'inviteSignup',
     Personalization = 'personalization',
     Ingestion = 'ingestion',
     OnboardingSetup = 'onboardingSetup',
@@ -68,7 +69,8 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.MySettings]: () => import(/* webpackChunkName: 'mySettings' */ './me/Settings'),
     [Scene.Annotations]: () => import(/* webpackChunkName: 'annotations' */ './annotations'),
     [Scene.PreflightCheck]: () => import(/* webpackChunkName: 'preflightCheck' */ './PreflightCheck'),
-    [Scene.Signup]: () => import(/* webpackChunkName: 'signup' */ './onboarding'),
+    [Scene.Signup]: () => import(/* webpackChunkName: 'signup' */ './onboarding/Signup'),
+    [Scene.InviteSignup]: () => import(/* webpackChunkName: 'inviteSignup' */ './onboarding/InviteSignup'),
     [Scene.Ingestion]: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
     [Scene.Billing]: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
     [Scene.Plugins]: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
@@ -77,11 +79,12 @@ export const scenes: Record<Scene, () => any> = {
 }
 
 interface SceneConfig {
-    unauthenticated?: boolean // If route is to be accessed when logged out (N.B. add to posthog/urls.py too)
+    onlyUnauthenticated?: boolean // Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too)
+    allowUnauthenticated?: boolean // Route **can** be accessed when logged out (i.e. can be accessed when logged in too)
     dark?: boolean // Background is $bg_mid
     plain?: boolean // Only keeps the main content and the top navigation bar
     hideTopNav?: boolean // Hides the top navigation bar (regardless of whether `plain` is `true` or not)
-    hideDemoWarnings?: boolean // Hides demo project (DemoWarning.tsx) or project has no events (App.tsx) warnings
+    hideDemoWarnings?: boolean // Hides demo project (DemoWarning.tsx)
 }
 
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
@@ -102,10 +105,14 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     // Onboarding / setup routes
     [Scene.PreflightCheck]: {
-        unauthenticated: true,
+        onlyUnauthenticated: true,
     },
     [Scene.Signup]: {
-        unauthenticated: true,
+        onlyUnauthenticated: true,
+    },
+    [Scene.InviteSignup]: {
+        allowUnauthenticated: true,
+        plain: true,
     },
     [Scene.Personalization]: {
         plain: true,
@@ -138,7 +145,6 @@ export const routes: Record<string, Scene> = {
     '/events': Scene.Events,
     '/events/*': Scene.Events,
     '/sessions': Scene.Sessions,
-    '/person_by_id/:id': Scene.Person,
     '/person/*': Scene.Person,
     '/persons': Scene.Persons,
     '/cohorts/:id': Scene.Cohorts,
@@ -157,6 +163,7 @@ export const routes: Record<string, Scene> = {
     // Onboarding / setup routes
     '/preflight': Scene.PreflightCheck,
     '/signup': Scene.Signup,
+    '/signup/:id': Scene.InviteSignup,
     '/personalization': Scene.Personalization,
     '/ingestion': Scene.Ingestion,
     '/ingestion/*': Scene.Ingestion,

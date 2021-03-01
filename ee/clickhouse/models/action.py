@@ -9,9 +9,11 @@ from posthog.models.action_step import ActionStep
 from posthog.models.event import Selector
 
 
-def format_action_filter(action: Action, prepend: str = "action", use_loop: bool = False) -> Tuple[str, Dict]:
+def format_action_filter(
+    action: Action, prepend: str = "action", use_loop: bool = False, filter_by_team=True
+) -> Tuple[str, Dict]:
     # get action steps
-    params = {"team_id": action.team.pk}
+    params = {"team_id": action.team.pk} if filter_by_team else {}
     steps = action.steps.all()
     if len(steps) == 0:
         # If no steps, it shouldn't match this part of the query
@@ -38,7 +40,7 @@ def format_action_filter(action: Action, prepend: str = "action", use_loop: bool
 
             prop_query, prop_params = parse_prop_clauses(
                 Filter(data={"properties": step.properties}).properties,
-                action.team.pk,
+                team_id=action.team.pk if filter_by_team else None,
                 prepend="action_props_{}".format(action.pk),
             )
             conditions.append(prop_query.replace("AND", "", 1))
@@ -128,11 +130,11 @@ def filter_element(filters: Dict, prepend: str = "") -> Tuple[List[str], Dict]:
     return (conditions, params)
 
 
-def format_entity_filter(entity: Entity, prepend: str = "action") -> Tuple[str, Dict]:
+def format_entity_filter(entity: Entity, prepend: str = "action", filter_by_team=True) -> Tuple[str, Dict]:
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
         try:
             action = Action.objects.get(pk=entity.id)
-            entity_filter, params = format_action_filter(action, prepend=prepend)
+            entity_filter, params = format_action_filter(action, prepend=prepend, filter_by_team=filter_by_team)
         except Action.DoesNotExist:
             raise ValueError("This action does not exist")
     else:

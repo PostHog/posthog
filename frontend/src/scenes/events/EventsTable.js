@@ -35,6 +35,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
         {
             title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
             key: 'event',
+            rowKey: 'id',
             render: function renderEvent(item) {
                 if (!item.event) {
                     return {

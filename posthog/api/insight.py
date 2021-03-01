@@ -84,6 +84,11 @@ class InsightSerializer(serializers.ModelSerializer):
         if dashboard_item.created_by:
             return UserSerializer(dashboard_item.created_by).data
 
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["filters"] = instance.dashboard_filters()
+        return representation
+
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
@@ -211,14 +216,15 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             if cached_result:
                 task_id = cached_result.get("task_id", None)
                 if not task_id:
-                    return cached_result["data"]
+                    return cached_result["result"]
                 else:
                     return {"result": result}
 
         payload = {"filter": filter.toJSON(), "team_id": team.pk}
         task = update_cache_item_task.delay(cache_key, CacheType.FUNNEL, payload)
-        task_id = task.id
-        cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
+        if not task.ready():
+            task_id = task.id
+            cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
 
         self._refresh_dashboard(request=request)
         return {"result": result}

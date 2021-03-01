@@ -2,27 +2,35 @@ import './ActionsPie.scss'
 
 import React, { useState, useEffect } from 'react'
 import { Loading } from 'lib/utils'
-import { LineGraph } from './LineGraph'
+import { LineGraph } from '../../insights/LineGraph'
 import { getChartColors } from 'lib/colors'
 import { useValues } from 'kea'
-import { trendsLogic } from 'scenes/insights/trendsLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { ChartParams, TrendResultWithAggregate } from '~/types'
 
-export function ActionsPie({ dashboardItemId, view, filters: filtersParam, color, cachedResults }) {
-    const [data, setData] = useState(null)
+export function ActionsPie({
+    dashboardItemId,
+    view,
+    filters: filtersParam,
+    color = 'white',
+    cachedResults,
+    inSharedMode,
+}: ChartParams): JSX.Element {
+    const [data, setData] = useState<Record<string, any>[] | null>(null)
     const [total, setTotal] = useState(0)
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
     const { results, resultsLoading } = useValues(logic)
 
-    function updateData() {
-        const data = results
-        data.sort((a, b) => b.aggregated_value - a.aggregated_value)
+    function updateData(): void {
+        const _data = results as TrendResultWithAggregate[]
+        _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
 
         const colorList = getChartColors(color)
 
         setData([
             {
-                labels: data.map((item) => item.label),
-                data: data.map((item) => item.aggregated_value),
+                labels: _data.map((item) => item.label),
+                data: _data.map((item) => item.aggregated_value),
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,
                 hoverBorderColor: colorList,
@@ -31,7 +39,7 @@ export function ActionsPie({ dashboardItemId, view, filters: filtersParam, color
                 borderWidth: 1,
             },
         ])
-        setTotal(data.reduce((prev, item) => prev + item.aggregated_value, 0))
+        setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
     }
 
     useEffect(() => {
@@ -48,6 +56,8 @@ export function ActionsPie({ dashboardItemId, view, filters: filtersParam, color
                         type="doughnut"
                         datasets={data}
                         labels={data[0].labels}
+                        inSharedMode={inSharedMode}
+                        dashboardItemId={dashboardItemId}
                     />
                 </div>
                 <h1>

@@ -15,14 +15,16 @@ import {
     ACTION_TYPE,
     ShownAsValue,
 } from 'lib/constants'
-import { ViewType, insightLogic } from './insightLogic'
-import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
+import { ViewType, insightLogic } from '../insights/insightLogic'
+import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
-import { ActionType, EntityType, FilterType, PersonType, PropertyFilter } from '~/types'
+import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
+import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
-import { ToastId } from 'react-toastify'
+import { toast, ToastId } from 'react-toastify'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
-interface ActionFilter {
+export interface ActionFilter {
     id: number | string
     math?: string
     math_property?: string
@@ -30,6 +32,10 @@ interface ActionFilter {
     order: number
     properties: PropertyFilter[]
     type: EntityType
+}
+
+export interface IndexedTrendResult extends TrendResult {
+    id: number
 }
 
 interface TrendPeople {
@@ -88,8 +94,8 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
     const { action, day, breakdown_value, ...restParams } = peopleParams
     const params = filterClientSideParams({
         ...filters,
-        entityId: action.id,
-        type: action.type,
+        entity_id: action.id,
+        entity_type: action.type,
         breakdown_value,
     })
 
@@ -124,21 +130,22 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
 // props:
 // - dashboardItemId
 // - filters
-export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeople, PropertyFilter, ToastId>>({
+export const trendsLogic = kea<
+    trendsLogicType<TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter, ToastId>
+>({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
     },
 
     connect: {
         values: [userLogic, ['eventNames'], actionsModel, ['actions']],
-        actions: [insightHistoryLogic, ['createInsight']],
     },
 
     loaders: ({ values, props }) => ({
         results: {
-            __default: [],
+            __default: [] as TrendResult[],
             loadResults: async (refresh = false, breakpoint) => {
-                if (props.cachedResults && !refresh) {
+                if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return props.cachedResults
                 }
                 insightLogic.actions.startQuery()
@@ -174,7 +181,9 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
         setDisplay: (display) => ({ display }),
 
         loadPeople: (action, label, day, breakdown_value) => ({ action, label, day, breakdown_value }),
+        saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
         loadMorePeople: true,
+        refreshCohort: true,
         setLoadingMorePeople: (status) => ({ status }),
         setShowingPeople: (isShowing) => ({ isShowing }),
         setPeople: (people, count, action, label, day, breakdown_value, next) => ({
@@ -186,6 +195,9 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
             breakdown_value,
             next,
         }),
+        setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
+        toggleVisibility: (index: number) => ({ index }),
+        setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
     }),
 
     reducers: ({ props }) => ({
@@ -224,6 +236,25 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                 setShowingPeople: ({}, { isShowing }) => isShowing,
             },
         ],
+        indexedResults: [
+            [],
+            {
+                setIndexedResults: ({}, { results }) => results,
+            },
+        ],
+        visibilityMap: [
+            {} as Record<number, any>,
+            {
+                setVisibilityById: (state: Record<number, any>, { entry }: { entry: Record<number, any> }) => ({
+                    ...state,
+                    ...entry,
+                }),
+                toggleVisibility: (state: Record<number, any>, { index }: { index: number }) => ({
+                    ...state,
+                    [`${index}`]: !state[index],
+                }),
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
@@ -235,7 +266,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                 }
 
                 const { action, day, breakdown_value } = people
-                const properties = filters.properties || []
+                const properties = [...(filters.properties || []), ...(action.properties || [])]
                 if (filters.breakdown && filters.breakdown_type && breakdown_value) {
                     properties.push({
                         key: filters.breakdown,
@@ -279,6 +310,35 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
     listeners: ({ actions, values, props }) => ({
         setDisplay: async ({ display }) => {
             actions.setFilters({ display })
+        },
+        refreshCohort: () => {
+            cohortLogic({
+                cohort: {
+                    id: 'new',
+                    groups: [],
+                },
+            }).actions.setCohort({
+                id: 'new',
+                groups: [],
+            })
+        },
+        saveCohortWithFilters: ({ cohortName }) => {
+            if (values.people) {
+                const { label, action, day, breakdown_value } = values.people
+                const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
+                const cohortParams = {
+                    is_static: true,
+                    name: cohortName,
+                }
+                cohortLogic({
+                    cohort: {
+                        id: 'new',
+                        groups: [],
+                    },
+                }).actions.saveCohort(cohortParams, filterParams)
+            } else {
+                toast.error('Error creating cohort')
+            }
         },
         loadPeople: async ({ label, action, day, breakdown_value }, breakpoint) => {
             let people = []
@@ -333,10 +393,21 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
         },
         loadResultsSuccess: () => {
             if (!props.dashboardItemId) {
-                actions.createInsight({
+                insightHistoryLogic.actions.createInsight({
                     ...values.filters,
                     insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
                 })
+            }
+
+            const indexedResults = values.results.map((element, index) => {
+                actions.setVisibilityById({ [`${index}`]: true })
+                return { ...element, id: index }
+            })
+            actions.setIndexedResults(indexedResults)
+        },
+        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
+            if (props.dashboardItemId) {
+                actions.setFilters(filters, true)
             }
         },
     }),

@@ -1,7 +1,6 @@
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-from dateutil.relativedelta import relativedelta
 from django.test.utils import override_settings
 from django.utils import timezone
 from freezegun import freeze_time

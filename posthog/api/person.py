@@ -14,6 +14,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.utils import get_target_entity
 from posthog.constants import TRENDS_LINEAR, TRENDS_TABLE
 from posthog.models import Event, Filter, Person
 from posthog.models.filters import RetentionFilter
@@ -53,6 +54,11 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
             return sorted(person.distinct_ids, key=is_anonymous_id)[0]
         return person.pk
+
+    def to_representation(self, instance: Person) -> Dict[str, Any]:
+        representation = super().to_representation(instance)
+        representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
+        return representation
 
 
 class PersonFilter(filters.FilterSet):
@@ -296,7 +302,10 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
         earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
         filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=earliest_timestamp_func)
-        people = self.stickiness_class().people(filter, team)
+
+        target_entity = get_target_entity(request)
+
+        people = self.stickiness_class().people(target_entity, filter, team)
         next_url = paginated_result(people, request, filter.offset)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 

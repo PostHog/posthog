@@ -5,16 +5,16 @@ import posthoganalytics
 from django import forms
 from django.conf import settings
 from django.contrib import admin
-from django.contrib.auth import authenticate, decorators, login
+from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
-from django.template.loader import render_to_string
 from django.urls import URLPattern, include, path, re_path, reverse
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
 from loginas.utils import is_impersonated_session, restore_original_login
+from rest_framework import exceptions
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
@@ -32,12 +32,11 @@ from posthog.api import (
 from posthog.demo import demo
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_signed_up
-from posthog.models.organization import Organization
 
 from .api.organization import OrganizationSignupSerializer
 from .models import OrganizationInvite, Team, User
 from .utils import render_template
-from .views import health, preflight_check, stats, system_status
+from .views import health, login_required, preflight_check, stats, system_status
 
 
 def home(request, *args, **kwargs):
@@ -87,97 +86,6 @@ class TeamInviteSurrogate:
 
     def use(self, user: Any, *args, **kwargs) -> None:
         user.join(organization=self.organization)
-
-
-def signup_to_organization_view(request, invite_id):
-    """
-    TODO: DEPRECATED in favor of posthog.api.organization.OrganizationInviteSignupSerializer
-    """
-    if not invite_id:
-        return redirect("/")
-    if not User.objects.exists():
-        return redirect("/preflight")
-    try:
-        invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
-            "organization"
-        ).get(id=invite_id)
-    except (OrganizationInvite.DoesNotExist, ValidationError):
-        try:
-            invite = TeamInviteSurrogate(invite_id)
-        except Team.DoesNotExist:
-            return redirect("/")
-
-    organization = cast(Organization, invite.organization)
-    user = request.user
-    if request.method == "POST":
-        if request.user.is_authenticated:
-            user = cast(User, request.user)
-            try:
-                invite.use(user)
-            except ValueError as e:
-                return render_template(
-                    "signup_to_organization.html",
-                    request=request,
-                    context={
-                        "user": user,
-                        "custom_error": str(e),
-                        "organization": organization,
-                        "invite_id": invite_id,
-                    },
-                )
-            else:
-                posthoganalytics.capture(
-                    user.distinct_id, "user joined from invite", properties={"organization_id": organization.id},
-                )
-                return redirect("/")
-        else:
-            email = request.POST["email"]
-            password = request.POST["password"]
-            first_name = request.POST.get("name")
-            email_opt_in = request.POST.get("emailOptIn") == "on"
-            valid_inputs = (
-                is_input_valid("name", first_name)
-                and is_input_valid("email", email)
-                and is_input_valid("password", password)
-            )
-            already_exists = User.objects.filter(email=email).exists()
-            custom_error = None
-            try:
-                invite.validate(user=None, email=email)
-            except ValueError as e:
-                custom_error = str(e)
-            if already_exists or not valid_inputs or custom_error:
-                return render_template(
-                    "signup_to_organization.html",
-                    request=request,
-                    context={
-                        "email": email,
-                        "name": first_name,
-                        "already_exists": already_exists,
-                        "custom_error": custom_error,
-                        "invalid_input": not valid_inputs,
-                        "organization": organization,
-                        "invite_id": invite_id,
-                    },
-                )
-            user = User.objects.create_user(email, password, first_name=first_name, email_opt_in=email_opt_in)
-            invite.use(user, prevalidated=True)
-            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-
-            report_user_signed_up(
-                user.distinct_id,
-                is_instance_first_user=False,
-                is_organization_first_user=False,
-                new_onboarding_enabled=(not organization.setup_section_2_completed),
-                backend_processor="signup_to_organization_view",
-            )
-
-            return redirect("/")
-    return render_template(
-        "signup_to_organization.html",
-        request,
-        context={"organization": organization, "user": user, "invite_id": invite_id},
-    )
 
 
 class CompanyNameForm(forms.Form):
@@ -239,26 +147,23 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
             try:
                 invite = TeamInviteSurrogate(invite_id)
             except Team.DoesNotExist:
-                processed = render_to_string("auth_error.html", {"message": "Invalid invite link!"},)
-                return HttpResponse(processed, status=401)
+                return redirect(f"/signup/{invite_id}?error_code=invalid_invite&source=social_create_user")
 
         try:
             invite.validate(user=None, email=user_email)
-        except ValueError as e:
-            processed = render_to_string("auth_error.html", {"message": str(e)},)
-            return HttpResponse(processed, status=401)
+        except exceptions.ValidationError as e:
+            return redirect(
+                f"/signup/{invite_id}?error_code={e.get_codes()[0]}&error_detail={e.args[0]}&source=social_create_user"
+            )
 
         try:
             user = strategy.create_user(email=user_email, first_name=user_name, password=None)
         except Exception as e:
             capture_exception(e)
-            processed = render_to_string(
-                "auth_error.html",
-                {
-                    "message": "Account unable to be created. This account may already exist. Please try again or use different credentials!"
-                },
-            )
-            return HttpResponse(processed, status=401)
+            message = "Account unable to be created. This account may already exist. Please try again"
+            " or use different credentials."
+            return redirect(f"/signup/{invite_id}?error_code=unknown&error_detail={message}&source=social_create_user")
+
         invite.use(user, prevalidated=True)
 
     report_user_signed_up(
@@ -342,9 +247,9 @@ urlpatterns = [
     opt_slash_path("api/social_signup", organization.OrganizationSocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", organization.OrganizationInviteSignupViewset.as_view()),
     re_path(r"^api.+", api_not_found),
-    path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
+    path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
-    re_path(r"^demo.*", decorators.login_required(demo)),
+    re_path(r"^demo.*", login_required(demo)),
     # ingestion
     opt_slash_path("decide", decide.get_decide),
     opt_slash_path("e", capture.get_event),
@@ -357,7 +262,6 @@ urlpatterns = [
     path("logout", logout, name="login"),
     path("login", login_view, name="login"),
     path("signup/finish/", finish_social_signup, name="signup_finish"),
-    path("signup/<str:invite_id>", signup_to_organization_view, name="signup"),
     path("", include("social_django.urls", namespace="social")),
     *(
         []
@@ -404,10 +308,10 @@ if settings.TEST:
     urlpatterns.append(path("delete_events/", delete_events))
 
 # Routes added individually to remove login requirement
-frontend_unauthenticated_routes = ["preflight", "signup"]
+frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*"]
 for route in frontend_unauthenticated_routes:
-    urlpatterns.append(path(route, home))
+    urlpatterns.append(re_path(route, home))
 
 urlpatterns += [
-    re_path(r"^.*", decorators.login_required(home)),
+    re_path(r"^.*", login_required(home)),
 ]

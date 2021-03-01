@@ -37,14 +37,6 @@
                     "value": "https://app.posthog.com"
                 },
                 {
-                    "name": "PLUGIN_SERVER_INGESTION",
-                    "value": "true"
-                },
-                {
-                    "name": "KAFKA_BATCH_PARALELL_PROCESSING",
-                    "value": "true"
-                },
-                {
                     "name": "BILLING_TRIAL_DAYS",
                     "value": "0"
                 },

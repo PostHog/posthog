@@ -4,7 +4,9 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import celery
 import pytz
+import statsd
 from dateutil.parser import isoparse
+from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
 from sentry_sdk import capture_exception
@@ -15,6 +17,7 @@ from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INS
 from ee.idl.gen import events_pb2
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
+from ee.models.hook import Hook
 from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
 from posthog.models.person import Person
@@ -60,8 +63,12 @@ def create_event(
 
     p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
 
-    if team.slack_incoming_webhook or team.organization.is_feature_available("zapier"):
+    if team.slack_incoming_webhook or (
+        team.organization.is_feature_available("zapier")
+        and Hook.objects.filter(event="action_performed", team=team).exists()
+    ):
         try:
+            statsd.Counter("%s_posthog_cloud_hooks_send_task" % (settings.STATSD_PREFIX,)).increment()
             celery.current_app.send_task(
                 "ee.tasks.webhooks_ee.post_event_to_webhook_ee",
                 (
@@ -161,7 +168,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
 
 def determine_event_conditions(
-    conditions: Dict[str, Union[str, List[str]]], long_date_from: bool = False
+    team: Team, conditions: Dict[str, Union[str, List[str]]], long_date_from: bool
 ) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
@@ -178,7 +185,7 @@ def determine_event_conditions(
             params.update({"before": timestamp})
         elif k == "person_id":
             result += """AND distinct_id IN (%(distinct_ids)s)"""
-            distinct_ids = Person.objects.filter(pk=v)[0].distinct_ids
+            distinct_ids = Person.objects.filter(pk=v, team_id=team.pk)[0].distinct_ids
             distinct_ids = [distinct_id.__str__() for distinct_id in distinct_ids]
             params.update({"distinct_ids": distinct_ids})
         elif k == "distinct_id":

@@ -90,7 +90,7 @@ class TestSessionListBuilder(BaseTest):
         self.assertEqual(
             self.builder.pagination,
             {
-                "offset": 2,
+                "distinct_id_offset": 2,
                 "last_seen": {
                     "1": (now() - relativedelta(minutes=35)).timestamp(),
                     "2": (now() - relativedelta(minutes=45)).timestamp(),

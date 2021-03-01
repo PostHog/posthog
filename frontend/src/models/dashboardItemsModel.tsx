@@ -6,13 +6,19 @@ import { toast } from 'react-toastify'
 import { DashboardItemType } from '~/types'
 import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
+import { dashboardItemsModelType } from '~/models/dashboardItemsModelType'
 
-export const dashboardItemsModel = kea({
+export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType>>({
     actions: () => ({
-        renameDashboardItem: (item) => ({ item }),
-        renameDashboardItemSuccess: (item) => ({ item }),
-        duplicateDashboardItem: (item, dashboardId, move = false) => ({ item, dashboardId, move }),
-        duplicateDashboardItemSuccess: (item) => ({ item }),
+        renameDashboardItem: (item: DashboardItemType) => ({ item }),
+        renameDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
+        duplicateDashboardItem: (item: DashboardItemType, dashboardId?: number, move: boolean = false) => ({
+            item,
+            dashboardId,
+            move,
+        }),
+        duplicateDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
+        refreshAllDashboardItems: (filters: Record<string, any>) => filters,
     }),
     listeners: ({ actions }) => ({
         renameDashboardItem: async ({ item }) => {
@@ -28,20 +34,12 @@ export const dashboardItemsModel = kea({
                 },
             })
         },
-        duplicateDashboardItem: async ({
-            item,
-            dashboardId,
-            move,
-        }: {
-            item: DashboardItemType
-            dashboardId: number
-            move: boolean
-        }) => {
+        duplicateDashboardItem: async ({ item, dashboardId, move }) => {
             if (!item) {
                 return
             }
 
-            const layouts = {}
+            const layouts: Record<string, any> = {}
             Object.entries(item.layouts || {}).forEach(([size, { w, h }]) => {
                 layouts[size] = { w, h }
             })
@@ -66,6 +64,7 @@ export const dashboardItemsModel = kea({
                         </Link>
                         .&nbsp;
                         <Link
+                            to="#"
                             onClick={async () => {
                                 toast.dismiss(toastId)
                                 const [restoredItem, deletedItem] = await Promise.all([

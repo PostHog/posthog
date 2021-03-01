@@ -13,7 +13,7 @@ from posthog.models.element import Element
 from posthog.models.event import Event
 from posthog.models.session_recording_event import SessionRecordingEvent
 from posthog.models.utils import UUIDT
-from posthog.tasks.test.test_process_event import test_process_event_factory
+from posthog.tasks.test.test_process_event import factory_test_process_event
 
 
 def get_session_recording_events():
@@ -57,6 +57,6 @@ def _process_event_ee(
 
 class ClickhouseProcessEvent(
     ClickhouseTestMixin,
-    test_process_event_factory(_process_event_ee, _get_events, get_session_recording_events, get_elements),  # type: ignore
+    factory_test_process_event(_process_event_ee, _get_events, get_session_recording_events, get_elements),  # type: ignore
 ):
     pass

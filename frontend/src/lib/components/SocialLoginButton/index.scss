@@ -1,0 +1,84 @@
+@import '~/vars';
+
+$google: #4285f4;
+$github: #171516;
+$gitlab: #e65328;
+
+.social-logins {
+    margin-bottom: $default_spacing;
+    margin-top: $default_spacing;
+    text-align: center;
+
+    button,
+    a {
+        margin-bottom: $default_spacing / 2;
+    }
+
+    .caption {
+        margin-bottom: $default_spacing / 2;
+        color: $text_muted;
+    }
+}
+
+.btn-social-login {
+    color: white;
+    border: 0;
+    font-weight: bold;
+    position: relative;
+    padding-left: 60px;
+    padding-right: 32px; // 60px - 28px (icon width)
+
+    &:hover {
+        color: white;
+    }
+
+    &.google-oauth2 {
+        background-color: $google;
+
+        &:hover {
+            background-color: lighten($google, 12%);
+        }
+
+        .btn-social-icon .img {
+            background-image: url('./google.svg');
+        }
+    }
+
+    &.github {
+        background-color: $github;
+        &:hover {
+            background-color: lighten($github, 12%);
+        }
+
+        .btn-social-icon .img {
+            background-image: url('./github.svg');
+        }
+    }
+
+    &.gitlab {
+        background-color: $gitlab;
+        &:hover {
+            background-color: lighten($gitlab, 12%);
+        }
+
+        .btn-social-icon .img {
+            background-image: url('./gitlab.svg');
+        }
+    }
+
+    .btn-social-icon {
+        background-color: white;
+        border-radius: $radius;
+        height: 28px;
+        width: 28px;
+        position: absolute;
+        left: 2px;
+        top: 2px;
+        .img {
+            background-position: center center;
+            background-repeat: no-repeat;
+            height: 100%;
+            width: 100%;
+        }
+    }
+}

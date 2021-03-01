@@ -62,10 +62,11 @@ function PreflightItem({ name, status, caption, failedState }) {
 }
 
 function PreflightCheck() {
-    const [state, setState] = useState({})
+    const [state, setState] = useState({ mode: null })
     const { preflight, preflightLoading } = useValues(preflightLogic)
     const { resetPreflight } = useActions(preflightLogic)
     const isReady =
+        preflight &&
         preflight.django &&
         preflight.db &&
         preflight.redis &&
@@ -76,27 +77,27 @@ function PreflightCheck() {
         {
             id: 'database',
             name: 'Database (Postgres)',
-            status: preflight.db,
+            status: preflight?.db,
         },
         {
             id: 'backend',
             name: 'Backend server (Django)',
-            status: preflight.django,
+            status: preflight?.django,
         },
         {
             id: 'redis',
             name: 'Cache & queue (Redis)',
-            status: preflight.redis,
+            status: preflight?.redis,
         },
         {
             id: 'celery',
             name: 'Background jobs (Celery)',
-            status: preflight.celery,
+            status: preflight?.celery,
         },
         {
             id: 'plugins',
             name: 'Plugin server (Node)',
-            status: preflight.plugins,
+            status: preflight?.plugins,
             caption: state.mode === 'Experimentation' ? 'Required in production environments' : '',
             failedState: state.mode === 'Experimentation' ? 'warning' : 'error',
         },
@@ -191,7 +192,7 @@ function PreflightCheck() {
                                         data-attr="preflight-refresh"
                                         icon={<SyncOutlined />}
                                         onClick={() => window.location.reload()}
-                                        disabled={preflightLoading || Object.keys(preflight).length === 0}
+                                        disabled={preflightLoading || !preflight}
                                     >
                                         Refresh
                                     </Button>

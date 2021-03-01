@@ -1,11 +1,11 @@
-import { kea, Logic } from 'kea'
+import { BuiltLogic, kea, Logic } from 'kea'
 import { toParams, fromParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
-import { trendsLogic } from './trendsLogic'
+import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
 export enum ViewType {
@@ -25,7 +25,7 @@ This includes handling the urls and view state
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
 
-export const logicFromInsight = (insight: string, logicProps: Record<string, any>): Logic => {
+export const logicFromInsight = (insight: string, logicProps: Record<string, any>): Logic & BuiltLogic => {
     if (insight === ViewType.FUNNELS) {
         return funnelLogic(logicProps)
     } else if (insight === ViewType.RETENTION) {

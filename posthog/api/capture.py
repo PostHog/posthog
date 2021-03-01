@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from random import random
 from typing import Any, Dict, Optional
 
 import statsd
@@ -203,6 +204,7 @@ def get_event(request):
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
         event_uuid = UUIDT()
+        ip = None if team.anonymize_ips else get_ip_address(request)
 
         if is_ee_enabled():
             log_topics = [KAFKA_EVENTS_WAL]
@@ -213,7 +215,7 @@ def get_event(request):
 
             log_event(
                 distinct_id=distinct_id,
-                ip=get_ip_address(request),
+                ip=ip,
                 site_url=request.build_absolute_uri("/")[:-1],
                 data=event,
                 team_id=team.id,
@@ -227,7 +229,7 @@ def get_event(request):
             if not settings.PLUGIN_SERVER_INGESTION:
                 process_event_ee(
                     distinct_id=distinct_id,
-                    ip=get_ip_address(request),
+                    ip=ip,
                     site_url=request.build_absolute_uri("/")[:-1],
                     data=event,
                     team_id=team.id,
@@ -246,15 +248,7 @@ def get_event(request):
             celery_app.send_task(
                 name=task_name,
                 queue=celery_queue,
-                args=[
-                    distinct_id,
-                    get_ip_address(request),
-                    request.build_absolute_uri("/")[:-1],
-                    event,
-                    team.id,
-                    now.isoformat(),
-                    sent_at,
-                ],
+                args=[distinct_id, ip, request.build_absolute_uri("/")[:-1], event, team.id, now.isoformat(), sent_at,],
             )
     timer.stop("event_endpoint")
     return cors_response(request, JsonResponse({"status": 1}))

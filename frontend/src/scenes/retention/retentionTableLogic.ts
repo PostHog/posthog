@@ -14,6 +14,7 @@ import {
     RetentionTablePeoplePayload,
     RetentionTrendPeoplePayload,
 } from 'scenes/retention/types'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -43,6 +44,7 @@ function defaultFilters(filters: Record<string, any>): Record<string, any> {
         period: filters.period || 'Day',
         retention_type: filters.retention_type || RETENTION_FIRST_TIME,
         display: filters.display || ACTIONS_TABLE,
+        properties: filters.properties || [],
     }
 }
 
@@ -62,7 +64,7 @@ export const retentionTableLogic = kea<
         results: {
             __default: [] as RetentionTablePayload[] | RetentionTrendPayload[],
             loadResults: async (refresh = false, breakpoint) => {
-                if (!refresh && (props.cachedResults || props.preventLoading)) {
+                if (!refresh && (props.cachedResults || props.preventLoading) && values.filters === props.filters) {
                     return props.cachedResults
                 }
                 insightLogic.actions.startQuery()
@@ -110,7 +112,7 @@ export const retentionTableLogic = kea<
         filters: [
             props.filters
                 ? defaultFilters(props.filters as Record<string, any>)
-                : (state) => defaultFilters(router.selectors.searchParams(state)) as Record<string, any>,
+                : (state: Record<string, any>) => defaultFilters(router.selectors.searchParams(state)),
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
@@ -196,6 +198,11 @@ export const retentionTableLogic = kea<
                     next: peopleResult['next'],
                 }
                 actions.updatePeople(newPeople)
+            }
+        },
+        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
+            if (props.dashboardItemId) {
+                actions.setFilters(filters)
             }
         },
     }),
