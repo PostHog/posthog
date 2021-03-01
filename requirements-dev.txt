@@ -37,7 +37,7 @@ fakeredis==1.4.4
     # via -r requirements-dev.in
 flake8-bugbear==20.1.4
     # via -r requirements-dev.in
-flake8-colors==0.1.6
+flake8-colors==0.1.9
     # via -r requirements-dev.in
 flake8-commas==2.0.0
     # via -r requirements-dev.in
