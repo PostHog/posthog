@@ -12,7 +12,7 @@ export function TestAccountFilter({
 }: {
     filters: Partial<FilterType>
     onChange: (filters: Partial<FilterType>) => void
-}): JSX.element {
+}): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const hasFilters = (user?.team?.test_account_filters || []).length > 0

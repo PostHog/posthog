@@ -120,7 +120,7 @@ export function RetentionTab(): JSX.Element {
             </Button>
             <ActionFilterDropdown
                 open={returningOpen}
-                logic={entityLogicReturning}
+                logic={entityLogicReturning as any}
                 openButtonRef={returningNode}
                 onClose={() => setReturningOpen(false)}
             />

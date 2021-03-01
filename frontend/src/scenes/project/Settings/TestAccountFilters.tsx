@@ -14,7 +14,7 @@ export function TestAccountFilters(): JSX.Element {
                 <PropertyFilters
                     pageKey="testaccountfilters"
                     propertyFilters={user?.team?.test_account_filters}
-                    onChange={(filters: FilterType) =>
+                    onChange={(filters: FilterType[]) =>
                         userUpdateRequest({
                             team: {
                                 test_account_filters: filters,
