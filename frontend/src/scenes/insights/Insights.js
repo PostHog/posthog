@@ -339,8 +339,6 @@ const isFunnelEmpty = (filters) => {
 function FunnelInsight() {
     const { stepsWithCount, resultsLoading } = useValues(funnelLogic({}))
 
-    console.log(resultsLoading, stepsWithCount)
-
     return (
         <div style={{ height: 300, position: 'relative' }}>
             {resultsLoading && <Loading />}
