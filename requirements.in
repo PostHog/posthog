@@ -5,7 +5,7 @@ amqp==2.5.2
 asgiref==3.2.7
 aioch==0.0.2
 celery==4.4.2
-celery-redbeat==0.13.0
+celery-redbeat==2.0.0
 clickhouse-driver==0.2.0
 clickhouse-pool==0.4.3
 defusedxml==0.6.0
