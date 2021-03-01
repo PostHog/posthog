@@ -121,7 +121,7 @@ function _ProjectSettings(): JSX.Element {
                                 title: (
                                     <>
                                         Reset the project's API Key?{' '}
-                                        <b>Warning: This will invalidate the current API key and cannot be undone.</b>
+                                        <b>This will invalidate the current API key and cannot be undone.</b>
                                     </>
                                 ),
                                 okText: 'Reset Key',
