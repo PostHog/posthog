@@ -1,9 +1,8 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from django.db.models.manager import BaseManager
-from django.utils import timezone
 
-from ee.clickhouse.client import substitute_params, sync_execute
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses

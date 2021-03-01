@@ -26,12 +26,12 @@ export function LineGraph({
     labels,
     color,
     type,
-    isInProgress,
+    isInProgress = false,
     onClick,
     ['data-attr']: dataAttr,
     dashboardItemId,
     inSharedMode,
-    percentage,
+    percentage = false,
     totalValue,
 }) {
     const chartRef = useRef()

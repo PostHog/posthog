@@ -9,11 +9,9 @@ from posthog.queries.sessions.sessions_list import SessionsList
 from posthog.test.base import BaseTest
 
 
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
+def _create_action(team, name, properties=[]):
     action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
+    ActionStep.objects.create(action=action, event=name, properties=properties)
     return action
 
 
@@ -103,8 +101,11 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
 
         @freeze_time("2012-01-15T04:01:34.000Z")
         def test_filter_by_entity_action(self):
-            action1 = _create_action(name="custom-event", team=self.team)
-            action2 = _create_action(name="another-event", team=self.team)
+            action1 = _create_action(
+                name="custom-event", team=self.team, properties=[{"key": "$os", "value": "Windows 95"}]
+            )
+            action2 = _create_action(name="custom-event", team=self.team)
+            action3 = _create_action(name="another-event", team=self.team)
 
             self.create_test_data()
 
@@ -112,11 +113,17 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
                 self.run_query(
                     SessionsFilter(data={"filters": [{"type": "action_type", "key": "id", "value": action1.id}]})
                 )[0],
-                2,
+                1,
             )
             self.assertLength(
                 self.run_query(
                     SessionsFilter(data={"filters": [{"type": "action_type", "key": "id", "value": action2.id}]})
+                )[0],
+                2,
+            )
+            self.assertLength(
+                self.run_query(
+                    SessionsFilter(data={"filters": [{"type": "action_type", "key": "id", "value": action3.id}]})
                 )[0],
                 1,
             )
@@ -129,7 +136,7 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
                                 {
                                     "type": "action_type",
                                     "key": "id",
-                                    "value": action1.id,
+                                    "value": action2.id,
                                     "properties": [{"key": "$os", "value": "Mac OS X"}],
                                 }
                             ]
