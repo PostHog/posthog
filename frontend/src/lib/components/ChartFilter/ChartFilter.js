@@ -21,16 +21,18 @@ export function ChartFilter(props) {
     const { setChartFilter } = useActions(chartFilterLogic)
 
     const linearDisabled = filters.session && filters.session === 'dist'
-    const cumulativeDisabled = filters.session || filters.shown_as === STICKINESS || filters.retentionType
+    const cumulativeDisabled =
+        filters.session || filters.shown_as === STICKINESS || filters.insight === ViewType.RETENTION
     const tableDisabled = false
     const pieDisabled = filters.session || filters.insight === ViewType.RETENTION
-    const barDisabled = filters.session || filters.retentionType
-    const barValueDisabled = barDisabled || filters.shown_as === STICKINESS
-    const defaultDisplay = filters.retentionType
-        ? ACTIONS_TABLE
-        : filters.insight === ViewType.FUNNELS
-        ? FUNNEL_VIZ
-        : ACTIONS_LINE_GRAPH_LINEAR
+    const barDisabled = filters.session || filters.insight === ViewType.RETENTION
+    const barValueDisabled = barDisabled || filters.shown_as === STICKINESS || filters.insight === ViewType.RETENTION
+    const defaultDisplay =
+        filters.insight === ViewType.RETENTION
+            ? ACTIONS_TABLE
+            : filters.insight === ViewType.FUNNELS
+            ? FUNNEL_VIZ
+            : ACTIONS_LINE_GRAPH_LINEAR
 
     return (
         <Select
