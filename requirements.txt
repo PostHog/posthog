@@ -58,7 +58,7 @@ django-axes==5.9.0
     # via -r requirements.in
 django-cors-headers==3.5.0
     # via -r requirements.in
-django-deprecate-fields==0.1.0
+django-deprecate-fields==0.1.1
     # via -r requirements.in
 django-extensions==3.0.9
     # via -r requirements.in
