@@ -132,7 +132,7 @@ function _ProjectSettings(): JSX.Element {
                             callback: resetToken,
                         },
                     ]}
-                    copyDescription="Project API Key"
+                    copyDescription="project API key"
                 >
                     {currentTeam?.api_token}
                 </CodeSnippet>
