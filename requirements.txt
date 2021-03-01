@@ -130,7 +130,7 @@ oauthlib==3.1.0
     # via
     #   requests-oauthlib
     #   social-auth-core
-parso==0.6.1
+parso==0.8.1
     # via -r requirements.in
 pexpect==4.7.0
     # via -r requirements.in
