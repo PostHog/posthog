@@ -2,20 +2,28 @@ import { threadId } from 'worker_threads'
 
 export type StatusMethod = (icon: string, ...message: any[]) => void
 
-export interface Status {
+export interface StatusBlueprint {
     info: StatusMethod
     error: StatusMethod
 }
 
-function getPrefix(): string {
-    return `[${threadId ? threadId.toString().padStart(4, '_') : 'MAIN'}]`
+export class Status implements StatusBlueprint {
+    prefixOverride?: string
+
+    constructor(prefixOverride?: string) {
+        this.prefixOverride = prefixOverride
+    }
+
+    info(icon: string, ...message: any[]): void {
+        console.info(this.getPrefix(), icon, ...message.filter(Boolean))
+    }
+    error(icon: string, ...message: any[]): void {
+        console.error(this.getPrefix(), icon, ...message.filter(Boolean))
+    }
+
+    getPrefix(): string {
+        return `[${this.prefixOverride ?? (threadId ? threadId.toString().padStart(4, '_') : 'MAIN')}]`
+    }
 }
 
-export const status: Status = {
-    info(icon: string, ...message: any[]) {
-        console.info(getPrefix(), icon, ...message.filter(Boolean))
-    },
-    error(icon: string, ...message: any[]) {
-        console.error(getPrefix(), icon, ...message.filter(Boolean))
-    },
-}
+export const status = new Status()
