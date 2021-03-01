@@ -9,6 +9,7 @@ import subprocess
 import time
 import uuid
 from itertools import count
+from pathlib import Path
 from typing import (
     Any,
     Dict,
@@ -615,19 +616,13 @@ def is_valid_regex(value: Any) -> bool:
 
 
 # List of generic emails that we don't want to use to filter out test accounts
-generic_emails = [
-    "@gmail.com",
-    "@hotmail.com",
-    "@qq.com",
-    "@protonmail.com",
-    "@hey.com",
-    "@yahoo.com",
-    "@oal.com",
-    "@live.com",
-    "@outlook.com",
-    "@msn.com",
-    "@free.fr",
-    "@yandex.ru",
-    "@mac.com",
-    "@aol.com",
-]
+class GenericEmails:
+    def __init__(self):
+        path = Path(Path().absolute() / "posthog/helpers/")
+        with open(path / "generic_emails.txt", "r") as f:
+            dd = [x.rstrip() for x in f]
+            print(len(dd))
+            self.emails = dd
+
+    def is_generic(self, email: str) -> bool:
+        return any(maybe in email for maybe in self.emails)

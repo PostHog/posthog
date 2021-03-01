@@ -6,22 +6,7 @@ import django.contrib.postgres.fields.jsonb
 from django.db import migrations
 from django.db.models.query_utils import Q
 
-generic_emails = [
-    "@gmail.com",
-    "@hotmail.com",
-    "@qq.com",
-    "@protonmail.com",
-    "@hey.com",
-    "@yahoo.com",
-    "@oal.com",
-    "@live.com",
-    "@outlook.com",
-    "@msn.com",
-    "@free.fr",
-    "@yandex.ru",
-    "@mac.com",
-    "@aol.com",
-]
+from posthog.utils import GenericEmails
 
 
 def forward(apps, schema_editor):
@@ -35,12 +20,11 @@ def forward(apps, schema_editor):
             {"key": "$host", "operator": "is_not", "value": "127.0.0.1:3000"},
         ]
         if team.organization:
-            q = Q()
-            for email in generic_emails:
-                q |= Q(email__icontains=email)
-            example_emails = team.organization.members.exclude(q).only("email")
+            example_emails = team.organization.members.only("email")
+            generic_emails = GenericEmails()
+            example_emails = [email.email for email in example_emails if not generic_emails.is_generic(email.email)]
             if len(example_emails) > 0:
-                example_email = re.search("@[\w.]+", example_emails[0].email)
+                example_email = re.search("@[\w.]+", example_emails[0])
                 if example_email:
                     filters += [
                         {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},

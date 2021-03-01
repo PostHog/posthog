@@ -11,7 +11,7 @@ from django.utils import timezone
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_TABLE
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.models.organization import Organization
-from posthog.utils import generic_emails
+from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
 from .dashboard_item import DashboardItem
@@ -27,12 +27,11 @@ class TeamManager(models.Manager):
             {"key": "$current_url", "operator": "not_icontains", "value": "http://127.0.0.1"},
         ]
         if organization:
-            q = Q()
-            for email in generic_emails:
-                q |= Q(email__icontains=email)
-            example_emails = organization.members.exclude(q).only("email")
+            example_emails = organization.members.only("email")
+            generic_emails = GenericEmails()
+            example_emails = [email.email for email in example_emails if not generic_emails.is_generic(email.email)]
             if len(example_emails) > 0:
-                example_email = re.search("@[\w.]+", example_emails[0].email)
+                example_email = re.search("@[\w.]+", example_emails[0])
                 if example_email:
                     return [
                         {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},
