@@ -512,6 +512,10 @@ export function copyToClipboard(value: string, description?: string): boolean {
     const descriptionAdjusted = description
         ? description.charAt(0).toUpperCase() + description.slice(1).trim() + ' '
         : ''
+    if (!navigator.clipboard) {
+        toast.info('Oops! Clipboard capabilities are only available on HTTPS or localhost.')
+        return false
+    }
     try {
         navigator.clipboard.writeText(value)
         toast(
