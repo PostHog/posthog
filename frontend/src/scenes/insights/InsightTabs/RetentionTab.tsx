@@ -96,7 +96,12 @@ export function RetentionTab(): JSX.Element {
                     </Select.Option>
                 ))}
             </Select>
-            <ActionFilterDropdown open={open} logic={entityLogic} openButtonRef={node} onClose={() => setOpen(false)} />
+            <ActionFilterDropdown
+                open={open}
+                logic={entityLogic as any}
+                openButtonRef={node}
+                onClose={() => setOpen(false)}
+            />
             <h4 style={{ marginTop: '0.5rem' }} className="secondary">
                 Retaining event
                 <Tooltip
