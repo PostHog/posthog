@@ -6,6 +6,7 @@
     "containerDefinitions": [
         {
             "name": "posthog-production-plugins",
+            "image": "public.ecr.aws/p1o5l3m0/posthog-plugin-server:0.11.1",
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
@@ -94,8 +95,7 @@
                     "name": "STATSD_HOST",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STATSD_HOST::"
                 }
-            ],
-            "entryPoint": ["./bin/plugin-server"]
+            ]
         }
     ],
     "requiresCompatibilities": ["FARGATE"],
