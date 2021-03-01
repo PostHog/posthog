@@ -223,3 +223,40 @@ class TestDashboard(TransactionBaseTest):
         )
         self.assertEqual(response.status_code, 201)
         self.assertGreater(DashboardItem.objects.count(), 1)
+
+    def test_return_cached_results_dashboard_has_filters(self):
+        # Regression test, we were
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "date_from": "-7d",
+        }
+        filter = Filter(data=filter_dict)
+
+        item = DashboardItem.objects.create(dashboard=dashboard, filters=filter_dict, team=self.team,)
+        DashboardItem.objects.create(
+            dashboard=dashboard, filters=filter.to_dict(), team=self.team,
+        )
+        response = self.client.get(
+            "/api/insight/trend/?events=%s&properties=%s&date_from=-7d"
+            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
+        )
+        print("POST")
+        response = self.client.patch(
+            "/api/dashboard/%s/" % dashboard.pk,
+            data={"filters": {"date_from": "-24h",}},
+            content_type="application/json",
+        ).json()
+        self.assertEqual(response["items"][0]["result"], None)
+
+        # cache results
+        response = self.client.get(
+            "/api/insight/trend/?events=%s&properties=%s&date_from=-24h"
+            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
+        )
+        self.assertEqual(response.status_code, 200)
+        item = DashboardItem.objects.get(pk=item.pk)
+        # Expecting this to only have one day as per the dashboard filter
+        response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+        self.assertEqual(len(response["items"][0]["result"][0]["days"]), 2)
