@@ -17,8 +17,8 @@ export function DangerZone(): JSX.Element {
             title: 'Delete the entire organization?',
             content: (
                 <>
-                    Organization deletion <b>cannot be undone</b>. You will lose all data, <b>including events</b>,
-                    related to all project within the organization.
+                    Organization deletion <b>cannot be undone</b>. You will lose all data, <b>including all events</b>,
+                    related to all projects within this organization.
                 </>
             ),
             icon: <ExclamationCircleOutlined color={red.primary} />,
