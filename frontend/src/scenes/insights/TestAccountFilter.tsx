@@ -33,7 +33,6 @@ export function TestAccountFilter({
                     : "You don't have a test account filter set up. Click configure to set it up."
             }
         >
-            <hr />
             <Switch
                 disabled={!hasFilters}
                 checked={hasFilters ? filters.filter_test_accounts : false}
