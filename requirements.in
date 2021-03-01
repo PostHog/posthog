@@ -49,4 +49,4 @@ sentry-sdk==0.19.2
 social-auth-app-django==3.1.0
 social-auth-core==3.3.3
 toronado==0.0.11
-whitenoise==5.0.1
+whitenoise==5.2.0
