@@ -103,7 +103,7 @@ pytest==6.2.2
     #   pytest-django
 python-dateutil==2.8.1
     # via freezegun
-pytz==2020.1
+pytz==2021.1
     # via django
 redis==3.5.3
     # via fakeredis
