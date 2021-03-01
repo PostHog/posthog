@@ -94,7 +94,7 @@ class TestDashboard(TransactionBaseTest):
         self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(item.filters_hash, generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)))
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(12):
             response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
 
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
@@ -238,17 +238,16 @@ class TestDashboard(TransactionBaseTest):
         DashboardItem.objects.create(
             dashboard=dashboard, filters=filter.to_dict(), team=self.team,
         )
-        response = self.client.get(
+        self.client.get(
             "/api/insight/trend/?events=%s&properties=%s&date_from=-7d"
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
-        print("POST")
-        response = self.client.patch(
+        patch_response = self.client.patch(
             "/api/dashboard/%s/" % dashboard.pk,
             data={"filters": {"date_from": "-24h",}},
             content_type="application/json",
         ).json()
-        self.assertEqual(response["items"][0]["result"], None)
+        self.assertEqual(patch_response["items"][0]["result"], None)
 
         # cache results
         response = self.client.get(
