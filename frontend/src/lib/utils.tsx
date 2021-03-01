@@ -513,7 +513,7 @@ export function copyToClipboard(value: string, description?: string): boolean {
         ? description.charAt(0).toUpperCase() + description.slice(1).trim() + ' '
         : ''
     if (!navigator.clipboard) {
-        ;('Oops! Clipboard capabilities are only available on HTTPS or localhost.')
+        toast.info('Oops! Clipboard capabilities are only available on HTTPS or localhost.')
         return false
     }
     try {
