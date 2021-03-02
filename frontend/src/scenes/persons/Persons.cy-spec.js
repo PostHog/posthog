@@ -13,8 +13,6 @@ describe('<Person /> ', () => {
         helpers.setLocation('/persons')
     })
 
-    given('featureFlags', () => ['persons-2353'])
-
     it('person type tabs', () => {
         mount()
         cy.contains('Persons').should('be.visible')
