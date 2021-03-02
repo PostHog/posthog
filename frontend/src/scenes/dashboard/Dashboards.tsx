@@ -1,12 +1,12 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Button, Card, Col, Drawer, Row, Spin } from 'antd'
+import { Button, Card, Col, Drawer, Row, Spin, Tooltip } from 'antd'
 import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
 import { PlusOutlined } from '@ant-design/icons'
 import { Table } from 'antd'
-import { PushpinFilled, PushpinOutlined, DeleteOutlined, AppstoreAddOutlined } from '@ant-design/icons'
+import { PushpinFilled, PushpinOutlined, DeleteOutlined, AppstoreAddOutlined, CopyOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -16,7 +16,9 @@ import { DashboardType } from '~/types'
 export const Dashboards = hot(_Dashboards)
 function _Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard } = useActions(dashboardsModel)
+    const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard, duplicateDashboard } = useActions(
+        dashboardsModel
+    )
     const { setNewDashboardDrawer } = useActions(dashboardsLogic)
     const { dashboards, newDashboardDrawer } = useValues(dashboardsLogic)
 
@@ -56,12 +58,18 @@ function _Dashboards(): JSX.Element {
             width: 120,
             render: function RenderActions({ id }: DashboardType) {
                 return (
-                    <span
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => deleteDashboard({ id, redirect: false })}
-                        className="text-danger"
-                    >
-                        <DeleteOutlined />
+                    <span>
+                        <DeleteOutlined
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => deleteDashboard({ id, redirect: false })}
+                            className="text-danger"
+                        />
+                        <Tooltip title={'Duplicate dashboard'}>
+                            <CopyOutlined
+                                style={{ cursor: 'pointer', marginLeft: 8 }}
+                                onClick={() => duplicateDashboard({ id })}
+                            />
+                        </Tooltip>
                     </span>
                 )
             },

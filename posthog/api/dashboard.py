@@ -1,3 +1,4 @@
+import copy
 import secrets
 from distutils.util import strtobool
 from typing import Any, Dict, Optional, cast
@@ -51,21 +52,61 @@ class DashboardSerializer(serializers.ModelSerializer):
         validated_data["created_by"] = request.user
         team = Team.objects.get(id=self.context["team_id"])
         use_template: str = validated_data.pop("use_template", None)
-        dashboard = Dashboard.objects.create(team=team, **validated_data)
 
-        if use_template:
+        if request.data.get("duplicate"):
             try:
-                create_dashboard_from_template(use_template, dashboard)
-            except AttributeError:
-                raise serializers.ValidationError({"use_template": "Invalid value provided."})
+                base_dashboard = Dashboard.objects.get(pk=request.data["duplicate"])
+            except Dashboard.DoesNotExist:
+                raise serializers.ValidationError("Dashboard not found")
 
-        elif request.data.get("items"):
-            for item in request.data["items"]:
-                DashboardItem.objects.create(
-                    **{key: value for key, value in item.items() if key not in ("id", "deleted", "dashboard", "team")},
-                    dashboard=dashboard,
-                    team=team,
-                )
+            # create a new (duplicated) dashboard using only forward referenced fields
+            # and replacing some other fields (name, team, created_by) with new values
+            dashboard = Dashboard.objects.create(
+                **{
+                    key: getattr(base_dashboard, key)
+                    for key in [f.name for f in Dashboard._meta.get_fields() if not f.auto_created]
+                    if key not in ("name", "team", "created_by", "share_token", "is_shared")
+                },
+                name=base_dashboard.name + " (copy)",
+                team=team,
+                created_by=request.user,
+            )
+            for ditem in base_dashboard.items.all():
+                # try to duplicate all dashboard items in a similar way
+                try:
+                    DashboardItem.objects.create(
+                        **{
+                            key: getattr(ditem, key)
+                            for key in [f.name for f in DashboardItem._meta.get_fields() if not f.auto_created]
+                            if key not in ("dashboard", "team", "created_by")
+                        },
+                        dashboard=dashboard,
+                        team=team,
+                        created_by=request.user,
+                    )
+                except:
+                    dashboard.delete()
+                    raise serializers.ValidationError("Could not duplicate dashboard items")
+
+        else:
+            dashboard = Dashboard.objects.create(team=team, **validated_data)
+            if use_template:
+                try:
+                    create_dashboard_from_template(use_template, dashboard)
+                except AttributeError:
+                    raise serializers.ValidationError({"use_template": "Invalid value provided."})
+
+            elif request.data.get("items"):
+                for item in request.data["items"]:
+                    DashboardItem.objects.create(
+                        **{
+                            key: value
+                            for key, value in item.items()
+                            if key not in ("id", "deleted", "dashboard", "team")
+                        },
+                        dashboard=dashboard,
+                        team=team,
+                    )
 
         posthoganalytics.capture(
             request.user.distinct_id,
