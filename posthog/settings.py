@@ -155,7 +155,7 @@ PRIMARY_DB = os.getenv("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
 EE_AVAILABLE = False
 
-PLUGIN_SERVER_INGESTION = get_from_env("PLUGIN_SERVER_INGESTION", False, type_cast=strtobool)
+PLUGIN_SERVER_INGESTION = get_from_env("PLUGIN_SERVER_INGESTION", not TEST, type_cast=strtobool)
 
 ASYNC_EVENT_ACTION_MAPPING = get_from_env("ASYNC_EVENT_ACTION_MAPPING", False, type_cast=strtobool)
 

@@ -13,15 +13,16 @@ import { DownOutlined, DeleteOutlined, MergeCellsOutlined, LoadingOutlined } fro
 import moment from 'moment'
 import { MergePerson } from './MergePerson'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { NewPropertyComponent } from './NewPropertyComponent'
 
 const { TabPane } = Tabs
 
-export const PersonV2 = hot(_PersonV2)
-function _PersonV2(): JSX.Element {
+export const Person = hot(_Person)
+function _Person(): JSX.Element {
     const [activeTab, setActiveTab] = useState('events')
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
 
-    const { person, personLoading, deletedPersonLoading } = useValues(personsLogic)
+    const { person, personLoading, deletedPersonLoading, hasNewKeys } = useValues(personsLogic)
     const { deletePerson, setPerson, editProperty } = useActions(personsLogic)
 
     const ids = (
@@ -83,7 +84,7 @@ function _PersonV2(): JSX.Element {
                                             tooltipMessage=""
                                             iconStyle={{ color: 'var(--primary)' }}
                                         >
-                                            {midEllipsis(person.distinct_ids[0], 32)}
+                                            {midEllipsis(person.distinct_ids[0], 20)}
                                         </CopyToClipboardInline>
                                         {person.distinct_ids.length > 1 && (
                                             <Dropdown overlay={ids} trigger={['click']}>
@@ -135,11 +136,14 @@ function _PersonV2(): JSX.Element {
                         </Tabs>
                         {person && (
                             <>
+                                <NewPropertyComponent />
+                                <h3 className="l3">Properties list</h3>
                                 <PropertiesTable
                                     properties={person.properties}
                                     onEdit={editProperty}
-                                    sortProperties
+                                    sortProperties={!hasNewKeys}
                                     onDelete={(key) => editProperty(key, undefined)}
+                                    className="persons-page-props-table"
                                 />
                             </>
                         )}

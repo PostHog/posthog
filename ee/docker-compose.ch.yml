@@ -35,7 +35,6 @@ services:
             SECRET_KEY: 'alsdfjiosdajfklalsdjkf'
             DEBUG: 'true'
             PRIMARY_DB: 'clickhouse'
-            PLUGIN_SERVER_INGESTION: 'true'
         depends_on:
             - db
             - redis
@@ -44,6 +43,7 @@ services:
         links:
             - db:db
             - redis:redis
+            - kafka:kafka
     worker:
         build:
             context: ../
@@ -69,6 +69,7 @@ services:
         links:
             - db:db
             - redis:redis
+            - kafka:kafka
     plugins:
         image: posthog/plugin-server:0.11.1
         restart: on-failure
@@ -77,6 +78,7 @@ services:
             KAFKA_ENABLED: 'true'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
+            CLICKHOUSE_HOST: 'clickhouse'
         depends_on:
             - db
             - redis
@@ -85,6 +87,8 @@ services:
         links:
             - db:db
             - redis:redis
+            - clickhouse:clickhouse
+            - kafka:kafka
     clickhouse:
         image: yandex/clickhouse-server
         depends_on:
