@@ -5,7 +5,7 @@ import { autocorrectInterval, objectsEqual, toParams } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '../../models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import posthog from 'posthog-js'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function wait(ms = 1000) {
     return new Promise((resolve) => {
@@ -81,23 +81,16 @@ export const funnelLogic = kea({
 
                 insightLogic.actions.startQuery()
 
-                const eventName = 'funnel result calculated'
-                const eventProps = {
-                    event_count: params.events.length,
-                    action_count: params.actions.length,
-                    total_count_actions_events: params.actions.length + params.events.length,
-                    interval: params.interval,
-                }
+                const eventCount = params.events.length
+                const actionCount = params.actions.length
+                const interval = params.interval
 
                 try {
                     result = await pollFunnel(params)
-                    eventProps.success = true
-                    posthog.capture(eventName, eventProps)
+                    eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
                 } catch (e) {
                     insightLogic.actions.endQuery(ViewType.FUNNELS, false, e)
-                    eventProps.success = false
-                    eventProps.error = e.name
-                    posthog.capture(eventName, eventProps)
+                    eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, false, e.message)
                     return []
                 }
                 breakpoint()
