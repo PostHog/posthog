@@ -26,7 +26,7 @@ const typeToIcon: Record<HandledType | string, JSX.Element> = {
 
 interface BasePropertyType {
     rootKey?: string // The key name of the object if it's nested
-    onEdit?: (key: string | undefined, newValue: any, oldValue?: any) => void // If set, it will allow inline editing
+    onEdit?: (key: string, newValue: any, oldValue?: any) => void // If set, it will allow inline editing
     nestingLevel?: number
 }
 
@@ -89,7 +89,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
 
     const handleValueChange = (newValue: any, save: boolean): void => {
         setEditing(false)
-        if (save && onEdit && newValue != value) {
+        if (rootKey !== undefined && save && onEdit && newValue != value) {
             onEdit(rootKey, newValue, value)
         }
     }
@@ -140,6 +140,7 @@ interface PropertiesTableType extends BasePropertyType {
     properties: any
     sortProperties?: boolean
     onDelete?: (key: string) => void
+    className?: string
 }
 
 export function PropertiesTable({
@@ -149,6 +150,7 @@ export function PropertiesTable({
     sortProperties = false,
     nestingLevel = 0,
     onDelete,
+    className = '',
 }: PropertiesTableType): JSX.Element {
     const objectProperties = useMemo(() => {
         if (!(properties instanceof Object)) {
@@ -227,6 +229,7 @@ export function PropertiesTable({
                 size="small"
                 pagination={false}
                 dataSource={objectProperties}
+                className={className}
             />
         )
     }

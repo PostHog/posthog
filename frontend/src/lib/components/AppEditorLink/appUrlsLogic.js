@@ -26,7 +26,7 @@ export const appUrlsLogic = kea({
                     date_from: moment().subtract(3, 'days').toISOString(),
                 }
                 let data = (await api.get('api/insight/trend/?' + toParams(params))).data
-                if (data[0]?.count === 0) {
+                if (data && data[0]?.count === 0) {
                     return []
                 }
                 let domainsSeen = []
