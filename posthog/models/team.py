@@ -103,10 +103,11 @@ class Team(models.Model):
     uuid: models.UUIDField = models.UUIDField(default=UUIDT, editable=False, unique=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
     session_recording_retention_period_days: models.IntegerField = models.IntegerField(null=True, default=None)
-    plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
 
+    # DEPRECATED, DISUSED: plugins are enabled for everyone now
+    plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
     # DEPRECATED, DISUSED: now managing access in an Organization-centric way

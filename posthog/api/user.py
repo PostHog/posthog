@@ -71,9 +71,6 @@ def user(request):
             team.session_recording_retention_period_days = data["team"].get(
                 "session_recording_retention_period_days", team.session_recording_retention_period_days
             )
-            if data["team"].get("plugins_opt_in") is not None:
-                reload_plugins_on_workers()
-            team.plugins_opt_in = data["team"].get("plugins_opt_in", team.plugins_opt_in)
             team.completed_snippet_onboarding = data["team"].get(
                 "completed_snippet_onboarding", team.completed_snippet_onboarding,
             )
@@ -146,7 +143,6 @@ def user(request):
                 "completed_snippet_onboarding": team.completed_snippet_onboarding,
                 "session_recording_opt_in": team.session_recording_opt_in,
                 "session_recording_retention_period_days": team.session_recording_retention_period_days,
-                "plugins_opt_in": team.plugins_opt_in,
                 "ingested_event": team.ingested_event,
                 "is_demo": team.is_demo,
             },
