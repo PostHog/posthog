@@ -8,6 +8,7 @@ import { getShadowRootPopupContainer } from '~/toolbar/utils'
 
 export function HeatmapStats(): JSX.Element {
     const { countedElements, clickCount, heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
+    const { setHeatmapFilter } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
     return (
@@ -17,6 +18,9 @@ export function HeatmapStats(): JSX.Element {
                     <div style={{ marginTop: 0, marginBottom: 10 }}>
                         <DateFilter
                             defaultValue="Last 7 days"
+                            onChange={(date_from, date_to) => {
+                                setHeatmapFilter({ date_from, date_to })
+                            }}
                             updatePath={false}
                             getPopupContainer={getShadowRootPopupContainer}
                         />

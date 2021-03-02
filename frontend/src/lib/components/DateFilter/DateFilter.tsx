@@ -11,7 +11,7 @@ interface Props {
     bordered?: boolean
     makeLabel?: (key: string) => React.ReactNode
     style?: React.CSSProperties
-    onChange?: () => void
+    onChange?: (fromDate: string, toDate: string) => void
     disabled?: boolean
     getPopupContainer?: (props: any) => HTMLElement
     updatePath?: boolean
@@ -48,7 +48,7 @@ export function DateFilter({
     function setDate(fromDate: string, toDate: string): void {
         setDates(fromDate, toDate, updatePath)
         if (onChange) {
-            onChange()
+            onChange(fromDate, toDate)
         }
     }
 
