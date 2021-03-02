@@ -81,6 +81,7 @@ class PluginLogEntry(UUIDModel):
     timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now)
     type: models.CharField = models.CharField(max_length=20, choices=Type.choices)
     message: models.TextField = models.TextField()
+    instance_id: models.UUIDField = models.UUIDField()
 
     def __str__(self):
         return f"[{self.timestamp.isoformat()}] {self.type}: {self.message}"

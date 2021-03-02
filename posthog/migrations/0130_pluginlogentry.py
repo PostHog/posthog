@@ -33,6 +33,7 @@ class Migration(migrations.Migration):
                 ("message", models.TextField()),
                 ("plugin", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Plugin")),
                 ("team", models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.Team")),
+                ("instance_id", models.UUIDField()),
             ],
             options={"abstract": False,},
         ),
