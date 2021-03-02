@@ -2,11 +2,18 @@ import React from 'react'
 import { CohortGroup } from './CohortGroup'
 import { cohortLogic } from './cohortLogic'
 import { Button, Card, Col, Divider, Input, Row } from 'antd'
-import { AimOutlined, ArrowLeftOutlined, InboxOutlined, UnorderedListOutlined } from '@ant-design/icons'
+import {
+    AimOutlined,
+    ArrowLeftOutlined,
+    InboxOutlined,
+    UnorderedListOutlined,
+    UsergroupAddOutlined,
+} from '@ant-design/icons'
 import { useValues, useActions, BuiltLogic } from 'kea'
 import { CohortGroupType, CohortType } from '~/types'
 import { Persons } from './Persons'
 import Dragger from 'antd/lib/upload/Dragger'
+import { router } from 'kea-router'
 
 const isSubmitDisabled = (cohort: CohortType): boolean => {
     if (cohort && cohort.csv) {
@@ -106,7 +113,7 @@ function DynamicCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
 
 function CohortChoice({ setCohort, cohort }: { setCohort: CallableFunction; cohort: CohortType }): JSX.Element {
     return (
-        <Row gutter={24}>
+        <Row gutter={[24, 24]}>
             <Col sm={12}>
                 <Card
                     title="Dynamic cohort"
@@ -126,7 +133,7 @@ function CohortChoice({ setCohort, cohort }: { setCohort: CallableFunction; coho
             </Col>
             <Col sm={12}>
                 <Card
-                    title="Static cohort"
+                    title="Static cohort by CSV"
                     size="small"
                     className="clickable-card"
                     data-attr="cohort-choice-upload-csv"
@@ -138,6 +145,23 @@ function CohortChoice({ setCohort, cohort }: { setCohort: CallableFunction; coho
                     </div>
                     <div className="cohort-type-description">
                         Upload a list of users to create cohort with a specific set of users.
+                    </div>
+                </Card>
+            </Col>
+            <Col sm={12}>
+                <Card
+                    title="Static cohort by selection"
+                    size="small"
+                    className="clickable-card"
+                    data-attr="cohort-choice-by-person-selection"
+                    onClick={() => router.actions.push('/persons')}
+                    style={{ height: '100%' }}
+                >
+                    <div style={{ textAlign: 'center', fontSize: 40 }}>
+                        <UsergroupAddOutlined />
+                    </div>
+                    <div className="cohort-type-description">
+                        Select users that have been tracked in the persons tab
                     </div>
                 </Card>
             </Col>

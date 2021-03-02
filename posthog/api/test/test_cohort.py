@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -119,3 +120,21 @@ User ID,
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 2)
         self.assertFalse(response.json()["is_calculating"], False)
         self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_user_list(self, patch_calculate_cohort_from_list):
+        self.team.app_urls = ["http://somewebsite.com"]
+        self.team.save()
+        p1 = Person.objects.create(team=self.team, properties={"email": "email@example.org"})
+        p2 = Person.objects.create(team=self.team, distinct_ids=["123"])
+        p3 = Person.objects.create(team=self.team, distinct_ids=["456"])
+
+        response = self.client.post(
+            "/api/cohort/",
+            data={"name": "test", "users": f"{p1.pk}, {p2.pk}, {p3.pk}", "is_static": True},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+
+        patch_calculate_cohort_from_list.assert_called_with(response.json()["id"], ["123", "456"])

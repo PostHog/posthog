@@ -10,11 +10,17 @@ import { CohortType } from '~/types'
 import { LinkButton } from 'lib/components/LinkButton'
 import { ClockCircleFilled } from '@ant-design/icons'
 import { toParams } from 'lib/utils'
+import { manualCohortCreationLogic } from './manualCohortCreationLogic'
+import { ManualCreateCohortDrawer } from './ManualCreateCohortDrawer'
 
 export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading, exampleEmail } = useValues(personsLogic)
     const [searchTerm, setSearchTerm] = useState('') // Not on Kea because it's a component-specific store & to avoid changing the URL on every keystroke
+    const [isCreatingCohort, setIsCreatingCohort] = useState<boolean>(false)
+    const { selectedIds } = useValues(manualCohortCreationLogic)
+    const { selectId, clearCohort, removeId, setSelectedIds } = useActions(manualCohortCreationLogic)
+    const [createCohortDrawerIsOpen, setCreateCohortDrawerIsOpen] = useState(false)
 
     useEffect(() => {
         setSearchTerm(listFilters.search)
@@ -85,6 +91,40 @@ export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
                         <ClockCircleFilled /> View sessions
                     </LinkButton>
                 ) : null}
+                {!cohort && (
+                    <div>
+                        <Button
+                            type={'primary'}
+                            disabled={!selectedIds.length && isCreatingCohort}
+                            onClick={() => {
+                                if (isCreatingCohort) {
+                                    setCreateCohortDrawerIsOpen(true)
+                                } else {
+                                    setIsCreatingCohort(true)
+                                }
+                            }}
+                        >
+                            {isCreatingCohort
+                                ? selectedIds.length
+                                    ? 'View selected'
+                                    : 'None selected'
+                                : 'Create Cohort'}
+                        </Button>
+                        {isCreatingCohort && (
+                            <Button
+                                style={{ marginLeft: 8 }}
+                                type="default"
+                                onClick={() => {
+                                    setIsCreatingCohort(false)
+                                    clearCohort()
+                                }}
+                            >
+                                Clear
+                            </Button>
+                        )}
+                    </div>
+                )}
+
                 <Button
                     type="default"
                     icon={<ExportOutlined />}
@@ -111,8 +151,30 @@ export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
                     loadNext={() => loadPersons(persons.next)}
                     allColumns
                     cohort={cohort}
+                    isCreatingCohort={isCreatingCohort}
+                    onSelectRow={(id: number) => {
+                        selectedIds.includes(id) ? removeId(id) : selectId(id)
+                    }}
+                    onSelectAll={(selected: boolean, changedIds: number[]) => {
+                        if (selected) {
+                            setSelectedIds([...selectedIds, ...changedIds])
+                        } else {
+                            setSelectedIds(selectedIds.filter((item) => !changedIds.includes(item)))
+                        }
+                    }}
+                    selectedRows={selectedIds}
                 />
             </div>
+            <ManualCreateCohortDrawer
+                visible={createCohortDrawerIsOpen}
+                onClose={() => {
+                    setCreateCohortDrawerIsOpen(false)
+                }}
+                onSubmit={() => {
+                    setCreateCohortDrawerIsOpen(false)
+                    setIsCreatingCohort(false)
+                }}
+            />
         </div>
     )
 }

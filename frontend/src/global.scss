@@ -91,7 +91,8 @@ style files without adding already imported styles. */
 }
 
 .text-right {
-    text-align: right;
+    display: flex;
+    justify-content: space-between;
 }
 
 .text-left {
