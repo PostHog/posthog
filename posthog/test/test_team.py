@@ -12,8 +12,11 @@ class TestTeam(BaseTest):
             team.test_account_filters,
             [
                 {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
-                {"key": "$current_url", "operator": "not_icontains", "value": "http://localhost"},
-                {"key": "$current_url", "operator": "not_icontains", "value": "http://127.0.0.1"},
+                {
+                    "key": "$current_url",
+                    "operator": "not_icontains",
+                    "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000"],
+                },
             ],
         )
 
@@ -25,7 +28,10 @@ class TestTeam(BaseTest):
         self.assertEqual(
             team.test_account_filters,
             [
-                {"key": "$current_url", "operator": "not_icontains", "value": "http://localhost"},
-                {"key": "$current_url", "operator": "not_icontains", "value": "http://127.0.0.1"},
+                {
+                    "key": "$current_url",
+                    "operator": "not_icontains",
+                    "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000"],
+                },
             ],
         )
