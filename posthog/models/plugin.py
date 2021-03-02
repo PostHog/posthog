@@ -71,6 +71,7 @@ class PluginStorage(models.Model):
 
 class PluginLogEntry(UUIDModel):
     class Type(models.TextChoices):
+        LOG = "LOG", "log"
         INFO = "INFO", "info"
         WARN = "WARN", "warn"
         ERROR = "ERROR", "error"
@@ -79,7 +80,7 @@ class PluginLogEntry(UUIDModel):
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
     timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now)
     type: models.CharField = models.CharField(max_length=20, choices=Type.choices)
-    message: models.CharField = models.CharField(max_length=500)
+    message: models.TextField = models.TextField()
 
     def __str__(self):
         return f"[{self.timestamp.isoformat()}] {self.type}: {self.message}"
