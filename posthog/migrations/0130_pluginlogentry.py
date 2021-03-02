@@ -26,9 +26,11 @@ class Migration(migrations.Migration):
                 ("timestamp", models.DateTimeField(default=django.utils.timezone.now)),
                 (
                     "type",
-                    models.CharField(choices=[("INFO", "info"), ("WARN", "warn"), ("ERROR", "error")], max_length=20),
+                    models.CharField(
+                        choices=[("LOG", "log"), ("INFO", "info"), ("WARN", "warn"), ("ERROR", "error")], max_length=20
+                    ),
                 ),
-                ("message", models.CharField(max_length=500)),
+                ("message", models.TextField()),
                 ("plugin", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Plugin")),
                 ("team", models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.Team")),
             ],
