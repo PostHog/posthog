@@ -13,6 +13,7 @@ interface Props {
     style?: React.CSSProperties
     onChange?: () => void
     disabled?: boolean
+    getPopupContainer?: (props: any) => HTMLElement
 }
 
 export function DateFilter({
@@ -23,6 +24,7 @@ export function DateFilter({
     disabled,
     makeLabel,
     onChange,
+    getPopupContainer,
 }: Props): JSX.Element {
     const {
         dates: { dateFrom, dateTo },
@@ -103,10 +105,12 @@ export function DateFilter({
             dropdownMatchSelectWidth={false}
             disabled={disabled}
             optionLabelProp={makeLabel ? 'label' : undefined}
+            getPopupContainer={getPopupContainer}
             dropdownRender={(menu: React.ReactElement) => {
                 if (dateRangeOpen) {
                     return (
                         <DatePickerDropdown
+                            getPopupContainer={getPopupContainer}
                             onClick={dropdownOnClick}
                             onDateFromChange={(date) => setRangeDateFrom(date)}
                             onDateToChange={(date) => setRangeDateTo(date)}
@@ -149,6 +153,7 @@ function DatePickerDropdown(props: {
     onApplyClick: () => void
     rangeDateFrom: string | moment.Moment | undefined
     rangeDateTo: string | moment.Moment | undefined
+    getPopupContainer?: (props: any) => HTMLElement
 }): JSX.Element {
     const dropdownRef = useRef<HTMLDivElement | null>(null)
     const [calendarOpen, setCalendarOpen] = useState(false)
@@ -184,6 +189,7 @@ function DatePickerDropdown(props: {
                 <label className="secondary">From date</label>
                 <br />
                 <DatePicker.RangePicker
+                    getPopupContainer={props.getPopupContainer}
                     defaultValue={[
                         props.rangeDateFrom
                             ? moment.isMoment(props.rangeDateFrom)
