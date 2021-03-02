@@ -159,15 +159,33 @@ function DatePickerDropdown(props: {
     const [calendarOpen, setCalendarOpen] = useState(false)
 
     const onClickOutside = (event: MouseEvent): void => {
-        if ((!event.target || !dropdownRef.current?.contains(event.target as any)) && !calendarOpen) {
-            props.onClickOutside()
+        const target = event.path?.[0] || event.composedPath?.()?.[0] || event.target
+
+        if (!target) {
+            return
+        }
+
+        const clickInPickerContainer = dropdownRef.current?.contains(target)
+        const clickInDateDropdown = event.composedPath?.()?.find((e) => e?.matches?.('.datefilter-datepicker'))
+
+        if (clickInPickerContainer && calendarOpen && target.tagName !== 'INPUT') {
+            setCalendarOpen(false)
+            return
+        }
+
+        if (!clickInPickerContainer && !clickInDateDropdown) {
+            if (calendarOpen) {
+                setCalendarOpen(false)
+            } else {
+                props.onClickOutside()
+            }
         }
     }
 
     useEffect(() => {
-        document.addEventListener('mousedown', onClickOutside)
+        window.addEventListener('mousedown', onClickOutside)
         return () => {
-            document.removeEventListener('mousedown', onClickOutside)
+            window.removeEventListener('mousedown', onClickOutside)
         }
     }, [calendarOpen])
 
@@ -189,6 +207,7 @@ function DatePickerDropdown(props: {
                 <label className="secondary">From date</label>
                 <br />
                 <DatePicker.RangePicker
+                    dropdownClassName="datefilter-datepicker"
                     getPopupContainer={props.getPopupContainer}
                     defaultValue={[
                         props.rangeDateFrom
@@ -202,8 +221,11 @@ function DatePickerDropdown(props: {
                                 : moment(props.rangeDateTo)
                             : null,
                     ]}
+                    open={calendarOpen}
                     onOpenChange={(open) => {
-                        setCalendarOpen(open)
+                        if (open) {
+                            setCalendarOpen(open)
+                        }
                     }}
                     onChange={(dates) => {
                         if (dates && dates.length === 2) {
