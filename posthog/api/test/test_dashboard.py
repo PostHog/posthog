@@ -258,4 +258,4 @@ class TestDashboard(TransactionBaseTest):
         item = DashboardItem.objects.get(pk=item.pk)
         # Expecting this to only have one day as per the dashboard filter
         response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
-        self.assertEqual(len(response["items"][0]["result"][0]["days"]), 2)
+        self.assertEqual(len(response["items"][0]["result"][0]["days"]), 2)  # type: ignore
