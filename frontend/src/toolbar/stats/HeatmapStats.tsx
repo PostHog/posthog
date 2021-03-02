@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { List, Space } from 'antd'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { DateFilter } from 'lib/components/DateFilter'
+import { getShadowRootPopupContainer } from '~/toolbar/utils'
 
 export function HeatmapStats(): JSX.Element {
     const { countedElements, clickCount, heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
@@ -13,7 +15,7 @@ export function HeatmapStats(): JSX.Element {
             {heatmapEnabled && !heatmapLoading ? (
                 <>
                     <div style={{ marginTop: 0, marginBottom: 10 }}>
-                        <span style={{ borderBottom: '2px dashed hsla(230, 14%, 78%, 1)' }}>Last 7 days</span>
+                        <DateFilter defaultValue="Last 7 days" getPopupContainer={getShadowRootPopupContainer} />
                     </div>
                     <div style={{ marginTop: 20, marginBottom: 10 }}>
                         Found: {countedElements.length} elements / {clickCount} clicks!
