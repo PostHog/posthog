@@ -14,10 +14,11 @@ def forward(apps, schema_editor):
 
     for team in Team.objects.all():
         filters = [
-            {"key": "$host", "operator": "is_not", "value": "localhost:8000"},
-            {"key": "$host", "operator": "is_not", "value": "localhost:5000"},
-            {"key": "$host", "operator": "is_not", "value": "127.0.0.1:8000"},
-            {"key": "$host", "operator": "is_not", "value": "127.0.0.1:3000"},
+            {
+                "key": "$host",
+                "operator": "is_not",
+                "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000"],
+            },
         ]
         if team.organization:
             example_emails = team.organization.members.only("email")

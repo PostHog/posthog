@@ -22,8 +22,11 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 class TeamManager(models.Manager):
     def set_test_account_filters(self, organization: Optional["Organization"]) -> List:
         filters = [
-            {"key": "$current_url", "operator": "not_icontains", "value": "http://localhost"},
-            {"key": "$current_url", "operator": "not_icontains", "value": "http://127.0.0.1"},
+            {
+                "key": "$host",
+                "operator": "is_not",
+                "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000"],
+            },
         ]
         if organization:
             example_emails = organization.members.only("email")
