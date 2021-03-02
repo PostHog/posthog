@@ -10,7 +10,6 @@ from django.utils import timezone
 
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_TABLE
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
-from posthog.models.organization import Organization
 from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
@@ -21,7 +20,7 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 
 
 class TeamManager(models.Manager):
-    def set_test_account_filters(self, organization: Optional[Organization]) -> List:
+    def set_test_account_filters(self, organization: Optional["Organization"]) -> List:
         filters = [
             {"key": "$current_url", "operator": "not_icontains", "value": "http://localhost"},
             {"key": "$current_url", "operator": "not_icontains", "value": "http://127.0.0.1"},
