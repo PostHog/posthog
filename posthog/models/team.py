@@ -1,5 +1,5 @@
 import re
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import posthoganalytics
 from django.contrib.postgres.fields import ArrayField, JSONField
@@ -20,7 +20,7 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 
 
 class TeamManager(models.Manager):
-    def set_test_account_filters(self, organization: Optional["Organization"]) -> List:
+    def set_test_account_filters(self, organization: Optional[Any]) -> List:
         filters = [
             {
                 "key": "$host",
