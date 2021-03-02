@@ -53,6 +53,7 @@ class DashboardItem(models.Model):
 def dashboard_saved(sender, instance: Dashboard, **kwargs):
     for item in instance.items.all():
         dashboard_item_saved(sender, item, dashboard=instance, **kwargs)
+        item.save()
 
 
 @receiver(pre_save, sender=DashboardItem)

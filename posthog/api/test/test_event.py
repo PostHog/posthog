@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -359,6 +360,18 @@ def factory_test_event_api(event_factory, person_factory, action_factory):
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = self.client.get("/api/event/").json()
             self.assertEqual(len(response["results"]), 1)
+
+        @patch("posthog.api.event.EventViewSet.CSV_EXPORT_LIMIT", 1000)
+        def test_events_csv_export_with_limit(self):
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                for _ in range(1234):
+                    event_factory(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
+                response = self.client.get("/api/event.csv")
+            self.assertEqual(
+                len(response.content.splitlines()),
+                1001,
+                "CSV export should return up to CSV_EXPORT_LIMIT events (+ headers row)",
+            )
 
     return TestEvents
 

@@ -155,7 +155,7 @@ PRIMARY_DB = os.getenv("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
 EE_AVAILABLE = False
 
-PLUGIN_SERVER_INGESTION = get_from_env("PLUGIN_SERVER_INGESTION", False, type_cast=strtobool)
+PLUGIN_SERVER_INGESTION = get_from_env("PLUGIN_SERVER_INGESTION", not TEST, type_cast=strtobool)
 
 ASYNC_EVENT_ACTION_MAPPING = get_from_env("ASYNC_EVENT_ACTION_MAPPING", False, type_cast=strtobool)
 
@@ -554,7 +554,12 @@ if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
 
 
 def show_toolbar(request):
-    return request.path.startswith("/api/") or request.path.startswith("/decide/") or request.path.startswith("/e/")
+    return (
+        request.path.startswith("/api/")
+        or request.path.startswith("/decide/")
+        or request.path.startswith("/e/")
+        or request.path.startswith("/__debug__")
+    )
 
 
 DEBUG_TOOLBAR_CONFIG = {

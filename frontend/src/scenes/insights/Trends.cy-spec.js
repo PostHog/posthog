@@ -21,8 +21,8 @@ describe('<Insights /> trends', () => {
         cy.intercept('/api/annotation/', { fixture: 'api/annotations' })
         cy.intercept('/api/action/', { fixture: 'api/action/actions' })
         cy.intercept('/api/cohort/', { fixture: 'api/cohort/cohorts' })
-        cy.intercept('/api/insight/', { fixture: 'api/insight/trends' }).as('api_insight')
         cy.intercept('/api/person/properties/', { fixture: 'api/person/properties' })
+        cy.interceptLazy('/api/insight/', () => ({ fixture: 'api/insight/trends' })).as('api_insight')
 
         helpers.mockPosthog()
     })
@@ -69,6 +69,29 @@ describe('<Insights /> trends', () => {
                 ]),
             })
         cy.get('[data-attr="trend-line-graph"]').should('be.visible')
+    })
+
+    it('can render bar graphs', () => {
+        mountAndCheckAPI()
+
+        cy.overrideInterceptLazy('/api/insight/', () => ({ fixture: 'api/insight/trends/breakdown' }))
+
+        cy.get('[data-attr=add-breakdown-button]').click()
+        cy.get('[data-attr=prop-breakdown-select]').click().type('Browser').type('{enter}')
+
+        cy.get('[data-attr=chart-filter]').click()
+        cy.contains('Value').click()
+        cy.get('body').click()
+
+        cy.wait(1000)
+        cy.get('.graph-container').toMatchImageSnapshot()
+
+        cy.get('[data-attr=chart-filter]').click()
+        cy.contains('Time').click()
+        cy.get('body').click()
+
+        cy.wait(1000)
+        cy.get('.graph-container').toMatchImageSnapshot()
     })
 
     describe('filtered in url', () => {

@@ -20,13 +20,20 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
     },
     actions: {
         setListFilters: (payload) => ({ payload }),
-        editProperty: (key, newValue) => ({ key, newValue }),
+        editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
+        setHasNewKeys: true,
     },
     reducers: {
         listFilters: [
             {} as Record<string, string>,
             {
                 setListFilters: (state, { payload }) => ({ ...state, ...payload }),
+            },
+        ],
+        hasNewKeys: [
+            false,
+            {
+                setHasNewKeys: () => true,
             },
         ],
     },
@@ -56,7 +63,18 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                     parsedValue = attemptedParsedNumber
                 }
 
-                person.properties[key] = parsedValue
+                const lowercaseValue = typeof parsedValue === 'string' && parsedValue.toLowerCase()
+                if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
+                    parsedValue = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
+                }
+
+                if (!Object.keys(person.properties).includes(key)) {
+                    actions.setHasNewKeys()
+                    person.properties = { [key]: parsedValue, ...person.properties } // To add property at the top (if new)
+                } else {
+                    person.properties[key] = parsedValue
+                }
+
                 actions.setPerson(person) // To update the UI immediately while the request is being processed
                 const response = await api.update(`api/person/${person.id}`, person)
                 actions.setPerson(response)

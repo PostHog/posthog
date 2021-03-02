@@ -247,6 +247,7 @@ function _Insights() {
                                     </div>
                                 }
                                 headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
+                                data-attr="insights-graph"
                             >
                                 <div>
                                     {lastRefresh && (
@@ -344,7 +345,8 @@ function FunnelInsight() {
             {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 ? (
                 <FunnelViz steps={stepsWithCount} />
             ) : (
-                !resultsLoading && (
+                !resultsLoading &&
+                !stepsWithCount && (
                     <div
                         style={{
                             textAlign: 'center',

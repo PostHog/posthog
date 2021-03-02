@@ -13,19 +13,40 @@ export const keyMapping = {
             description: 'Name of the browser the user has used.',
             examples: ['Chrome', 'Firefox'],
         },
+        $initial_browser: {
+            label: 'Initial Browser',
+            description: 'Name of the browser the user first used (first-touch).',
+            examples: ['Chrome', 'Firefox'],
+        },
         $os: {
             label: 'OS',
             description: 'The operating system of the user.',
             examples: ['Windows', 'Mac OS X'],
         },
+        $initial_os: {
+            label: 'Initial OS',
+            description: 'The operating system that the user first used (first-touch).',
+            examples: ['Windows', 'Mac OS X'],
+        },
         $current_url: {
             label: 'Current URL',
-            description: 'The URL visited for this path, including all the trimings.',
+            description: 'The URL visited for this event, including all the trimings.',
+            examples: ['https://example.com/interesting-article?parameter=true'],
+        },
+        $initial_current_url: {
+            label: 'Initial Current URL',
+            description: 'The first URL the user visited, including all the trimings.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $browser_version: {
             label: 'Browser Version',
             description: 'The version of the browser that was used. Used in combination with Browser.',
+            examples: ['70', '79'],
+        },
+        $initial_browser_version: {
+            label: 'Initial Browser Version',
+            description:
+                'The version of the browser that the user first used (first-touch). Used in combination with Browser.',
             examples: ['70', '79'],
         },
         $screen_height: {
@@ -142,16 +163,65 @@ export const keyMapping = {
             description: 'Direct link to the exception in Sentry',
             examples: ['https://sentry.io/...'],
         },
-        $had_persisted_distinct_id: {
-            label: '$had_persisted_distinct_id',
-            description: '',
-            hide: true,
-        },
         $device: {
             label: 'Device',
             description: 'The mobile device that was used.',
             examples: ['iPad', 'iPhone', 'Android'],
         },
+
+        // UTM tags
+        utm_source: {
+            label: 'UTM Source',
+            description: 'The last UTM source tag that this user saw (last-touch).',
+            examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
+        },
+        $initial_utm_source: {
+            label: 'Initial UTM Source',
+            description: 'The initial UTM source tag that this user saw (first-touch).',
+            examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
+        },
+        utm_medium: {
+            label: 'UTM Medium',
+            description: 'The last UTM medium tag that this user saw (last-touch).',
+            examples: ['Social', 'Organic', 'Paid', 'Email'],
+        },
+        $initial_utm_medium: {
+            label: 'Initial UTM Medium',
+            description: 'The initial UTM medium tag that this user saw (first-touch).',
+            examples: ['Social', 'Organic', 'Paid', 'Email'],
+        },
+        utm_campaign: {
+            label: 'UTM Campaign',
+            description: 'The last UTM campaign tag that this user saw (last-touch).',
+            examples: ['feature launch', 'discount'],
+        },
+        $initial_utm_campaign: {
+            label: 'Initial UTM Campaign',
+            description: 'The initial UTM campaign tag that this user saw (first-touch).',
+            examples: ['feature launch', 'discount'],
+        },
+        utm_content: {
+            label: 'UTM content',
+            description: 'The last UTM content tag that this user saw (last-touch).',
+            examples: ['bottom link', 'second button'],
+        },
+        $initial_utm_content: {
+            label: 'Initial UTM content',
+            description: 'The initial UTM content tag that this user saw (first-touch).',
+            examples: ['bottom link', 'second button'],
+        },
+        utm_term: {
+            label: 'UTM Term',
+            description: 'The last UTM term tag that this user saw (last-touch).',
+            examples: ['free goodies'],
+        },
+        $initial_utm_term: {
+            label: 'Initial UTM Term',
+            description: 'The initial UTM term tag that this user saw (first-touch).',
+            examples: ['free goodies'],
+        },
+
+        // Hidden fields
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',
             description: '',
@@ -286,6 +356,8 @@ export function PropertyKeyInfo({ value, type = 'event' }) {
                     ) : (
                         data.description
                     )}
+                    <hr />
+                    Sent as <pre style={{ display: 'inline', padding: '2px 3px' }}>{value}</pre>
                 </span>
             }
         >
