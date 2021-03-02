@@ -42,10 +42,6 @@ FROM
                 {date_from}
                 {date_to} 
                 {filters}
-            GROUP BY
-                uuid,
-                timestamp,
-                distinct_id
             ORDER BY
                 distinct_id ASC,
                 timestamp ASC
