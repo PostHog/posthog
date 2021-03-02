@@ -14,6 +14,7 @@ interface Props {
     onChange?: () => void
     disabled?: boolean
     getPopupContainer?: (props: any) => HTMLElement
+    updatePath?: boolean
 }
 
 export function DateFilter({
@@ -25,6 +26,7 @@ export function DateFilter({
     makeLabel,
     onChange,
     getPopupContainer,
+    updatePath = true,
 }: Props): JSX.Element {
     const {
         dates: { dateFrom, dateTo },
@@ -44,7 +46,7 @@ export function DateFilter({
     }
 
     function setDate(fromDate: string, toDate: string): void {
-        setDates(fromDate, toDate)
+        setDates(fromDate, toDate, updatePath)
         if (onChange) {
             onChange()
         }
@@ -159,7 +161,7 @@ function DatePickerDropdown(props: {
     const [calendarOpen, setCalendarOpen] = useState(false)
 
     const onClickOutside = (event: MouseEvent): void => {
-        const target = event.path?.[0] || event.composedPath?.()?.[0] || event.target
+        const target = (event.composedPath?.()?.[0] || event.target) as HTMLElement
 
         if (!target) {
             return

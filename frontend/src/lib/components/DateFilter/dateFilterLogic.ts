@@ -9,11 +9,16 @@ interface UrlParams {
     date_to?: string
 }
 
-export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Moment>>({
+export const dateFilterLogic = kea<dateFilterLogicType<Moment>>({
     actions: () => ({
-        setDates: (dateFrom: string | Moment | undefined, dateTo: string | Moment | undefined) => ({
+        setDates: (
+            dateFrom: string | Moment | undefined,
+            dateTo: string | Moment | undefined,
+            updatePath: boolean = true
+        ) => ({
             dateFrom,
             dateTo,
+            updatePath,
         }),
     }),
     reducers: () => ({
@@ -28,7 +33,10 @@ export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Moment>>({
         ],
     }),
     listeners: ({ values }) => ({
-        setDates: () => {
+        setDates: ({ updatePath }) => {
+            if (!updatePath) {
+                return
+            }
             const { date_from, date_to, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
 

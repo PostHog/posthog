@@ -15,7 +15,11 @@ export function HeatmapStats(): JSX.Element {
             {heatmapEnabled && !heatmapLoading ? (
                 <>
                     <div style={{ marginTop: 0, marginBottom: 10 }}>
-                        <DateFilter defaultValue="Last 7 days" getPopupContainer={getShadowRootPopupContainer} />
+                        <DateFilter
+                            defaultValue="Last 7 days"
+                            updatePath={false}
+                            getPopupContainer={getShadowRootPopupContainer}
+                        />
                     </div>
                     <div style={{ marginTop: 20, marginBottom: 10 }}>
                         Found: {countedElements.length} elements / {clickCount} clicks!
