@@ -81,11 +81,11 @@ export const funnelLogic = kea({
 
                 insightLogic.actions.startQuery()
 
-                const eventName = 'calculate funnel result'
+                const eventName = 'funnel result calculated'
                 const eventProps = {
-                    'event count': params.events.length,
-                    'action count': params.actions.length,
-                    'total count actions and events': params.actions.length + params.events.length,
+                    event_count: params.events.length,
+                    action_count: params.actions.length,
+                    total_count_actions_events: params.actions.length + params.events.length,
                     interval: params.interval,
                 }
 
@@ -96,7 +96,7 @@ export const funnelLogic = kea({
                 } catch (e) {
                     insightLogic.actions.endQuery(ViewType.FUNNELS, false, e)
                     eventProps.success = false
-                    eventProps.error = e
+                    eventProps.error = e.name
                     posthog.capture(eventName, eventProps)
                     return []
                 }
