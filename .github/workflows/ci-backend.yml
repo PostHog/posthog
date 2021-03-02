@@ -251,6 +251,7 @@ jobs:
                   CLICKHOUSE_VERIFY: 'False'
               run: |
                   cd deploy
+                  source .env.template
                   pytest multi_tenancy messaging -m "not skip_on_multitenancy"
             - name: Run EE tests
               env:
