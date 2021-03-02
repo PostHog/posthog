@@ -1,36 +1,18 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Button, List, Space } from 'antd'
+import { List, Space } from 'antd'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { FireFilled, FireOutlined } from '@ant-design/icons'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
-interface HeatmapStatsProps {
-    buttonMode?: boolean
-}
-
-export function HeatmapStats({ buttonMode = false }: HeatmapStatsProps): JSX.Element {
+export function HeatmapStats(): JSX.Element {
     const { countedElements, clickCount, heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
-    const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
     return (
         <div>
-            {!buttonMode ? (
-                <div>
-                    <Button
-                        type={heatmapEnabled ? 'primary' : 'default'}
-                        onClick={heatmapEnabled ? disableHeatmap : enableHeatmap}
-                        loading={heatmapLoading}
-                    >
-                        {heatmapEnabled ? <FireFilled /> : <FireOutlined />}
-                        Enable Heatmap
-                    </Button>
-                </div>
-            ) : null}
             {heatmapEnabled && !heatmapLoading ? (
                 <>
-                    <div style={{ marginTop: buttonMode ? 0 : 20, marginBottom: 10 }}>
+                    <div style={{ marginTop: 0, marginBottom: 10 }}>
                         <span style={{ borderBottom: '2px dashed hsla(230, 14%, 78%, 1)' }}>Last 7 days</span>
                     </div>
                     <div style={{ marginTop: 20, marginBottom: 10 }}>
