@@ -231,6 +231,7 @@ function DatePickerDropdown(props: {
                         if (dates && dates.length === 2) {
                             props.onDateFromChange(dates[0] || undefined)
                             props.onDateToChange(dates[1] || undefined)
+                            setCalendarOpen(false)
                         }
                     }}
                     popupStyle={{ zIndex: 999999 }}
