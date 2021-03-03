@@ -45,7 +45,10 @@
     "repository": "https://github.com/PostHog/posthog-plugin-server",
     "license": "MIT",
     "dependencies": {
-        "@babel/standalone": "^7.12.16",
+        "@babel/core": "^7.13.1",
+        "@babel/preset-env": "^7.13.5",
+        "@babel/preset-typescript": "^7.13.0",
+        "@babel/standalone": "^7.13.7",
         "@google-cloud/bigquery": "^5.5.0",
         "@posthog/clickhouse": "^1.7.0",
         "@sentry/node": "^5.29.0",
@@ -71,10 +74,7 @@
         "yargs": "^16.1.0"
     },
     "devDependencies": {
-        "@babel/cli": "^7.0.0",
-        "@babel/core": "^7.0.0",
-        "@babel/preset-env": "^7.0.0",
-        "@babel/preset-typescript": "^7.8.3",
+        "@babel/cli": "^7.13.0",
         "@posthog/plugin-scaffold": "0.2.15",
         "@types/adm-zip": "^0.4.33",
         "@types/babel__standalone": "^7.1.3",

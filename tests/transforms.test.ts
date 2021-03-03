@@ -1,7 +1,7 @@
 import { createServer } from '../src/server'
 import { PluginsServer } from '../src/types'
 import { code } from '../src/utils'
-import { secureCode } from '../src/vm/transforms'
+import { transformCode } from '../src/vm/transforms'
 import { resetTestDatabase } from './helpers/sql'
 
 let server: PluginsServer
@@ -14,7 +14,7 @@ afterEach(async () => {
     await closeServer()
 })
 
-describe('secureCode', () => {
+describe('transformCode', () => {
     it('secures awaits by wrapping promises in __asyncGuard', () => {
         const rawCode = code`
             async function x() {
@@ -22,9 +22,9 @@ describe('secureCode', () => {
             }
         `
 
-        const securedCode = secureCode(rawCode, server)
+        const transformedCode = transformCode(rawCode, server)
 
-        expect(securedCode).toStrictEqual(code`
+        expect(transformedCode).toStrictEqual(code`
             "use strict";
 
             async function x() {
@@ -39,9 +39,9 @@ describe('secureCode', () => {
             x.then(() => null)
         `
 
-        const securedCode = secureCode(rawCode, server)
+        const transformedCode = transformCode(rawCode, server)
 
-        expect(securedCode).toStrictEqual(code`
+        expect(transformedCode).toStrictEqual(code`
             "use strict";
 
             async function x() {}
@@ -57,9 +57,9 @@ describe('secureCode', () => {
             }
         `
 
-        const securedCode = secureCode(rawCode, server)
+        const transformedCode = transformCode(rawCode, server)
 
-        expect(securedCode).toStrictEqual(code`
+        expect(transformedCode).toStrictEqual(code`
             "use strict";
 
             const _LP = Date.now();
@@ -76,9 +76,9 @@ describe('secureCode', () => {
             for (let i = 0; i < i + 1; i++) console.log(i)
         `
 
-        const securedCode = secureCode(rawCode, server)
+        const transformedCode = transformCode(rawCode, server)
 
-        expect(securedCode).toStrictEqual(code`
+        expect(transformedCode).toStrictEqual(code`
             "use strict";
 
             const _LP = Date.now();
@@ -99,9 +99,9 @@ describe('secureCode', () => {
             }
         `
 
-        const securedCode = secureCode(rawCode, server)
+        const transformedCode = transformCode(rawCode, server)
 
-        expect(securedCode).toStrictEqual(code`
+        expect(transformedCode).toStrictEqual(code`
             "use strict";
 
             const _LP = 0;
@@ -112,6 +112,41 @@ describe('secureCode', () => {
               if (Date.now() - _LP2 > 30000) throw new Error("Script execution timed out after looping for 30 seconds on line 3:0");
               console.log(i);
             }
+        `)
+    })
+
+    it('transforms TypeScript to plain JavaScript', () => {
+        const rawCode = code`
+            interface Y {
+              a: int
+              b: string
+            }
+
+            function k({ a, b }: Y): string {
+                return \`a * 10 is {a * 10}, while b is just {b}\`
+            }
+
+            let a: int = 2
+            console.log(k({ a, b: 'tomato' }))
+        `
+
+        const transformedCode = transformCode(rawCode, server)
+
+        expect(transformedCode).toStrictEqual(code`
+            "use strict";
+
+            function k({
+              a,
+              b
+            }) {
+              return \`a * 10 is {a * 10}, while b is just {b}\`;
+            }
+
+            let a = 2;
+            console.log(k({
+              a,
+              b: 'tomato'
+            }));
         `)
     })
 })
