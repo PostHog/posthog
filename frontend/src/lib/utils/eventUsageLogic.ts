@@ -28,6 +28,19 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
             nameProvided,
             instanceEmailAvailable,
         }),
+        reportFunnelCalculated: (
+            eventCount: number,
+            actionCount: number,
+            interval: string,
+            success: boolean,
+            error?: string
+        ) => ({
+            eventCount,
+            actionCount,
+            interval,
+            success,
+            error,
+        }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -201,6 +214,16 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
             posthog.capture('team invite attempted', {
                 name_provided: nameProvided,
                 instance_email_available: instanceEmailAvailable,
+            })
+        },
+        reportFunnelCalculated: async ({ eventCount, actionCount, interval, success, error }) => {
+            posthog.capture('funnel result calculated', {
+                event_count: eventCount,
+                action_count: actionCount,
+                total_count_actions_events: eventCount + actionCount,
+                interval: interval,
+                success: success,
+                error: error,
             })
         },
     },
