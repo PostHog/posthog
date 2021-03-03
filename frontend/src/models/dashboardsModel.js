@@ -41,6 +41,7 @@ export const dashboardsModel = kea({
                 }
                 return result
             },
+            duplicateDashboard: async ({ id }) => await api.create(`api/dashboard`, { duplicate: id }),
             renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),
             setIsSharedDashboard: async ({ id, isShared }) =>
                 await api.update(`api/dashboard/${id}`, { is_shared: isShared }),
@@ -61,6 +62,7 @@ export const dashboardsModel = kea({
         ],
         rawDashboards: {
             addDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+            duplicateDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             renameDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             setIsSharedDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
@@ -106,6 +108,10 @@ export const dashboardsModel = kea({
     listeners: ({ actions, values }) => ({
         addDashboardSuccess: ({ dashboard }) => {
             toast(`Dashboard "${dashboard.name}" created!`)
+        },
+
+        duplicateDashboardSuccess: ({ dashboard }) => {
+            toast(`Dashboard "${dashboard.name}" duplicated!`)
         },
 
         restoreDashboardSuccess: ({ dashboard }) => {
