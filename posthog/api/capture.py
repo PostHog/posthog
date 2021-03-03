@@ -2,8 +2,7 @@ import json
 import re
 from copy import deepcopy
 from datetime import datetime
-from random import random
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import statsd
 from dateutil import parser
@@ -95,6 +94,40 @@ def _ensure_web_feature_flags_in_properties(event: Dict[str, Any], team: Team, d
         event["properties"]["$active_feature_flags"] = get_active_feature_flags(team, distinct_id)
 
 
+def _split_large_snapshot_events(events: List[Dict[str, Any]]):
+    split_events: List[Dict[str, Any]] = []
+    for event in events:
+        if event["event"] == "$snapshot":
+            snapshot_data = event["properties"]["$snapshot_data"]
+            snapshot_json = json.dumps(snapshot_data)
+
+            if len(snapshot_json) > settings.SESSION_RECORDING_CHUNK_SIZE:
+                chunks = chunk_string(snapshot_json, settings.SESSION_RECORDING_CHUNK_SIZE)
+                snapshot_id = str(UUIDT())
+
+                event_template = deepcopy(event)
+                event_template["properties"]["$snapshot_data"] = {}
+
+                for index in range(len(chunks)):
+                    new_event = deepcopy(event_template)
+                    new_event["properties"]["$snapshot_data"] = {
+                        "posthog_chunked": True,
+                        "snapshot_id": snapshot_id,
+                        "snapshot_length": len(snapshot_json),
+                        "snapshot_type": snapshot_data["type"],
+                        "chunk_data": chunks[index],
+                        "chunk_length": len(chunks[index]),
+                        "chunk_index": index,
+                        "chunk_count": len(chunks),
+                    }
+                    split_events.append(new_event)
+            else:
+                split_events.append(event)
+        else:
+            split_events.append(event)
+    return split_events
+
+
 @csrf_exempt
 def get_event(request):
     timer = statsd.Timer("%s_posthog_cloud" % (settings.STATSD_PREFIX,))
@@ -176,37 +209,9 @@ def get_event(request):
     else:
         events = [data]
 
-    split_events = []
+    events = _split_large_snapshot_events(events)
+
     for event in events:
-        if event["event"] == "$snapshot":
-            snapshot_data = event["properties"]["$snapshot_data"]
-            snapshot_json = json.dumps(snapshot_data)
-
-            if len(snapshot_json) > settings.SESSION_RECORDING_CHUNK_SIZE:
-                snapshot_id = UUIDT()
-                chunks = chunk_string(snapshot_json, settings.SESSION_RECORDING_CHUNK_SIZE)
-                split_event = deepcopy(event)
-                del split_event["properties"]["$snapshot_data"]
-
-                for index in range(len(chunks)):
-                    new_event = deepcopy(split_event)
-                    new_event["properties"]["$snapshot_data"] = {
-                        "posthog_chunked": True,
-                        "snapshot_id": snapshot_id,
-                        "snapshot_length": len(snapshot_json),
-                        "snapshot_type": snapshot_data["type"],
-                        "chunk_data": chunks[index],
-                        "chunk_length": len(chunks[index]),
-                        "chunk_index": index,
-                        "chunk_count": len(chunks),
-                    }
-                    split_events.append(new_event)
-            else:
-                split_events.append(event)
-        else:
-            split_events.append(event)
-
-    for event in split_events:
         try:
             distinct_id = _get_distinct_id(event)
         except KeyError:
