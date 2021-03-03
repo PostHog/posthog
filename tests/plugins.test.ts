@@ -272,7 +272,21 @@ test("plugin with broken archive doesn't load", async () => {
 })
 
 test('plugin config order', async () => {
-    getPluginRows.mockReturnValueOnce([plugin60, { ...plugin60, id: 61 }, { ...plugin60, id: 62 }])
+    const setOrderCode = (id: number) => {
+        return `
+            function processEvent(event) {
+                if (!event.properties.plugins) { event.properties.plugins = [] }
+                event.properties.plugins.push(${id})
+                return event
+            }
+        `
+    }
+
+    getPluginRows.mockReturnValueOnce([
+        { ...plugin60, id: 60, plugin_type: 'source', archive: null, source: setOrderCode(60) },
+        { ...plugin60, id: 61, plugin_type: 'source', archive: null, source: setOrderCode(61) },
+        { ...plugin60, id: 62, plugin_type: 'source', archive: null, source: setOrderCode(62) },
+    ])
     getPluginAttachmentRows.mockReturnValueOnce([])
     getPluginConfigRows.mockReturnValueOnce([
         { ...pluginConfig39, order: 2 },
@@ -288,4 +302,12 @@ test('plugin config order', async () => {
         [39, 2],
         [41, 3],
     ])
+
+    const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
+
+    const returnedEvent1 = await runPlugins(mockServer, { ...event, properties: { ...event.properties } })
+    expect(returnedEvent1!.properties!.plugins).toEqual([61, 60, 62])
+
+    const returnedEvent2 = await runPlugins(mockServer, { ...event, properties: { ...event.properties } })
+    expect(returnedEvent2!.properties!.plugins).toEqual([61, 60, 62])
 })
