@@ -2,6 +2,18 @@
 
 ### 1.22.0 - Wednesday 3 March 2021
 
+#### Important Announcement for Self-Hosted Users
+
+If you're self hosting PostHog, make sure you have your plugin server up and running correctly. You can check that this is the case by looking at the color of the middle circle on the top left of the PostHog UI.
+
+If your plugin server is running, this will be a green checkmark, and hovering over it will give the message "All systems operational", like so:
+
+![Plugin server](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/plugin-server.png)
+
+If your plugin server is not running, this circle will turn orange/yellow. You can click on the server to verify if your plugin server is indeed the problem.
+
+This is important because from the next release onwards we will move our event ingestion to the plugin server, meaning that you **will not be able to ingest events** if your plugin server isn't running. 
+
 - [Bar Charts by Graph Series/Value](https://github.com/PostHog/posthog/pull/3457)
 
 ![Bar chart by values](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/bar-value.png)
