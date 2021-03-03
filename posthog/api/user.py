@@ -124,6 +124,7 @@ def user(request):
                 "name": organization.name,
                 "billing_plan": organization.billing_plan,
                 "available_features": organization.available_features,
+                "plugins_access_level": organization.plugins_access_level,
                 "created_at": organization.created_at,
                 "updated_at": organization.updated_at,
                 "teams": [{"id": team.id, "name": team.name} for team in organization.teams.all().only("id", "name")],

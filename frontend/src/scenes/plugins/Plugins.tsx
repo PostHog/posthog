@@ -7,28 +7,29 @@ import { InstalledTab } from 'scenes/plugins/tabs/installed/InstalledTab'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { pluginsLogic } from './pluginsLogic'
-import { Tabs, Tag } from 'antd'
+import { Spin, Tabs, Tag } from 'antd'
 import { OptInPlugins } from 'scenes/plugins/optin/OptInPlugins'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
+import { OrganizationPluginsAccessLevel } from '../../lib/constants'
 
 export const Plugins = hot(_Plugins)
-function _Plugins(): JSX.Element {
+function _Plugins(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { pluginTab } = useValues(pluginsLogic)
     const { setPluginTab } = useActions(pluginsLogic)
     const { TabPane } = Tabs
 
     if (!user) {
-        return <div />
+        return <Spin />
     }
 
-    if (!user.plugin_access.configure) {
+    if (!user.organization?.plugins_access_level) {
         useEffect(() => {
             window.location.href = '/'
         }, [])
-        return <div />
+        return null
     }
 
     return (
@@ -49,7 +50,8 @@ function _Plugins(): JSX.Element {
 
             {user.team?.plugins_opt_in ? (
                 <>
-                    {user.plugin_access.install ? (
+                    {user.is_multi_tenancy ||
+                    user.organization?.plugins_access_level >= OrganizationPluginsAccessLevel.Installation ? (
                         <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}>
                             <TabPane tab="Installed" key={PluginTab.Installed}>
                                 <InstalledTab />

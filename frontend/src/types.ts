@@ -4,6 +4,7 @@ import {
     CUSTOM_EVENT,
     EVENT_TYPE,
     OrganizationMembershipLevel,
+    OrganizationPluginsAccessLevel,
     PAGEVIEW,
     SCREEN,
     ShownAsValue,
@@ -80,6 +81,7 @@ export interface OrganizationType {
     membership_level: OrganizationMembershipLevel | null
     setup: SetupState
     personalization: PersonalizationData
+    plugins_access_level: OrganizationPluginsAccessLevel
 }
 
 export interface OrganizationMemberType {
