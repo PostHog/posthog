@@ -30,11 +30,26 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
 import { UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/TeamMembers/CreateInviteModal'
+import MD5 from 'crypto-js/md5'
+
+export function ProfilePicture({ user }: { user?: UserType }): JSX.Element {
+    const [didImageError, setDidImageError] = useState(false)
+    if (!user) {
+        return <div className="pp">•</div>
+    }
+    const emailHash = MD5(user.email.trim().toLowerCase()).toString()
+    const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
+    return !didImageError ? (
+        <img className="pp" src={gravatarUrl} onError={() => setDidImageError(true)} />
+    ) : (
+        <div className="pp">{user?.name[0]?.toUpperCase()}</div>
+    )
+}
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
         <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
-            <div className="pp">{user.name[0]?.toUpperCase()}</div>
+            <ProfilePicture user={user} />
             <div className="details hide-lte-lg">
                 <span>{user.name}</span>
                 <span>{user.organization?.name}</span>
@@ -67,7 +82,7 @@ export function _TopNavigation(): JSX.Element {
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
             <div className="whoami" style={{ paddingRight: 16, paddingLeft: 16 }}>
-                <div className="pp">{user?.name[0]?.toUpperCase()}</div>
+                <ProfilePicture user={user} />
                 <div className="details">
                     <span>{user?.email}</span>
                     <span>{user?.organization?.name}</span>
