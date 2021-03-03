@@ -12,6 +12,7 @@ from typing import (
 )
 
 from django.db import connection
+from sentry_sdk.api import capture_message
 
 from posthog.models import Person, SessionRecordingEvent, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
@@ -64,7 +65,12 @@ class SessionRecording:
         for event in snapshot_events:
             if event.get("posthog_chunked", False):
                 if not chunks.get(event["snapshot_id"], None):
-                    chunks[event["snapshot_id"]] = {"chunk": True, "count": event["chunk_count"], "chunks": {}}
+                    chunks[event["snapshot_id"]] = {
+                        "chunk": True,
+                        "event": event,
+                        "count": event["chunk_count"],
+                        "chunks": {},
+                    }
                     events_with_chunks.append(chunks[event["snapshot_id"]])
                 chunks[event["snapshot_id"]]["chunks"][event["chunk_index"]] = event["chunk_data"]
             else:
@@ -72,15 +78,25 @@ class SessionRecording:
 
         final_events = []
         for event in events_with_chunks:
-            if event.get("event"):
-                final_events.append(event["data"])
-            elif event.get("chunk"):
+            if event.get("chunk"):
+                has_all_chunks = True
                 data = ""
                 for i in range(event["count"]):
+                    if not event["chunks"].get(i, None):
+                        has_all_chunks = False
+                        break
                     data = data + event["chunks"][i]
-                final_events.append(json.loads(data))
 
-        return final_events[0].distinct_id, final_events[0].timestamp, final_events
+                if has_all_chunks:
+                    final_events.append(json.loads(data))
+                else:
+                    capture_message(
+                        "Did not find all session recording chunks! Team: {}, Session: {}".format(team.pk, session_id)
+                    )
+            elif event.get("event"):
+                final_events.append(event["data"])
+
+        return events[0].distinct_id, events[0].timestamp, final_events
 
     def run(self, team: Team, session_recording_id: str, *args, **kwargs) -> Dict[str, Any]:
         from posthog.api.person import PersonSerializer
