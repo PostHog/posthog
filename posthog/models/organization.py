@@ -45,9 +45,9 @@ class OrganizationManager(models.Manager):
 class Organization(UUIDModel):
     class PluginsAccessLevel(models.IntegerChoices):
         NONE = 0, "none"
-        CONFIGURATION = 2, "configuration"
-        INSTALLATION = 4, "installation"
-        ROOT = 6, "root"
+        CONFIGURATION = 3, "configuration"
+        INSTALLATION = 6, "installation"
+        ROOT = 9, "root"
 
     members: models.ManyToManyField = models.ManyToManyField(
         "posthog.User",

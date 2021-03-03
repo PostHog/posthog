@@ -11,6 +11,7 @@
         "name": "Foo",
         "billing_plan": null,
         "available_features": [],
+        "plugins_access_level": 9,
         "created_at": "2021-02-05T13:55:31.362Z",
         "updated_at": "2021-02-05T13:55:44.244Z",
         "teams": [

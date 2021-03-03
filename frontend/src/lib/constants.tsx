@@ -21,9 +21,9 @@ export enum OrganizationMembershipLevel {
 
 export enum OrganizationPluginsAccessLevel {
     None = 0,
-    Configuration = 2,
-    Installation = 4,
-    Root = 6,
+    Configuration = 3,
+    Installation = 6,
+    Root = 9,
 }
 
 export const organizationMembershipLevelToName = new Map<number, string>([
