@@ -19,15 +19,34 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
         reportIngestionBookmarkletCollapsible: (activePanels: string[]) => ({ activePanels }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportDemoWarningDismissed: (key: string) => ({ key }),
-        reportOnboardingStepTriggered: (stepKey: string, extra_args: Record<string, string | number | boolean>) => ({
+        reportOnboardingStepTriggered: (stepKey: string, extraArgs: Record<string, string | number | boolean>) => ({
             stepKey,
-            extra_args,
+            extraArgs,
         }),
         reportBulkInviteAttempted: (inviteesCount: number, namesCount: number) => ({ inviteesCount, namesCount }),
         reportInviteAttempted: (nameProvided: boolean, instanceEmailAvailable: boolean) => ({
             nameProvided,
             instanceEmailAvailable,
         }),
+        reportFunnelCalculated: (
+            eventCount: number,
+            actionCount: number,
+            interval: string,
+            success: boolean,
+            error?: string
+        ) => ({
+            eventCount,
+            actionCount,
+            interval,
+            success,
+            error,
+        }),
+        reportPersonPropertyUpdated: (
+            action: 'added' | 'updated' | 'removed',
+            totalProperties: number,
+            oldPropertyType?: string,
+            newPropertyType?: string
+        ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -120,15 +139,13 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
                 properties.period = filters.period
                 properties.date_to = filters.date_to
                 properties.retention_type = filters.retentionType
-                const cohortizingEvent = filters.startEntity?.events.length
-                    ? filters.startEntity?.events[0].id
-                    : filters.startEntity?.actions[0].id
-                const retainingEvent = filters.returningEntity?.events.length
-                    ? filters.returningEntity?.events[0].id
-                    : filters.returningEntity?.actions[0].id
-                properties.same_retention_and_cohortizing_event = cohortizingEvent == retainingEvent
+                const cohortizingEvent = filters.target_entity
+                const retainingEvent = filters.returning_entity
+                properties.same_retention_and_cohortizing_event =
+                    cohortizingEvent?.id == retainingEvent?.id && cohortizingEvent?.type == retainingEvent?.type
             } else if (insight === 'PATHS') {
                 properties.path_type = filters.path_type
+                properties.has_start_point = !!filters.start_point
             }
 
             posthog.capture('insight viewed', properties)
@@ -183,9 +200,9 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
         reportDemoWarningDismissed: async ({ key }) => {
             posthog.capture('demo warning dismissed', { warning_key: key })
         },
-        reportOnboardingStepTriggered: async ({ stepKey, extra_args }) => {
+        reportOnboardingStepTriggered: async ({ stepKey, extraArgs }) => {
             // Fired after the user attempts to start an onboarding step (e.g. clicking on create project)
-            posthog.capture('onboarding step triggered', { step: stepKey, ...extra_args })
+            posthog.capture('onboarding step triggered', { step: stepKey, ...extraArgs })
         },
         reportBulkInviteAttempted: async ({
             inviteesCount,
@@ -201,6 +218,23 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
             posthog.capture('team invite attempted', {
                 name_provided: nameProvided,
                 instance_email_available: instanceEmailAvailable,
+            })
+        },
+        reportFunnelCalculated: async ({ eventCount, actionCount, interval, success, error }) => {
+            posthog.capture('funnel result calculated', {
+                event_count: eventCount,
+                action_count: actionCount,
+                total_count_actions_events: eventCount + actionCount,
+                interval: interval,
+                success: success,
+                error: error,
+            })
+        },
+        reportPersonPropertyUpdated: async ({ action, totalProperties, oldPropertyType, newPropertyType }) => {
+            posthog.capture(`person property ${action}`, {
+                old_property_type: oldPropertyType !== 'undefined' ? oldPropertyType : undefined,
+                new_property_type: newPropertyType !== 'undefined' ? newPropertyType : undefined,
+                total_properties: totalProperties,
             })
         },
     },

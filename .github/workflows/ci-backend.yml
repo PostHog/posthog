@@ -250,6 +250,7 @@ jobs:
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
               run: |
+                  source .env.template
                   cd deploy
                   pytest multi_tenancy messaging -m "not skip_on_multitenancy"
             - name: Run EE tests

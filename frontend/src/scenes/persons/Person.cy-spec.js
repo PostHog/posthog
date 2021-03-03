@@ -14,8 +14,6 @@ describe('<Person /> ', () => {
         helpers.setLocation('/person/01779064-53be-000c-683f-23b1a8c8eb4c')
     })
 
-    given('featureFlags', () => ['persons-2353'])
-
     it('shows user properties and events', () => {
         mount()
 
