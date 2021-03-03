@@ -249,9 +249,7 @@ class TestDashboard(APIBaseTest):
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         patch_response = self.client.patch(
-            "/api/dashboard/%s/" % dashboard.pk,
-            data={"filters": {"date_from": "-24h",}},
-            content_type="application/json",
+            "/api/dashboard/%s/" % dashboard.pk, {"filters": {"date_from": "-24h"}}, format="json",
         ).json()
         self.assertEqual(patch_response["items"][0]["result"], None)
 
