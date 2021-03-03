@@ -1,13 +1,6 @@
 import React from 'react'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
-
-function sortKeys(object: Record<string, any>): Record<string, any> {
-    const newObject: Record<string, any> = {}
-    for (const key of Object.keys(object).sort()) {
-        newObject[key] = object[key]
-    }
-    return newObject
-}
+import { sortedKeys } from 'lib/utils'
 
 export function EventJSON(props: { event: Record<string, any> }): JSX.Element {
     const { event, id, uuid, distinct_id, properties, elements, timestamp, person, ...otherProps } = props.event
@@ -22,16 +15,14 @@ export function EventJSON(props: { event: Record<string, any> }): JSX.Element {
         timestamp,
         event,
         distinct_id,
-        properties: sortKeys(properties),
+        properties: sortedKeys(properties),
         ...(elements && elements.length > 0 ? { elements } : null),
         ...otherProps,
     }
 
-    const eventJSON = JSON.stringify(newEvent, null, 4)
-
     return (
         <div>
-            <CodeSnippet language={Language.JSON}>{eventJSON}</CodeSnippet>
+            <CodeSnippet language={Language.JSON}>{JSON.stringify(newEvent, null, 4)}</CodeSnippet>
         </div>
     )
 }

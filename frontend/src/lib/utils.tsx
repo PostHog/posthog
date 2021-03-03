@@ -739,3 +739,11 @@ export function compactNumber(value: number, maxDecimals: number = 1): string {
     }
     return suffixFormatted(value, 1000000000, 'B', maxDecimals)
 }
+
+export function sortedKeys(object: Record<string, any>): Record<string, any> {
+    const newObject: Record<string, any> = {}
+    for (const key of Object.keys(object).sort()) {
+        newObject[key] = object[key]
+    }
+    return newObject
+}
