@@ -134,14 +134,14 @@ function _PersonV2(): JSX.Element {
                             />
                         </Tabs>
                         {person && (
-                            <>
+                            <div style={{ maxWidth: '100%', overflow: 'hidden' }}>
                                 <PropertiesTable
                                     properties={person.properties}
                                     onEdit={editProperty}
                                     sortProperties
                                     onDelete={(key) => editProperty(key, undefined)}
                                 />
-                            </>
+                            </div>
                         )}
                         {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}
                     </Card>
