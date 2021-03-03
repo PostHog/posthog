@@ -19,9 +19,9 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
         reportIngestionBookmarkletCollapsible: (activePanels: string[]) => ({ activePanels }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportDemoWarningDismissed: (key: string) => ({ key }),
-        reportOnboardingStepTriggered: (stepKey: string, extra_args: Record<string, string | number | boolean>) => ({
+        reportOnboardingStepTriggered: (stepKey: string, extraArgs: Record<string, string | number | boolean>) => ({
             stepKey,
-            extra_args,
+            extraArgs,
         }),
         reportBulkInviteAttempted: (inviteesCount: number, namesCount: number) => ({ inviteesCount, namesCount }),
         reportInviteAttempted: (nameProvided: boolean, instanceEmailAvailable: boolean) => ({
@@ -41,6 +41,12 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
             success,
             error,
         }),
+        reportPersonPropertyUpdated: (
+            action: 'added' | 'updated' | 'removed',
+            totalProperties: number,
+            oldPropertyType?: string,
+            newPropertyType?: string
+        ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -194,9 +200,9 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
         reportDemoWarningDismissed: async ({ key }) => {
             posthog.capture('demo warning dismissed', { warning_key: key })
         },
-        reportOnboardingStepTriggered: async ({ stepKey, extra_args }) => {
+        reportOnboardingStepTriggered: async ({ stepKey, extraArgs }) => {
             // Fired after the user attempts to start an onboarding step (e.g. clicking on create project)
-            posthog.capture('onboarding step triggered', { step: stepKey, ...extra_args })
+            posthog.capture('onboarding step triggered', { step: stepKey, ...extraArgs })
         },
         reportBulkInviteAttempted: async ({
             inviteesCount,
@@ -222,6 +228,13 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
                 interval: interval,
                 success: success,
                 error: error,
+            })
+        },
+        reportPersonPropertyUpdated: async ({ action, totalProperties, oldPropertyType, newPropertyType }) => {
+            posthog.capture(`person property ${action}`, {
+                old_property_type: oldPropertyType !== 'undefined' ? oldPropertyType : undefined,
+                new_property_type: newPropertyType !== 'undefined' ? newPropertyType : undefined,
+                total_properties: totalProperties,
             })
         },
     },
