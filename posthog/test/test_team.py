@@ -29,8 +29,8 @@ class TestTeam(BaseTest):
             team.test_account_filters,
             [
                 {
-                    "key": "$current_url",
-                    "operator": "not_icontains",
+                    "key": "$host",
+                    "operator": "is_not",
                     "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000"],
                 },
             ],
