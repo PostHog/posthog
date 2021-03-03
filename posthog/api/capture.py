@@ -207,7 +207,7 @@ def get_event(request):
         else:
             split_events.append(event)
 
-    for event in events:
+    for event in split_events:
         try:
             distinct_id = _get_distinct_id(event)
         except KeyError:

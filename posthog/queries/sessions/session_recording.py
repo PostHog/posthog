@@ -1,4 +1,5 @@
 import datetime
+import json
 from typing import (
     Any,
     Callable,
@@ -57,7 +58,29 @@ class SessionRecording:
         if len(events) == 0:
             return None, None, []
 
-        return events[0].distinct_id, events[0].timestamp, [e.snapshot_data for e in events]
+        snapshot_events = [e.snapshot_data for e in events]
+        chunks = {}
+        events_with_chunks = []
+        for event in snapshot_events:
+            if event.get("posthog_chunked", False):
+                if not chunks.get(event["snapshot_id"], None):
+                    chunks[event["snapshot_id"]] = {"chunk": True, "count": event["chunk_count"], "chunks": {}}
+                    events_with_chunks.append(chunks[event["snapshot_id"]])
+                chunks[event["snapshot_id"]]["chunks"][event["chunk_index"]] = event["chunk_data"]
+            else:
+                events_with_chunks.append({"event": True, "data": event})
+
+        final_events = []
+        for event in events_with_chunks:
+            if event.get("event"):
+                final_events.append(event["data"])
+            elif event.get("chunk"):
+                data = ""
+                for i in range(event["count"]):
+                    data = data + event["chunks"][i]
+                final_events.append(json.loads(data))
+
+        return final_events[0].distinct_id, final_events[0].timestamp, final_events
 
     def run(self, team: Team, session_recording_id: str, *args, **kwargs) -> Dict[str, Any]:
         from posthog.api.person import PersonSerializer
