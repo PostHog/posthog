@@ -89,7 +89,6 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 const response = await api.update(`api/person/${person.id}`, person)
                 actions.setPerson(response)
 
-                console.log(person.properties)
                 eventUsageLogic.actions.reportPersonPropertyUpdated(
                     action,
                     Object.keys(person.properties).length,
