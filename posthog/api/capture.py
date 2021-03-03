@@ -114,7 +114,6 @@ def _split_large_snapshot_events(events: List[Dict[str, Any]]):
                         "posthog_chunked": True,
                         "snapshot_id": snapshot_id,
                         "snapshot_length": len(snapshot_json),
-                        "snapshot_type": snapshot_data["type"],
                         "chunk_data": chunks[index],
                         "chunk_length": len(chunks[index]),
                         "chunk_index": index,

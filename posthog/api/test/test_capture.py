@@ -613,7 +613,6 @@ class TestCapture(BaseTest):
                             "posthog_chunked": True,
                             "snapshot_id": events[0]["properties"]["$snapshot_data"]["snapshot_id"],
                             "snapshot_length": 12159,
-                            "snapshot_type": 3,
                             "chunk_data": '{"data": {"adds": [{"node": {"id": 2040, "type": 2, "tagName": "div", "attributes": {}, "childNodes"',
                             "chunk_length": 100,
                             "chunk_index": 0,
