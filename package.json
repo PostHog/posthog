@@ -1,6 +1,6 @@
 {
     "name": "@posthog/plugin-server",
-    "version": "0.11.2",
+    "version": "0.11.3",
     "description": "PostHog Plugin Server",
     "types": "dist/index.d.ts",
     "main": "dist/index.js",
