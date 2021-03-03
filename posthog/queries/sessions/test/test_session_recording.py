@@ -24,9 +24,9 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 self.assertEqual(
                     session["snapshots"],
                     [
-                        {"timestamp": 1_600_000_000, "type": 2},
-                        {"timestamp": 1_600_000_010, "type": 2},
-                        {"timestamp": 1_600_000_030, "type": 2},
+                        {"timestamp": 1_600_000_000_000, "type": 2},
+                        {"timestamp": 1_600_000_010_000, "type": 2},
+                        {"timestamp": 1_600_000_030_000, "type": 2},
                     ],
                 )
                 self.assertEqual(session["person"]["properties"], {"$some_prop": "something"})
@@ -35,6 +35,28 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
         def test_query_run_with_no_such_session(self):
             session = session_recording().run(team=self.team, session_recording_id="xxx")
             self.assertEqual(session, {"snapshots": [], "person": None, "start_time": None})
+
+        def test_query_chunk_merge(self):
+            with freeze_time("2020-09-13T12:26:40.000Z"):
+                Person.objects.create(team=self.team, distinct_ids=["user"], properties={"$some_prop": "something"})
+
+                self.create_snapshot_chunks("user", "1", now())
+                self.create_snapshot("user", "1", now() + relativedelta(seconds=10))
+                self.create_snapshot_chunks("user2", "2", now() + relativedelta(seconds=20))
+                self.create_snapshot_chunks("user", "1", now() + relativedelta(seconds=30))
+
+                session = session_recording().run(team=self.team, session_recording_id="1")
+                self.maxDiff = None
+                self.assertEqual(
+                    session["snapshots"],
+                    [
+                        {"data": {"adds": [{"node": {"id": 2040}}] * 100}, "timestamp": 1_600_000_000_000, "type": 3},
+                        {"timestamp": 1_600_000_010_000, "type": 2},
+                        {"data": {"adds": [{"node": {"id": 2040}}] * 100}, "timestamp": 1_600_000_030_000, "type": 3},
+                    ],
+                )
+                self.assertEqual(session["person"]["properties"], {"$some_prop": "something"})
+                self.assertEqual(session["start_time"], now())
 
         def _test_filter_sessions(self, filter, expected):
             with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -113,8 +135,39 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 session_id=session_id,
-                snapshot_data={"timestamp": timestamp.timestamp(), "type": type},
+                snapshot_data={"timestamp": int(timestamp.timestamp() * 1000), "type": type},
             )
+
+        def create_snapshot_chunks(self, distinct_id, session_id, timestamp):
+            from posthog.api.capture import _split_large_snapshot_events
+
+            snapshot_data = {
+                "data": {"adds": [{"node": {"id": 2040}}] * 100},
+                "type": 3,
+                "timestamp": int(timestamp.timestamp() * 1000),
+            }
+            data = {
+                "event": "$snapshot",
+                "timestamp": timestamp,
+                "properties": {
+                    "$session_id": "session123",
+                    "$snapshot_data": snapshot_data,
+                    "distinct_id": "userid123",
+                },
+                "api_key": self.team.api_token,
+            }
+
+            with self.settings(SESSION_RECORDING_CHUNK_SIZE=100):
+                events = _split_large_snapshot_events([data])
+                self.assertGreater(len(events), 1)  # make sure we did actually split it
+                for event in events:
+                    event_factory(
+                        team_id=self.team.pk,
+                        distinct_id=distinct_id,
+                        timestamp=timestamp,
+                        session_id=session_id,
+                        snapshot_data=event["properties"]["$snapshot_data"],
+                    )
 
     return TestSessionRecording
 
