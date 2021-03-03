@@ -191,7 +191,8 @@ def get_event(request):
 
                 for index in range(len(chunks)):
                     new_event = deepcopy(split_event)
-                    new_event["properties"]["$snapshot_chunk"] = {
+                    new_event["properties"]["$snapshot_data"] = {
+                        "posthog_chunked": True,
                         "snapshot_id": snapshot_id,
                         "snapshot_length": len(snapshot_json),
                         "snapshot_type": snapshot_data["type"],
