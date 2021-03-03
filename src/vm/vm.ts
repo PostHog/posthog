@@ -8,7 +8,7 @@ import { createConsole } from './extensions/console'
 import { createGoogle } from './extensions/google'
 import { createPosthog } from './extensions/posthog'
 import { createStorage } from './extensions/storage'
-import { secureCode } from './transforms'
+import { transformCode } from './transforms'
 
 export async function createPluginConfigVM(
     server: PluginsServer,
@@ -17,7 +17,7 @@ export async function createPluginConfigVM(
     libJs = ''
 ): Promise<PluginConfigVMReponse> {
     const rawCode = libJs ? `${libJs};${indexJs}` : indexJs
-    const securedCode = secureCode(rawCode, server)
+    const transformedCode = transformCode(rawCode, server)
 
     // Create virtual machine
     const vm = new VM({
@@ -73,7 +73,7 @@ export async function createPluginConfigVM(
         let exports = {};
 
         // the plugin JS code
-        ${securedCode};
+        ${transformedCode};
     `)
 
     const responseVar = `__pluginDetails${randomBytes(64).toString('hex')}`
