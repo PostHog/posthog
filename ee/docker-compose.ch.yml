@@ -71,7 +71,7 @@ services:
             - redis:redis
             - kafka:kafka
     plugins:
-        image: posthog/plugin-server:0.11.1
+        image: posthog/plugin-server:0.11.2
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
