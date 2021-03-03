@@ -133,15 +133,10 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
                 properties.period = filters.period
                 properties.date_to = filters.date_to
                 properties.retention_type = filters.retentionType
-
-                const cohortizingEvent = filters.startEntity?.events.length
-                    ? filters.startEntity?.events[0].id
-                    : filters.startEntity?.actions[0].id
-                const retainingEvent = filters.returningEntity?.events.length
-                    ? filters.returningEntity?.events[0].id
-                    : filters.returningEntity?.actions[0].id
-
-                properties.same_retention_and_cohortizing_event = cohortizingEvent == retainingEvent
+                const cohortizingEvent = filters.target_entity
+                const retainingEvent = filters.returning_entity
+                properties.same_retention_and_cohortizing_event =
+                    cohortizingEvent?.id == retainingEvent?.id && cohortizingEvent?.type == retainingEvent?.type
             } else if (insight === 'PATHS') {
                 properties.path_type = filters.path_type
                 properties.has_start_point = !!filters.start_point
