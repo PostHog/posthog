@@ -47,9 +47,6 @@ if [[ -n $DYNO_RAM ]]; then
   export WORKER_CONCURRENCY=$(( ($DYNO_RAM - 1) / 512 + 1 ))
 fi
 
-# Help debug redis connection issues
-export DEBUG=ioredis:*
-
 cd plugins
 
 echo "🧐 Verifying installed packages..."
