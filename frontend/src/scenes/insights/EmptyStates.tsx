@@ -9,11 +9,7 @@ import { IllustrationDanger } from 'lib/components/icons'
 export function LineGraphEmptyState({ color, isDashboard }: { color: string; isDashboard?: boolean }): JSX.Element {
     return (
         <>
-            {!isDashboard ? (
-                <p style={{ textAlign: 'center', paddingTop: '4rem' }}>
-                    We couldn't find any matching events. Try changing dates or pick another action or event.
-                </p>
-            ) : (
+            {isDashboard ? (
                 <div className="text-center" style={{ height: '100%' }}>
                     <img
                         src={color === 'white' ? imgEmptyLineGraphDark : imgEmptyLineGraph}
@@ -31,6 +27,10 @@ export function LineGraphEmptyState({ color, isDashboard }: { color: string; isD
                         </a>
                     </div>
                 </div>
+            ) : (
+                <p style={{ textAlign: 'center', paddingTop: '4rem' }}>
+                    We couldn't find any matching events. Try changing dates or pick another action or event.
+                </p>
             )}
         </>
     )
