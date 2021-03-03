@@ -387,6 +387,7 @@ export interface DashboardType {
     share_token: string
     deleted: boolean
     filters: Record<string, any>
+    creation_mode: 'default' | 'template' | 'duplicate'
 }
 
 export interface OrganizationInviteType {

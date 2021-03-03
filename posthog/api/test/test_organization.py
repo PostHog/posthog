@@ -339,7 +339,7 @@ class TestSignup(APIBaseTest):
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
 
-    @patch("posthoganalytics.feature_enabled", side_effect=lambda feature, *args: feature == "1694-dashboards")
+    @patch("posthoganalytics.feature_enabled")
     def test_default_dashboard_is_created_on_signup(self, mock_feature_enabled):
         """
         Tests that the default web app dashboard is created on signup.
@@ -360,7 +360,6 @@ class TestSignup(APIBaseTest):
         user: User = User.objects.order_by("-pk").get()
 
         mock_feature_enabled.assert_any_call("new-onboarding-2822", user.distinct_id)
-        mock_feature_enabled.assert_any_call("1694-dashboards", user.distinct_id)
 
         self.assertEqual(
             response.data,
@@ -369,17 +368,20 @@ class TestSignup(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "Jane",
                 "email": "hedgehog75@posthog.com",
-                "redirect_url": "/ingestion",
+                "redirect_url": "/personalization",
             },
         )
 
-        dashboard: Dashboard = Dashboard.objects.last()  # type: ignore
+        dashboard: Dashboard = Dashboard.objects.first()  # type: ignore
         self.assertEqual(dashboard.team, user.team)
-        self.assertEqual(dashboard.items.count(), 7)
-        self.assertEqual(dashboard.name, "My App Dashboard")
+        self.assertEqual(dashboard.items.count(), 1)
+        self.assertEqual(dashboard.name, "Web Analytics")
         self.assertEqual(
-            dashboard.items.all()[0].description, "Shows the number of unique users that use your app everyday."
+            dashboard.items.all()[0].description, "Shows a conversion funnel from sign up to watching a movie."
         )
+
+        # Particularly assert that the default dashboards are not created (because we create special demo dashboards)
+        self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 3)  # Web, app & revenue demo dashboards
 
 
 class TestInviteSignup(APIBaseTest):
