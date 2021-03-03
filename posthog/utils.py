@@ -612,3 +612,7 @@ def is_valid_regex(value: Any) -> bool:
         return True
     except re.error:
         return False
+
+
+def chunk_string(string, length) -> List[str]:
+    return [string[0 + i : length + i] for i in range(0, len(string), length)]

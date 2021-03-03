@@ -1,4 +1,6 @@
+import json
 import re
+from copy import deepcopy
 from datetime import datetime
 from random import random
 from typing import Any, Dict, Optional
@@ -15,7 +17,7 @@ from posthog.ee import is_ee_enabled
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
-from posthog.utils import cors_response, get_ip_address, load_data_from_request
+from posthog.utils import chunk_string, cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
     from ee.clickhouse.process_event import log_event, process_event_ee
@@ -173,6 +175,36 @@ def get_event(request):
         events = data
     else:
         events = [data]
+
+    split_events = []
+    for event in events:
+        if event["event"] == "$snapshot":
+            snapshot_data = event["properties"]["$snapshot_data"]
+            snapshot_json = json.dumps(snapshot_data)
+
+            max_chunk_length = 100
+            if len(snapshot_json) > max_chunk_length:
+                snapshot_id = UUIDT()
+                chunks = chunk_string(snapshot_json, max_chunk_length)
+                split_event = deepcopy(event)
+                del split_event["properties"]["$snapshot_data"]
+
+                for index in range(len(chunks)):
+                    new_event = deepcopy(split_event)
+                    new_event["properties"]["$snapshot_chunk"] = {
+                        "snapshot_id": snapshot_id,
+                        "snapshot_length": len(snapshot_json),
+                        "snapshot_type": snapshot_data["type"],
+                        "chunk_data": chunks[index],
+                        "chunk_length": len(chunks[index]),
+                        "chunk_index": index,
+                        "chunk_count": len(chunks),
+                    }
+                    split_events.append(new_event)
+            else:
+                split_events.append(event)
+        else:
+            split_events.append(event)
 
     for event in events:
         try:
