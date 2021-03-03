@@ -560,3 +560,189 @@ class TestCapture(BaseTest):
         )
         arguments = self._to_arguments(patch_process_event_with_plugins)
         self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_split_session_recordings(self, patch_process_event_with_plugins):
+        with self.settings(SESSION_RECORDING_CHUNK_SIZE=500):
+            now = timezone.now()
+            snapshot_data = {
+                "data": {
+                    "adds": [
+                        {
+                            "node": {"id": 2040, "type": 2, "tagName": "div", "attributes": {}, "childNodes": []},
+                            "nextId": None,
+                            "parentId": 39,
+                        },
+                        {
+                            "node": {
+                                "id": 2041,
+                                "type": 2,
+                                "tagName": "div",
+                                "attributes": {"class": "ant-drawer ant-drawer-right", "tabindex": "-1"},
+                                "childNodes": [],
+                            },
+                            "nextId": None,
+                            "parentId": 2040,
+                        },
+                        {
+                            "node": {
+                                "id": 2042,
+                                "type": 2,
+                                "tagName": "div",
+                                "attributes": {
+                                    "class": "ant-drawer-content-wrapper",
+                                    "style": "transform: translateX(100%); width: min(90vw, 420px);",
+                                },
+                                "childNodes": [],
+                            },
+                            "nextId": None,
+                            "parentId": 2041,
+                        },
+                        {
+                            "node": {
+                                "id": 2043,
+                                "type": 2,
+                                "tagName": "div",
+                                "attributes": {"class": "ant-drawer-content"},
+                                "childNodes": [],
+                            },
+                            "nextId": None,
+                            "parentId": 2042,
+                        },
+                        {
+                            "node": {
+                                "id": 2044,
+                                "type": 2,
+                                "tagName": "div",
+                                "attributes": {"class": "ant-drawer-wrapper-body"},
+                                "childNodes": [],
+                            },
+                            "nextId": None,
+                            "parentId": 2043,
+                        },
+                        {
+                            "node": {
+                                "id": 2045,
+                                "type": 2,
+                                "tagName": "div",
+                                "attributes": {"class": "ant-drawer-footer"},
+                                "childNodes": [],
+                            },
+                            "nextId": None,
+                            "parentId": 2044,
+                        },
+                        {
+                            "node": {
+                                "id": 2699,
+                                "type": 2,
+                                "tagName": "span",
+                                "attributes": {"class": "show-over-500"},
+                                "childNodes": [],
+                            },
+                            "nextId": None,
+                            "parentId": 2698,
+                        },
+                        {
+                            "node": {
+                                "id": 2700,
+                                "type": 2,
+                                "tagName": "span",
+                                "attributes": {"role": "img", "class": "anticon anticon-plus", "aria-label": "plus"},
+                                "childNodes": [],
+                            },
+                            "nextId": 2699,
+                            "parentId": 2698,
+                        },
+                        {
+                            "node": {
+                                "id": 2701,
+                                "type": 2,
+                                "isSVG": True,
+                                "tagName": "svg",
+                                "attributes": {
+                                    "fill": "currentColor",
+                                    "class": "",
+                                    "width": "1em",
+                                    "height": "1em",
+                                    "viewBox": "64 64 896 896",
+                                    "data-icon": "plus",
+                                    "focusable": "false",
+                                    "aria-hidden": "true",
+                                },
+                                "childNodes": [],
+                            },
+                            "nextId": None,
+                            "parentId": 2700,
+                        },
+                        {
+                            "node": {
+                                "id": 2702,
+                                "type": 2,
+                                "isSVG": True,
+                                "tagName": "path",
+                                "attributes": {"d": "M176 474h672q8 0 8 8v60q0 8-8 8H176q-8 0-8-8v-60q0-8 8-8z"},
+                                "childNodes": [],
+                            },
+                            "nextId": None,
+                            "parentId": 2701,
+                        },
+                        {
+                            "node": {
+                                "id": 2703,
+                                "type": 2,
+                                "isSVG": True,
+                                "tagName": "path",
+                                "attributes": {"d": "M482 152h60q8 0 8 8v704q0 8-8 8h-60q-8 0-8-8V160q0-8 8-8z"},
+                                "childNodes": [],
+                            },
+                            "nextId": 2702,
+                            "parentId": 2701,
+                        },
+                        {
+                            "node": {
+                                "id": 2704,
+                                "type": 2,
+                                "isSVG": True,
+                                "tagName": "defs",
+                                "attributes": {},
+                                "childNodes": [],
+                            },
+                            "nextId": 2703,
+                            "parentId": 2701,
+                        },
+                    ]
+                },
+                "type": 3,
+                "timestamp": 1611611017482,
+            }
+            data = {
+                "event": "$snapshot",
+                "timestamp": now.isoformat(),
+                "properties": {
+                    "$session_id": "session123",
+                    "$snapshot_data": snapshot_data,
+                    "distinct_id": "userid123",
+                },
+                "api_key": self.team.api_token,
+            }
+
+            self.client.get(
+                "/e/?_=%s&data=%s" % (int(now.timestamp()), quote(self._dict_to_json(data))),
+                content_type="application/json",
+                HTTP_ORIGIN="https://localhost",
+            )
+
+            self.assertEqual(patch_process_event_with_plugins.call_count, 5)
+
+            events = [call_args[1]["args"][3] for call_args in patch_process_event_with_plugins.call_args_list]
+            snapshot_datas = [event["properties"]["$snapshot_data"] for event in events]
+
+            self.assertEqual(set([e["event"] for e in events]), {"$snapshot"})
+            self.assertEqual(set([s["snapshot_id"] for s in snapshot_datas]), {snapshot_datas[0]["snapshot_id"]})
+            self.assertEqual(set([s["posthog_chunked"] for s in snapshot_datas]), {True})
+            self.assertEqual(set([s["chunk_index"] for s in snapshot_datas]), {0, 1, 2, 3, 4})
+            self.assertEqual(set([s["chunk_count"] for s in snapshot_datas]), {5})
+            self.assertEqual(sum([s["chunk_length"] for s in snapshot_datas]), snapshot_datas[0]["snapshot_length"])
+
+            self.assertEqual("".join([s["chunk_data"] for s in snapshot_datas]), json.dumps(snapshot_data))
