@@ -59,49 +59,56 @@ class SessionRecording:
         if len(events) == 0:
             return None, None, []
 
-        snapshot_events = [e.snapshot_data for e in events]
-        chunks = {}
-        events_with_chunks = []
-        for event in snapshot_events:
-            if event.get("posthog_chunked", False):
-                if not chunks.get(event["snapshot_id"], None):
-                    chunks[event["snapshot_id"]] = {
-                        "chunk": True,
-                        "event": event,
-                        "count": event["chunk_count"],
+        return events[0].distinct_id, events[0].timestamp, [e.snapshot_data for e in events]
+
+    def merge_snapshot_chunks(self, team: Team, session_id: str, unmerged_snapshots: List[Dict[str, any]]):
+        snapshot_collectors: Dict[str, Dict[str, any]] = {}  # gather the chunks of a snapshot
+        snapshots_and_collectors: List[Dict[str, any]] = []  # list the snapshots in order
+
+        for chunk_or_snapshot in unmerged_snapshots:
+            if chunk_or_snapshot.get("posthog_chunked"):  # it's a chunk
+                collector = snapshot_collectors.get(chunk_or_snapshot["snapshot_id"])
+                if not collector:
+                    collector = {
+                        "collector": True,
+                        "event": chunk_or_snapshot,
+                        "count": chunk_or_snapshot["chunk_count"],
                         "chunks": {},
                     }
-                    events_with_chunks.append(chunks[event["snapshot_id"]])
-                chunks[event["snapshot_id"]]["chunks"][event["chunk_index"]] = event["chunk_data"]
-            else:
-                events_with_chunks.append({"event": True, "data": event})
+                    snapshot_collectors[chunk_or_snapshot["snapshot_id"]] = collector
+                    snapshots_and_collectors.append(collector)
 
-        final_events = []
-        for event in events_with_chunks:
-            if event.get("chunk"):
+                collector["chunks"][chunk_or_snapshot["chunk_index"]] = chunk_or_snapshot["chunk_data"]
+            else:  # full snapshot
+                snapshots_and_collectors.append({"snapshot": True, "data": chunk_or_snapshot})
+
+        snapshots = []
+        for snapshot_or_collector in snapshots_and_collectors:
+            if snapshot_or_collector.get("collector"):
                 has_all_chunks = True
                 data = ""
-                for i in range(event["count"]):
-                    if not event["chunks"].get(i, None):
+                for i in range(snapshot_or_collector["count"]):
+                    if not snapshot_or_collector["chunks"].get(i):
                         has_all_chunks = False
                         break
-                    data = data + event["chunks"][i]
+                    data = data + snapshot_or_collector["chunks"][i]
 
                 if has_all_chunks:
-                    final_events.append(json.loads(data))
+                    snapshots.append(json.loads(data))
                 else:
                     capture_message(
                         "Did not find all session recording chunks! Team: {}, Session: {}".format(team.pk, session_id)
                     )
-            elif event.get("event"):
-                final_events.append(event["data"])
+            elif snapshot_or_collector.get("snapshot"):
+                snapshots.append(snapshot_or_collector["data"])
 
-        return events[0].distinct_id, events[0].timestamp, final_events
+        return snapshots
 
     def run(self, team: Team, session_recording_id: str, *args, **kwargs) -> Dict[str, Any]:
         from posthog.api.person import PersonSerializer
 
-        distinct_id, start_time, snapshots = self.query_recording_snapshots(team, session_recording_id)
+        distinct_id, start_time, unmerged_snapshots = self.query_recording_snapshots(team, session_recording_id)
+        snapshots = self.merge_snapshot_chunks(team, session_recording_id, unmerged_snapshots)
         person = (
             PersonSerializer(Person.objects.get(team=team, persondistinctid__distinct_id=distinct_id)).data
             if distinct_id
