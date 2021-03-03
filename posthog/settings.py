@@ -79,6 +79,8 @@ PLUGINS_CONFIGURE_VIA_API = PLUGINS_INSTALL_VIA_API or get_from_env(
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
+SESSION_RECORDING_CHUNK_SIZE = int(os.getenv("SESSION_RECORDING_CHUNK_SIZE", 512 * 1024))  # 512 KB
+
 # Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
 # Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.
 GITLAB_TOKEN = os.getenv("GITLAB_TOKEN", None)

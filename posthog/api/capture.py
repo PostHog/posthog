@@ -182,10 +182,9 @@ def get_event(request):
             snapshot_data = event["properties"]["$snapshot_data"]
             snapshot_json = json.dumps(snapshot_data)
 
-            max_chunk_length = 100
-            if len(snapshot_json) > max_chunk_length:
+            if len(snapshot_json) > settings.SESSION_RECORDING_CHUNK_SIZE:
                 snapshot_id = UUIDT()
-                chunks = chunk_string(snapshot_json, max_chunk_length)
+                chunks = chunk_string(snapshot_json, settings.SESSION_RECORDING_CHUNK_SIZE)
                 split_event = deepcopy(event)
                 del split_event["properties"]["$snapshot_data"]
 
