@@ -135,7 +135,8 @@ jobs:
             - name: Update Docker image tags
               run: |
                   # docker-compose
-                  sed -i -e 's;posthog/plugin-server:[0-9]*\.[0-9]*\.[0-9]*;posthog/plugin-server:${{ env.REPO_VERSION }};gi' **.{yml,yaml}
+                  cd posthog/
+                  sed -i -e 's;posthog/plugin-server:[0-9]*\.[0-9]*\.[0-9]*;posthog/plugin-server:${{ env.REPO_VERSION }};gi' **.yml
 
             - name: Install new plugin server version in main repo
               id: yarn-upgrade
