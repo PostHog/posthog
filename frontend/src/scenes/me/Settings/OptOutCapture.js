@@ -35,11 +35,11 @@ export function OptOutCapture() {
                     marginLeft: '10px',
                 }}
             >
-                Anonymize my data.
+                Anonymize my data
             </label>
             {saved && (
                 <p className="text-success">
-                    Preference saved. <a href="/my/settings">Refresh the page for the change to take effect.</a>
+                    Preference saved. <a href="/me/settings">Refresh the page for the change to take effect.</a>
                 </p>
             )}
         </div>

@@ -44,8 +44,12 @@ export function RetentionTable({
         {
             title: 'Date',
             key: 'date',
-            render: (row) => moment.utc(row.date).format(period === 'h' ? 'MMM D, h a' : 'MMM D'),
-            align: 'center',
+            render: (row) =>
+                moment
+                    .utc(row.date)
+                    .local()
+                    .format(period === 'Hour' ? 'MMM D, h a' : 'MMM D'),
+            align: period === 'Hour' ? 'left' : 'center',
         },
         {
             title: 'Cohort Size',

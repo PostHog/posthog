@@ -209,9 +209,13 @@ export function PluginDrawer(): JSX.Element {
                                             )}
                                         </Form.Item>
                                     ) : (
-                                        <p style={{ color: 'var(--danger)' }}>
-                                            Invalid config field <i>{fieldConfig.name || fieldConfig.key}</i>.
-                                        </p>
+                                        <>
+                                            {fieldConfig.type ? (
+                                                <p style={{ color: 'var(--danger)' }}>
+                                                    Invalid config field <i>{fieldConfig.name || fieldConfig.key}</i>.
+                                                </p>
+                                            ) : null}
+                                        </>
                                     )}
                                 </React.Fragment>
                             ))}

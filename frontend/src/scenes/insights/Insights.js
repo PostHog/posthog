@@ -345,7 +345,8 @@ function FunnelInsight() {
             {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 ? (
                 <FunnelViz steps={stepsWithCount} />
             ) : (
-                !resultsLoading && (
+                !resultsLoading &&
+                !stepsWithCount && (
                     <div
                         style={{
                             textAlign: 'center',

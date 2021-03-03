@@ -475,8 +475,8 @@ export interface FilterType {
     session?: string
     period?: string
     retentionType?: RetentionType
-    returningEntity?: Record<string, any>
-    startEntity?: Record<string, any>
+    returning_entity?: Record<string, any>
+    target_entity?: Record<string, any>
     path_type?: PathType
     start_point?: string | number
     stickiness_days?: number
