@@ -166,7 +166,15 @@ export function timeoutGuard(message: string, timeout = defaultConfig.TASK_TIMEO
 }
 
 const campaignParams = new Set(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'])
-const initialParams = new Set(['$browser', '$browser_version', '$current_url', '$os', '$referring_domain', '$referrer'])
+const initialParams = new Set([
+    '$browser',
+    '$browser_version',
+    '$device_type',
+    '$current_url',
+    '$os',
+    '$referring_domain',
+    '$referrer',
+])
 const combinedParams = new Set([...campaignParams, ...initialParams])
 
 /** If we get new UTM params, make sure we set those  **/
