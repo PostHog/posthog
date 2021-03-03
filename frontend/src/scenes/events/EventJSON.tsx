@@ -20,9 +20,5 @@ export function EventJSON(props: { event: Record<string, any> }): JSX.Element {
         ...otherProps,
     }
 
-    return (
-        <div>
-            <CodeSnippet language={Language.JSON}>{JSON.stringify(newEvent, null, 4)}</CodeSnippet>
-        </div>
-    )
+    return <CodeSnippet language={Language.JSON}>{JSON.stringify(newEvent, null, 4)}</CodeSnippet>
 }
