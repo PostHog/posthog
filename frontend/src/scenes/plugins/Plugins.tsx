@@ -11,11 +11,11 @@ import { Alert, Tabs } from 'antd'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
-import posthog from 'posthog-js'
 
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element | null {
     const { user } = useValues(userLogic)
+    const { userUpdateRequest } = useActions(userLogic)
     const { pluginTab } = useValues(pluginsLogic)
     const { setPluginTab } = useActions(pluginsLogic)
     const { TabPane } = Tabs
@@ -24,7 +24,7 @@ function _Plugins(): JSX.Element | null {
         if (user && !user.plugin_access.configure) {
             window.location.href = '/'
         }
-        posthog.persistence.register({ has_checked_out_plugins: true })
+        userUpdateRequest({ user: { flags: { has_checked_out_plugins: true } } })
     }, [user])
 
     if (!user || !user.plugin_access.configure) {
@@ -37,7 +37,7 @@ function _Plugins(): JSX.Element | null {
                 title="Plugins"
                 caption="Plugins enable you to extend PostHog's core data processing functionality."
             />
-            {!posthog.persistence.properties()['has_closed_plugins_end_of_beta'] && (
+            {!user.flags['has_closed_plugins_end_of_beta'] && (
                 <Alert
                     message="Beta Phase Completed"
                     description={
@@ -49,7 +49,7 @@ function _Plugins(): JSX.Element | null {
                     type="info"
                     showIcon
                     closable
-                    onClose={() => posthog.persistence.register({ has_closed_plugins_end_of_beta: true })}
+                    onClose={() => userUpdateRequest({ user: { flags: { has_closed_plugins_end_of_beta: true } } })}
                     style={{ marginBottom: 32 }}
                 />
             )}

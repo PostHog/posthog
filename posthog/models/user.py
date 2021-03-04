@@ -2,6 +2,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.contrib.postgres.fields import JSONField
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
@@ -109,6 +110,7 @@ class User(AbstractUser):
     toolbar_mode: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
     )
+    flags: JSONField = JSONField(default=dict)  # schema-less flags, like { "has_done_something": True }
 
     objects: UserManager = UserManager()  # type: ignore
 

@@ -34,7 +34,6 @@ import { dashboardsModel } from '~/models'
 import { DashboardType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import posthog from 'posthog-js'
 
 // to show the right page in the sidebar
 const sceneOverride: Partial<Record<Scene, string>> = {
@@ -244,7 +243,7 @@ function _MainNavigation(): JSX.Element {
                             icon={<ApiFilled />}
                             identifier="plugins"
                             to="/project/plugins"
-                            highlight={!posthog.persistence.properties()['has_checked_out_plugins']}
+                            highlight={!user.flags['has_checked_out_plugins']}
                         />
                     ) : null}
                     <MenuItem
