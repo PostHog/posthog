@@ -1,16 +1,19 @@
 import base64
-import datetime
 import json
 from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils.timezone import now
 
-from posthog.models import Plugin, PluginAttachment, PluginConfig, organization
+from posthog.models import Plugin, PluginAttachment, PluginConfig
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.plugins.access import can_configure_plugins_via_api, can_install_plugins_via_api
 from posthog.plugins.test.mock import mocked_plugin_requests_get
-from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP, HELLO_WORLD_PLUGIN_GITHUB_ZIP
+from posthog.plugins.test.plugin_archives import (
+    HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP,
+    HELLO_WORLD_PLUGIN_GITHUB_ZIP,
+    HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP,
+)
 from posthog.redis import get_client
 from posthog.test.base import APIBaseTest
 
@@ -526,3 +529,80 @@ class TestPluginAPI(APIBaseTest):
             )
             self.assertEqual(response.data["config"], {"bar": "moop"})  # type: ignore
             self.assertEqual(PluginAttachment.objects.count(), 0)
+
+    def test_create_plugin_config_with_secrets(self, mock_get, mock_reload):
+        with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
+            self.assertEqual(mock_reload.call_count, 0)
+
+            # Test that config can be created and secret value isn't exposed
+            response = self.client.post(
+                "/api/organizations/@current/plugins/",
+                {
+                    "url": "https://github.com/PostHog/helloworldplugin/commit/{}".format(
+                        HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP[0]
+                    )
+                },
+            )
+            self.assertEqual(response.status_code, 201)
+            self.assertEqual(Plugin.objects.count(), 1)
+            self.assertEqual(PluginConfig.objects.count(), 0)
+            plugin_id = response.data["id"]  # type: ignore
+            response = self.client.post(
+                "/api/plugin_config/",
+                {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "very secret value"})},
+            )
+            plugin_config_id = response.data["id"]  # type: ignore
+            self.assertEqual(Plugin.objects.count(), 1)
+            self.assertEqual(PluginConfig.objects.count(), 1)
+
+            self.assertEqual(
+                response.data,
+                {
+                    "id": plugin_config_id,
+                    "plugin": plugin_id,
+                    "enabled": True,
+                    "order": 0,
+                    "config": {"bar": "**************** POSTHOG SECRET FIELD ****************"},
+                    "error": None,
+                },
+            )
+
+            # Test a config change and that an empty config is returned to the client instead of the secret placeholder
+            response = self.client.patch(
+                "/api/plugin_config/{}".format(plugin_config_id),
+                {"enabled": False, "order": 1, "config": json.dumps({"bar": ""})},
+            )
+            plugin_config_id = response.data["id"]  # type: ignore
+            self.assertEqual(Plugin.objects.count(), 1)
+            self.assertEqual(PluginConfig.objects.count(), 1)
+            self.assertEqual(
+                response.data,
+                {
+                    "id": plugin_config_id,
+                    "plugin": plugin_id,
+                    "enabled": False,
+                    "order": 1,
+                    "config": {"bar": ""},  # empty secret configs are returned normally
+                    "error": None,
+                },
+            )
+
+            # Test that secret values are updated but never revealed
+            response = self.client.patch(
+                "/api/plugin_config/{}".format(plugin_config_id),
+                {"enabled": False, "order": 1, "config": json.dumps({"bar": "a new very secret value"})},
+            )
+            self.assertEqual(Plugin.objects.count(), 1)
+            self.assertEqual(
+                response.data,
+                {
+                    "id": plugin_config_id,
+                    "plugin": plugin_id,
+                    "enabled": False,
+                    "order": 1,
+                    "config": {"bar": "**************** POSTHOG SECRET FIELD ****************"},
+                    "error": None,
+                },
+            )
+            plugin_config = PluginConfig.objects.get(plugin=plugin_id)
+            self.assertEqual(plugin_config.config, {"bar": "a new very secret value"})

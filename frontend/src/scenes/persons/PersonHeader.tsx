@@ -8,9 +8,11 @@ export function PersonHeader({ person }: { person: PersonType }): JSX.Element {
         <>
             {person.is_identified ? (
                 <div className="person-header identified">
-                    <IconPerson />{' '}
+                    <span>
+                        <IconPerson />
+                    </span>
                     {person.properties.email ? (
-                        <span className={rrwebBlockClass}>{person.properties.email}</span>
+                        <span className={`text-ellipsis ${rrwebBlockClass}`}>{person.properties.email}</span>
                     ) : (
                         <i>No email recorded</i>
                     )}
