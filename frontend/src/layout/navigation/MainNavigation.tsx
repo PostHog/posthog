@@ -48,17 +48,11 @@ interface MenuItemProps {
     icon: JSX.Element
     identifier: string
     to: string
+    highlight?: boolean
     onClick?: () => void
 }
 
-function shouldMenuItemBeHighlighted(identifier: string): boolean {
-    if (identifier === Scene.Plugins && !posthog.persistence.properties()['has_checked_out_plugins']) {
-        return true
-    }
-    return false
-}
-
-const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.Element => {
+const MenuItem = ({ title, icon, identifier, to, highlight = false, onClick }: MenuItemProps): JSX.Element => {
     const { scene, loadingScene } = useValues(sceneLogic)
     const { collapseMenu } = useActions(navigationLogic)
 
@@ -74,7 +68,7 @@ const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.
         const classList = ['menu-item']
         if (identifier === activeScene) {
             classList.push('menu-item-active')
-        } else if (shouldMenuItemBeHighlighted(identifier)) {
+        } else if (highlight) {
             classList.push('menu-item-highlighted')
         }
         return classList.join(' ')
@@ -250,7 +244,7 @@ function _MainNavigation(): JSX.Element {
                             icon={<ApiFilled />}
                             identifier="plugins"
                             to="/project/plugins"
-                            highlight
+                            highlight={!posthog.persistence.properties()['has_checked_out_plugins']}
                         />
                     ) : null}
                     <MenuItem
