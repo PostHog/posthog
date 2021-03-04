@@ -14,7 +14,7 @@ from posthog.models.event import Event
 
 def calculate_event_property_usage() -> None:
     for team in Team.objects.all():
-        calculate_event_property_usage_for_team.delay(team_id=team.pk)
+        calculate_event_property_usage_for_team(team_id=team.pk)
 
 
 def _save_team(team: Team, event_names: Dict[str, Dict], event_properties: Dict[str, Dict]) -> None:
