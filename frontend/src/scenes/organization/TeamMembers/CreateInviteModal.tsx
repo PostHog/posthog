@@ -60,6 +60,10 @@ export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Eleme
                 okText={user?.email_service_available ? 'Send Invite' : 'Create Invite Link'}
                 cancelText="Cancel"
                 onOk={handleSubmit}
+                okButtonProps={{
+                    // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
+                    'data-attr': 'invite-team-member-submit',
+                }}
                 onCancel={closeModal}
                 visible={isVisible}
             >
