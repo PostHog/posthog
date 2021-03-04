@@ -7,7 +7,7 @@ import { InstalledTab } from 'scenes/plugins/tabs/installed/InstalledTab'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { pluginsLogic } from './pluginsLogic'
-import { Tabs, Tag } from 'antd'
+import { Tabs } from 'antd'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
@@ -32,19 +32,7 @@ function _Plugins(): JSX.Element {
 
     return (
         <div className="plugins-scene">
-            <PageHeader
-                title={
-                    <>
-                        Plugins
-                        <sup>
-                            <Tag color="orange" style={{ marginLeft: 8 }}>
-                                BETA
-                            </Tag>
-                        </sup>
-                    </>
-                }
-                caption="Plugins enable you to freely extend PostHog's core functionality."
-            />
+            <PageHeader title="Plugins" caption="Plugins enable you to freely extend PostHog's core functionality." />
             {user.plugin_access.install ? (
                 <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}>
                     <TabPane tab="Installed" key={PluginTab.Installed}>
