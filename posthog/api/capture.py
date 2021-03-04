@@ -108,14 +108,14 @@ def _split_large_snapshot_events(events: List[Dict[str, Any]]):
                 event_template = deepcopy(event)
                 event_template["properties"]["$snapshot_data"] = {}
 
-                for index in range(len(chunks)):
+                for index, chunk in enumerate(chunks):
                     new_event = deepcopy(event_template)
                     new_event["properties"]["$snapshot_data"] = {
                         "posthog_chunked": True,
                         "snapshot_id": snapshot_id,
                         "snapshot_length": len(snapshot_json),
-                        "chunk_data": chunks[index],
-                        "chunk_length": len(chunks[index]),
+                        "chunk_data": chunk,
+                        "chunk_length": len(chunk),
                         "chunk_index": index,
                         "chunk_count": len(chunks),
                     }
