@@ -13,6 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 import posthog from 'posthog-js'
 import { FormInstance } from 'antd/lib/form'
+import { PluginsAccessLevel } from '../../lib/constants'
 
 type PluginForm = FormInstance
 
@@ -492,7 +493,7 @@ export const pluginsLogic = kea<
                     initialUpdateStatus[id] = { upToDate: plugin.tag === plugin.latest_tag }
                 }
             }
-            if (userLogic.values.user?.plugin_access.install) {
+            if (userLogic.values.user?.organization?.plugins_access_level >= PluginsAccessLevel.Installation) {
                 actions.checkForUpdates(false, initialUpdateStatus)
             }
             if (Object.keys(values.plugins).length === 0 && userLogic.values.user?.plugin_access.install) {

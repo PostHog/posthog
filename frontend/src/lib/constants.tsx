@@ -19,10 +19,10 @@ export enum OrganizationMembershipLevel {
     Owner = 15,
 }
 
-export enum OrganizationPluginsAccessLevel {
+export enum PluginsAccessLevel {
     None = 0,
-    Configuration = 3,
-    Installation = 6,
+    Config = 3,
+    Install = 6,
     Root = 9,
 }
 

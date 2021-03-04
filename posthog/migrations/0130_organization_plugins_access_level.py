@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
             model_name="organization",
             name="plugins_access_level",
             field=models.PositiveSmallIntegerField(
-                choices=[(0, "none"), (3, "configuration"), (6, "installation"), (9, "root")],
+                choices=[(0, "none"), (3, "config"), (6, "install"), (9, "root")],
                 default=0 if settings.MULTI_TENANCY else 9,
             ),
         ),

@@ -16,7 +16,7 @@ def can_install_plugins_via_api(organization_or_id: Optional[Union[Organization,
         if isinstance(organization_or_id, Organization)
         else Organization.objects.get(id=organization_or_id)
     )
-    return organization.plugins_access_level >= Organization.PluginsAccessLevel.INSTALLATION
+    return organization.plugins_access_level >= Organization.PluginsAccessLevel.INSTALL
 
 
 def can_configure_plugins_via_api(organization_or_id: Optional[Union[Organization, str, UUID]]) -> bool:
@@ -29,4 +29,4 @@ def can_configure_plugins_via_api(organization_or_id: Optional[Union[Organizatio
         if isinstance(organization_or_id, Organization)
         else Organization.objects.get(id=organization_or_id)
     )
-    return organization.plugins_access_level >= Organization.PluginsAccessLevel.CONFIGURATION
+    return organization.plugins_access_level >= Organization.PluginsAccessLevel.CONFIG

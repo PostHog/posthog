@@ -12,7 +12,7 @@ import { OptInPlugins } from 'scenes/plugins/optin/OptInPlugins'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
-import { OrganizationPluginsAccessLevel } from '../../lib/constants'
+import { PluginsAccessLevel } from '../../lib/constants'
 
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element | null {
@@ -51,7 +51,7 @@ function _Plugins(): JSX.Element | null {
             {user.team?.plugins_opt_in ? (
                 <>
                     {user.is_multi_tenancy ||
-                    user.organization?.plugins_access_level >= OrganizationPluginsAccessLevel.Installation ? (
+                    user.organization?.plugins_access_level >= PluginsAccessLevel.Installation ? (
                         <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}>
                             <TabPane tab="Installed" key={PluginTab.Installed}>
                                 <InstalledTab />

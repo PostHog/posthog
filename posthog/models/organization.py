@@ -45,8 +45,8 @@ class OrganizationManager(models.Manager):
 class Organization(UUIDModel):
     class PluginsAccessLevel(models.IntegerChoices):
         NONE = 0, "none"
-        CONFIGURATION = 3, "configuration"
-        INSTALLATION = 6, "installation"
+        CONFIG = 3, "config"
+        INSTALL = 6, "install"
         ROOT = 9, "root"
 
     members: models.ManyToManyField = models.ManyToManyField(
@@ -61,7 +61,8 @@ class Organization(UUIDModel):
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)  # Onboarding (#2822)
     personalization: JSONField = JSONField(default=dict, null=False)
     plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=PluginsAccessLevel.NONE, choices=PluginsAccessLevel.choices
+        default=PluginsAccessLevel.NONE if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
+        choices=PluginsAccessLevel.choices,
     )
 
     objects = OrganizationManager()
