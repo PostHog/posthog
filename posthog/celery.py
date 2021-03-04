@@ -82,6 +82,9 @@ def setup_periodic_tasks(sender, **kwargs):
             expires=(60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
         )
 
+    if settings.ASYNC_EVENT_PROPERTY_USAGE:
+        sender.add_periodic_task(60, calculate_event_property_usage.s(), name="calculate event property usage")
+
 
 @app.task(ignore_result=True)
 def redis_heartbeat():
