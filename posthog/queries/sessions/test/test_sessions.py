@@ -32,7 +32,20 @@ def sessions_test_factory(sessions, event_factory):
                 event_factory(team=self.team, event="4th action", distinct_id="2")
 
             with freeze_time("2012-01-21T04:01:34.000Z"):
-                response = sessions().run(SessionsFilter(data={"session": "avg"}), self.team)
+                response = sessions().run(
+                    SessionsFilter(
+                        data={
+                            "session": "avg",
+                            "events": [
+                                {"id": "1st action"},
+                                {"id": "2nd action"},
+                                {"id": "3rd action"},
+                                {"id": "4th action"},
+                            ],
+                        }
+                    ),
+                    self.team,
+                )
 
             self.assertEqual(response[0]["count"], 3)  # average length of all sessions
             # time series
@@ -70,7 +83,18 @@ def sessions_test_factory(sessions, event_factory):
             # month
             month_response = sessions().run(
                 SessionsFilter(
-                    data={"date_from": "2012-01-01", "date_to": "2012-04-01", "interval": "month", "session": "avg"}
+                    data={
+                        "date_from": "2012-01-01",
+                        "date_to": "2012-04-01",
+                        "interval": "month",
+                        "session": "avg",
+                        "events": [
+                            {"id": "1st action"},
+                            {"id": "2nd action"},
+                            {"id": "3rd action"},
+                            {"id": "4th action"},
+                        ],
+                    }
                 ),
                 self.team,
             )
@@ -85,7 +109,18 @@ def sessions_test_factory(sessions, event_factory):
             # # week
             week_response = sessions().run(
                 SessionsFilter(
-                    data={"date_from": "2012-01-01", "date_to": "2012-02-01", "interval": "week", "session": "avg"}
+                    data={
+                        "date_from": "2012-01-01",
+                        "date_to": "2012-02-01",
+                        "interval": "week",
+                        "session": "avg",
+                        "events": [
+                            {"id": "1st action"},
+                            {"id": "2nd action"},
+                            {"id": "3rd action"},
+                            {"id": "4th action"},
+                        ],
+                    }
                 ),
                 self.team,
             )
@@ -99,7 +134,18 @@ def sessions_test_factory(sessions, event_factory):
             # # # hour
             hour_response = sessions().run(
                 SessionsFilter(
-                    data={"date_from": "2012-03-14", "date_to": "2012-03-16", "interval": "hour", "session": "avg"}
+                    data={
+                        "date_from": "2012-03-14",
+                        "date_to": "2012-03-16",
+                        "interval": "hour",
+                        "session": "avg",
+                        "events": [
+                            {"id": "1st action"},
+                            {"id": "2nd action"},
+                            {"id": "3rd action"},
+                            {"id": "4th action"},
+                        ],
+                    }
                 ),
                 self.team,
             )
@@ -113,7 +159,7 @@ def sessions_test_factory(sessions, event_factory):
         def test_no_events(self):
             response = sessions().run(
                 SessionsFilter(
-                    data={"date_from": "2012-01-20", "date_to": "2012-01-30", "interval": "day", "session": "avg"}
+                    data={"date_from": "2012-01-20", "date_to": "2012-01-30", "interval": "day", "session": "avg",}
                 ),
                 self.team,
             )
@@ -139,6 +185,7 @@ def sessions_test_factory(sessions, event_factory):
                     "interval": "day",
                     "compare": True,
                     "session": "avg",
+                    "events": [{"id": "1st action"}, {"id": "2nd action"}, {"id": "3rd action"}, {"id": "4th action"}],
                 }
             )
             # Run without anything to compare to
