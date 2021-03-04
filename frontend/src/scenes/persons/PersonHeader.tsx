@@ -4,6 +4,7 @@ import { IconPerson } from 'lib/components/icons'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 export function PersonHeader({ person }: { person: PersonType }): JSX.Element {
+    const customIdentifier = person.properties.email || person.properties.name || person.properties.username
     return (
         <>
             {person.is_identified ? (
@@ -11,10 +12,10 @@ export function PersonHeader({ person }: { person: PersonType }): JSX.Element {
                     <span>
                         <IconPerson />
                     </span>
-                    {person.properties.email ? (
-                        <span className={`text-ellipsis ${rrwebBlockClass}`}>{person.properties.email}</span>
+                    {customIdentifier ? (
+                        <span className={`text-ellipsis ${rrwebBlockClass}`}>{customIdentifier}</span>
                     ) : (
-                        <i>No email recorded</i>
+                        <i>No email or name set</i>
                     )}
                 </div>
             ) : (
