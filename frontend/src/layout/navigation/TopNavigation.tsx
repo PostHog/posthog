@@ -1,4 +1,4 @@
-import React, { CSSProperties, useState } from 'react'
+import React, { useState } from 'react'
 import './Navigation.scss'
 import { useActions, useValues } from 'kea'
 import { navigationLogic } from './navigationLogic'
@@ -35,24 +35,15 @@ import MD5 from 'crypto-js/md5'
 export interface ProfilePictureProps {
     userName?: string
     userEmail?: string
-    style?: CSSProperties
 }
 
-export function ProfilePicture({ userName, userEmail, style }: ProfilePictureProps): JSX.Element {
+export function ProfilePicture({ userName, userEmail }: ProfilePictureProps): JSX.Element {
     const [didImageError, setDidImageError] = useState(false)
     if (!userName) {
-        return (
-            <div className="profile-picture" style={style}>
-                •
-            </div>
-        )
+        return <div className="profile-picture">•</div>
     }
     if (didImageError || !userEmail) {
-        return (
-            <div className="profile-picture" style={style}>
-                {userName[0]?.toUpperCase()}
-            </div>
-        )
+        return <div className="profile-picture">{userName[0]?.toUpperCase()}</div>
     }
     const emailHash = MD5(userEmail.trim().toLowerCase()).toString()
     const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
@@ -62,7 +53,6 @@ export function ProfilePicture({ userName, userEmail, style }: ProfilePicturePro
             src={gravatarUrl}
             onError={() => setDidImageError(true)}
             title="This is your Gravatar."
-            style={style}
         />
     )
 }

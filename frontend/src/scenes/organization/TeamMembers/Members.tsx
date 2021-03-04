@@ -203,13 +203,7 @@ export function Members({ user }: { user: UserType }): JSX.Element {
             dataIndex: 'user_email',
             key: 'user_email',
             render: function ProfilePictureComponent(_, member) {
-                return (
-                    <ProfilePicture
-                        userName={member.user_first_name}
-                        userEmail={member.user_email}
-                        style={{ display: 'inline-flex' }}
-                    />
-                )
+                return <ProfilePicture userName={member.user_first_name} userEmail={member.user_email} />
             },
             width: 32,
         },
