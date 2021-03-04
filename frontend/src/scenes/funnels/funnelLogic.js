@@ -5,6 +5,7 @@ import { autocorrectInterval, objectsEqual, toParams } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '../../models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function wait(ms = 1000) {
     return new Promise((resolve) => {
@@ -68,6 +69,7 @@ export const funnelLogic = kea({
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return props.cachedResults
                 }
+
                 const { from_dashboard } = values.filters
                 const cleanedParams = cleanFunnelParams(values.filters)
                 const params = {
@@ -75,13 +77,21 @@ export const funnelLogic = kea({
                     ...(from_dashboard ? { from_dashboard } : {}),
                     ...cleanedParams,
                 }
+
                 let result
 
                 insightLogic.actions.startQuery()
+
+                const eventCount = params.events.length
+                const actionCount = params.actions.length
+                const interval = params.interval
+
                 try {
                     result = await pollFunnel(params)
+                    eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
                 } catch (e) {
                     insightLogic.actions.endQuery(ViewType.FUNNELS, false, e)
+                    eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, false, e.message)
                     return []
                 }
                 breakpoint()

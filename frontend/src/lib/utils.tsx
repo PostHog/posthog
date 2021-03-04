@@ -244,25 +244,6 @@ export function formatLabel(label: string, action: ActionFilter): string {
     return label
 }
 
-export function deletePersonData(person: Record<string, any>, callback: () => void): void {
-    // DEPRECATED: Remove after releasing PersonsV2 (persons-2353)
-    if (window.confirm('Are you sure you want to delete this user? This cannot be undone')) {
-        api.delete('api/person/' + person.id).then(() => {
-            toast('Person succesfully deleted.')
-            if (callback) {
-                callback()
-            }
-        })
-    }
-}
-
-export function savePersonData(person: Record<string, any>): void {
-    // DEPRECATED: Remove after releasing PersonsV2 (persons-2353)
-    api.update('api/person/' + person.id, person).then(() => {
-        toast('Person Updated')
-    })
-}
-
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return JSON.stringify(obj1) === JSON.stringify(obj2)
 }
@@ -757,4 +738,12 @@ export function compactNumber(value: number, maxDecimals: number = 1): string {
         return suffixFormatted(value, 1000000, 'M', maxDecimals)
     }
     return suffixFormatted(value, 1000000000, 'B', maxDecimals)
+}
+
+export function sortedKeys(object: Record<string, any>): Record<string, any> {
+    const newObject: Record<string, any> = {}
+    for (const key of Object.keys(object).sort()) {
+        newObject[key] = object[key]
+    }
+    return newObject
 }

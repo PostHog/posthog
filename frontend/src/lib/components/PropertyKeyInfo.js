@@ -163,10 +163,15 @@ export const keyMapping = {
             description: 'Direct link to the exception in Sentry',
             examples: ['https://sentry.io/...'],
         },
-        $device: {
-            label: 'Device',
-            description: 'The mobile device that was used.',
-            examples: ['iPad', 'iPhone', 'Android'],
+        $device_type: {
+            label: 'Device Type',
+            description: 'The type of device that was used (last-touch).',
+            examples: ['Mobile', 'Tablet', 'Desktop'],
+        },
+        $initial_device_type: {
+            label: 'Initial Device Type',
+            description: 'The initial type of device that was used (first-touch).',
+            examples: ['Mobile', 'Tablet', 'Desktop'],
         },
 
         // UTM tags

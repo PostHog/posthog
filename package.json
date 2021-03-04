@@ -58,7 +58,7 @@
         "kea-router": "^0.5.1",
         "kea-window-values": "^0.0.1",
         "moment": "^2.24.0",
-        "posthog-js": "1.8.9",
+        "posthog-js": "1.9.0",
         "posthog-js-lite": "^0.0.3",
         "posthog-react-rrweb-player": "^1.0.13",
         "prop-types": "^15.7.2",
