@@ -14,7 +14,7 @@ jobs:
               run: |
                   FILTERED_BODY=$( \
                       sed -r -e \
-                      '/^(\.\.\.)|(\*Please describe)|(\*If this affects the frontend, include screenshots)|(##? )|(- *\[)/d' \
+                      '/^(\.\.\.)|([_*]Please describe)|([_*]If this affects the frontend, include screenshots)|(##? )|(- *\[)/d' \
                       <<< $RAW_BODY \
                   )
                   echo "::debug::Filtered PR body to $FILTERED_BODY"
