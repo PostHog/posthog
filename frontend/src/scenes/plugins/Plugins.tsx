@@ -33,7 +33,7 @@ function _Plugins(): JSX.Element | null {
 
     return (
         <div className="plugins-scene">
-            <PageHeader title="Plugins" caption="Plugins enable you to freely extend PostHog's core functionality." />
+            <PageHeader title="Plugins" caption="Plugins enable you to extend PostHog's core data processing functionality." />
             {!posthog.persistence.properties()['has_closed_plugins_end_of_beta'] && (
                 <Alert
                     message="Beta Phase Completed"
