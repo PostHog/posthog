@@ -260,10 +260,38 @@ def sessions_test_factory(sessions, event_factory):
             with freeze_time("2012-01-21T06:00:30.000Z"):
                 event_factory(team=self.team, event="3rd action", distinct_id="2")
 
-            response = sessions().run(SessionsFilter(data={"date_from": "all", "session": "dist"}), self.team)
-            compared_response = sessions().run(
-                SessionsFilter(data={"date_from": "all", "compare": True, "session": "dist"}), self.team
+            response = sessions().run(
+                SessionsFilter(
+                    data={
+                        "date_from": "all",
+                        "session": "dist",
+                        "events": [
+                            {"id": "1st action"},
+                            {"id": "2nd action"},
+                            {"id": "3rd action"},
+                            {"id": "4th action"},
+                        ],
+                    }
+                ),
+                self.team,
             )
+            compared_response = sessions().run(
+                SessionsFilter(
+                    data={
+                        "date_from": "all",
+                        "compare": True,
+                        "session": "dist",
+                        "events": [
+                            {"id": "1st action"},
+                            {"id": "2nd action"},
+                            {"id": "3rd action"},
+                            {"id": "4th action"},
+                        ],
+                    }
+                ),
+                self.team,
+            )
+            self.assertEqual(len(response), 10)
             for index, item in enumerate(response):
                 if item["label"] == "30-60 minutes" or item["label"] == "3-10 seconds":
                     self.assertEqual(item["count"], 2)

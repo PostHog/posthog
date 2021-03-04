@@ -44,7 +44,7 @@ class Sessions(BaseQuery):
         events = Event.objects.none()
         for entity in filter.entities:
             events |= process_entity_for_events(entity, team_id=team.pk).filter(
-                filter_events(team_id=team.pk, filter=filter, entity=entity)
+                filter_events(team_id=team.pk, filter=filter, entity=entity, include_dates=False)
             )
 
         if not len(events):
