@@ -230,7 +230,7 @@ export function Members({ user }: { user: UserType }): JSX.Element {
             },
         },
         {
-            title: 'Joined At',
+            title: 'Joined At',
             dataIndex: 'joined_at',
             key: 'joined_at',
             render: (joinedAt: string) => humanFriendlyDetailedTime(joinedAt),

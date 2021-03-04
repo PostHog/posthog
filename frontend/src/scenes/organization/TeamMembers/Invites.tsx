@@ -74,13 +74,13 @@ function _Invites(): JSX.Element {
             },
         },
         {
-            title: 'Created At',
+            title: 'Created At',
             dataIndex: 'created_at',
             key: 'created_at',
             render: (created_at: string) => humanFriendlyDetailedTime(created_at),
         },
         {
-            title: 'Created By',
+            title: 'Created By',
             dataIndex: 'created_by',
             key: 'created_by',
             render: (createdBy?: UserNestedType) => (createdBy ? `${createdBy.first_name} (${createdBy.email})` : '–'),
