@@ -453,9 +453,5 @@
     "email_service_available": false,
     "is_debug": true,
     "is_staff": false,
-    "is_impersonated": false,
-    "plugin_access": {
-        "install": true,
-        "configure": true
-    }
+    "is_impersonated": false
 }

@@ -20,6 +20,7 @@ import { SourcePluginTag } from './SourcePluginTag'
 import { CommunityPluginTag } from './CommunityPluginTag'
 import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
+import { PluginsAccessLevel } from '../../../lib/constants'
 
 interface PluginCardProps {
     plugin: Partial<PluginTypeWithConfig>
@@ -62,7 +63,7 @@ export function PluginCard({
     const { loading, installingPluginUrl, checkingForUpdates, updatingPlugin } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
 
-    const canInstall = user?.plugin_access.install
+    const canInstall = (user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Install
     const canConfigure = pluginId
     const switchDisabled = rearranging
 

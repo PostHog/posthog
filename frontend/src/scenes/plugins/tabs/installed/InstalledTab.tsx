@@ -71,7 +71,7 @@ export function InstalledTab(): JSX.Element {
 
     const upgradeButton =
         user?.organization &&
-        user.organization.plugins_access_level >= PluginsAccessLevel.Installation &&
+        user.organization.plugins_access_level >= PluginsAccessLevel.Install &&
         hasNonSourcePlugins ? (
             <Button
                 type="default"
@@ -91,7 +91,8 @@ export function InstalledTab(): JSX.Element {
             <></>
         )
 
-    const canRearrange = user?.plugin_access.configure && enabledPlugins.length > 1
+    const canRearrange =
+        (user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Config && enabledPlugins.length > 1
 
     const rearrangingButtons = rearranging ? (
         <Space>

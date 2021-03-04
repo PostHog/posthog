@@ -493,11 +493,11 @@ export const pluginsLogic = kea<
                     initialUpdateStatus[id] = { upToDate: plugin.tag === plugin.latest_tag }
                 }
             }
-            if (userLogic.values.user?.organization?.plugins_access_level >= PluginsAccessLevel.Installation) {
+            if ((userLogic.values.user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Install) {
                 actions.checkForUpdates(false, initialUpdateStatus)
-            }
-            if (Object.keys(values.plugins).length === 0 && userLogic.values.user?.plugin_access.install) {
-                actions.setPluginTab(PluginTab.Repository)
+                if (Object.keys(values.plugins).length === 0) {
+                    actions.setPluginTab(PluginTab.Repository)
+                }
             }
         },
         generateApiKeysIfNeeded: async ({ form }, breakpoint) => {
@@ -536,7 +536,7 @@ export const pluginsLogic = kea<
             actions.loadPlugins()
             actions.loadPluginConfigs()
 
-            if (userLogic.values.user?.plugin_access.install) {
+            if ((userLogic.values.user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Install) {
                 actions.loadRepository()
             }
         },

@@ -28,7 +28,6 @@ export interface UserType {
     teams: TeamType[]
     current_organization_id: string
     current_team_id: number
-    plugin_access: PluginAccess
     has_password: boolean
     is_multi_tenancy: boolean
     is_staff: boolean

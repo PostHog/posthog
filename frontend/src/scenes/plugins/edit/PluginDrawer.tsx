@@ -14,6 +14,7 @@ import Markdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from './PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
+import { PluginsAccessLevel } from '../../../lib/constants'
 
 function EnabledDisabledSwitch({
     value,
@@ -38,7 +39,7 @@ export function PluginDrawer(): JSX.Element {
     )
     const [form] = Form.useForm()
 
-    const canDelete = user?.plugin_access.install
+    const canDelete = (user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Install
 
     useEffect(() => {
         if (editingPlugin) {

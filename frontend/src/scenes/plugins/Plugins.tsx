@@ -50,8 +50,7 @@ function _Plugins(): JSX.Element | null {
 
             {user.team?.plugins_opt_in ? (
                 <>
-                    {user.is_multi_tenancy ||
-                    user.organization?.plugins_access_level >= PluginsAccessLevel.Installation ? (
+                    {user.is_multi_tenancy || user.organization?.plugins_access_level >= PluginsAccessLevel.Install ? (
                         <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}>
                             <TabPane tab="Installed" key={PluginTab.Installed}>
                                 <InstalledTab />

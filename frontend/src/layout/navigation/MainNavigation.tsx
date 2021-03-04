@@ -232,7 +232,7 @@ function _MainNavigation(): JSX.Element {
                         to="/feature_flags"
                     />
                     <div className="divider" />
-                    {user?.plugin_access.configure ? (
+                    {user?.organization?.plugins_access_level ? (
                         <MenuItem title="Plugins" icon={<ApiFilled />} identifier="plugins" to="/project/plugins" />
                     ) : null}
                     <MenuItem
