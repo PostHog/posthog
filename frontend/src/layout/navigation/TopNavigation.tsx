@@ -37,17 +37,13 @@ export function ProfilePicture({ user }: { user?: UserType }): JSX.Element {
     if (!user) {
         return <div className="pp">•</div>
     }
+    if (didImageError) {
+        return <div className="pp">{user.name[0]?.toUpperCase()}</div>
+    }
     const emailHash = MD5(user.email.trim().toLowerCase()).toString()
     const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
-    return !didImageError ? (
-        <img
-            className="pp"
-            src={gravatarUrl}
-            onError={() => setDidImageError(true)}
-            title="This picture has been pulled from Gravatar based on your email address."
-        />
-    ) : (
-        <div className="pp">{user.name[0]?.toUpperCase()}</div>
+    return (
+        <img className="pp" src={gravatarUrl} onError={() => setDidImageError(true)} title="This is your Gravatar." />
     )
 }
 
