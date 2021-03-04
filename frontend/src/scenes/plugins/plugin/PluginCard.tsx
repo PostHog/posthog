@@ -56,6 +56,7 @@ export function PluginCard({
         updateStatus,
         hasMoved,
         is_global,
+        organization_name,
     } = plugin
 
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin, rearrange } = useActions(
@@ -131,7 +132,7 @@ export function PluginCard({
                             ) : null}
                             {is_global && (
                                 <Tag color="blue">
-                                    <GlobalOutlined /> Managed globally
+                                    <GlobalOutlined /> Managed by {organization_name}
                                 </Tag>
                             )}
                             {canInstall ? (

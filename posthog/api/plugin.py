@@ -37,6 +37,7 @@ SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
 
 class PluginSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
+    organization_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Plugin
@@ -51,6 +52,7 @@ class PluginSerializer(serializers.ModelSerializer):
             "source",
             "latest_tag",
             "is_global",
+            "organization_name",
         ]
         read_only_fields = ["id", "latest_tag"]
 
@@ -66,6 +68,9 @@ class PluginSerializer(serializers.ModelSerializer):
             return str(plugin.latest_tag)
 
         return None
+
+    def get_organization_name(self, plugin: Plugin) -> str:
+        return plugin.organization.name
 
     def _raise_if_plugin_installed(self, url: str, organization_id: str):
         url_without_private_key = url.split("?")[0]
