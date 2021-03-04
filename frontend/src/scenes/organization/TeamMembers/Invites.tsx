@@ -56,7 +56,6 @@ function _Invites(): JSX.Element {
             dataIndex: 'target_email',
             key: 'target_email',
             render: function ProfilePictureRender(_, invite) {
-                console.log((invite as OrganizationInviteType).target_email)
                 return (
                     <ProfilePicture
                         userName={(invite as OrganizationInviteType).first_name}
