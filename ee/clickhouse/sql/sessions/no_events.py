@@ -22,7 +22,6 @@ FROM
         FROM
         (
             SELECT
-                uuid,
                 timestamp,
                 distinct_id
             FROM events
@@ -33,7 +32,6 @@ FROM
                 {date_to} 
                 {filters}
             GROUP BY
-                uuid,
                 timestamp,
                 distinct_id
             ORDER BY
