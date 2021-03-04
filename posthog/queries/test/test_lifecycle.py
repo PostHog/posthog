@@ -578,6 +578,21 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 elif res["status"] == "new":
                     self.assertEqual(res["data"], [1, 0, 0, 1, 0, 0, 0, 0])
 
+            dormant_result = trends().get_people(
+                Filter(
+                    data={
+                        "date_from": "2020-01-12T00:00:00Z",
+                        "date_to": "2020-01-19T00:00:00Z",
+                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                        "shown_as": TRENDS_LIFECYCLE,
+                        FILTER_TEST_ACCOUNTS: True,
+                    }
+                ),
+                self.team.pk,
+                relative_date_parse("2020-01-13T00:00:00Z"),
+                "dormant",
+            )
+
     return TestLifecycle
 
 

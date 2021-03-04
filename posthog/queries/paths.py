@@ -5,6 +5,7 @@ from django.db.models import F, OuterRef, Q
 from django.db.models.expressions import Window
 from django.db.models.functions import Lag
 
+from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Event, Filter, Team
 from posthog.models.filters.path_filter import PathFilter
 from posthog.queries.base import properties_to_Q
@@ -66,7 +67,7 @@ class Paths(BaseQuery):
             )
             .filter(
                 properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
-                if filter and filter.properties
+                if filter and (filter.properties or filter.filter_test_accounts)
                 else Q()
             )
             .annotate(

@@ -229,25 +229,22 @@ def sessions_test_factory(sessions, event_factory, person_factory):
 
         def test_sessions_count_buckets(self):
             # 0 seconds
-            with freeze_time("2012-01-11T01:25:30.000Z"):
-                person_factory(
-                    team_id=self.team.pk, distinct_ids=["2"],
-                )
-                event_factory(team=self.team, event="1st action", distinct_id="2")
-                event_factory(team=self.team, event="1st action", distinct_id="2")
-                event_factory(team=self.team, event="1st action", distinct_id="4")
+            person_factory(team_id=self.team.pk, distinct_ids=["2"], properties={"email": "test@posthog.com"})
+            person_factory(
+                team_id=self.team.pk, distinct_ids=["4"],
+            )
+            event_factory(team=self.team, event="1st action", distinct_id="2")
+            event_factory(team=self.team, event="1st action", distinct_id="2")
+            event_factory(team=self.team, event="1st action", distinct_id="4")
             response = sessions().run(
-                SessionsFilter(data={"date_from": "all", "session": "dist", FILTER_TEST_ACCOUNTS: True}), self.team
+                SessionsFilter(data={"date_from": "", "session": "dist", FILTER_TEST_ACCOUNTS: True}), self.team
             )
             self.assertEqual(response[0]["count"], 1)
 
             response = sessions().run(
                 SessionsFilter(data={"date_from": "all", "session": "avg", FILTER_TEST_ACCOUNTS: True}), self.team
             )
-            import ipdb
-
-            ipdb.set_trace()
-            self.assertEqual(response[0]["count"], 1)
+            self.assertEqual(response[0]["count"], 0)
 
     return TestSessions
 
