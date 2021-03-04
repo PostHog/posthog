@@ -9,6 +9,7 @@ import { OrganizationInviteType, UserNestedType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CreateInviteModalWithButton } from './CreateInviteModal'
 import { ColumnsType } from 'antd/lib/table'
+import { ProfilePicture } from '../../../layout/navigation/TopNavigation'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
@@ -51,6 +52,20 @@ function _Invites(): JSX.Element {
     const { deleteInvite } = useActions(invitesLogic)
 
     const columns: ColumnsType = [
+        {
+            dataIndex: 'target_email',
+            key: 'target_email',
+            render: function ProfilePictureRender(_, invite) {
+                console.log((invite as OrganizationInviteType).target_email)
+                return (
+                    <ProfilePicture
+                        userName={(invite as OrganizationInviteType).first_name}
+                        userEmail={(invite as OrganizationInviteType).target_email}
+                    />
+                )
+            },
+            width: 32,
+        },
         {
             title: 'Target Email',
             dataIndex: 'target_email',

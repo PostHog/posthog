@@ -39,22 +39,21 @@ export interface ProfilePictureProps {
 
 export function ProfilePicture({ userName, userEmail }: ProfilePictureProps): JSX.Element {
     const [didImageError, setDidImageError] = useState(false)
-    if (!userName) {
-        return <div className="profile-picture">•</div>
-    }
-    if (didImageError || !userEmail) {
+    if (userEmail && !didImageError) {
+        const emailHash = MD5(userEmail.trim().toLowerCase()).toString()
+        const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
+        return (
+            <img
+                className="profile-picture"
+                src={gravatarUrl}
+                onError={() => setDidImageError(true)}
+                title={`This is ${userEmail}'s Gravatar.`}
+            />
+        )
+    } else if (userName) {
         return <div className="profile-picture">{userName[0]?.toUpperCase()}</div>
     }
-    const emailHash = MD5(userEmail.trim().toLowerCase()).toString()
-    const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
-    return (
-        <img
-            className="profile-picture"
-            src={gravatarUrl}
-            onError={() => setDidImageError(true)}
-            title={`This is ${userEmail}'s Gravatar.`}
-        />
-    )
+    return <div className="profile-picture">?</div>
 }
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
