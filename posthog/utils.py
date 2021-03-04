@@ -614,5 +614,6 @@ def is_valid_regex(value: Any) -> bool:
         return False
 
 
-def chunk_string(string, length) -> List[str]:
-    return [string[0 + i : length + i] for i in range(0, len(string), length)]
+def chunk_string(string: str, chunk_length: int) -> List[str]:
+    """Split a string into chunk_length-sized elements. Reversal operation: `''.join()`."""
+    return [string[0 + offset : chunk_length + offset] for offset in range(0, len(string), chunk_length)]
