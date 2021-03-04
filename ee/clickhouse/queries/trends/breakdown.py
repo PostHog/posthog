@@ -40,7 +40,9 @@ class ClickhouseTrendsBreakdown:
         _, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
         props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id, table_name="e")
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            props_to_filter, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts
+        )
         aggregate_operation, _, math_params = process_math(entity)
 
         if entity.math == "dau" or filter.breakdown_type == "person":

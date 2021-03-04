@@ -2397,35 +2397,38 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
         def test_filter_test_accounts(self):
             p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             event_factory(
-                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-11T12:00:00Z",
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"key": "val"},
             )
 
             p2 = person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
             event_factory(
-                team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-11T12:00:00Z",
+                team=self.team,
+                event="$pageview",
+                distinct_id="p2",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"key": "val"},
             )
             self.team.test_account_filters = [{"key": "name", "value": "p1", "operator": "is_not", "type": "person"}]
             self.team.save()
-            filter = Filter(
-                data={
-                    "date_from": "2020-01-01T00:00:00Z",
-                    "date_to": "2020-01-12T00:00:00Z",
-                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                    "filter_test_accounts": "true",
-                }
-            )
-            filter_2 = Filter(
-                data={
-                    "date_from": "2020-01-01T00:00:00Z",
-                    "date_to": "2020-01-12T00:00:00Z",
-                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                    "filter_test_accounts": "false",
-                }
-            )
+            data = {
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                "filter_test_accounts": "true",
+            }
+            filter = Filter(data=data)
+            filter_2 = Filter(data={**data, "filter_test_accounts": "false",})
+            filter_3 = Filter(data={**data, "breakdown": "key"})
             result = trends().run(filter, self.team,)
             self.assertEqual(result[0]["count"], 1)
             result = trends().run(filter_2, self.team,)
             self.assertEqual(result[0]["count"], 2)
+            result = trends().run(filter_3, self.team,)
+            self.assertEqual(result[0]["count"], 1)
 
     return TestTrends
 
