@@ -296,6 +296,12 @@ code.code {
         @extend .text-small;
     }
 
+    .ant-radio-button-wrapper {
+        // To properly handle label styles above
+        font-weight: normal !important;
+        line-height: 30px !important;
+    }
+
     &.errored {
         .caption {
             color: $danger;

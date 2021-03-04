@@ -17,8 +17,8 @@ import { NewPropertyComponent } from './NewPropertyComponent'
 
 const { TabPane } = Tabs
 
-export const PersonV2 = hot(_PersonV2)
-function _PersonV2(): JSX.Element {
+export const Person = hot(_Person)
+function _Person(): JSX.Element {
     const [activeTab, setActiveTab] = useState('events')
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
 
@@ -135,7 +135,7 @@ function _PersonV2(): JSX.Element {
                             />
                         </Tabs>
                         {person && (
-                            <>
+                            <div style={{ maxWidth: '100%', overflow: 'hidden' }}>
                                 <NewPropertyComponent />
                                 <h3 className="l3">Properties list</h3>
                                 <PropertiesTable
@@ -145,7 +145,7 @@ function _PersonV2(): JSX.Element {
                                     onDelete={(key) => editProperty(key, undefined)}
                                     className="persons-page-props-table"
                                 />
-                            </>
+                            </div>
                         )}
                         {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}
                     </Card>

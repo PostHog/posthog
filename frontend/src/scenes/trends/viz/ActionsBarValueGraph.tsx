@@ -67,7 +67,7 @@ export function ActionsBarValueGraph({
                 totalValue={total}
             />
         ) : (
-            <LineGraphEmptyState color={color} />
+            <LineGraphEmptyState color={color} isDashboard={!!dashboardItemId} />
         )
     ) : (
         <Loading />

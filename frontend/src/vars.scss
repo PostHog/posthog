@@ -69,6 +69,13 @@ $default_spacing: 16px;
 $radius: 2px;
 $top_nav_height: 50px;
 
+.text-ellipsis {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: calc(100% - 8px);
+}
+
 // Z-indexes
 $z_top_navigation: 800;
 $z_mobile_nav_overlay: 931;

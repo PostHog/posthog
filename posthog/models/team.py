@@ -1,64 +1,26 @@
 from typing import Dict, Optional
 
-import posthoganalytics
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.core.validators import MinLengthValidator
 from django.db import models
-from django.utils import timezone
 
-from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_TABLE
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 
 from .dashboard import Dashboard
-from .dashboard_item import DashboardItem
 from .utils import UUIDT, generate_random_token, sane_repr
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
 
 class TeamManager(models.Manager):
-    def create_with_data(self, user=None, **kwargs) -> "Team":
+    def create_with_data(self, user=None, default_dashboards: bool = True, **kwargs) -> "Team":
         team = Team.objects.create(**kwargs)
 
-        # Create default dashboard
-        if user and posthoganalytics.feature_enabled("1694-dashboards", user.distinct_id):
-            # Create app template dashboard if feature flag is active
-            dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team,)
+        # Create default dashboards (skipped for demo projects)
+        # TODO: Support multiple dashboard flavors based on #2822 personalization
+        if default_dashboards:
+            dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team)
             create_dashboard_from_template("DEFAULT_APP", dashboard)
-        else:
-            # DEPRECATED: Will be retired in favor of dashboard_templates.py
-            dashboard = Dashboard.objects.create(
-                name="Default", pinned=True, team=team, share_token=generate_random_token()
-            )
-
-            DashboardItem.objects.create(
-                team=team,
-                dashboard=dashboard,
-                name="Pageviews this week",
-                filters={TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}]},
-                last_refresh=timezone.now(),
-            )
-            DashboardItem.objects.create(
-                team=team,
-                dashboard=dashboard,
-                name="Most popular browsers this week",
-                filters={
-                    TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}],
-                    "display": TRENDS_TABLE,
-                    "breakdown": "$browser",
-                },
-                last_refresh=timezone.now(),
-            )
-            DashboardItem.objects.create(
-                team=team,
-                dashboard=dashboard,
-                name="Daily Active Users",
-                filters={
-                    TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}]
-                },
-                last_refresh=timezone.now(),
-            )
-
         return team
 
     def create(self, *args, **kwargs) -> "Team":
