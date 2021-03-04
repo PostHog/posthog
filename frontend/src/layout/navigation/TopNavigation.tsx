@@ -52,7 +52,7 @@ export function ProfilePicture({ userName, userEmail }: ProfilePictureProps): JS
             className="profile-picture"
             src={gravatarUrl}
             onError={() => setDidImageError(true)}
-            title="This is your Gravatar."
+            title={`This is ${userEmail}'s Gravatar.`}
         />
     )
 }
