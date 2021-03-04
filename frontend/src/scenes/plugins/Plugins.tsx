@@ -11,23 +11,22 @@ import { Tabs } from 'antd'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
+import posthog from 'posthog-js'
 
 export const Plugins = hot(_Plugins)
-function _Plugins(): JSX.Element {
+function _Plugins(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { pluginTab } = useValues(pluginsLogic)
     const { setPluginTab } = useActions(pluginsLogic)
     const { TabPane } = Tabs
 
-    if (!user) {
-        return <div />
-    }
+    useEffect(() => {
+        if (user && !user.plugin_access.configure) {window.location.href = '/'}
+        posthog.persistence.register({ has_checked_out_plugins: true })
+    }, [user])
 
-    if (!user.plugin_access.configure) {
-        useEffect(() => {
-            window.location.href = '/'
-        }, [])
-        return <div />
+    if (!user || !user.plugin_access.configure) {
+        return null
     }
 
     return (

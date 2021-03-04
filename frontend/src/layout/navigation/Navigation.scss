@@ -51,6 +51,7 @@
     }
 
     .menu-item {
+        position: relative;
         display: flex;
         align-items: center;
         border-radius: $radius;
@@ -80,6 +81,17 @@
         &.menu-item-active {
             background-color: $primary;
             transition: background-color 300ms cubic-bezier(0.645, 0.045, 0.355, 1);
+        }
+
+        &.menu-item-highlighted::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            width: 10px;
+            height: 10px;
+            border-radius: 100%;
+            background: $brand_red;
         }
     }
 

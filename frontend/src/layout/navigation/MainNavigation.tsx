@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react'
+import React, { useRef, useState, useEffect, useMemo } from 'react'
 import { Layout, Menu, Modal, Popover } from 'antd'
 import {
     ProjectFilled,
@@ -12,7 +12,7 @@ import {
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene, sceneLogic } from 'scenes/sceneLogic'
 import { triggerResizeAfterADelay } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import lgLogo from 'public/posthog-logo-white.svg'
@@ -34,9 +34,10 @@ import { dashboardsModel } from '~/models'
 import { DashboardType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import posthog from 'posthog-js'
 
 // to show the right page in the sidebar
-const sceneOverride: Record<string, string> = {
+const sceneOverride: Partial<Record<Scene, string>> = {
     action: 'actions',
     person: 'persons',
     dashboard: 'dashboards',
@@ -50,27 +51,38 @@ interface MenuItemProps {
     onClick?: () => void
 }
 
+function shouldMenuItemBeHighlighted(identifier: string): boolean {
+    if (identifier === Scene.Plugins && !posthog.persistence.properties()['has_checked_out_plugins']) {
+        return true
+    }
+    return false
+}
+
 const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.Element => {
     const { scene, loadingScene } = useValues(sceneLogic)
     const { collapseMenu } = useActions(navigationLogic)
-
-    function activeScene(): string {
-        const nominalScene = loadingScene || scene
-        // Scenes with special handling can go here
-        return sceneOverride[nominalScene] || nominalScene
-    }
 
     function handleClick(): void {
         onClick?.()
         collapseMenu()
     }
 
+    const className: string = useMemo(() => {
+        const nominalScene: Scene = loadingScene || scene
+        // Scenes with special handling handled below
+        const activeScene: string = sceneOverride[nominalScene] || nominalScene
+        const classList = ['menu-item']
+        if (identifier === activeScene) {
+            classList.push('menu-item-active')
+        } else if (shouldMenuItemBeHighlighted(identifier)) {
+            classList.push('menu-item-highlighted')
+        }
+        return classList.join(' ')
+    }, [scene, loadingScene])
+
     return (
         <Link to={to} onClick={handleClick}>
-            <div
-                className={`menu-item${activeScene() === identifier ? ' menu-item-active' : ''}`}
-                data-attr={`menu-item-${identifier}`}
-            >
+            <div className={className} data-attr={`menu-item-${identifier}`}>
                 {icon}
                 <span className="menu-title text-center">{title}</span>
             </div>
@@ -233,7 +245,13 @@ function _MainNavigation(): JSX.Element {
                     />
                     <div className="divider" />
                     {user?.plugin_access.configure ? (
-                        <MenuItem title="Plugins" icon={<ApiFilled />} identifier="plugins" to="/project/plugins" />
+                        <MenuItem
+                            title="Plugins"
+                            icon={<ApiFilled />}
+                            identifier="plugins"
+                            to="/project/plugins"
+                            highlight
+                        />
                     ) : null}
                     <MenuItem
                         title="Annotations"
