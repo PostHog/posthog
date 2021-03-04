@@ -32,7 +32,7 @@ import { UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/TeamMembers/CreateInviteModal'
 import MD5 from 'crypto-js/md5'
 
-export function ProfilePicture({ user }: { user?: UserType }): JSX.Element {
+export function ProfilePicture({ user }: { user: UserType | null }): JSX.Element {
     const [didImageError, setDidImageError] = useState(false)
     if (!user) {
         return <div className="pp">•</div>
