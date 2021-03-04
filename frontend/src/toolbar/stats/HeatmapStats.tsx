@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { List, Space } from 'antd'
+import { List, Space, Spin } from 'antd'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { DateFilter } from 'lib/components/DateFilter'
@@ -13,7 +13,7 @@ export function HeatmapStats(): JSX.Element {
 
     return (
         <div>
-            {heatmapEnabled && !heatmapLoading ? (
+            {heatmapEnabled ? (
                 <>
                     <div style={{ marginTop: 0, marginBottom: 10 }}>
                         <DateFilter
@@ -24,6 +24,7 @@ export function HeatmapStats(): JSX.Element {
                             updatePath={false}
                             getPopupContainer={getShadowRootPopupContainer}
                         />
+                        {heatmapLoading ? <Spin style={{ marginLeft: 8 }} /> : null}
                     </div>
                     <div style={{ marginTop: 20, marginBottom: 10 }}>
                         Found: {countedElements.length} elements / {clickCount} clicks!
