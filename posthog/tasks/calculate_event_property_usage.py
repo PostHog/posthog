@@ -14,7 +14,7 @@ from posthog.models.event import Event
 
 def calculate_event_property_usage() -> None:
     for team in Team.objects.all():
-        calculate_event_property_usage_for_team.delay(team_id=team.pk)
+        calculate_event_property_usage_for_team(team_id=team.pk)
 
 
 def _save_team(team: Team, event_names: Dict[str, Dict], event_properties: Dict[str, Dict]) -> None:
@@ -39,7 +39,7 @@ def calculate_event_property_usage_for_team(team_id: int) -> None:
                 event_names[event["id"]]["usage_count"] += 1
 
         for prop in item.filters.get("properties", []):
-            if prop.get("key") in event_properties:
+            if isinstance(prop, dict) and prop.get("key") in event_properties:
                 event_properties[prop["key"]]["usage_count"] += 1
 
     # intermittent save in case the heavier queries don't finish

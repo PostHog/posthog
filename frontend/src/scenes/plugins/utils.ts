@@ -1,6 +1,9 @@
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
 
+// Keep this in sync with: posthog/api/plugin.py
+export const SECRET_FIELD_VALUE = '**************** POSTHOG SECRET FIELD ****************'
+
 export function getConfigSchemaArray(
     configSchema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
 ): PluginConfigSchema[] {
@@ -38,6 +41,7 @@ export function defaultConfigForPlugin(plugin: PluginTypeWithConfig): Record<str
     }
     return config
 }
+
 export function getPluginConfigFormData(
     editingPlugin: PluginTypeWithConfig,
     pluginConfigChanges: Record<string, any>
@@ -57,7 +61,8 @@ export function getPluginConfigFormData(
             if (!value && editingPlugin.pluginConfig.config[key]) {
                 formData.append(`remove_attachment[${key}]`, 'true')
             }
-        } else {
+        } else if (!configSchema[key]?.secret || value !== SECRET_FIELD_VALUE) {
+            // Omit the field from formData if it's a filled yet unchanged secret field
             otherConfig[key] = value
         }
     }

@@ -135,7 +135,7 @@ function _Person(): JSX.Element {
                             />
                         </Tabs>
                         {person && (
-                            <>
+                            <div style={{ maxWidth: '100%', overflow: 'hidden' }}>
                                 <NewPropertyComponent />
                                 <h3 className="l3">Properties list</h3>
                                 <PropertiesTable
@@ -145,7 +145,7 @@ function _Person(): JSX.Element {
                                     onDelete={(key) => editProperty(key, undefined)}
                                     className="persons-page-props-table"
                                 />
-                            </>
+                            </div>
                         )}
                         {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}
                     </Card>
