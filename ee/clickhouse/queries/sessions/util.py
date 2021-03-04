@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from ee.clickhouse.models.action import format_action_filter
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
@@ -23,7 +23,7 @@ def event_entity_to_query(entity: Entity, team: Team, prepend="event_entity") ->
 
 def entity_query_conditions(filter: Filter, team: Team) -> Tuple[List[str], Dict]:
     entity_conditions = []
-    params = {}
+    params: Dict[str, Any] = {}
     for index, entity in enumerate(filter.entities):
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
