@@ -29,7 +29,7 @@ class ClickhouseSessionsAvg:
 
         entity_conditions, entity_params = entity_query_conditions(filter, team)
         if not entity_conditions:
-            return []
+            entity_conditions = ["event != '$feature_flag_called'"]  # default conditino
 
         params = {**params, **entity_params}
         entity_query = " OR ".join(entity_conditions)

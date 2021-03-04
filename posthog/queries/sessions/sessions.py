@@ -48,7 +48,7 @@ class Sessions(BaseQuery):
             )
 
         if not len(events):
-            return []
+            events = self.events_query(filter, team)
 
         # get compared period
         if filter.compare and filter._date_from != "all" and filter.session == SESSION_AVG:
@@ -88,6 +88,7 @@ class Sessions(BaseQuery):
         return (
             Event.objects.filter(team=team)
             .add_person_id(team.pk)
+            .filter(~Q(event="$feature_flag_called"))
             .filter(properties_to_Q(filter.properties, team_id=team.pk))
             .order_by("-timestamp")
         )
