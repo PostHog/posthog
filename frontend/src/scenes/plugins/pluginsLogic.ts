@@ -58,7 +58,7 @@ export const pluginsLogic = kea<
         checkedForUpdates: true,
         setUpdateStatus: (id: number, tag: string, latestTag: string) => ({ id, tag, latestTag }),
         setUpdateError: (id: number) => ({ id }),
-        updatePlugin: (id: number) => ({ id }),
+        updatePlugin: (id: number, pluginChanges: Partial<PluginType> = {}) => ({ id, pluginChanges }),
         pluginUpdated: (id: number) => ({ id }),
         generateApiKeysIfNeeded: (form: PluginForm) => ({ form }),
         rearrange: true,
@@ -111,11 +111,13 @@ export const pluginsLogic = kea<
                     capturePluginEvent(`plugin source edited`, response)
                     return { ...plugins, [id]: response }
                 },
-                updatePlugin: async ({ id }) => {
+                updatePlugin: async ({ id, pluginChanges }) => {
                     const { plugins } = values
-                    const response = await api.update(`api/organizations/@current/plugins/${id}`, {})
+                    const response = await api.update(`api/organizations/@current/plugins/${id}`, pluginChanges)
                     capturePluginEvent(`plugin updated`, response)
-                    actions.pluginUpdated(id)
+                    if (!Object.keys(pluginChanges).length) {
+                        actions.pluginUpdated(id)
+                    }
 
                     // Check if we need to update the config (e.g. new required field) and if so, open the drawer.
                     const schema = getConfigSchemaObject(response.config_schema)

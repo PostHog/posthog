@@ -10,6 +10,7 @@ import {
     SettingOutlined,
     WarningOutlined,
     DownOutlined,
+    GlobalOutlined,
 } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
@@ -21,7 +22,6 @@ import { CommunityPluginTag } from './CommunityPluginTag'
 import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
 import { PluginsAccessLevel } from '../../../lib/constants'
-
 interface PluginCardProps {
     plugin: Partial<PluginTypeWithConfig>
     pluginConfig?: PluginConfigType
@@ -55,6 +55,7 @@ export function PluginCard({
         id: pluginId,
         updateStatus,
         hasMoved,
+        is_global,
     } = plugin
 
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin, rearrange } = useActions(
@@ -128,7 +129,11 @@ export function PluginCard({
                             ) : error ? (
                                 <PluginError error={error} />
                             ) : null}
-
+                            {is_global && (
+                                <Tag color="blue">
+                                    <GlobalOutlined /> Managed globally
+                                </Tag>
+                            )}
                             {canInstall ? (
                                 <>
                                     {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}

@@ -12,12 +12,13 @@ from django.db.models import Q
 from django.utils.timezone import now
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
+from posthog.models.organization import Organization
 from posthog.permissions import OrganizationMemberPermissions, ProjectMembershipNecessaryPermissions
 from posthog.plugins import (
     can_configure_plugins_via_api,
@@ -47,6 +48,7 @@ class PluginSerializer(serializers.ModelSerializer):
             "tag",
             "source",
             "latest_tag",
+            "is_global",
         ]
         read_only_fields = ["id", "latest_tag"]
 
@@ -78,6 +80,14 @@ class PluginSerializer(serializers.ModelSerializer):
         validated_data["url"] = self.initial_data.get("url", None)
         if not can_install_plugins_via_api(self.context["organization_id"]):
             raise ValidationError("Plugin installation via the web is disabled!")
+        if (
+            validated_data.get("is_global")
+            and Organization.objects.only("plugins_access_level")
+            .get(self.context["organization_id"])
+            .plugins_access_level
+            < Organization.PluginsAccessLevel.ROOT
+        ):
+            raise PermissionError("This organization can't manage global plugins!")
         if validated_data.get("plugin_type", None) != Plugin.PluginType.SOURCE:
             self._update_validated_data_from_url(validated_data, validated_data["url"])
             self._raise_if_plugin_installed(validated_data["url"], self.context["organization_id"])
@@ -89,7 +99,15 @@ class PluginSerializer(serializers.ModelSerializer):
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
         if not can_install_plugins_via_api(self.context["organization_id"]):
             raise ValidationError("Plugin upgrades via the web are disabled!")
-        if plugin.plugin_type != Plugin.PluginType.SOURCE:
+        if (
+            validated_data.get("is_global")
+            and Organization.objects.only("plugins_access_level")
+            .get(id=self.context["organization_id"])
+            .plugins_access_level
+            < Organization.PluginsAccessLevel.ROOT
+        ):
+            raise PermissionError("This organization can't manage global plugins!")
+        if not validated_data and plugin.plugin_type != Plugin.PluginType.SOURCE:
             validated_data = self._update_validated_data_from_url({}, plugin.url)
         response = super().update(plugin, validated_data)
         reload_plugins_on_workers()
@@ -151,6 +169,13 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             if can_install_plugins_via_api(self.organization):
                 return queryset
         return queryset.none()
+
+    def filter_queryset_by_parents_lookups(self, queryset):
+        parents_query_dict = self.get_parents_query_dict()
+        try:
+            return queryset.filter(Q(**parents_query_dict) | Q(is_global=True))
+        except ValueError:
+            raise NotFound()
 
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request, **kwargs):

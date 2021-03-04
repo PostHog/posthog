@@ -1,8 +1,9 @@
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Input, Popconfirm, Select, Switch } from 'antd'
+import { Button, Checkbox, Form, Input, Popconfirm, Select, Switch, Tooltip } from 'antd'
 import { DeleteOutlined, CodeOutlined } from '@ant-design/icons'
+import { red } from '@ant-design/colors'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Link } from 'lib/components/Link'
@@ -25,8 +26,8 @@ function EnabledDisabledSwitch({
 }): JSX.Element {
     return (
         <>
-            <Switch checked={value} onChange={onChange} />{' '}
-            <strong style={{ paddingLeft: 8 }}>{value ? 'Enabled' : 'Disabled'}</strong>
+            <Switch checked={value} onChange={onChange} />
+            <strong style={{ paddingLeft: 10 }}>{value ? 'Enabled' : 'Disabled'}</strong>
         </>
     )
 }
@@ -34,9 +35,14 @@ function EnabledDisabledSwitch({
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
     const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
-    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, generateApiKeysIfNeeded } = useActions(
-        pluginsLogic
-    )
+    const {
+        editPlugin,
+        savePluginConfig,
+        uninstallPlugin,
+        setEditingSource,
+        generateApiKeysIfNeeded,
+        updatePlugin,
+    } = useActions(pluginsLogic)
     const [form] = Form.useForm()
 
     const canDelete = (user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Install
@@ -125,9 +131,8 @@ export function PluginDrawer(): JSX.Element {
                                                 rel="noopener noreferrer"
                                                 style={{ whiteSpace: 'nowrap' }}
                                             >
-                                                Learn More
+                                                Learn more.
                                             </Link>
-                                            .
                                         </span>
                                     ) : null}
                                     <div style={{ marginTop: 5 }}>
@@ -146,6 +151,35 @@ export function PluginDrawer(): JSX.Element {
                                             <EnabledDisabledSwitch />
                                         </Form.Item>
                                     </div>
+                                    {user?.organization?.plugins_access_level === PluginsAccessLevel.Root && (
+                                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                                            <Form.Item
+                                                fieldKey="__enabled"
+                                                name="__enabled"
+                                                style={{ display: 'inline-block', marginBottom: 0, color: red.primary }}
+                                            >
+                                                <Tooltip
+                                                    title={
+                                                        <>
+                                                            Enabling this will mark this plugin as installed for{' '}
+                                                            <b>all organizations</b> in this instance of PostHog.
+                                                        </>
+                                                    }
+                                                    placement="bottom"
+                                                >
+                                                    <Checkbox
+                                                        checked={editingPlugin.is_global}
+                                                        onChange={(e) =>
+                                                            updatePlugin(editingPlugin.id, {
+                                                                is_global: e.target.checked,
+                                                            })
+                                                        }
+                                                    />
+                                                    <strong style={{ paddingLeft: 10 }}>Manage globally</strong>
+                                                </Tooltip>
+                                            </Form.Item>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 

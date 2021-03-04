@@ -19,4 +19,5 @@ class Migration(migrations.Migration):
                 default=0 if settings.MULTI_TENANCY else 9,
             ),
         ),
+        migrations.AddField(model_name="plugin", name="is_global", field=models.BooleanField(default=False),),
     ]

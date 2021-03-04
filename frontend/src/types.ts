@@ -412,6 +412,7 @@ export interface PluginType {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     maintainer?: string
+    is_global: boolean
 }
 
 export interface PluginConfigType {
