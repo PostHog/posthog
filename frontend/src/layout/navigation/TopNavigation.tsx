@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { CSSProperties, useState } from 'react'
 import './Navigation.scss'
 import { useActions, useValues } from 'kea'
 import { navigationLogic } from './navigationLogic'
@@ -32,25 +32,45 @@ import { UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/TeamMembers/CreateInviteModal'
 import MD5 from 'crypto-js/md5'
 
-export function ProfilePicture({ user }: { user: UserType | null }): JSX.Element {
+export interface ProfilePictureProps {
+    userName?: string
+    userEmail?: string
+    style?: CSSProperties
+}
+
+export function ProfilePicture({ userName, userEmail, style }: ProfilePictureProps): JSX.Element {
     const [didImageError, setDidImageError] = useState(false)
-    if (!user) {
-        return <div className="pp">•</div>
+    if (!userName) {
+        return (
+            <div className="profile-picture" style={style}>
+                •
+            </div>
+        )
     }
-    if (didImageError) {
-        return <div className="pp">{user.name[0]?.toUpperCase()}</div>
+    if (didImageError || !userEmail) {
+        return (
+            <div className="profile-picture" style={style}>
+                {userName[0]?.toUpperCase()}
+            </div>
+        )
     }
-    const emailHash = MD5(user.email.trim().toLowerCase()).toString()
+    const emailHash = MD5(userEmail.trim().toLowerCase()).toString()
     const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
     return (
-        <img className="pp" src={gravatarUrl} onError={() => setDidImageError(true)} title="This is your Gravatar." />
+        <img
+            className="profile-picture"
+            src={gravatarUrl}
+            onError={() => setDidImageError(true)}
+            title="This is your Gravatar."
+            style={style}
+        />
     )
 }
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
         <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
-            <ProfilePicture user={user} />
+            <ProfilePicture userName={user.name} userEmail={user.email} />
             <div className="details hide-lte-lg">
                 <span>{user.name}</span>
                 <span>{user.organization?.name}</span>
@@ -83,7 +103,7 @@ export function _TopNavigation(): JSX.Element {
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
             <div className="whoami" style={{ paddingRight: 16, paddingLeft: 16 }}>
-                <ProfilePicture user={user} />
+                <ProfilePicture userName={user?.name} userEmail={user?.email} />
                 <div className="details">
                     <span>{user?.email}</span>
                     <span>{user?.organization?.name}</span>

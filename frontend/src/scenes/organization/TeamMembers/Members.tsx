@@ -17,6 +17,7 @@ import { OrganizationMemberType, OrganizationType, UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
+import { ProfilePicture } from '~/layout/navigation/TopNavigation'
 
 const membershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
     (value) => typeof value === 'number'
@@ -199,6 +200,20 @@ export function Members({ user }: { user: UserType }): JSX.Element {
 
     const columns: ColumnsType<Record<string, any>> = [
         {
+            dataIndex: 'user_email',
+            key: 'user_email',
+            render: function ProfilePictureComponent(_, member) {
+                return (
+                    <ProfilePicture
+                        userName={member.user_first_name}
+                        userEmail={member.user_email}
+                        style={{ display: 'inline-flex' }}
+                    />
+                )
+            },
+            width: 32,
+        },
+        {
             title: 'Name',
             dataIndex: 'user_first_name',
             key: 'user_first_name',
@@ -223,7 +238,6 @@ export function Members({ user }: { user: UserType }): JSX.Element {
             render: (joinedAt: string) => humanFriendlyDetailedTime(joinedAt),
         },
         {
-            title: '',
             dataIndex: 'actions',
             key: 'actions',
             align: 'center',
