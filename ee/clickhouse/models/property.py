@@ -21,6 +21,7 @@ def parse_prop_clauses(
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = False,
+    filter_test_accounts=False,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -28,6 +29,10 @@ def parse_prop_clauses(
         params["team_id"] = team_id
     if table_name != "":
         table_name += "."
+
+    if filter_test_accounts:
+        test_account_filters = Team.objects.only("test_account_filters").get(id=team_id).test_account_filters
+        filters.extend([Property(**prop) for prop in test_account_filters])
 
     for idx, prop in enumerate(filters):
         if prop.type == "cohort":

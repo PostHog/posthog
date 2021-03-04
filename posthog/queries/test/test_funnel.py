@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from freezegun import freeze_time
 
-from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
+from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS, TRENDS_LINEAR
 from posthog.models import Action, ActionStep, Element, Event, Person
 from posthog.models.filters import Filter
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
@@ -330,6 +330,23 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[0]["count"], 1)
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 0)
+
+        def test_funnel_filter_test_accounts(self):
+            person_factory(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
+            person_factory(distinct_ids=["person2"], team_id=self.team.pk)
+            event_factory(distinct_id="person1", event="event1", team=self.team)
+            event_factory(distinct_id="person2", event="event1", team=self.team)
+            result = Funnel(
+                filter=Filter(
+                    data={
+                        "events": [{"id": "event1", "order": 0}],
+                        "insight": INSIGHT_FUNNELS,
+                        FILTER_TEST_ACCOUNTS: True,
+                    }
+                ),
+                team=self.team,
+            ).run()
+            self.assertEqual(result[0]["count"], 1)
 
     return TestGetFunnel
 

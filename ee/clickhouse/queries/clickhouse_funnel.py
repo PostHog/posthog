@@ -61,7 +61,11 @@ class ClickhouseFunnel(Funnel):
 
     def _exec_query(self) -> List[Tuple]:
         prop_filters, prop_filter_params = parse_prop_clauses(
-            self._filter.properties, self._team.pk, prepend="global", allow_denormalized_props=True
+            self._filter.properties,
+            self._team.pk,
+            prepend="global",
+            allow_denormalized_props=True,
+            filter_test_accounts=self._filter.filter_test_accounts,
         )
 
         # format default dates
