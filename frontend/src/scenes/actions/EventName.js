@@ -11,7 +11,7 @@ export function EventName({ value, onChange, isActionStep }) {
             <Select
                 showSearch
                 allowClear
-                style={{ width: '100%' }}
+                style={{ width: '20%' }}
                 onChange={onChange}
                 filterOption={(input, option) =>
                     option.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
