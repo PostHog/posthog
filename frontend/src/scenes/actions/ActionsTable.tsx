@@ -132,7 +132,7 @@ export function ActionsTable(): JSX.Element {
         },
     ]
     let data = actions
-    if (searchTerm) {
+    if (searchTerm && searchTerm !== '') {
         data = searchActions(data, searchTerm)
     }
     if (filterByMe) {

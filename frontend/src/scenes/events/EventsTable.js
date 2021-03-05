@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import moment from 'moment'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EventDetails } from 'scenes/events/EventDetails'
-import { ExportOutlined } from '@ant-design/icons'
+import { ExportOutlined, ClearOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { Button, Row, Spin, Table, Tooltip, Col } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
@@ -163,16 +163,22 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
         <div className="events" data-attr="events-table">
             {filtersEnabled ? <PropertyFilters pageKey={'EventsTable'} /> : null}
             <Row>
-                <Col span={22}>
+                <Col span={pageKey === 'events' ? 22 : 20}>
                     <EventName
                         value={eventFilter}
                         onChange={(value) => {
-                            confirm()
                             setEventFilter(value)
                         }}
                     />
+                    <Button
+                        disabled={eventFilter === ''}
+                        onClick={() => setEventFilter('')}
+                        style={{ display: 'inline-block', marginLeft: 5 }}
+                    >
+                        <ClearOutlined />
+                    </Button>
                 </Col>
-                <Col span={2}>
+                <Col span={pageKey === 'events' ? 2 : 4}>
                     <Tooltip title="Up to 100,000 latest events.">
                         <Button
                             type="default"
