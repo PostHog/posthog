@@ -16,7 +16,7 @@ describe('Dashboards', () => {
     })
 
     it('Share dashboard', () => {
-        cy.get('[data-attr=dashboard-name]').contains('Default').click()
+        cy.get('[data-attr=dashboard-name]').contains('My App Dashboard').click()
         cy.get('[data-attr=dashboard-item-0]').should('exist')
 
         cy.get('[data-attr=dashboard-share-button]').click()
@@ -26,7 +26,7 @@ describe('Dashboards', () => {
             .then((link) => {
                 cy.wait(200)
                 cy.visit(link)
-                cy.get('[data-attr="dashboard-item-title"').should('contain', 'popular browsers')
+                cy.get('[data-attr="dashboard-item-title"').should('contain', 'Daily Active Users')
             })
     })
 
