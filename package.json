@@ -87,7 +87,6 @@
         "@babel/plugin-transform-runtime": "^7.10.4",
         "@babel/preset-env": "7.10.4",
         "@babel/preset-typescript": "^7.10.4",
-        "@bundletracker/plugin": "^0.3.1",
         "@cypress/react": "^4.16.4",
         "@cypress/webpack-preprocessor": "^5.6.0",
         "@hot-loader/react-dom": "^16.13.0",
