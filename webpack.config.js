@@ -86,7 +86,7 @@ function createEntry(entry) {
                 public: path.resolve(__dirname, 'frontend', 'public'),
                 cypress: path.resolve(__dirname, 'cypress'),
             },
-            fallback: { path: require.resolve('path-browserify') },
+            fallback: { path: require.resolve('path-browserify'), crypto: require.resolve('crypto-browserify') },
         },
         module: {
             rules: [
