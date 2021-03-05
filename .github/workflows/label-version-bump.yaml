@@ -19,7 +19,7 @@ jobs:
             - name: Check out repository
               uses: actions/checkout@v2
               with:
-                  ref: master
+                  ref: ${{ github.event.pull_request.base.ref }}
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Detect version bump type
@@ -60,5 +60,5 @@ jobs:
               if: steps.bump-type.outputs.bump-type != 'null'
               uses: EndBug/add-and-commit@v7
               with:
-                  branch: master
+                  branch: ${{ github.event.pull_request.base.ref }}
                   message: 'Bump version to ${{ steps.new-version.outputs.new-version }}'
