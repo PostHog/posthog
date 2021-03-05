@@ -13,7 +13,6 @@ export interface DateFilterProps {
     onChange?: (fromDate: string, toDate: string) => void
     disabled?: boolean
     getPopupContainer?: (props: any) => HTMLElement
-    updatePath?: boolean
 }
 
 interface RawDateFilterProps extends DateFilterProps {

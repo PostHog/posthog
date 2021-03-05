@@ -22,7 +22,6 @@ export function HeatmapStats(): JSX.Element {
                             dateFrom={heatmapFilter.date_from}
                             dateTo={heatmapFilter.date_to}
                             onChange={(date_from, date_to) => setHeatmapFilter({ date_from, date_to })}
-                            updatePath={false}
                             getPopupContainer={getShadowRootPopupContainer}
                         />
                         {heatmapLoading ? <Spin style={{ marginLeft: 8 }} /> : null}
