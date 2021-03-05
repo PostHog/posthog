@@ -5,6 +5,7 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 const MonacoWebpackPlugin = require('monaco-editor-webpack-plugin')
+const { BundleTrackerPlugin } = require('@bundletracker/plugin')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 const webpackDevServerFrontendAddr = webpackDevServerHost === '0.0.0.0' ? '127.0.0.1' : webpackDevServerHost
@@ -205,6 +206,10 @@ function createEntry(entry) {
         plugins: [
             new MonacoWebpackPlugin({
                 languages: ['json', 'javascript'],
+            }),
+            new BundleTrackerPlugin({
+                upload: process.env.NODE_ENV === 'production',
+                host: 'https://app.bundletracker.io',
             }),
 
             // common plugins for all entrypoints
