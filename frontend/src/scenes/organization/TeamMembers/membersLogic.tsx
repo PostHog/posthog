@@ -7,6 +7,7 @@ import { membersLogicType } from './membersLogicType'
 import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
 import { OrganizationMemberType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export const membersLogic = kea<membersLogicType>({
     actions: {
@@ -14,8 +15,9 @@ export const membersLogic = kea<membersLogicType>({
             member,
             level,
         }),
+        postRemoveMember: (memberId: number) => ({ memberId }),
     },
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         members: {
             __default: [],
             loadMembers: async () => {
@@ -30,6 +32,7 @@ export const membersLogic = kea<membersLogicType>({
                         </h1>
                     </div>
                 )
+                actions.postRemoveMember(member.user_id)
                 return values.members.filter((thisMember) => thisMember.user_id !== member.user_id)
             },
         },
@@ -56,6 +59,11 @@ export const membersLogic = kea<membersLogicType>({
                 organizationLogic.actions.loadCurrentOrganization()
             }
             actions.loadMembers()
+        },
+        postRemoveMember: async ({ memberId }) => {
+            if (memberId === userLogic.values.user?.id) {
+                location.reload()
+            }
         },
     }),
     events: ({ actions }) => ({
