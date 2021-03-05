@@ -158,6 +158,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                                 block
                                 onClick={() => acceptInvite()}
                                 disabled={acceptedInviteLoading}
+                                data-attr="accept-invite-authed"
                             >
                                 Accept invite
                             </Button>

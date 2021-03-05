@@ -2,9 +2,9 @@ describe('Invite Signup', () => {
     beforeEach(() => {
         cy.get('[data-attr=top-navigation-whoami]').click()
         cy.get('[data-attr=top-menu-item-org-settings').click()
-        cy.get('[data-attr=invite-teammate-button]').click()
 
-        cy.get('[data-attr=invite-email-input]').type('newuser@posthog.com')
+        cy.get('[data-attr=invite-teammate-button]').click()
+        cy.get('[data-attr=invite-email-input]').type('newuser@posthog.com').should('have.value', 'newuser@posthog.com')
         cy.get('[data-attr=invite-team-member-submit]').click()
 
         cy.get('.Toastify__toast-body h1').should('contain', 'Invite sent!')
@@ -39,6 +39,51 @@ describe('Invite Signup', () => {
         cy.get('.ant-progress-bg').should('not.have.css', 'width', '0px') // Password strength indicator is working
         cy.get('#first_name').type('Bob')
         cy.get('[data-attr=password-signup]').click()
+        cy.get('.Toastify__toast-body').should('contain', 'You have joined')
+        cy.location('pathname').should('include', '/insights')
+    })
+})
+
+describe('Invite Signup II', () => {
+    it('Existing user can use invite', () => {
+        // Logout & log in with alt user
+        cy.get('[data-attr=top-navigation-whoami]').click()
+        cy.get('[data-attr=top-menu-item-logout]').click()
+        cy.get('#inputEmail').type('newuser@posthog.com')
+        cy.get('#inputPassword').type('12345678')
+        cy.get('.btn').click()
+
+        // Leave current organization
+        cy.visit('/organization/members')
+        cy.get('.org-members-table .anticon-logout').click()
+        cy.get('.ant-modal-confirm-btns button').contains('Leave').click()
+        cy.location('pathname').should('include', '/organization/create')
+
+        // Log in as admin & create new invite link
+        cy.visit('/logout')
+        cy.get('#inputEmail').type('test@posthog.com').should('have.value', 'test@posthog.com')
+        cy.get('#inputPassword').type('12345678')
+        cy.get('.btn').click()
+
+        cy.get('[data-attr=top-navigation-whoami]').click()
+        cy.get('[data-attr=top-menu-item-org-settings').click()
+        cy.get('[data-attr=invite-teammate-button]').click()
+        cy.get('[data-attr=invite-email-input]').type('newuser@posthog.com')
+        cy.get('[data-attr=invite-team-member-submit]').click()
+
+        cy.get('.invites-table tbody td:nth-last-child(2)').then((element) => {
+            // Log in as invitee & navigate to invite
+            cy.visit('/logout')
+            cy.get('#inputEmail').type('newuser@posthog.com')
+            cy.get('#inputPassword').type('12345678')
+            cy.get('.btn').click()
+            cy.get('.ant-modal-header').should('exist')
+            cy.visit(element.text())
+        })
+
+        // Accept the invite
+        cy.get('.error-view-container').should('not.exist')
+        cy.get('[data-attr=accept-invite-authed]').click()
         cy.get('.Toastify__toast-body').should('contain', 'You have joined')
         cy.location('pathname').should('include', '/insights')
     })
