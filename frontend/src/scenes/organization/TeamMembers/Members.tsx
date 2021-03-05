@@ -62,7 +62,7 @@ function isMembershipLevelChangeDisallowed(
     return false
 }
 
-function LevelComponent(level: OrganizationMembershipLevel, member: OrganizationMemberType): JSX.Element | null {
+function LevelComponent(level: OrganizationMembershipLevel, member: Record<string, any>): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { changeMemberAccessLevel } = useActions(membersLogic)
@@ -101,9 +101,15 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Organization
     )
 
     const allowedLevels = membershipLevelIntegers.filter(
-        (listLevel) => !isMembershipLevelChangeDisallowed(currentOrganization, user, member, listLevel)
+        (listLevel) =>
+            !isMembershipLevelChangeDisallowed(currentOrganization, user, member as OrganizationMemberType, listLevel)
     )
-    const disallowedReason = isMembershipLevelChangeDisallowed(currentOrganization, user, member, allowedLevels)
+    const disallowedReason = isMembershipLevelChangeDisallowed(
+        currentOrganization,
+        user,
+        member as OrganizationMemberType,
+        allowedLevels
+    )
 
     return disallowedReason ? (
         <Tooltip title={disallowedReason}>{levelButton}</Tooltip>
@@ -141,7 +147,7 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Organization
     )
 }
 
-function ActionsComponent(_, member: OrganizationMemberType): JSX.Element | null {
+function ActionsComponent(_: any, member: Record<string, any>): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { removeMember } = useActions(membersLogic)
