@@ -13,7 +13,9 @@ export function SessionTab(): JSX.Element {
 
     return (
         <>
-            <h4 className="secondary">{'Actions & Events'}</h4>
+            <span>
+                <h4 className="secondary">{'Sessions Comprised Of'}</h4>
+            </span>
             <ActionFilter
                 filters={filters}
                 setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
