@@ -47,8 +47,7 @@ describe('Invite Signup', () => {
 describe('Invite Signup II', () => {
     it('Can leave the organization', () => {
         // Logout & log in with alt user
-        cy.get('[data-attr=top-navigation-whoami]').click()
-        cy.get('[data-attr=top-menu-item-logout]').click()
+        cy.visit('/logout')
         cy.get('#inputEmail').type('newuser@posthog.com')
         cy.get('#inputPassword').type('12345678')
         cy.get('.btn').click()
