@@ -15,7 +15,7 @@ export function DateFilter(props: DateFilterProps): JSX.Element {
             dateFrom={dateFrom}
             dateTo={dateTo}
             onChange={(dateFrom, dateTo) => {
-                setDates(dateFrom, dateTo, true)
+                setDates(dateFrom, dateTo)
                 props.onChange?.(dateFrom, dateTo)
             }}
         />
