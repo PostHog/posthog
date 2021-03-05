@@ -238,7 +238,7 @@ export function Members({ user }: { user: UserType }): JSX.Element {
                 pagination={false}
                 style={{ marginTop: '1rem' }}
                 loading={membersLoading}
-                className="org-members-table"
+                data-attr="org-members-table"
             />
         </>
     )

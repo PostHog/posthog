@@ -98,7 +98,7 @@ function _Invites(): JSX.Element {
                 pagination={false}
                 loading={invitesLoading}
                 style={{ marginTop: '1rem' }}
-                className="invites-table"
+                data-attr="invites-table"
             />
             <Divider />
         </>

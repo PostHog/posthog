@@ -8,12 +8,12 @@ describe('Invite Signup', () => {
         cy.get('[data-attr=invite-team-member-submit]').click()
 
         cy.get('.Toastify__toast-body h1').should('contain', 'Invite sent!')
-        cy.get('.invites-table tbody td:first-of-type').should('contain', 'newuser@posthog.com')
+        cy.get('[data-attr=invites-table] tbody td:first-of-type').should('contain', 'newuser@posthog.com')
     })
 
     it('Authenticated user cannot use invite for someone else', () => {
         // Tests invite creation flow too
-        cy.get('.invites-table tbody td:nth-last-child(2)').then((element) => {
+        cy.get('[data-attr=invites-table] tbody td:nth-last-child(2)').then((element) => {
             cy.visit(element.text())
         })
         cy.get('.error-view-container').should('exist')
@@ -22,12 +22,12 @@ describe('Invite Signup', () => {
 
         // Delete the invite
         cy.visit('/organization/members')
-        cy.get('.invites-table .anticon-delete').click()
+        cy.get('[data-attr=invites-table] .anticon-delete').click()
         cy.get('.ant-modal-confirm-btns button').contains('Delete').click()
     })
 
     it('New user can use invite', () => {
-        cy.get('.invites-table tbody td:nth-last-child(2)').then((element) => {
+        cy.get('[data-attr=invites-table] tbody td:nth-last-child(2)').then((element) => {
             cy.get('[data-attr=top-navigation-whoami]').click()
             cy.get('[data-attr=top-menu-item-logout]').click()
             cy.visit(element.text())
@@ -54,8 +54,9 @@ describe('Invite Signup II', () => {
         cy.get('.btn').click()
 
         // Leave current organization
-        cy.visit('/organization/members')
-        cy.get('.org-members-table .anticon-logout').click()
+        cy.get('[data-attr=top-navigation-whoami]').click()
+        cy.get('[data-attr=top-menu-item-org-settings').click()
+        cy.get('[data-attr=org-members-table] .anticon-logout').click()
         cy.get('.ant-modal-confirm-btns button').contains('Leave').click()
         cy.location('pathname').should('include', '/organization/create')
 
@@ -71,7 +72,7 @@ describe('Invite Signup II', () => {
         cy.get('[data-attr=invite-email-input]').type('newuser@posthog.com')
         cy.get('[data-attr=invite-team-member-submit]').click()
 
-        cy.get('.invites-table tbody td:nth-last-child(2)').then((element) => {
+        cy.get('[data-attr=invites-table] tbody td:nth-last-child(2)').then((element) => {
             // Log in as invitee & navigate to invite
             cy.visit('/logout')
             cy.get('#inputEmail').type('newuser@posthog.com')
