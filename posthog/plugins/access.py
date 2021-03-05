@@ -8,7 +8,7 @@ from posthog.models.organization import Organization
 
 def can_install_plugins_via_api(organization_or_id: Optional[Union[Organization, str, UUID]]) -> bool:
     if not settings.MULTI_TENANCY:
-        return settings.PLUGINS_INSTALL_VIA_API
+        return True
     if organization_or_id is None:
         return False
     organization: Organization = (
@@ -21,7 +21,7 @@ def can_install_plugins_via_api(organization_or_id: Optional[Union[Organization,
 
 def can_configure_plugins_via_api(organization_or_id: Optional[Union[Organization, str, UUID]]) -> bool:
     if not settings.MULTI_TENANCY:
-        return settings.PLUGINS_CONFIGURE_VIA_API
+        return True
     if organization_or_id is None:
         return False
     organization: Organization = (
