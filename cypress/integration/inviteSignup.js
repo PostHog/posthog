@@ -53,8 +53,7 @@ describe('Invite Signup II', () => {
         cy.get('.btn').click()
 
         // Leave current organization
-        cy.get('[data-attr=top-navigation-whoami]').click()
-        cy.get('[data-attr=top-menu-item-org-settings]').click()
+        cy.visit('/organization/members')
         cy.get('[data-attr=org-members-table] .anticon-logout').click()
         cy.get('.ant-modal-confirm-btns button').contains('Leave').click()
         cy.location('pathname').should('include', '/organization/create')
