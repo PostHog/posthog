@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Player, PlayerRef, findCurrent } from 'posthog-react-rrweb-player'
+import { Player, PlayerRef, findCurrent } from '@posthog/react-rrweb-player'
 import { Card, Col, Input, Row, Skeleton, Tag } from 'antd'
 import {
     UserOutlined,

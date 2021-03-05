@@ -91,6 +91,7 @@ function createEntry(entry) {
                       }
                     : {}),
             },
+            fallback: { path: require.resolve('path-browserify') },
         },
         module: {
             rules: [
@@ -182,19 +183,25 @@ function createEntry(entry) {
                 },
             ],
         },
-        devServer: {
-            contentBase: path.join(__dirname, 'frontend', 'dist'),
-            hot: true,
-            host: webpackDevServerHost,
-            port: 8234,
-            stats: 'minimal',
-            disableHostCheck: !!process.env.LOCAL_HTTPS,
-            public: process.env.JS_URL ? new URL(process.env.JS_URL).host : `${webpackDevServerFrontendAddr}:8234`,
-            headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': '*',
-            },
-        },
+        ...(entry === 'main'
+            ? {
+                  devServer: {
+                      contentBase: path.join(__dirname, 'frontend', 'dist'),
+                      hot: true,
+                      host: webpackDevServerHost,
+                      port: 8234,
+                      stats: 'minimal',
+                      disableHostCheck: !!process.env.LOCAL_HTTPS,
+                      public: process.env.JS_URL
+                          ? new URL(process.env.JS_URL).host
+                          : `${webpackDevServerFrontendAddr}:8234`,
+                      headers: {
+                          'Access-Control-Allow-Origin': '*',
+                          'Access-Control-Allow-Headers': '*',
+                      },
+                  },
+              }
+            : {}),
         plugins: [
             new MonacoWebpackPlugin({
                 languages: ['json', 'javascript'],
