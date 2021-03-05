@@ -55,9 +55,11 @@ function _Plugins(): JSX.Element | null {
                             <TabPane tab="Installed" key={PluginTab.Installed}>
                                 <InstalledTab />
                             </TabPane>
-                            <TabPane tab="Repository" key={PluginTab.Repository}>
-                                <RepositoryTab />
-                            </TabPane>
+                            {user.organization?.plugins_access_level === PluginsAccessLevel.Root && (
+                                <TabPane tab="Repository" key={PluginTab.Repository}>
+                                    <RepositoryTab />
+                                </TabPane>
+                            )}
                             <TabPane tab="Advanced" key={PluginTab.Advanced}>
                                 <AdvancedTab />
                             </TabPane>

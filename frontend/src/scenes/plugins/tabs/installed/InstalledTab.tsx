@@ -71,7 +71,7 @@ export function InstalledTab(): JSX.Element {
 
     const upgradeButton =
         user?.organization &&
-        user.organization.plugins_access_level >= PluginsAccessLevel.Install &&
+        user.organization.plugins_access_level === PluginsAccessLevel.Root &&
         hasNonSourcePlugins ? (
             <Button
                 type="default"

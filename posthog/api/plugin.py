@@ -4,15 +4,15 @@ import re
 from typing import Any, Dict, Optional, Set
 
 import requests
-from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
 from django.db.models import Q
+from django.http.response import Http404
 from django.utils.timezone import now
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -88,13 +88,13 @@ class PluginSerializer(serializers.ModelSerializer):
         if not can_install_plugins_via_api(self.context["organization_id"]):
             raise ValidationError("Plugin installation via the web is disabled!")
         if (
-            validated_data.get("is_global")
+            "is_global" in validated_data
             and Organization.objects.only("plugins_access_level")
             .get(self.context["organization_id"])
             .plugins_access_level
             < Organization.PluginsAccessLevel.ROOT
         ):
-            raise PermissionError("This organization can't manage global plugins!")
+            raise PermissionDenied("This organization can't manage global plugins!")
         if validated_data.get("plugin_type", None) != Plugin.PluginType.SOURCE:
             self._update_validated_data_from_url(validated_data, validated_data["url"])
             self._raise_if_plugin_installed(validated_data["url"], self.context["organization_id"])
@@ -104,24 +104,18 @@ class PluginSerializer(serializers.ModelSerializer):
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
-        if not can_install_plugins_via_api(self.context["organization_id"]):
-            raise ValidationError("Plugin upgrades via the web are disabled!")
-        if (
-            validated_data.get("is_global")
-            and Organization.objects.only("plugins_access_level")
-            .get(id=self.context["organization_id"])
-            .plugins_access_level
-            < Organization.PluginsAccessLevel.ROOT
-        ):
-            raise PermissionError("This organization can't manage global plugins!")
-        if not validated_data and plugin.plugin_type != Plugin.PluginType.SOURCE:
-            validated_data = self._update_validated_data_from_url({}, plugin.url)
+        organization = self.context.get("organization") or Organization.objects.get(id=self.context["organization_id"])
+        if not can_configure_plugins_via_api(organization):
+            raise ValidationError("Plugin configuration via the web is disabled!")
+        if "is_global" in validated_data and organization.plugins_access_level < Organization.PluginsAccessLevel.ROOT:
+            raise PermissionDenied("This organization can't manage global plugins!")
         response = super().update(plugin, validated_data)
         reload_plugins_on_workers()
         return response
 
     # If remote plugin, download the archive and get up-to-date validated_data from there.
-    def _update_validated_data_from_url(self, validated_data: Dict[str, Any], url: str) -> Dict:
+    @staticmethod
+    def _update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> Dict:
         if url.startswith("file:"):
             plugin_path = url[5:]
             json_path = os.path.join(plugin_path, "plugin.json")
@@ -210,6 +204,22 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         plugin.save()
 
         return Response({"plugin": PluginSerializer(plugin).data})
+
+    @action(methods=["POST"], detail=True)
+    def upgrade(self, request: request.Request, **kwargs):
+        plugin: Plugin = self.get_object()
+        organization = self.organization
+        if plugin.organization != organization:
+            raise Http404
+        if not can_install_plugins_via_api(self.organization):
+            raise ValidationError("Plugin upgrades via the web are disabled!")
+        serializer = PluginSerializer(plugin, context={"organization": organization})
+        validated_data = {}
+        if plugin.plugin_type != Plugin.PluginType.SOURCE:
+            validated_data = PluginSerializer._update_validated_data_from_url({}, plugin.url)
+        response = serializer.update(plugin, validated_data)
+        reload_plugins_on_workers()
+        return response
 
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:
         response = super().destroy(request, *args, **kwargs)

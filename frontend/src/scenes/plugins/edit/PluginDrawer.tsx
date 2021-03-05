@@ -52,7 +52,7 @@ export function PluginDrawer(): JSX.Element {
         uninstallPlugin,
         setEditingSource,
         generateApiKeysIfNeeded,
-        updatePlugin,
+        patchPlugin,
     } = useActions(pluginsLogic)
     const [form] = Form.useForm()
 
@@ -182,7 +182,7 @@ export function PluginDrawer(): JSX.Element {
                                                     <Checkbox
                                                         checked={editingPlugin.is_global}
                                                         onChange={(e) =>
-                                                            updatePlugin(editingPlugin.id, {
+                                                            patchPlugin(editingPlugin.id, {
                                                                 is_global: e.target.checked,
                                                             })
                                                         }

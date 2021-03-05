@@ -22,6 +22,7 @@ import { CommunityPluginTag } from './CommunityPluginTag'
 import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
 import { PluginsAccessLevel } from '../../../lib/constants'
+
 interface PluginCardProps {
     plugin: Partial<PluginTypeWithConfig>
     pluginConfig?: PluginConfigType
@@ -65,10 +66,6 @@ export function PluginCard({
     const { loading, installingPluginUrl, checkingForUpdates, updatingPlugin } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
 
-    const canInstall = (user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Install
-    const canConfigure = pluginId
-    const switchDisabled = rearranging
-
     return (
         <Col
             style={{ width: '100%', marginBottom: 20 }}
@@ -106,10 +103,10 @@ export function PluginCard({
                                 }
                                 okText="Yes"
                                 cancelText="No"
-                                disabled={switchDisabled}
+                                disabled={rearranging}
                             >
                                 <div>
-                                    <Switch checked={pluginConfig.enabled} disabled={switchDisabled} />
+                                    <Switch checked={pluginConfig.enabled} disabled={rearranging} />
                                 </div>
                             </Popconfirm>
                         </Col>
@@ -135,7 +132,7 @@ export function PluginCard({
                                     <GlobalOutlined /> Managed by {organization_name}
                                 </Tag>
                             )}
-                            {canInstall ? (
+                            {user?.organization?.plugins_access_level === PluginsAccessLevel.Root && (
                                 <>
                                     {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
                                     {updateStatus?.error ? (
@@ -159,7 +156,7 @@ export function PluginCard({
                                     ) : null}
                                     {pluginType === PluginInstallationType.Source ? <SourcePluginTag /> : null}
                                 </>
-                            ) : null}
+                            )}
                         </div>
                         <div>
                             {description}
@@ -190,7 +187,7 @@ export function PluginCard({
                             >
                                 <span className="show-over-500">{updateStatus?.updated ? 'Updated' : 'Update'}</span>
                             </Button>
-                        ) : canConfigure && pluginId ? (
+                        ) : pluginId ? (
                             <Button
                                 type="primary"
                                 className="padding-under-500"

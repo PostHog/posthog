@@ -14,6 +14,7 @@ import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } 
 import posthog from 'posthog-js'
 import { FormInstance } from 'antd/lib/form'
 import { PluginsAccessLevel } from '../../lib/constants'
+import { organizationLogic } from '../organizationLogic'
 
 type PluginForm = FormInstance
 
@@ -58,8 +59,9 @@ export const pluginsLogic = kea<
         checkedForUpdates: true,
         setUpdateStatus: (id: number, tag: string, latestTag: string) => ({ id, tag, latestTag }),
         setUpdateError: (id: number) => ({ id }),
-        updatePlugin: (id: number, pluginChanges: Partial<PluginType> = {}) => ({ id, pluginChanges }),
+        updatePlugin: (id: number) => ({ id }),
         pluginUpdated: (id: number) => ({ id }),
+        patchPlugin: (id: number, pluginChanges: Partial<PluginType> = {}) => ({ id, pluginChanges }),
         generateApiKeysIfNeeded: (form: PluginForm) => ({ form }),
         rearrange: true,
         setTemporaryOrder: (temporaryOrder: Record<number, number>, movedPluginId: number) => ({
@@ -111,14 +113,10 @@ export const pluginsLogic = kea<
                     capturePluginEvent(`plugin source edited`, response)
                     return { ...plugins, [id]: response }
                 },
-                updatePlugin: async ({ id, pluginChanges }) => {
-                    const { plugins } = values
-                    const response = await api.update(`api/organizations/@current/plugins/${id}`, pluginChanges)
+                updatePlugin: async ({ id }) => {
+                    const response = await api.create(`api/organizations/@current/plugins/${id}/upgrade`)
                     capturePluginEvent(`plugin updated`, response)
-                    if (!Object.keys(pluginChanges).length) {
-                        actions.pluginUpdated(id)
-                    }
-
+                    actions.pluginUpdated(id)
                     // Check if we need to update the config (e.g. new required field) and if so, open the drawer.
                     const schema = getConfigSchemaObject(response.config_schema)
                     const pluginConfig = Object.values(values.pluginConfigs).filter((c) => c.plugin === id)[0]
@@ -130,7 +128,11 @@ export const pluginsLogic = kea<
                         }
                     }
 
-                    return { ...plugins, [id]: response }
+                    return { ...values.plugins, [id]: response }
+                },
+                patchPlugin: async ({ id, pluginChanges }) => {
+                    const response = await api.update(`api/organizations/@current/plugins/${id}`, pluginChanges)
+                    return { ...values.plugins, [id]: response }
                 },
             },
         ],
@@ -421,15 +423,19 @@ export const pluginsLogic = kea<
             (installedPlugins) => installedPlugins.filter(({ pluginConfig }) => !pluginConfig?.enabled),
         ],
         pluginsNeedingUpdates: [
-            (s) => [s.installedPlugins],
-            (installedPlugins) =>
+            (s) => [s.installedPlugins, organizationLogic.selectors.currentOrganization],
+            (installedPlugins, currentOrganization) => {
                 // show either plugins that need to be updated or that were just updated
-                installedPlugins.filter(
+                if (currentOrganization?.plugins_access_level !== PluginsAccessLevel.Root) {
+                    return []
+                }
+                return installedPlugins.filter(
                     ({ plugin_type: pluginType, tag, latest_tag: latestTag, updateStatus }) =>
                         pluginType !== PluginInstallationType.Source &&
                         ((latestTag && tag !== latestTag) ||
                             (updateStatus && !updateStatus.error && (updateStatus.updated || !updateStatus.upToDate)))
-                ),
+                )
+            },
         ],
         installedPluginUrls: [
             (s) => [s.installedPlugins],
