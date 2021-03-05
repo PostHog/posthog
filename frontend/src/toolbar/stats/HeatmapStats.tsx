@@ -3,11 +3,11 @@ import { useActions, useValues } from 'kea'
 import { List, Space, Spin } from 'antd'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { DateFilter } from 'lib/components/DateFilter'
 import { getShadowRootPopupContainer } from '~/toolbar/utils'
+import { DateFilterComponent } from 'lib/components/DateFilter/DateFilterComponent'
 
 export function HeatmapStats(): JSX.Element {
-    const { countedElements, clickCount, heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
+    const { countedElements, clickCount, heatmapEnabled, heatmapLoading, heatmapFilter } = useValues(heatmapLogic)
     const { setHeatmapFilter } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
@@ -16,11 +16,12 @@ export function HeatmapStats(): JSX.Element {
             {heatmapEnabled ? (
                 <>
                     <div style={{ marginTop: 0, marginBottom: 10 }}>
-                        <DateFilter
+                        <DateFilterComponent
+                            key={'asd'}
                             defaultValue="Last 7 days"
-                            onChange={(date_from, date_to) => {
-                                setHeatmapFilter({ date_from, date_to })
-                            }}
+                            dateFrom={heatmapFilter.date_from}
+                            dateTo={heatmapFilter.date_to}
+                            onChange={(date_from, date_to) => setHeatmapFilter({ date_from, date_to })}
                             updatePath={false}
                             getPopupContainer={getShadowRootPopupContainer}
                         />
