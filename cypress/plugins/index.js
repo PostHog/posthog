@@ -1,4 +1,4 @@
-const webpackPreprocessor = require('@cypress/webpack-preprocessor')
+const webpackPreprocessor = require('cypress-webpack-preprocessor-v5')
 const { initPlugin } = require('cypress-plugin-snapshots/plugin')
 
 const { createEntry } = require('../../webpack.config')
