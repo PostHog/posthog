@@ -91,7 +91,7 @@ class PluginSerializer(serializers.ModelSerializer):
         if (
             "is_global" in validated_data
             and Organization.objects.only("plugins_access_level")
-            .get(self.context["organization_id"])
+            .get(id=self.context["organization_id"])
             .plugins_access_level
             < Organization.PluginsAccessLevel.ROOT
         ):

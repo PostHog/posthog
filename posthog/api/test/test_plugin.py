@@ -117,7 +117,7 @@ class TestPluginAPI(APIBaseTest):
                 "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
             )
             self.assertEqual(response.status_code, 201)
-            self.assertEqual(
+            self.assertDictEqual(
                 response.data,
                 {
                     "id": response.data["id"],  # type: ignore
@@ -131,6 +131,9 @@ class TestPluginAPI(APIBaseTest):
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "source": None,
                     "latest_tag": None,
+                    "is_global": False,
+                    "organization_id": response.data["organization_id"],  # type: ignore
+                    "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
@@ -166,6 +169,9 @@ class TestPluginAPI(APIBaseTest):
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "source": None,
                     "latest_tag": None,
+                    "is_global": False,
+                    "organization_id": response.data["organization_id"],  # type: ignore
+                    "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
@@ -198,6 +204,9 @@ class TestPluginAPI(APIBaseTest):
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0],
                     "source": None,
                     "latest_tag": None,
+                    "is_global": False,
+                    "organization_id": response2.data["organization_id"],  # type: ignore
+                    "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
@@ -211,7 +220,7 @@ class TestPluginAPI(APIBaseTest):
                 {"plugin_type": "source", "name": "myplugin", "source": "const processEvent = e => e",},
             )
             self.assertEqual(response.status_code, 201)
-            self.assertEqual(
+            self.assertDictEqual(
                 response.data,
                 {
                     "id": response.data["id"],  # type: ignore
@@ -223,6 +232,9 @@ class TestPluginAPI(APIBaseTest):
                     "tag": None,
                     "source": "const processEvent = e => e",
                     "latest_tag": None,
+                    "is_global": False,
+                    "organization_id": response.data["organization_id"],  # type: ignore
+                    "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
