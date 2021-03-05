@@ -22,6 +22,7 @@ import { CommunityPluginTag } from './CommunityPluginTag'
 import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
 import { PluginsAccessLevel } from '../../../lib/constants'
+import { endWithPeriod } from '../../../lib/utils'
 
 interface PluginCardProps {
     plugin: Partial<PluginTypeWithConfig>
@@ -159,7 +160,7 @@ export function PluginCard({
                             )}
                         </div>
                         <div>
-                            {description}
+                            {endWithPeriod(description)}
                             {url && (
                                 <span>
                                     {description ? ' ' : ''}
@@ -169,9 +170,8 @@ export function PluginCard({
                                         rel="noopener noreferrer"
                                         style={{ whiteSpace: 'nowrap' }}
                                     >
-                                        Learn more
+                                        Learn more.
                                     </Link>
-                                    .
                                 </span>
                             )}
                         </div>

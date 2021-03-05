@@ -52,6 +52,7 @@ class PluginSerializer(serializers.ModelSerializer):
             "source",
             "latest_tag",
             "is_global",
+            "organization_id",
             "organization_name",
         ]
         read_only_fields = ["id", "latest_tag"]
@@ -217,9 +218,9 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         validated_data = {}
         if plugin.plugin_type != Plugin.PluginType.SOURCE:
             validated_data = PluginSerializer._update_validated_data_from_url({}, plugin.url)
-        response = serializer.update(plugin, validated_data)
+        serializer.update(plugin, validated_data)
         reload_plugins_on_workers()
-        return response
+        return Response(serializer.data)
 
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:
         response = super().destroy(request, *args, **kwargs)

@@ -16,6 +16,7 @@ import { PluginSource } from './PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginsAccessLevel } from 'lib/constants'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
+import { endWithPeriod } from '../../../lib/utils'
 
 function EnabledDisabledSwitch({
     value,
@@ -129,13 +130,9 @@ export function PluginDrawer(): JSX.Element {
                                     <PluginImage pluginType={editingPlugin.plugin_type} url={editingPlugin.url} />
                                 </div>
                                 <div style={{ flexGrow: 1, paddingLeft: 16 }}>
-                                    {editingPlugin.description}
-                                    {(editingPlugin.description?.length || 0) > 0 &&
-                                    editingPlugin.description?.substr(-1) !== '.'
-                                        ? '.'
-                                        : ''}
+                                    {endWithPeriod(editingPlugin.description)}
                                     {editingPlugin.url ? (
-                                        <span>
+                                        <>
                                             {editingPlugin.description ? ' ' : ''}
                                             <Link
                                                 to={editingPlugin.url}
@@ -145,7 +142,7 @@ export function PluginDrawer(): JSX.Element {
                                             >
                                                 Learn more.
                                             </Link>
-                                        </span>
+                                        </>
                                     ) : null}
                                     <div style={{ marginTop: 5 }}>
                                         {editingPlugin?.plugin_type === 'local' && editingPlugin.url ? (

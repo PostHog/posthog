@@ -480,7 +480,11 @@ export const pluginsLogic = kea<
             const { installedPlugins } = values
 
             for (const plugin of installedPlugins) {
-                if (plugin.plugin_type === PluginInstallationType.Source || (!checkAll && plugin.latest_tag)) {
+                if (
+                    plugin.plugin_type === PluginInstallationType.Source ||
+                    (!checkAll && plugin.latest_tag) ||
+                    userLogic.values.user?.organization?.id !== plugin.organization_id
+                ) {
                     continue
                 }
                 try {

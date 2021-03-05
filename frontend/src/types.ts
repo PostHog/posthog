@@ -414,6 +414,7 @@ export interface PluginType {
     source?: string
     maintainer?: string
     is_global: boolean
+    organization_id: string
     organization_name: string
 }
 

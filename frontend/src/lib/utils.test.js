@@ -6,6 +6,7 @@ import {
     capitalizeFirstLetter,
     compactNumber,
     pluralize,
+    endWithPeriod,
 } from './utils'
 
 describe('capitalizeFirstLetter()', () => {
@@ -119,5 +120,16 @@ describe('pluralize()', () => {
         expect(pluralize(28321, 'member')).toEqual('28321 members')
         expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
         expect(pluralize(3, 'word', null, false)).toEqual('words')
+    })
+})
+
+describe('endWithPeriod()', () => {
+    it('adds period at the end when needed', () => {
+        expect(endWithPeriod('Hello')).toEqual('Hello.')
+        expect(endWithPeriod('Learn more! ')).toEqual('Learn more!')
+        expect(endWithPeriod('Stop.')).toEqual('Stop.')
+        expect(endWithPeriod(null)).toEqual('')
+        expect(endWithPeriod('   ')).toEqual('')
+        expect(endWithPeriod('  Why? ')).toEqual('Why?')
     })
 })
