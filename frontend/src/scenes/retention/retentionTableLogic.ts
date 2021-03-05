@@ -46,6 +46,7 @@ function defaultFilters(filters: Record<string, any>): Record<string, any> {
         display: filters.display || ACTIONS_TABLE,
         properties: filters.properties || [],
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        insight: ViewType.RETENTION,
     }
 }
 
