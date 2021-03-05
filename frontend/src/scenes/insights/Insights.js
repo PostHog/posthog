@@ -20,7 +20,6 @@ import {
     LIFECYCLE,
     FUNNEL_VIZ,
 } from 'lib/constants'
-import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -101,8 +100,7 @@ const showComparePrevious = {
     [`${ViewType.PATHS}`]: false,
 }
 
-export const Insights = hot(_Insights)
-function _Insights() {
+export function Insights() {
     useMountedLogic(insightCommandLogic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
@@ -136,7 +134,7 @@ function _Insights() {
                                 data-attr="insight-history-button"
                                 onClick={() => setActiveView('history')}
                             >
-                                History
+                                History!
                             </Button>
                         ),
                     }}

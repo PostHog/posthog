@@ -4,7 +4,6 @@ import { useValues, useActions } from 'kea'
 import { invitesLogic } from './invitesLogic'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { hot } from 'react-hot-loader/root'
 import { OrganizationInviteType, UserNestedType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CreateInviteModalWithButton } from './CreateInviteModal'
@@ -45,8 +44,7 @@ function makeActionsComponent(
         )
     }
 }
-export const Invites = hot(_Invites)
-function _Invites(): JSX.Element {
+export function Invites(): JSX.Element {
     const { invites, invitesLoading } = useValues(invitesLogic)
     const { deleteInvite } = useActions(invitesLogic)
 

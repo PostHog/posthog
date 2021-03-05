@@ -86,11 +86,6 @@ function createEntry(entry) {
                 types: path.resolve(__dirname, 'frontend', 'types'),
                 public: path.resolve(__dirname, 'frontend', 'public'),
                 cypress: path.resolve(__dirname, 'cypress'),
-                ...(process.env.NODE_ENV !== 'production'
-                    ? {
-                          'react-dom': '@hot-loader/react-dom',
-                      }
-                    : {}),
             },
             fallback: { path: require.resolve('path-browserify') },
         },

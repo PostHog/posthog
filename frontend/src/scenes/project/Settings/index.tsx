@@ -10,7 +10,6 @@ import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { ReloadOutlined } from '@ant-design/icons'
 import { red } from '@ant-design/colors'
-import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from './ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
@@ -59,8 +58,7 @@ function DisplayName(): JSX.Element {
     )
 }
 
-export const ProjectSettings = hot(_ProjectSettings)
-function _ProjectSettings(): JSX.Element {
+export function ProjectSettings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)

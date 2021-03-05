@@ -1,4 +1,3 @@
-import { hot } from 'react-hot-loader/root'
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
 import { Table, Tag, Button, Modal, Input, DatePicker, Row, Spin, Menu, Dropdown } from 'antd'
@@ -15,8 +14,7 @@ import { createdByColumn } from 'lib/components/Table'
 
 const { TextArea } = Input
 
-export const Annotations = hot(_Annotations)
-function _Annotations(): JSX.Element {
+export function Annotations(): JSX.Element {
     const { annotations, annotationsLoading, next, loadingNext } = useValues(annotationsTableLogic)
     const { loadAnnotations, updateAnnotation, deleteAnnotation, loadAnnotationsNext, restoreAnnotation } = useActions(
         annotationsTableLogic

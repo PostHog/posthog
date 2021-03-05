@@ -3,12 +3,10 @@ import { useValues } from 'kea'
 
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
-import { hot } from 'react-hot-loader/root'
 import { userLogic } from 'scenes/userLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 
-export const Setup = hot(_Setup)
-function _Setup() {
+export function Setup() {
     const { location } = useValues(router)
     const { user } = useValues(userLogic)
 

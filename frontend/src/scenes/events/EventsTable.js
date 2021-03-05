@@ -13,10 +13,8 @@ import { eventToName, toParams } from 'lib/utils'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
-import { hot } from 'react-hot-loader/root'
 
-export const EventsTable = hot(_EventsTable)
-function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
+export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
     const logic = eventsTableLogic({ fixedFilters, key: pageKey })
     const {
         properties,

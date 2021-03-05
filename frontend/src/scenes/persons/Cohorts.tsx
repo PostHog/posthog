@@ -5,7 +5,6 @@ import { Tooltip, Table, Spin, Button, Input } from 'antd'
 import { ExportOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions, kea } from 'kea'
-import { hot } from 'react-hot-loader/root'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
 import { Cohort } from './Cohort'
@@ -51,8 +50,7 @@ const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
         .map((result) => result.item)
 }
 
-export const Cohorts = hot(_Cohorts)
-function _Cohorts(): JSX.Element {
+export function Cohorts(): JSX.Element {
     const { cohorts, cohortsLoading } = useValues(cohortsModel)
     const { loadCohorts } = useActions(cohortsModel)
     const { openCohort } = useValues(cohortsUrlLogic)
