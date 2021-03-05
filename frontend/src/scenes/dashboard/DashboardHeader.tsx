@@ -25,16 +25,16 @@ import { FullScreen } from 'lib/components/FullScreen'
 import moment from 'moment'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardType } from '~/types'
-import { DateFilter } from 'lib/components/DateFilter'
+import { DateFilterComponent } from 'lib/components/DateFilter/DateFilterComponent'
 
 export function DashboardHeader(): JSX.Element {
-    const { dashboard, draggingEnabled } = useValues(dashboardLogic)
+    const { dashboard, draggingEnabled, filters: dashboardFilters } = useValues(dashboardLogic)
     const {
         addNewDashboard,
         renameDashboard,
         enableDragging,
         disableDragging,
-        updateAndRefreshDashboard,
+        setDates,
         refreshAllDashboardItems,
     } = useActions(dashboardLogic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
@@ -79,10 +79,12 @@ export function DashboardHeader(): JSX.Element {
                     {dashboard ? (
                         <div className="dashboard-meta">
                             <Tooltip title="Select time period">
-                                <DateFilter
+                                <DateFilterComponent
                                     defaultValue="Custom"
                                     showCustom
-                                    onChange={updateAndRefreshDashboard}
+                                    dateFrom={dashboardFilters?.date_from}
+                                    dateTo={dashboardFilters?.date_to}
+                                    onChange={setDates}
                                     makeLabel={(key) => (
                                         <>
                                             <CalendarOutlined />
