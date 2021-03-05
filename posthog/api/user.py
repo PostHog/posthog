@@ -98,7 +98,7 @@ def user(request):
                     return JsonResponse({"detail": "Team ID must be an integer."}, status=400)
                 except ObjectDoesNotExist:
                     return JsonResponse({"detail": "Team not found for user's current organization."}, status=404)
-            if isinstance(dict, data["user"].get("flags")):
+            if isinstance(data["user"].get("flags"), dict):
                 user.flags.update(data["user"]["flags"])
             user.email_opt_in = data["user"].get("email_opt_in", user.email_opt_in)
             user.anonymize_data = data["user"].get("anonymize_data", user.anonymize_data)

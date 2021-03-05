@@ -21,10 +21,14 @@ function _Plugins(): JSX.Element | null {
     const { TabPane } = Tabs
 
     useEffect(() => {
-        if (user && !user.plugin_access.configure) {
-            window.location.href = '/'
+        if (user) {
+            if (!user.plugin_access.configure) {
+                window.location.href = '/'
+            }
+            if (!user.flags.has_checked_out_plugins) {
+                userUpdateRequest({ user: { flags: { has_checked_out_plugins: true } } })
+            }
         }
-        userUpdateRequest({ user: { flags: { has_checked_out_plugins: true } } })
     }, [user])
 
     if (!user || !user.plugin_access.configure) {
@@ -49,7 +53,11 @@ function _Plugins(): JSX.Element | null {
                     type="info"
                     showIcon
                     closable
-                    onClose={() => userUpdateRequest({ user: { flags: { has_closed_plugins_end_of_beta: true } } })}
+                    onClose={() => {
+                        if (!user.flags.has_closed_plugins_end_of_beta) {
+                            userUpdateRequest({ user: { flags: { has_closed_plugins_end_of_beta: true } } })
+                        }
+                    }}
                     style={{ marginBottom: 32 }}
                 />
             )}
