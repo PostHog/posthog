@@ -497,7 +497,7 @@ EMAIL_USE_SSL = get_from_env("EMAIL_USE_SSL", False, type_cast=strtobool)
 DEFAULT_FROM_EMAIL = os.getenv("EMAIL_DEFAULT_FROM", os.getenv("DEFAULT_FROM_EMAIL", "root@localhost"))
 EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO")
 
-MULTI_TENANCY = True  # overriden by posthog-cloud
+MULTI_TENANCY = False  # overriden by posthog-cloud
 
 CACHES = {
     "default": {
