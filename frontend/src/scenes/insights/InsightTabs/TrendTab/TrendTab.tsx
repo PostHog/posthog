@@ -69,7 +69,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                             <InfoCircleOutlined className="info-indicator" />
                         </Tooltip>
                     </h4>
-                    <Row>
+                    <Row align="middle">
                         <BreakdownFilter
                             filters={filters}
                             onChange={(breakdown: string, breakdown_type: string): void =>
@@ -79,7 +79,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         {filters.breakdown && (
                             <CloseButton
                                 onClick={(): void => setFilters({ breakdown: false, breakdown_type: null })}
-                                style={{ marginTop: 1, marginLeft: 10 }}
+                                style={{ marginTop: 1, marginLeft: 5 }}
                             />
                         )}
                     </Row>
