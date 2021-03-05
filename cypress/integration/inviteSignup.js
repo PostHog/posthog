@@ -1,7 +1,7 @@
 describe('Invite Signup', () => {
     beforeEach(() => {
         cy.get('[data-attr=top-navigation-whoami]').click()
-        cy.get('[data-attr=top-menu-item-org-settings').click()
+        cy.get('[data-attr=top-menu-item-org-settings]').click()
 
         cy.get('[data-attr=invite-teammate-button]').click()
         cy.get('[data-attr=invite-email-input]').type('newuser@posthog.com').should('have.value', 'newuser@posthog.com')
