@@ -163,35 +163,6 @@ export function PluginDrawer(): JSX.Element {
                                             <EnabledDisabledSwitch />
                                         </Form.Item>
                                     </div>
-                                    {user?.organization?.plugins_access_level === PluginsAccessLevel.Root && (
-                                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                                            <Form.Item
-                                                fieldKey="__enabled"
-                                                name="__enabled"
-                                                style={{ display: 'inline-block', marginBottom: 0, color: red.primary }}
-                                            >
-                                                <Tooltip
-                                                    title={
-                                                        <>
-                                                            Enabling this will mark this plugin as installed for{' '}
-                                                            <b>all organizations</b> in this instance of PostHog.
-                                                        </>
-                                                    }
-                                                    placement="bottom"
-                                                >
-                                                    <Checkbox
-                                                        checked={editingPlugin.is_global}
-                                                        onChange={(e) =>
-                                                            patchPlugin(editingPlugin.id, {
-                                                                is_global: e.target.checked,
-                                                            })
-                                                        }
-                                                    />
-                                                    <strong style={{ paddingLeft: 10 }}>Manage globally</strong>
-                                                </Tooltip>
-                                            </Form.Item>
-                                        </div>
-                                    )}
                                 </div>
                             </div>
 
@@ -206,6 +177,33 @@ export function PluginDrawer(): JSX.Element {
                                     </Button>
                                 </div>
                             ) : null}
+
+                            {user?.organization?.plugins_access_level === PluginsAccessLevel.Root && (
+                                <>
+                                    <h3 className="l3" style={{ marginTop: 32, color: red.primary }}>
+                                        Instance Control
+                                    </h3>
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                Enabling this will mark this plugin as installed for{' '}
+                                                <b>all organizations</b> in this instance of PostHog.
+                                            </>
+                                        }
+                                        placement="bottom"
+                                    >
+                                        <Checkbox
+                                            checked={editingPlugin.is_global}
+                                            onChange={(e) =>
+                                                patchPlugin(editingPlugin.id, {
+                                                    is_global: e.target.checked,
+                                                })
+                                            }
+                                        />
+                                        <strong style={{ paddingLeft: 10, color: red.primary }}>Manage globally</strong>
+                                    </Tooltip>
+                                </>
+                            )}
 
                             <h3 className="l3" style={{ marginTop: 32 }}>
                                 Configuration

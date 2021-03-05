@@ -226,9 +226,11 @@ export function InstalledTab(): JSX.Element {
                         <Row gutter={16} style={{ marginTop: 16 }}>
                             <Col span={24}>
                                 <Empty description={<span>You haven't installed any plugins yet</span>}>
-                                    <Button type="default" onClick={() => setPluginTab(PluginTab.Repository)}>
-                                        Open the Plugin Repository
-                                    </Button>
+                                    {user?.organization?.plugins_access_level === PluginsAccessLevel.Root && (
+                                        <Button type="default" onClick={() => setPluginTab(PluginTab.Repository)}>
+                                            Open the Plugin Repository
+                                        </Button>
+                                    )}
                                 </Empty>
                             </Col>
                         </Row>

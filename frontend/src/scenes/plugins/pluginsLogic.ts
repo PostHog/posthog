@@ -503,7 +503,10 @@ export const pluginsLogic = kea<
             }
             if ((userLogic.values.user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Install) {
                 actions.checkForUpdates(false, initialUpdateStatus)
-                if (Object.keys(values.plugins).length === 0) {
+                if (
+                    Object.keys(values.plugins).length === 0 &&
+                    organizationLogic.values.currentOrganization?.plugins_access_level === PluginsAccessLevel.Root
+                ) {
                     actions.setPluginTab(PluginTab.Repository)
                 }
             }
