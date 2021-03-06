@@ -4,6 +4,14 @@ describe('Funnels', () => {
         cy.wait(200)
     })
 
+    it('Add only events to funnel', () => {
+        cy.get('[data-attr=add-action-event-button]').click()
+
+        cy.get('[data-attr=save-funnel-button]').click()
+
+        cy.get('[data-attr=funnel-viz]').should('exist')
+    })
+
     it('Add 1 action to funnel and navigate to persons', () => {
         cy.get('[data-attr=add-action-event-button]').click()
         cy.get('[data-attr=trend-element-subject-0]').click()
