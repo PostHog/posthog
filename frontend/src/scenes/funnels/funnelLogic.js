@@ -56,6 +56,7 @@ export const funnelLogic = kea({
         clearFunnel: true,
         setFilters: (filters, refresh = false) => ({ filters, refresh }),
         saveFunnelInsight: (name) => ({ name }),
+        setStepsWithCountLoading: (stepsWithCountLoading) => ({ stepsWithCountLoading }),
     }),
 
     connect: {
@@ -65,6 +66,7 @@ export const funnelLogic = kea({
     loaders: ({ props, values, actions }) => ({
         results: {
             loadResults: async (refresh = false, breakpoint) => {
+                actions.setStepsWithCountLoading(true)
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return props.cachedResults
                 }
@@ -125,7 +127,7 @@ export const funnelLogic = kea({
         stepsWithCountLoading: [
             false,
             {
-                setSteps: () => false,
+                setStepsWithCountLoading: (_, { stepsWithCountLoading }) => stepsWithCountLoading,
             },
         ],
         people: {
@@ -162,6 +164,12 @@ export const funnelLogic = kea({
                 return result
             },
         ],
+        isValidFunnel: [
+            () => [selectors.stepsWithCount],
+            (stepsWithCount) => {
+                return stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -169,6 +177,7 @@ export const funnelLogic = kea({
             if (values.stepsWithCount[0]?.people?.length > 0) {
                 actions.loadPeople(values.stepsWithCount)
             }
+            actions.setStepsWithCountLoading(false)
         },
         setFilters: ({ refresh }) => {
             if (refresh) {
