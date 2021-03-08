@@ -1,8 +1,10 @@
 from typing import Any, Dict, Tuple
 
+from django.db.models.query import Prefetch
+
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.person import ClickhousePersonSerializer
+from ee.clickhouse.models.person import ClickhousePersonSerializer, get_persons_by_uuids
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from ee.clickhouse.sql.retention.people_in_period import (
@@ -90,7 +92,7 @@ class ClickhouseRetention(Retention):
         )
 
         initial_interval_result = sync_execute(
-            INITIAL_INTERVAL_SQL.format(reference_event_sql=reference_event_sql),
+            INITIAL_INTERVAL_SQL.format(reference_event_sql=reference_event_sql, trunc_func=trunc_func,),
             {
                 "team_id": team.pk,
                 "start_date": date_from.strftime(
@@ -190,10 +192,9 @@ class ClickhouseRetention(Retention):
         trunc_func = get_trunc_func_ch(period)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
 
-        returning_entity = filter.returning_entity if filter.selected_interval > 0 else filter.target_entity
         target_query, target_params = self._get_condition(filter.target_entity, table="e")
         target_query_formatted = "AND {target_query}".format(target_query=target_query)
-        return_query, return_params = self._get_condition(returning_entity, table="e", prepend="returning")
+        return_query, return_params = self._get_condition(filter.returning_entity, table="e", prepend="returning")
         return_query_formatted = "AND {return_query}".format(return_query=return_query)
 
         first_event_sql = (
@@ -240,7 +241,10 @@ class ClickhouseRetention(Retention):
 
         from posthog.api.person import PersonSerializer
 
-        for person in Person.objects.filter(team_id=team.pk, uuid__in=[val[0] for val in query_result]):
+        people = get_persons_by_uuids(team_id=team.pk, uuids=[val[0] for val in query_result])
+        people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+
+        for person in people:
             people_dict.update({str(person.uuid): PersonSerializer(person).data})
 
         result = self.process_people_in_period(filter, query_result, people_dict)

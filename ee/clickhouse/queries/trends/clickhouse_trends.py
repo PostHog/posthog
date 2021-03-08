@@ -1,5 +1,6 @@
 from typing import Any, Callable, Dict, List, Tuple
 
+from django.conf import settings
 from django.db.models.query import Prefetch
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
@@ -49,6 +50,8 @@ class ClickhouseTrends(
             result = sync_execute(sql, params)
         except Exception as e:
             capture_exception(e)
+            if settings.TEST or settings.DEBUG:
+                raise e
             result = []
         result = parse_function(result)
         serialized_data = self._format_serialized(entity, result)

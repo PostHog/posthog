@@ -227,3 +227,18 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
         self.assertEqual(
             self._run({"display": TRENDS_CUMULATIVE})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 2550.0, 2550.0]
         )
+
+    def test_multiple_events(self):
+        # regression test
+        self.assertEqual(
+            self._run(
+                {
+                    "events": [
+                        {"id": "session start", "math": "sum", "math_property": "session duration"},
+                        {"id": "session start", "math": "avg", "math_property": "session duration"},
+                        {"id": "session start", "math": "avg", "math_property": "session duration"},
+                    ]
+                }
+            )[0]["data"],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0],
+        )

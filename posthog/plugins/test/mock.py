@@ -6,6 +6,7 @@ from .plugin_archives import (
     HELLO_WORLD_PLUGIN_GITHUB_ZIP,
     HELLO_WORLD_PLUGIN_GITLAB_ZIP,
     HELLO_WORLD_PLUGIN_NPM_TGZ,
+    HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP,
 )
 
 
@@ -92,6 +93,11 @@ def mocked_plugin_requests_get(*args, **kwargs):
         HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0]
     ):
         return MockBase64Response(HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[1], 200)
+
+    if args[0] == "https://github.com/PostHog/helloworldplugin/archive/{}.zip".format(
+        HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP[0]
+    ):
+        return MockBase64Response(HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP[1], 200)
 
     if args[0].startswith(
         "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha={}".format(

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Select } from 'antd'
 import api from '../../api'
-import { isOperatorFlag, isOperatorRegex, isValidRegex } from 'lib/utils'
+import { isOperatorFlag, isOperatorMulti, isOperatorRegex, isValidRegex } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 
 export function PropertyValue({
@@ -60,10 +60,17 @@ export function PropertyValue({
     return (
         <>
             <SelectGradientOverflow
+                mode={isOperatorMulti(operator) ? 'multiple' : undefined}
                 showSearch
                 autoFocus={!value}
                 style={{ width: '100%', ...style }}
-                onChange={(_, payload) => onSet((payload && payload.value) || null)}
+                onChange={(_, payload) => {
+                    if (isOperatorMulti(operator) && payload.length > 0) {
+                        onSet(payload.map(({ value }) => value))
+                    } else {
+                        onSet((payload && payload.value) || null)
+                    }
+                }}
                 value={value || placeholder}
                 loading={optionsCache[input] === 'loading'}
                 onSearch={(newInput) => {

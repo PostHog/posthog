@@ -2,6 +2,7 @@ from json import dumps as jdumps
 
 from freezegun import freeze_time
 
+from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models import Action, ActionStep, Cohort, Event, Organization, Person
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 
@@ -97,7 +98,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
 
             event_response = self.client.get(
                 "/api/action/people/",
-                data={"date_from": "2020-01-04", "date_to": "2020-01-04", "type": "events", "entityId": "sign up",},
+                data={"date_from": "2020-01-04", "date_to": "2020-01-04", ENTITY_TYPE: "events", ENTITY_ID: "sign up",},
             ).json()
 
             self.assertEqual(len(event_response["results"][0]["people"]), 100)
@@ -159,8 +160,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     "interval": "minute",
                     "date_from": "2020-01-04 19:20:00",
                     "date_to": "2020-01-04 19:20:00",
-                    "type": "actions",
-                    "entityId": sign_up_action.id,
+                    ENTITY_TYPE: "actions",
+                    ENTITY_ID: sign_up_action.id,
                 },
             ).json()
             min_grouped_grevent_response = self.client.get(
@@ -169,8 +170,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     "interval": "minute",
                     "date_from": "2020-01-04 19:20:00",
                     "date_to": "2020-01-04 19:20:00",
-                    "type": "events",
-                    "entityId": "sign up",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "sign up",
                 },
             ).json()
 
@@ -195,8 +196,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     "interval": "hour",
                     "date_from": "2020-01-04 14:00:00",
                     "date_to": "2020-01-04 14:00:00",
-                    "type": "actions",
-                    "entityId": sign_up_action.id,
+                    ENTITY_TYPE: "actions",
+                    ENTITY_ID: sign_up_action.id,
                 },
             ).json()
             event_response = self.client.get(
@@ -205,8 +206,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     "interval": "hour",
                     "date_from": "2020-01-04 14:00:00",
                     "date_to": "2020-01-04 14:00:00",
-                    "type": "events",
-                    "entityId": "sign up",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "sign up",
                 },
             ).json()
             self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.pk))
@@ -222,8 +223,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     "interval": "hour",
                     "date_from": "2020-01-04 16:00:00",
                     "date_to": "2020-01-04 16:00:00",
-                    "type": "actions",
-                    "entityId": sign_up_action.id,
+                    ENTITY_TYPE: "actions",
+                    ENTITY_ID: sign_up_action.id,
                 },
             ).json()
             hour_grouped_grevent_response = self.client.get(
@@ -232,8 +233,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     "interval": "hour",
                     "date_from": "2020-01-04 16:00:00",
                     "date_to": "2020-01-04 16:00:00",
-                    "type": "events",
-                    "entityId": "sign up",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "sign up",
                 },
             ).json()
             all_people_ids = [str(person["id"]) for person in hour_grouped_action_response["results"][0]["people"]]
@@ -261,9 +262,9 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 data={
                     "date_from": "2020-01-04",
                     "date_to": "2020-01-04",
-                    "type": "actions",
+                    ENTITY_TYPE: "actions",
                     "interval": "day",
-                    "entityId": sign_up_action.id,
+                    ENTITY_ID: sign_up_action.id,
                 },
             ).json()
             event_response = self.client.get(
@@ -271,8 +272,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 data={
                     "date_from": "2020-01-04",
                     "date_to": "2020-01-04",
-                    "type": "events",
-                    "entityId": "sign up",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "sign up",
                     "interval": "day",
                 },
             ).json()
@@ -294,8 +295,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     "interval": "week",
                     "date_from": "2019-11-01",
                     "date_to": "2019-11-01",
-                    "type": "actions",
-                    "entityId": sign_up_action.id,
+                    ENTITY_TYPE: "actions",
+                    ENTITY_ID: sign_up_action.id,
                 },
             ).json()
             week_grouped_grevent_response = self.client.get(
@@ -304,8 +305,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     "interval": "week",
                     "date_from": "2019-11-01",
                     "date_to": "2019-11-01",
-                    "type": "events",
-                    "entityId": "sign up",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "sign up",
                 },
             ).json()
 
@@ -331,8 +332,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     "interval": "month",
                     "date_from": "2019-11-01",
                     "date_to": "2019-11-01",
-                    "type": "actions",
-                    "entityId": sign_up_action.id,
+                    ENTITY_TYPE: "actions",
+                    ENTITY_ID: sign_up_action.id,
                 },
             ).json()
             month_group_grevent_response = self.client.get(
@@ -341,8 +342,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     "interval": "month",
                     "date_from": "2019-11-01",
                     "date_to": "2019-11-01",
-                    "type": "events",
-                    "entityId": "sign up",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "sign up",
                 },
             ).json()
 
@@ -410,8 +411,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 data={
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
-                    "type": "events",
-                    "entityId": "watched movie",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "watched movie",
                     "breakdown_type": "cohort",
                     "breakdown_value": cohort.pk,
                     "breakdown": [cohort.pk],  # this shouldn't do anything
@@ -428,8 +429,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 data={
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
-                    "type": "events",
-                    "entityId": "watched movie",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "watched movie",
                     "breakdown_type": "cohort",
                     "breakdown_value": "all",
                     "breakdown": [cohort.pk],
@@ -449,8 +450,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 data={
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
-                    "type": "events",
-                    "entityId": "watched movie",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "watched movie",
                     "breakdown_type": "person",
                     "breakdown_value": "person3",
                     "breakdown": "name",

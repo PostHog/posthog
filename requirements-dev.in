@@ -19,3 +19,5 @@ freezegun
 packaging
 black
 isort
+pytest
+pytest-django

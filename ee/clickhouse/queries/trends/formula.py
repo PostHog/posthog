@@ -2,12 +2,9 @@ import math
 from itertools import accumulate
 from typing import Any, Dict, List
 
-from clickhouse_driver import Client as SyncClient
-
-from ee.clickhouse.client import substitute_params, sync_execute
-from ee.clickhouse.queries.trends import breakdown
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.trends.util import parse_response
-from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE, TRENDS_TABLE
+from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 
@@ -25,16 +22,20 @@ class ClickhouseTrendsFormula:
     def _run_formula_query(self, filter: Filter, team_id: int):
         letters = [chr(65 + i) for i in range(0, len(filter.entities))]
         queries = []
-        for entity in filter.entities:
-            sql, params, _ = self._get_sql_for_entity(filter, entity, team_id)  # type: ignore
-            queries.append(substitute_params(sql, params))
+        params: Dict[str, Any] = {}
+        for idx, entity in enumerate(filter.entities):
+            sql, entity_params, _ = self._get_sql_for_entity(filter, entity, team_id)  # type: ignore
+            sql = sql.replace("%(", "%({}_".format(idx))
+            entity_params = {"{}_{}".format(idx, key): value for key, value in entity_params.items()}
+            queries.append(sql)
+            params = {**params, **entity_params}
 
         breakdown_value = (
             ", sub_A.breakdown_value"
             if filter.breakdown_type == "cohort"
             else ", trim(BOTH '\"' FROM sub_A.breakdown_value)"
         )
-        is_aggregate = filter.display in [TRENDS_TABLE, TRENDS_PIE]
+        is_aggregate = filter.display in TRENDS_DISPLAY_BY_VALUE
 
         sql = """SELECT
             {date_select}
@@ -65,10 +66,10 @@ class ClickhouseTrendsFormula:
             )
             if filter.breakdown
             else "".join(
-                ["CROSS JOIN ({}) as sub_{}".format(query, letters[i + 1]) for i, query in enumerate(queries[1:])]
+                [" CROSS JOIN ({}) as sub_{}".format(query, letters[i + 1]) for i, query in enumerate(queries[1:])]
             ),
         )
-        result = sync_execute(sql)
+        result = sync_execute(sql, params)
         response = []
         for item in result:
             additional_values: Dict[str, Any] = {

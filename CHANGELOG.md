@@ -1,5 +1,161 @@
 # Changelog
 
+### 1.22.0 - Wednesday 3 March 2021
+
+#### Important Announcement for Self-Hosted Users
+
+If you're self hosting PostHog, make sure you have your plugin server up and running correctly. You can check that this is the case by looking at the color of the middle circle on the top left of the PostHog UI.
+
+If your plugin server is running, this will be a green checkmark, and hovering over it will give the message "All systems operational", like so:
+
+![Plugin server](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/plugin-server.png)
+
+From this version (1.22.0) onwards, if your plugin server is not running, this circle will turn orange/yellow. You can click on the server to verify if your plugin server is indeed the problem.
+
+This is important because from the next release onwards we will move our event ingestion to the plugin server, meaning that you **will not be able to ingest events** if your plugin server isn't running. 
+
+- [Bar Charts by Graph Series/Value](https://github.com/PostHog/posthog/pull/3457)
+
+![Bar chart by values](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/bar-value.png)
+
+Before this change, our bar charts would always be time-based, meaning that if you had multiple graph series (values), these would just all be stacked into one bar for each time period.
+
+However, we now support two different types of bar charts! When selecting a chart type, you will see the options 'Time' and 'Value' under 'Bar Chart'. Selecting 'Value' will give you the view from the image above, where each graph series is represented in a separate bar, with the value consisting of the aggregate value for the time period specified.
+
+- [UTM Tags Automatically Set as User Properties](https://github.com/PostHog/plugin-server/pull/214)
+
+![UTM Tags](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/utm-tags.png)
+
+PostHot now automatically sets user properties from [UTM tags](https://en.wikipedia.org/wiki/UTM_parameters). You can now filter and create cohorts of users much more easily based on what campaign, source, or medium brought them to your product or landing page. This is a big feature for us as it gives our users an automatic way of connecting marketing and product to have a more complete view of your business. We're very excited for our community to start using this feature and extending it through [plugins](https://posthog.com/docs/plugins/).
+
+- [Multiple Value Selector for Equality Filters](https://github.com/PostHog/posthog/pull/3422)
+
+![Multiple equality selector](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/multiple-selector.png)
+
+Writing complex filters is now easier than ever before. You can now select multiple values for Equality Filters instead of just one - this will simplify filter creation and debugging and just save people a lot of time!
+
+- [Refreshing Dashboards and Updating Time Range for All Panels](https://github.com/PostHog/posthog/pull/3363)
+
+![Dashboards New UX](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/dashboards-ux.png)
+
+It's now easier to work through your key metrics in Dashboards:
+
+- All dashboard panels can be refreshed at the same time to ensure you're not seeing cached results
+- Time ranges for all dashboard panels can be changed at the same time
+- The dashboard author and creation time are displayed below the title
+
+- [A Much Better UI for Person Pages](https://github.com/PostHog/posthog/pull/3461)
+
+![Persons New UX](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/persons-v2.png)
+
+The UI of our person pages just got a whole lot better! As is often the case with our larger features, this isn't news to all of you. We had this behind a feature flag and have now decided to roll it out for everyone.
+
+Now you can visualize user properties alongside a user's events, and most of the context you need on a person is available to you in a sleek UI without you needing to scroll.
+
+Oh, and the code got much better as a result too...
+- [Exposing $set and $set_once on all events](https://github.com/PostHog/posthog/pull/3363)
+
+![Set properties on any event](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/%24set.png)
+
+The event properties `$set` and `$set_once` can now be used on any event to set properties directly to the user associated with that event.
+
+Previously, this would only work on `$identify` events, making it so that you needed to call multiple methods in order to send an event and set user properties based on the same data. But now, you can do it all in one, as shown in the image above.
+
+- [Event Sequence Timer Plugin](https://posthog.com/plugins/event-sequence-timer-plugin)
+
+![Event Sequence Timer Plugin](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/time-events.png)
+
+Our users requested a way to measure the time passed between certain events, and this is it!
+
+By installing the Event Sequence Timer Plugin, you can specify as many sets of events as you want and the plugin will track the time between them, either using a first touch or last touch mechanism.
+
+It will then add a property to your events that allows you to easily build visualizations in PostHog of the average, minimum, and maximum time between events, as well as all the other mathematical operations we support.
+
+- [Property Flattener Plugin](https://posthog.com/plugins/property-flattener)
+
+![Property Flattener Plugin](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/flattener.png)
+
+The new Property Flattener Plugin allows you to convert event properties contained in a nested structure into a flat structure, allowing you to set filters based on the nested properties.
+
+
+- [Project API Key Autofill in Docs for Cloud Users](https://github.com/PostHog/posthog.com/pull/998)
+
+![Docs Token Autofill](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/token-autofill.png)
+
+If you're a user of PostHog Cloud, we now autofill your Project API Key and API Host automatically in the Docs for you, meaning you can copy-paste snippets and use them directly with no manual changes!
+
+This key will be based on the last project you used in PostHog, and you can check what project that is by simply hovering your cursor over the highlighted key.
+### 1.21.0 - Wednesday 17 February 2021
+
+- [New Navigation For All](https://github.com/PostHog/posthog/pull/3167)
+
+![New Nav](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/new-navigation.png)
+
+While this might not be news to all of you, we have now released our new navigation to everyone.
+
+We had this behind a feature flag, but now all our users have access to our fresh spaceship-like navigation. What do you think? 🚀
+
+
+- [Refreshing Insights](https://github.com/PostHog/posthog/pull/3144)
+
+![Refreshing Insights](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/refreshing-insights.png)
+
+To provide a smooth user experience, we cache query results so that you don't have to wait for a query to run every time you go back to a chart you've recently looked at.
+
+However, this might mean you're sometimes looking at slightly outdated results. As such, we now clearly indicate to you if you're looking at a cached result, how long ago this result was computed, and allow you to refresh it any time you want to see an updated result. 
+
+
+- [Session Recording Filters](https://github.com/PostHog/posthog/pull/2993)
+
+![Session filters](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/session-filters.png)
+
+Our session recording filters just got **so much more powerful**.
+
+Filter by session duration, user properties, unseen recordings, actions performed in a session, and so much more. 
+
+You can now get a lot more out of your session recording sessions by tailoring the recordings to specific areas of your product you're looking into.
+
+For a start, how about [integrating PostHog with Sentry](https://posthog.com/docs/integrations/sentry-integration) and watching all recordings with an `$exception` event in them?
+
+- [Multiple Groups in Feature Flags](https://github.com/PostHog/posthog/pull/3030)
+
+![Feature Flag Multiple Groups](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/feature-flag-groups.png)
+
+Feature flags can now be rolled out to multiple different groups that use distinct settings, unlocking a whole new world of opportunities for your A/B testing and feature rollout processes.
+
+For example, you can now determine a feature flag to be rolled out to all of the following:
+
+- 100% of users in the 'Beta Testers' cohort
+- 40% of all your users
+- All users in a specific team that requested the feature from you  
+
+You can then adjust the filters and rollout percentage for each individually, giving you an even greater degree of flexibility with how you leverage our flags in your workflows.
+
+- [A New Plugins UI with Brand New Features](https://github.com/PostHog/posthog/pull/2774)
+
+![Plugins UI](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/plugins-ui.png)
+
+A lot has happened to our plugins feature since the last release, including:
+
+* An improved UI
+* The ability to reorder plugins
+* The ability to upgrade plugins (and see exactly what changed between plugin versions)
+* Autofill on commonly used plugin configuration fields
+* A new plugin configuration field type, letting plugin builders specify pre-determined choices for the user to select from
+* A ton of performance improvements
+
+- [Taxonomy Plugin](https://posthog.com/plugins/taxonomy-standardizer)
+
+![Taxonomy Plugin](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/taxonomy-plugin.png)
+
+Standardize your event names into a single naming pattern by converting the names of your events that don't match your desired pattern into the chosen format, such as `camelCase` or `snake_case`.
+
+- [Bitbucket Release Tracker Plugin (Beta)](https://posthog.com/plugins/bitbucket-release-tracker)
+
+![Bitbucket Plugin](https://github.com/PostHog/bitbucket-release-tracker/raw/main/readme-assets/release-tracker.png)
+
+Get your Bitbucket release tags into PostHog as annotations on your graphs, so you can track the impact of releases on your metrics.
+
 ### 1.20.0 - Tuesday 19 January 2021
 
 - [Plugins, Plugins, and more Plugins](/plugins)

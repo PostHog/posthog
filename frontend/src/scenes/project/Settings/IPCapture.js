@@ -20,7 +20,7 @@ export function IPCapture() {
                     marginLeft: '10px',
                 }}
             >
-                Anonymize client IP data
+                Discard client IP data
             </label>
         </div>
     )

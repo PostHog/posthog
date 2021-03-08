@@ -25,6 +25,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
         updateCurrentProject: (id: number, dest: string) => ({ id, dest }),
         setToolbarModalOpen: (isOpen: boolean) => ({ isOpen }),
         setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
+        setInviteMembersModalOpen: (isOpen: boolean) => ({ isOpen }),
     },
     reducers: {
         menuCollapsed: [
@@ -45,6 +46,12 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
                 setToolbarModalOpen: (_, { isOpen }) => isOpen,
             },
         ],
+        inviteMembersModalOpen: [
+            false,
+            {
+                setInviteMembersModalOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
         pinnedDashboardsVisible: [
             false,
             {
@@ -59,7 +66,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
                 if (statusLoading) {
                     return true
                 }
-                const aliveMetrics = ['redis_alive', 'db_alive']
+                const aliveMetrics = ['redis_alive', 'db_alive', 'plugin_sever_alive']
                 let aliveSignals = 0
                 for (const metric of statusMetrics) {
                     if (metric.key && aliveMetrics.includes(metric.key) && metric.value) {

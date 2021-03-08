@@ -7,7 +7,7 @@ import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { ShownAsFilter } from '../../ShownAsFilter'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { trendsLogic } from '../../trendsLogic'
+import { trendsLogic } from '../../../trends/trendsLogic'
 import { ViewType } from '../../insightLogic'
 import { ShownAsValue } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -69,7 +69,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                             <InfoCircleOutlined className="info-indicator" />
                         </Tooltip>
                     </h4>
-                    <Row>
+                    <Row align="middle">
                         <BreakdownFilter
                             filters={filters}
                             onChange={(breakdown: string, breakdown_type: string): void =>
@@ -79,7 +79,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         {filters.breakdown && (
                             <CloseButton
                                 onClick={(): void => setFilters({ breakdown: false, breakdown_type: null })}
-                                style={{ marginTop: 1, marginLeft: 10 }}
+                                style={{ marginTop: 1, marginLeft: 5 }}
                             />
                         )}
                     </Row>

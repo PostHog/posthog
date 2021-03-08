@@ -121,7 +121,7 @@ export const commandPaletteLogic = kea<
 >({
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
-        values: [teamLogic, ['currentTeam']],
+        values: [teamLogic, ['currentTeam'], userLogic, ['user']],
     },
     actions: {
         hidePalette: true,

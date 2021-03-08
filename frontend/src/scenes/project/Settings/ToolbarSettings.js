@@ -38,7 +38,7 @@ export function ToolbarSettings() {
             {saved && (
                 <p className="text-success" style={{ marginTop: 10 }}>
                     Preference saved.
-                    {user.toolbar_mode !== 'disabled' && <> Please click "Launch Toolbar" in the sidebar!</>}
+                    {user.toolbar_mode !== 'disabled' && <> Please click on "Toolbar" in the sidebar!</>}
                 </p>
             )}
         </div>

@@ -5,4 +5,4 @@ mkdir -p frontend/dist
 touch frontend/dist/index.html
 touch frontend/dist/layout.html
 touch frontend/dist/shared_dashboard.html
-python manage.py test ee --testrunner="ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner"
+pytest ee

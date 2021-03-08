@@ -103,10 +103,6 @@
                     "value": "issampledevent,currentscreen,objectname"
                 },
                 {
-                    "name": "PLUGIN_SERVER_INGESTION",
-                    "value": "false"
-                },
-                {
                     "name": "BILLING_TRIAL_DAYS",
                     "value": "0"
                 },

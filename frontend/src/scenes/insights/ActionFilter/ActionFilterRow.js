@@ -1,139 +1,14 @@
 import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Tooltip, Col, Row, Select } from 'antd'
-import { EntityTypes } from '../trendsLogic'
+import { EntityTypes } from '../../trends/trendsLogic'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 import { DownOutlined, DeleteOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import './ActionFilterRow.scss'
-
-const PROPERTY_MATH_TYPE = 'property'
-const EVENT_MATH_TYPE = 'event'
-
-const MATHS = {
-    total: {
-        name: 'Total volume',
-        description: (
-            <>
-                Total event volume.
-                <br />
-                If a user performs an event 3 times in a given day/week/month, it counts as 3.
-            </>
-        ),
-        onProperty: false,
-        type: EVENT_MATH_TYPE,
-    },
-    dau: {
-        name: 'Active users',
-        description: (
-            <>
-                Users active in the time interval.
-                <br />
-                If a user performs an event 3 times in a given day/week/month, it counts only as 1.
-            </>
-        ),
-        onProperty: false,
-        type: EVENT_MATH_TYPE,
-    },
-    sum: {
-        name: 'Sum',
-        description: (
-            <>
-                Event property sum.
-                <br />
-                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 42.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
-    avg: {
-        name: 'Average',
-        description: (
-            <>
-                Event property average.
-                <br />
-                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 14.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
-    min: {
-        name: 'Minimum',
-        description: (
-            <>
-                Event property minimum.
-                <br />
-                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 10.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
-    max: {
-        name: 'Maximum',
-        description: (
-            <>
-                Event property maximum.
-                <br />
-                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 20.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
-    median: {
-        name: 'Median',
-        description: (
-            <>
-                Event property median (50th percentile).
-                <br />
-                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 150.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
-    p90: {
-        name: '90th percentile',
-        description: (
-            <>
-                Event property 90th percentile.
-                <br />
-                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 190.
-            </>
-        ),
-        onProperty: true,
-        type: 'property',
-    },
-    p95: {
-        name: '95th percentile',
-        description: (
-            <>
-                Event property 95th percentile.
-                <br />
-                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 195.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
-    p99: {
-        name: '99th percentile',
-        description: (
-            <>
-                Event property 90th percentile.
-                <br />
-                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 199.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
-}
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
 const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)

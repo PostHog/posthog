@@ -4,6 +4,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.action import filter_element
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.util import is_int, is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
@@ -30,7 +31,7 @@ def parse_prop_clauses(
 
     for idx, prop in enumerate(filters):
         if prop.type == "cohort":
-            cohort = Cohort.objects.get(pk=prop.value)
+            cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
             person_id_query, cohort_filter_params = format_filter_query(cohort)
             params = {**params, **cohort_filter_params}
             final.append(
@@ -45,6 +46,10 @@ def parse_prop_clauses(
                     filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query), table_name=table_name
                 )
             )
+            params.update(filter_params)
+        elif prop.type == "element":
+            query, filter_params = filter_element({prop.key: prop.value}, prepend="{}_".format(idx))
+            final.append("AND {}".format(query[0]))
             params.update(filter_params)
         else:
             filter_query, filter_params = prop_filter_json_extract(
@@ -70,10 +75,11 @@ def prop_filter_json_extract(
     )
     denormalized = "properties_{}".format(prop.key.lower())
     operator = prop.operator
+    params: Dict[str, Any] = {}
     if operator == "is_not":
-        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): box_value(prop.value)}
         return (
-            "AND NOT ({left} = %(v{prepend}_{idx})s)".format(
+            "AND NOT has(%(v{prepend}_{idx})s, {left})".format(
                 idx=idx, prepend=prepend, left=denormalized if is_denormalized else json_extract
             ),
             params,
@@ -165,17 +171,26 @@ def prop_filter_json_extract(
         )
     else:
         if is_json(prop.value) and not is_denormalized:
-            clause = "AND replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', '') = replaceRegexpAll(toString(%(v{prepend}_{idx})s),' ', '')"
+            clause = "AND has(%(v{prepend}_{idx})s, replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', ''))"
+            params = {
+                "k{}_{}".format(prepend, idx): prop.key,
+                "v{}_{}".format(prepend, idx): box_value(prop.value, remove_spaces=True),
+            }
         else:
-            clause = "AND {left} = toString(%(v{prepend}_{idx})s)"
-
-        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+            clause = "AND has(%(v{prepend}_{idx})s, {left})"
+            params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): box_value(prop.value)}
         return (
             clause.format(
                 left=denormalized if is_denormalized else json_extract, idx=idx, prepend=prepend, prop_var=prop_var
             ),
             params,
         )
+
+
+def box_value(value: Any, remove_spaces=False) -> List[Any]:
+    if not isinstance(value, List):
+        value = [value]
+    return [str(value).replace(" ", "") if remove_spaces else str(value) for value in value]
 
 
 def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):

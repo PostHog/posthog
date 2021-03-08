@@ -10,7 +10,7 @@ function Plan({ plan, onSubscribe }: { plan: PlanInterface; onSubscribe: (plan: 
     const [isDetailLoading, setIsDetailLoading] = useState(true)
 
     const loadPlanDetail = async (key: string): Promise<void> => {
-        const response = await fetch(`/plans/${key}/template/`)
+        const response = await fetch(`/api/plans/${key}/template/`)
         if (response.ok) {
             setDetail(await response.text())
         }

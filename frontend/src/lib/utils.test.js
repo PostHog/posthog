@@ -1,4 +1,12 @@
-import { formatLabel, identifierToHuman, midEllipsis, isURL, capitalizeFirstLetter } from './utils'
+import {
+    formatLabel,
+    identifierToHuman,
+    midEllipsis,
+    isURL,
+    capitalizeFirstLetter,
+    compactNumber,
+    pluralize,
+} from './utils'
 
 describe('capitalizeFirstLetter()', () => {
     it('returns the capitalized string', () => {
@@ -29,14 +37,14 @@ describe('formatLabel()', () => {
     given('action', () => ({}))
 
     it('formats the label', () => {
-        expect(given.subject).toEqual('some_event (Total) ')
+        expect(given.subject).toEqual('some_event')
     })
 
     describe('DAU queries', () => {
         given('action', () => ({ math: 'dau' }))
 
         it('is formatted', () => {
-            expect(given.subject).toEqual('some_event (DAU) ')
+            expect(given.subject).toEqual('some_event (Active Users) ')
         })
     })
 
@@ -52,7 +60,7 @@ describe('formatLabel()', () => {
         given('action', () => ({ properties: [{ value: 'hello' }, { operator: 'gt', value: 5 }] }))
 
         it('is formatted', () => {
-            expect(given.subject).toEqual('some_event (Total)  (= hello, > 5)')
+            expect(given.subject).toEqual('some_event (= hello, > 5)')
         })
     })
 })
@@ -87,5 +95,29 @@ describe('isURL()', () => {
         expect(isURL(1)).toEqual(false)
         expect(isURL(true)).toEqual(false)
         expect(isURL(null)).toEqual(false)
+    })
+})
+
+describe('compactNumber()', () => {
+    it('formats number correctly', () => {
+        expect(compactNumber(10)).toEqual('10')
+        expect(compactNumber(293)).toEqual('293')
+        expect(compactNumber(5001)).toEqual('5K')
+        expect(compactNumber(5312)).toEqual('5.3K')
+        expect(compactNumber(5392)).toEqual('5.4K')
+        expect(compactNumber(2833102, 2)).toEqual('2.83M')
+        expect(compactNumber(8283310234)).toEqual('8.3B')
+    })
+})
+describe('pluralize()', () => {
+    it('handles singular cases', () => {
+        expect(pluralize(1, 'member')).toEqual('1 member')
+        expect(pluralize(1, 'bacterium', 'bacteria', true)).toEqual('1 bacterium')
+        expect(pluralize(1, 'word', null, false)).toEqual('word')
+    })
+    it('handles plural cases', () => {
+        expect(pluralize(28321, 'member')).toEqual('28321 members')
+        expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
+        expect(pluralize(3, 'word', null, false)).toEqual('words')
     })
 })

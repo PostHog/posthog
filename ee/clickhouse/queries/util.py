@@ -1,12 +1,11 @@
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Optional, Tuple
 
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
-from posthog.models.filters import Filter
-from posthog.models.filters.path_filter import PathFilter
+from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.queries.base import TIME_IN_SECONDS
 from posthog.types import FilterType
 
@@ -46,7 +45,11 @@ def format_ch_timestamp(timestamp: datetime, filter, default_hour_min: str = " 0
 
 
 def get_earliest_timestamp(team_id: int) -> datetime:
-    return sync_execute(GET_EARLIEST_TIMESTAMP_SQL, {"team_id": team_id})[0][0]
+    results = sync_execute(GET_EARLIEST_TIMESTAMP_SQL, {"team_id": team_id})
+    if len(results) > 0:
+        return results[0][0]
+    else:
+        return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
 
 
 def get_time_diff(

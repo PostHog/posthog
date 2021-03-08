@@ -6,14 +6,15 @@ import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import { Link } from 'lib/components/Link'
 import React from 'react'
-import { isAndroidOrIOS, clearDOMTextSelection } from 'lib/utils'
+import { isAndroidOrIOS, clearDOMTextSelection, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { dateFilterLogic } from 'lib/components/DateFilter/dateFilterLogic'
 
 export const dashboardLogic = kea({
-    connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
+    connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic, dateFilterLogic],
 
     key: (props) => props.id,
 
@@ -29,17 +30,20 @@ export const dashboardLogic = kea({
         enableWobblyDragging: true,
         disableDragging: true,
         refreshDashboardItem: (id) => ({ id }),
+        refreshAllDashboardItems: true,
+        updateAndRefreshDashboard: true,
     }),
 
     loaders: ({ props }) => ({
         allItems: [
-            [],
+            {},
             {
                 loadDashboardItems: async () => {
                     try {
                         const dashboard = await api.get(
-                            `api/dashboard/${props.id}${props.shareToken ? '/?share_token=' + props.shareToken : ''}`
+                            `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken })}`
                         )
+                        dateFilterLogic.actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to)
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
@@ -49,6 +53,12 @@ export const dashboardLogic = kea({
                         }
                         throw error
                     }
+                },
+                updateDashboard: async (filters) => {
+                    return await api.update(
+                        `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken })}`,
+                        { filters }
+                    )
                 },
             },
         ],
@@ -311,12 +321,26 @@ export const dashboardLogic = kea({
                 cache.draggingToastId = null
             }
         },
-        refreshDashboardItem: async ({ id }) => {
+        refreshDashboardItem: async ({ id }, breakpoint) => {
             const dashboardItem = await api.get(`api/insight/${id}`)
+            await breakpoint()
             dashboardsModel.actions.updateDashboardItem(dashboardItem)
             if (dashboardItem.refreshing) {
                 setTimeout(() => actions.refreshDashboardItem(id), 1000)
             }
+        },
+        refreshAllDashboardItems: async (_, breakpoint) => {
+            await breakpoint(200)
+            dashboardItemsModel.actions.refreshAllDashboardItems({})
+        },
+        updateAndRefreshDashboard: async (_, breakpoint) => {
+            await breakpoint(200)
+            const filters = {
+                date_from: dateFilterLogic.values.dates.dateFrom,
+                date_to: dateFilterLogic.values.dates.dateTo,
+            }
+            actions.updateDashboard(filters)
+            dashboardItemsModel.actions.refreshAllDashboardItems(filters)
         },
     }),
 })

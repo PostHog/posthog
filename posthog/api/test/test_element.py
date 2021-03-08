@@ -8,7 +8,7 @@ from posthog.models import Element, ElementGroup, Event, Organization
 from posthog.test.base import BaseTest
 
 
-def test_element_factory(create_event: Callable) -> Callable:
+def factory_test_element(create_event: Callable) -> Callable:
     class TestElement(BaseTest):
         TESTS_API = True
 
@@ -94,5 +94,5 @@ def test_element_factory(create_event: Callable) -> Callable:
     return TestElement
 
 
-class TestElement(test_element_factory(Event.objects.create)):  # type: ignore
+class TestElement(factory_test_element(Event.objects.create)):  # type: ignore
     pass

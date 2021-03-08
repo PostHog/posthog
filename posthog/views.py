@@ -1,7 +1,9 @@
+from functools import wraps
 from typing import Dict, List, Union
 
 from django.conf import settings
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth import login
+from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpResponse, JsonResponse
@@ -11,7 +13,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from posthog.ee import is_ee_enabled
 from posthog.models import User
 from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api
-from posthog.settings import TEST
+from posthog.settings import AUTO_LOGIN, TEST
 from posthog.utils import (
     get_redis_info,
     get_redis_queue_depth,
@@ -23,7 +25,20 @@ from posthog.utils import (
     is_redis_alive,
 )
 
-from .utils import get_celery_heartbeat
+from .utils import get_available_social_auth_providers, get_celery_heartbeat, get_plugin_server_version
+
+
+def login_required(view):
+    base_handler = base_login_required(view)
+
+    @wraps(view)
+    def handler(request, *args, **kwargs):
+        if not request.user.is_authenticated and AUTO_LOGIN and User.objects.count() > 0:
+            user = User.objects.first()
+            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        return base_handler(request, *args, **kwargs)
+
+    return handler
 
 
 def health(request):
@@ -138,6 +153,13 @@ def system_status(request):
     metrics.append({"key": "plugin_sever_alive", "metric": "Plugin server alive", "value": is_plugin_server_alive()})
     metrics.append(
         {
+            "key": "plugin_sever_version",
+            "metric": "Plugin server version",
+            "value": get_plugin_server_version() or "unknown",
+        }
+    )
+    metrics.append(
+        {
             "key": "plugins_install",
             "metric": "Plugins can be installed",
             "value": can_install_plugins_via_api(team.organization),
@@ -155,7 +177,7 @@ def system_status(request):
 
 
 @never_cache
-def preflight_check(request):
+def preflight_check(_):
     return JsonResponse(
         {
             "django": True,
@@ -165,5 +187,6 @@ def preflight_check(request):
             "db": is_postgres_alive(),
             "initiated": User.objects.exists(),
             "cloud": settings.MULTI_TENANCY,
+            "available_social_auth_providers": get_available_social_auth_providers(),
         }
     )

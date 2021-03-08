@@ -83,16 +83,19 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
         insights: {
             updateInsights: (state, { insights }) => [...state, ...insights],
             updateInsightSuccess: updateInsightState,
+            // @ts-expect-error - kea.js typing issue
             [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
         },
         savedInsights: {
             updateSavedInsights: (state, { insights }) => [...state, ...insights],
             updateInsightSuccess: (state, itemOrInsight) => updateInsightState(state, itemOrInsight, true),
+            // @ts-expect-error - kea.js typing issue
             [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
         },
         teamInsights: {
             updateTeamInsights: (state, { insights }) => [...state, ...insights],
             updateInsightSuccess: (state, itemOrInsight) => updateInsightState(state, itemOrInsight, true),
+            // @ts-expect-error - kea.js typing issue
             [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
         },
         insightsNext: [

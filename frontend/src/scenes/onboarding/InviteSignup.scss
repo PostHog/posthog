@@ -1,0 +1,94 @@
+@import '~/vars';
+
+.invite-signup {
+    height: 100vh;
+
+    &.authenticated {
+        height: calc(100vh - #{$top_nav_height});
+    }
+
+    .inner {
+        text-align: center;
+        max-width: 400px;
+        padding: 0 $default_spacing;
+        color: $text_light;
+        h1 {
+            color: $text_light;
+        }
+    }
+
+    .error-view-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        .inner {
+            .error-message {
+                margin-top: $default_spacing * 2;
+            }
+
+            .actions {
+                margin-top: $default_spacing * 2;
+            }
+        }
+    }
+
+    .authenticated-invite {
+        background: $dusk_sky;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        .inner {
+            > div {
+                margin-bottom: $default_spacing;
+
+                &:last-of-type {
+                    margin-bottom: 0;
+                }
+            }
+        }
+
+        .whoami-mock {
+            display: flex;
+            align-items: center;
+            padding-left: $default_spacing;
+            height: 100%;
+            width: 100%;
+
+            .whoami-inner-container {
+                display: inline-block;
+                .whoami {
+                    cursor: default !important;
+                    border: 1px $text_light dashed;
+                    border-radius: $radius;
+                    background-color: rgba(white, 0.3);
+                    padding-left: 4px;
+                    padding-right: 4px;
+                }
+                .whoami,
+                span {
+                    color: $text_light !important;
+                }
+            }
+        }
+    }
+
+    a.plain-link {
+        color: $text_light;
+        font-weight: bold;
+        &:after {
+            content: ' | ';
+            &:hover {
+                color: $text_light;
+            }
+        }
+        &:last-of-type:after {
+            content: '';
+        }
+        &:hover {
+            color: darken($text_light, 20%);
+        }
+    }
+}

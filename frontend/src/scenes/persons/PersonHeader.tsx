@@ -7,9 +7,11 @@ export function PersonHeader({ person }: { person: PersonType }): JSX.Element {
         <>
             {person.is_identified ? (
                 <div className="person-header identified">
-                    <IconPerson />{' '}
+                    <span>
+                        <IconPerson />
+                    </span>
                     {person.properties.email ? (
-                        <span className="ph-no-capture">{person.properties.email}</span>
+                        <span className="text-ellipsis ph-no-capture">{person.properties.email}</span>
                     ) : (
                         <i>No email recorded</i>
                     )}

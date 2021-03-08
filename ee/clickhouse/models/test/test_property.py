@@ -1,23 +1,26 @@
 from typing import Dict, List
-from uuid import uuid4
+from uuid import UUID, uuid4
+
+import pytest
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.property import parse_prop_clauses, prop_filter_json_extract
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.cohort import Cohort
 from posthog.models.event import Event
 from posthog.models.filters import Filter
 from posthog.models.person import Person
+from posthog.models.property import Property
 from posthog.models.team import Team
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, TestMixin
 
 
-def _create_event(**kwargs) -> Event:
+def _create_event(**kwargs) -> UUID:
     pk = uuid4()
     kwargs.update({"event_uuid": pk})
     create_event(**kwargs)
-    return Event(pk=str(pk))
+    return pk
 
 
 def _create_person(**kwargs) -> Person:
@@ -148,3 +151,35 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
             filter = Filter(data={"properties": [{"key": "test_prop", "value": 0}],})
             self.assertEqual(len(self._run_query(filter)), 1)
+
+
+@pytest.fixture
+def test_events(db, team) -> List[UUID]:
+    return [
+        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"email": "test@posthog.com"},),
+        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"email": "mongo@example.com"},),
+        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"attr": "some_val"},),
+        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"attr": "50"},),
+        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"attr": 5},),
+    ]
+
+
+@pytest.mark.parametrize(
+    "property,expected_event_indexes",
+    [
+        (Property(key="email", value="test@posthog.com"), [0]),
+        (Property(key="email", value="test@posthog.com", operator="exact"), [0]),
+        (Property(key="email", value=["pineapple@pizza.com", "mongo@example.com"], operator="exact"), [1]),
+        (Property(key="attr", value="5"), [4]),
+        (Property(key="email", value="test@posthog.com", operator="is_not"), range(1, 5)),
+        (Property(key="email", value=["test@posthog.com", "mongo@example.com"], operator="is_not"), range(2, 5)),
+        (Property(key="email", value=r".*est@.*", operator="regex"), [0]),
+        (Property(key="email", value=r"?.", operator="regex"), []),
+    ],
+)
+def test_prop_filter_json_extract(test_events, property, expected_event_indexes):
+    query, params = prop_filter_json_extract(property, 0)
+    uuids = list(sorted([uuid for (uuid,) in sync_execute(f"SELECT uuid FROM events WHERE 1 = 1 {query}", params)]))
+    expected = list(sorted([test_events[index] for index in expected_event_indexes]))
+
+    assert uuids == expected

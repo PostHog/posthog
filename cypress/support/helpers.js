@@ -7,6 +7,7 @@ import { initKea } from '~/initKea'
 import { GlobalStyles } from '~/GlobalStyles'
 import { userLogic } from 'scenes/userLogic'
 import posthog from 'posthog-js'
+import { toParams } from '~/lib/utils'
 
 export const mountPage = (component) => {
     initKea()
@@ -24,8 +25,12 @@ function WaitUntilUserMounted({ children }) {
     return user ? children : null
 }
 
-export const setLocation = (path) => {
-    window.history.replaceState(null, '', path)
+export const setLocation = (path, params = null) => {
+    let qs = ''
+    if (params) {
+        qs = '?' + toParams(params)
+    }
+    window.history.replaceState(null, '', path + qs)
 }
 
 export const getSearchParameters = ({ request }) => {

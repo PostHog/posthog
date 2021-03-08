@@ -51,7 +51,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "completed_snippet_onboarding",
             "ingested_event",
             "uuid",
-            "opt_out_capture",
             "is_demo",
         )
         read_only_fields = (
@@ -65,7 +64,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "ingested_event",
-            "opt_out_capture",
         )
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:

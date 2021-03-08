@@ -3,9 +3,10 @@ from typing import Any, Dict, List, Optional, Union, cast
 import posthoganalytics
 from django.conf import settings
 from django.contrib.auth import login, password_validation
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import QuerySet
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404
 from django.urls.base import reverse
 from rest_framework import exceptions, generics, permissions, response, serializers, status, viewsets
 from rest_framework.request import Request
@@ -342,18 +343,16 @@ class OrganizationInviteSignupViewset(generics.CreateAPIView):
 
         try:
             invite: OrganizationInvite = OrganizationInvite.objects.get(id=invite_id)
-        except (OrganizationInvite.DoesNotExist):
+        except (OrganizationInvite.DoesNotExist, ValidationError):
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
         user = request.user if request.user.is_authenticated else None
 
-        try:
-            invite.validate(user=user)
-        except ValueError as e:
-            raise serializers.ValidationError(str(e))
+        invite.validate(user=user)
 
         return response.Response(
             {
+                "id": str(invite.id),
                 "target_email": mask_email_address(invite.target_email),
                 "first_name": invite.first_name,
                 "organization_name": invite.organization.name,

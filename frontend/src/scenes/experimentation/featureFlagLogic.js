@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { deleteWithUndo } from 'lib/utils'
+import posthog from 'posthog-js'
 
 export const featureFlagLogic = kea({
     key: (props) => props.id || 'new',
@@ -87,6 +88,7 @@ export const featureFlagLogic = kea({
             if (featureFlags) {
                 toast('Feature flag saved.')
                 props.closeDrawer()
+                posthog.featureFlags.reloadFeatureFlags()
             }
         },
         createFeatureFlagSuccess: ({ featureFlags }) => {
@@ -94,9 +96,11 @@ export const featureFlagLogic = kea({
                 return null
             }
             props.closeDrawer(), toast('Feature flag saved.')
+            posthog.featureFlags.reloadFeatureFlags()
         },
         deleteFeatureFlagSuccess: () => {
             props.closeDrawer()
+            posthog.featureFlags.reloadFeatureFlags()
         },
     }),
     events: ({ actions }) => ({

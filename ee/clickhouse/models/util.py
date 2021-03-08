@@ -58,7 +58,7 @@ def is_json(val):
         pass
     try:
         json.loads(val)
-    except ValueError:
+    except (ValueError, TypeError):
         return False
     return True
 

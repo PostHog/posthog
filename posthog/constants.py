@@ -14,9 +14,12 @@ TRENDS_LINEAR = "ActionsLineGraph"
 TRENDS_TABLE = "ActionsTable"
 TRENDS_FUNNEL = "FunnelViz"
 TRENDS_PIE = "ActionsPie"
-TRENDS_TABLE = "ActionsTable"
 TRENDS_RETENTION = "RetentionTable"
 TRENDS_PATHS = "PathsViz"
+TRENDS_BAR = "ActionsBar"
+TRENDS_BAR_VALUE = "ActionsBarValue"
+
+TRENDS_DISPLAY_BY_VALUE = [TRENDS_TABLE, TRENDS_PIE, TRENDS_BAR_VALUE]
 
 # CONSTANTS
 INSIGHT_TRENDS = "TRENDS"
@@ -78,6 +81,8 @@ OFFSET = "offset"
 PERIOD = "period"
 STICKINESS_DAYS = "stickiness_days"
 FORMULA = "formula"
+ENTITY_ID = "entity_id"
+ENTITY_TYPE = "entity_type"
 
 RETENTION_RECURRING = "retention_recurring"
 RETENTION_FIRST_TIME = "retention_first_time"

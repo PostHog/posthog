@@ -13,13 +13,13 @@ export enum BillingAlertType {
     UsageNearLimit = 'usage_near_limit',
 }
 
-export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscription, UserType>>({
+export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscription, UserType, FormattedNumber>>({
     loaders: {
         plans: [
             [] as PlanInterface[],
             {
                 loadPlans: async () => {
-                    const response = await api.get('plans?self_serve=1')
+                    const response = await api.get('api/plans?self_serve=1')
                     return response.results
                 },
             },
@@ -37,11 +37,17 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
         eventAllocation: [() => [userLogic.selectors.user], (user: UserType) => user.billing?.event_allocation],
         percentage: [
             (s) => [s.eventAllocation, userLogic.selectors.user],
-            (eventAllocation: FormattedNumber | null | undefined, user: UserType) => {
+            (eventAllocation: FormattedNumber | number | null | undefined, user: UserType) => {
                 if (!eventAllocation || !user.billing?.current_usage) {
                     return null
                 }
-                return Math.min(Math.round((user.billing.current_usage.value / eventAllocation.value) * 100) / 100, 1)
+                // :TODO: Temporary support for legacy FormattedNumber
+                const allocation = typeof eventAllocation === 'number' ? eventAllocation : eventAllocation.value
+                const usage =
+                    typeof user.billing.current_usage === 'number'
+                        ? user.billing.current_usage
+                        : user.billing.current_usage.value
+                return Math.min(Math.round((usage / allocation) * 100) / 100, 1)
             },
         ],
         strokeColor: [
@@ -68,7 +74,7 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
         alertToShow: [
             (s) => [s.eventAllocation, userLogic.selectors.user, sceneLogic.selectors.scene],
             (
-                eventAllocation: FormattedNumber | null | undefined,
+                eventAllocation: FormattedNumber | number | null | undefined,
                 user: UserType,
                 scene: Scene
             ): BillingAlertType | undefined => {
@@ -80,11 +86,17 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
                 }
 
                 // Priority 2: Event allowance near limit
+                // :TODO: Temporary support for legacy FormattedNumber
+                const allocation = typeof eventAllocation === 'number' ? eventAllocation : eventAllocation?.value
+                const usage =
+                    typeof user?.billing?.current_usage === 'number'
+                        ? user.billing.current_usage
+                        : user?.billing?.current_usage?.value
                 if (
                     scene !== Scene.Billing &&
-                    eventAllocation &&
-                    user.billing?.current_usage &&
-                    user.billing.current_usage.value / eventAllocation.value >= ALLOCATION_THRESHOLD_ALERT
+                    allocation &&
+                    usage &&
+                    usage / allocation >= ALLOCATION_THRESHOLD_ALERT
                 ) {
                     return BillingAlertType.UsageNearLimit
                 }
@@ -94,7 +106,7 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
     events: ({ actions }) => ({
         afterMount: () => {
             const user = userLogic.values.user
-            if (!user?.billing?.plan) {
+            if (user?.is_multi_tenancy && !user?.billing?.plan) {
                 actions.loadPlans()
             }
         },

@@ -1,5 +1,5 @@
 #!/bin/bash
-set -x
+set -e
 
 if ! command -v nodemon &> /dev/null
 then
@@ -7,5 +7,7 @@ then
     exit
 fi
 
-REDIS_URL='redis:///' OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python manage.py test $@ --noinput
-REDIS_URL='redis:///' nodemon -w ./posthog -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python manage.py test --noinput --keepdb $@; mypy posthog ee"
+export REDIS_URL='redis:///'
+export TEST=1
+psql posthog -c "drop database if exists test_posthog"
+nodemon -w ./posthog -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db -s $*; mypy posthog ee"

@@ -7,6 +7,7 @@ import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { Link } from '../Link'
 import { PropertySelect } from './PropertySelect'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
+import { isOperatorMulti } from 'lib/utils'
 
 const { TabPane } = Tabs
 
@@ -44,8 +45,8 @@ function PropertyPaneContents({
 
     return (
         <>
-            <Row gutter={8} className="full-width">
-                <Col flex={1}>
+            <Row gutter={8} className="full-width" wrap={false}>
+                <Col flex={'1'}>
                     <PropertySelect
                         value={
                             type === 'cohort'
@@ -79,11 +80,11 @@ function PropertyPaneContents({
                         value={value}
                         onChange={(newOperator, newValue) => {
                             setThisFilter(propkey, newValue, newOperator, type)
-                            if (newOperator && newValue) {
+                            if (newOperator && newValue && !isOperatorMulti(newOperator)) {
                                 onComplete()
                             }
                         }}
-                        columnOptions={{ flex: 1 }}
+                        columnOptions={{ flex: '1' }}
                     />
                 )}
             </Row>

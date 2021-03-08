@@ -6,6 +6,11 @@ style files without adding already imported styles. */
 @import 'node_modules/react-toastify/dist/ReactToastify';
 @import './vars';
 
+@font-face {
+    font-family: 'GoshaSans-Bold';
+    src: url('../public/GoshaSans-Bold.woff2') format('woff2'), url('../public/GoshaSans-Bold.woff') format('woff');
+}
+
 :root {
     --primary: #{$primary};
     --primary-alt: #{$primary_alt};
@@ -56,6 +61,7 @@ style files without adding already imported styles. */
     margin-top: 0.5em;
     font-weight: 700;
     color: $text_default;
+    font-family: $gosha_sans;
 }
 
 .page-caption {
@@ -290,11 +296,17 @@ code.code {
         @extend .text-small;
     }
 
+    .ant-radio-button-wrapper {
+        // To properly handle label styles above
+        font-weight: normal !important;
+        line-height: 30px !important;
+    }
+
     &.errored {
         .caption {
             color: $danger;
         }
-        .ant-input-password,
+        input[type='password'],
         input[type='text'] {
             border-color: $danger !important;
         }
@@ -327,11 +339,6 @@ code.code {
     color: $primary !important;
     cursor: pointer;
     margin-left: 5px;
-}
-
-.btn-add {
-    color: $text_muted !important;
-    border: 1px dashed $border !important;
 }
 
 // Badges styles

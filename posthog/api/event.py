@@ -14,7 +14,6 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import Element, ElementGroup, Event, Filter, Person, PersonDistinctId
 from posthog.models.action import Action
 from posthog.models.event import EventManager
@@ -103,6 +102,8 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = EventSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
+    CSV_EXPORT_LIMIT = 100_000  # Return at most this number of events in CSV export
+
     def get_queryset(self):
         queryset = cast(EventManager, super().get_queryset()).add_person_id(self.team_id)
 
@@ -122,11 +123,11 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             elif key == "before":
                 queryset = queryset.filter(timestamp__lt=request.GET["before"])
             elif key == "person_id":
-                person = Person.objects.get(pk=request.GET["person_id"])
+                person = Person.objects.get(pk=request.GET["person_id"], team_id=self.team_id)
                 queryset = queryset.filter(
-                    distinct_id__in=PersonDistinctId.objects.filter(person_id=request.GET["person_id"]).values(
-                        "distinct_id"
-                    )
+                    distinct_id__in=PersonDistinctId.objects.filter(
+                        team_id=self.team_id, person_id=request.GET["person_id"]
+                    ).values("distinct_id")
                 )
             elif key == "distinct_id":
                 queryset = queryset.filter(distinct_id=request.GET["distinct_id"])
@@ -164,40 +165,38 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return events
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        queryset = self.get_queryset()
-        monday = now() + timedelta(days=-now().weekday())
-        # don't allow events too far into the future
-        queryset = queryset.filter(timestamp__lte=now() + timedelta(seconds=5),)
-        events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[0:101]
-
         is_csv_request = self.request.accepted_renderer.format == "csv"
+        monday = now() + timedelta(days=-now().weekday())
+        # Don't allow events too far into the future
+        queryset = self.get_queryset().filter(timestamp__lte=now() + timedelta(seconds=5))
+        next_url: Optional[str] = None
 
-        if not is_csv_request and len(events) < 101:
-            events = queryset[0:101]
-        elif is_csv_request:
-            events = queryset[0:100000]
-
-        prefetched_events = self._prefetch_events([event for event in events])
-        path = request.get_full_path()
-
-        reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
-        if not is_csv_request and len(events) > 100:
-            next_url: Optional[str] = request.build_absolute_uri(
-                "{}{}{}={}".format(
-                    path,
-                    "&" if "?" in path else "?",
-                    "after" if reverse else "before",
-                    events[99].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                )
-            )
+        if is_csv_request:
+            events = queryset[: self.CSV_EXPORT_LIMIT]
         else:
-            next_url = None
+            events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[:101]
+            if len(events) < 101:
+                events = queryset[:101]
+            path = request.get_full_path()
+            reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
+            if len(events) > 100:
+                next_url = request.build_absolute_uri(
+                    "{}{}{}={}".format(
+                        path,
+                        "&" if "?" in path else "?",
+                        "after" if reverse else "before",
+                        events[99].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                    )
+                )
+            events = events[:100]
+
+        prefetched_events = self._prefetch_events(list(events))
 
         return response.Response(
             {
                 "next": next_url,
                 "results": EventSerializer(
-                    prefetched_events[0:100], many=True, context={"format": self.request.accepted_renderer.format}
+                    prefetched_events, many=True, context={"format": self.request.accepted_renderer.format}
                 ).data,
             }
         )

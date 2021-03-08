@@ -3,6 +3,7 @@ import uuid
 from typing import cast
 from unittest.mock import patch
 
+import pytest
 import pytz
 from django.test import tag
 from rest_framework import status
@@ -147,7 +148,7 @@ class TestOrganizationAPI(APIBaseTest):
 class TestSignup(APIBaseTest):
     CONFIG_USER_EMAIL = None
 
-    @tag("skip_on_multitenancy")
+    @pytest.mark.skip_on_multitenancy
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
     @patch("posthog.api.organization.posthoganalytics.capture")
     def test_api_sign_up(self, mock_capture):
@@ -210,7 +211,7 @@ class TestSignup(APIBaseTest):
         # Assert that the password was correctly saved
         self.assertTrue(user.check_password("notsecure"))
 
-    @tag("skip_on_multitenancy")
+    @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_initiated_self_hosted(self):
         with self.settings(MULTI_TENANCY=False):
             response = self.client.post(
@@ -231,7 +232,7 @@ class TestSignup(APIBaseTest):
                 },
             )
 
-    @tag("skip_on_multitenancy")
+    @pytest.mark.skip_on_multitenancy
     @patch("posthog.api.organization.posthoganalytics.capture")
     @patch("posthoganalytics.identify")
     def test_signup_minimum_attrs(self, mock_identify, mock_capture):
@@ -338,7 +339,7 @@ class TestSignup(APIBaseTest):
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
 
-    @patch("posthoganalytics.feature_enabled", side_effect=lambda feature, *args: feature == "1694-dashboards")
+    @patch("posthoganalytics.feature_enabled")
     def test_default_dashboard_is_created_on_signup(self, mock_feature_enabled):
         """
         Tests that the default web app dashboard is created on signup.
@@ -359,7 +360,6 @@ class TestSignup(APIBaseTest):
         user: User = User.objects.order_by("-pk").get()
 
         mock_feature_enabled.assert_any_call("new-onboarding-2822", user.distinct_id)
-        mock_feature_enabled.assert_any_call("1694-dashboards", user.distinct_id)
 
         self.assertEqual(
             response.data,
@@ -368,17 +368,20 @@ class TestSignup(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "Jane",
                 "email": "hedgehog75@posthog.com",
-                "redirect_url": "/ingestion",
+                "redirect_url": "/personalization",
             },
         )
 
-        dashboard: Dashboard = Dashboard.objects.last()  # type: ignore
+        dashboard: Dashboard = Dashboard.objects.first()  # type: ignore
         self.assertEqual(dashboard.team, user.team)
-        self.assertEqual(dashboard.items.count(), 7)
-        self.assertEqual(dashboard.name, "My App Dashboard")
+        self.assertEqual(dashboard.items.count(), 1)
+        self.assertEqual(dashboard.name, "Web Analytics")
         self.assertEqual(
-            dashboard.items.all()[0].description, "Shows the number of unique users that use your app everyday."
+            dashboard.items.all()[0].description, "Shows a conversion funnel from sign up to watching a movie."
         )
+
+        # Particularly assert that the default dashboards are not created (because we create special demo dashboards)
+        self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 3)  # Web, app & revenue demo dashboards
 
 
 class TestInviteSignup(APIBaseTest):
@@ -400,6 +403,7 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(
             response.data,
             {
+                "id": str(invite.id),
                 "target_email": "t*****9@posthog.com",
                 "first_name": "",
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
@@ -416,6 +420,7 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(
             response.data,
             {
+                "id": str(invite.id),
                 "target_email": "t*****8@posthog.com",
                 "first_name": "Jane",
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
@@ -433,21 +438,29 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.data, {"target_email": "t*****9@posthog.com", "first_name": "", "organization_name": "Test, Inc",},
+            response.data,
+            {
+                "id": str(invite.id),
+                "target_email": "t*****9@posthog.com",
+                "first_name": "",
+                "organization_name": "Test, Inc",
+            },
         )
 
     def test_api_invite_sign_up_prevalidate_invalid_invite(self):
-        response = self.client.get(f"/api/signup/{uuid.uuid4()}/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.data,
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "The provided invite ID is not valid.",
-                "attr": None,
-            },
-        )
+
+        for invalid_invite in [uuid.uuid4(), "abc", "1234"]:
+            response = self.client.get(f"/api/signup/{invalid_invite}/")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.data,
+                {
+                    "type": "validation_error",
+                    "code": "invalid_input",
+                    "detail": "The provided invite ID is not valid.",
+                    "attr": None,
+                },
+            )
 
     def test_existing_user_cant_claim_invite_if_it_doesnt_match_target_email(self):
         user = self._create_user("test+39@posthog.com", "test_password")
@@ -462,8 +475,9 @@ class TestInviteSignup(APIBaseTest):
             response.data,
             {
                 "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "This invite is intended for another email address.",
+                "code": "invalid_recipient",
+                "detail": "This invite is intended for another email address: t*****9@posthog.com."
+                " You tried to sign up with test+39@posthog.com.",
                 "attr": None,
             },
         )
@@ -481,7 +495,7 @@ class TestInviteSignup(APIBaseTest):
             response.data,
             {
                 "type": "validation_error",
-                "code": "invalid_input",
+                "code": "expired",
                 "detail": "This invite has expired. Please ask your admin for a new one.",
                 "attr": None,
             },
@@ -572,7 +586,7 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(user.organization_memberships.count(), 2)
         self.assertTrue(user.organization_memberships.filter(organization=new_org).exists())
 
-        # Defaults are set correctly
+        # User is now changed to the new organization
         self.assertEqual(user.organization, new_org)
         self.assertEqual(user.team, new_team)
 
@@ -698,7 +712,7 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "123"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "type": "validation_error",
                 "code": "password_too_short",
@@ -721,7 +735,7 @@ class TestInviteSignup(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "type": "validation_error",
                 "code": "invalid_input",
@@ -748,10 +762,10 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "test_password"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "type": "validation_error",
-                "code": "invalid_input",
+                "code": "expired",
                 "detail": "This invite has expired. Please ask your admin for a new one.",
                 "attr": None,
             },

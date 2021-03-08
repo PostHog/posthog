@@ -148,7 +148,7 @@ def format_action_filters(filter: SessionsFilter) -> Tuple[str, str, str, Dict]:
 
 
 def format_action_filter_aggregate(entity: Entity, prepend: str):
-    filter_sql, params = format_entity_filter(entity, prepend=prepend)
+    filter_sql, params = format_entity_filter(entity, prepend=prepend, filter_by_team=False)
     if entity.properties:
         filters, filter_params = parse_prop_clauses(entity.properties, prepend=prepend, team_id=None)
         filter_sql += f" {filters}"

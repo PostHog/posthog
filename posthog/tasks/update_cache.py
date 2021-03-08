@@ -64,7 +64,7 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
         result = _calculate_by_filter(filter, key, team_id, cache_type)
 
     if result:
-        cache.set(key, {"result": result, "details": payload, "type": cache_type}, CACHED_RESULTS_TTL)
+        cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, CACHED_RESULTS_TTL)
 
 
 def get_cache_type(filter: FilterType) -> CacheType:
@@ -102,7 +102,7 @@ def update_cached_items() -> None:
     for item in DashboardItem.objects.filter(
         pk__in=Subquery(items.filter(filters__isnull=False).exclude(filters={}).distinct("filters").values("pk"))
     ).order_by(F("last_refresh").asc(nulls_first=True))[0:PARALLEL_DASHBOARD_ITEM_CACHE]:
-        filter = get_filter(data=item.filters, team=item.team)
+        filter = get_filter(data=item.dashboard_filters(), team=item.team)
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
 
         cache_type = get_cache_type(filter)

@@ -109,6 +109,7 @@ class Command(BaseCommand):
                 team = organization.teams.filter(id=team_id)[0]
         except Team.DoesNotExist:
             team = Team.objects.create_with_data(
+                default_dashboards=False,
                 organization=organization,
                 name=team_name if team_name else "HogFlix Demo App",
                 ingested_event=True,

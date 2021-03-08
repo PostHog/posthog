@@ -151,7 +151,9 @@ export const sessionsFiltersLogic = kea<
                 } else if (type === 'person') {
                     actions.updateFilter({ type, key: id, value: null, label, operator: 'exact' }, values.openFilter)
                 } else if (type === 'recording' && id === 'duration') {
-                    actions.updateFilter({ type, key: id, value: 0, label, operator: 'gt' }, values.openFilter)
+                    actions.updateFilter(SESSIONS_WITH_RECORDINGS_FILTER, values.openFilter)
+                } else if (type === 'recording') {
+                    actions.updateFilter(SESSIONS_WITH_UNSEEN_RECORDINGS, values.openFilter)
                 }
             }
         },

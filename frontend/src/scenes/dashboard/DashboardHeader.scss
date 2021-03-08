@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .dashboard-header {
     display: flex;
     justify-content: space-between;
@@ -53,9 +55,19 @@
             }
         }
     }
+
+    .dashboard-header-created-by {
+        margin-top: $default_spacing / 2;
+        color: $text_muted;
+    }
+
     @media (max-width: 750px) {
         .hide-when-small {
             display: none;
+        }
+
+        .dashboard-header-created-by {
+            display: none; /* header is already too crowded on mobile */
         }
     }
 }
