@@ -12,7 +12,6 @@ import { Cohort } from './Cohort'
 import { Drawer } from 'lib/components/Drawer'
 import { CohortType } from '~/types'
 import api from 'lib/api'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './cohorts.scss'
 import Fuse from 'fuse.js'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
@@ -25,7 +24,7 @@ const cohortsUrlLogic = kea({
         openCohort: [
             false,
             {
-                setOpenCohort: (_, { cohort }: { cohort: CohortType }) => cohort,
+                setOpenCohort: (_: null, { cohort }: { cohort: CohortType }) => cohort,
             },
         ],
     },
@@ -64,14 +63,15 @@ function _Cohorts(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            sorter: (a: CohortType, b: CohortType) => ('' + a.name).localeCompare(b.name),
+            className: 'ph-no-capture',
+            sorter: (a: CohortType, b: CohortType) => ('' + a.name).localeCompare(b.name as string),
         },
         {
             title: 'Users in cohort',
-            render: function RenderCount(_, cohort: CohortType) {
+            render: function RenderCount(_: null, cohort: CohortType) {
                 return cohort.count?.toLocaleString()
             },
-            sorter: (a: CohortType, b: CohortType) => a.count - b.count,
+            sorter: (a: CohortType, b: CohortType) => (a.count || 0) - (b.count || 0),
         },
         createdAtColumn(),
         createdByColumn(cohorts),
@@ -84,7 +84,7 @@ function _Cohorts(): JSX.Element {
                     </Tooltip>
                 </span>
             ),
-            render: function RenderCalculation(_, cohort: CohortType) {
+            render: function RenderCalculation(_: null, cohort: CohortType) {
                 if (cohort.is_static) {
                     return <>N/A</>
                 }
@@ -154,7 +154,7 @@ function _Cohorts(): JSX.Element {
                     loading={cohortsLoading}
                     rowKey="id"
                     pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                    rowClassName={'cursor-pointer ' + rrwebBlockClass}
+                    rowClassName="cursor-pointer"
                     onRow={(cohort) => ({
                         onClick: () => setOpenCohort(cohort),
                     })}

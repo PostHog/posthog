@@ -17,7 +17,6 @@ import { colorForString } from 'lib/utils'
 import { Loading } from 'lib/utils'
 import { sessionsPlayLogic } from './sessionsPlayLogic'
 import { IconExternalLink } from 'lib/components/icons'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
 import './Sessions.scss'
@@ -122,17 +121,19 @@ function _SessionsPlay(): JSX.Element {
                             </>
                         )}
                     </div>
-                    <div className="ph-no-capture player-container">
+                    <div className="player-container">
                         {isLoadingSession ? (
                             <Loading />
                         ) : (
-                            <Player
-                                ref={playerRef}
-                                events={sessionPlayerData?.snapshots || []}
-                                onPlayerTimeChange={setCurrentPlayerTime}
-                                onNext={showNext ? goToNext : undefined}
-                                onPrevious={showPrev ? goToPrevious : undefined}
-                            />
+                            <span className="ph-no-capture">
+                                <Player
+                                    ref={playerRef}
+                                    events={sessionPlayerData?.snapshots || []}
+                                    onPlayerTimeChange={setCurrentPlayerTime}
+                                    onNext={showNext ? goToNext : undefined}
+                                    onPrevious={showPrev ? goToPrevious : undefined}
+                                />
+                            </span>
                         )}
                     </div>
                 </Col>
@@ -155,7 +156,7 @@ function _SessionsPlay(): JSX.Element {
                                         to={`/person/${encodeURIComponent(
                                             sessionPlayerData?.person?.distinct_ids[0] || ''
                                         )}`}
-                                        className={rrwebBlockClass + ' ph-no-capture'}
+                                        className="ph-no-capture"
                                         target="_blank"
                                         style={{ display: 'inline-flex', alignItems: 'center' }}
                                     >
