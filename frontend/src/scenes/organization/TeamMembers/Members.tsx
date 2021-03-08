@@ -17,6 +17,7 @@ import { OrganizationMemberType, OrganizationType, UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
+import { ProfilePicture } from '~/layout/navigation/TopNavigation'
 
 const membershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
     (value) => typeof value === 'number'
@@ -62,7 +63,7 @@ function isMembershipLevelChangeDisallowed(
     return false
 }
 
-function LevelComponent(level: OrganizationMembershipLevel, member: OrganizationMemberType): JSX.Element | null {
+function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { changeMemberAccessLevel } = useActions(membersLogic)
@@ -70,6 +71,8 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Organization
     if (!user) {
         return null
     }
+
+    const { level } = member
 
     function generateHandleClick(listLevel: OrganizationMembershipLevel): () => void {
         return function handleClick() {
@@ -141,7 +144,7 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Organization
     )
 }
 
-function ActionsComponent(_, member: OrganizationMemberType): JSX.Element | null {
+function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { removeMember } = useActions(membersLogic)
@@ -199,6 +202,14 @@ export function Members({ user }: { user: UserType }): JSX.Element {
 
     const columns: ColumnsType<Record<string, any>> = [
         {
+            dataIndex: 'user_email',
+            key: 'user_email',
+            render: function ProfilePictureRender(_, member) {
+                return <ProfilePicture name={member.user_first_name} email={member.user_email} />
+            },
+            width: 32,
+        },
+        {
             title: 'Name',
             dataIndex: 'user_first_name',
             key: 'user_first_name',
@@ -214,20 +225,23 @@ export function Members({ user }: { user: UserType }): JSX.Element {
             title: 'Level',
             dataIndex: 'level',
             key: 'level',
-            render: LevelComponent,
+            render: function LevelRender(_, member) {
+                return LevelComponent(member as OrganizationMemberType)
+            },
         },
         {
-            title: 'Joined At',
+            title: 'Joined At',
             dataIndex: 'joined_at',
             key: 'joined_at',
             render: (joinedAt: string) => humanFriendlyDetailedTime(joinedAt),
         },
         {
-            title: '',
             dataIndex: 'actions',
             key: 'actions',
             align: 'center',
-            render: ActionsComponent,
+            render: function ActionsRender(_, member) {
+                return ActionsComponent(member as OrganizationMemberType)
+            },
         },
     ]
 
