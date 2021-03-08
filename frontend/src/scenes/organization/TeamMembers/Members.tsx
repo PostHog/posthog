@@ -205,7 +205,7 @@ export function Members({ user }: { user: UserType }): JSX.Element {
             dataIndex: 'user_email',
             key: 'user_email',
             render: function ProfilePictureRender(_, member) {
-                return <ProfilePicture userName={member.user_first_name} userEmail={member.user_email} />
+                return <ProfilePicture name={member.user_first_name} email={member.user_email} />
             },
             width: 32,
         },

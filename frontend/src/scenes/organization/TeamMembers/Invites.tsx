@@ -58,8 +58,8 @@ function _Invites(): JSX.Element {
             render: function ProfilePictureRender(_, invite) {
                 return (
                     <ProfilePicture
-                        userName={(invite as OrganizationInviteType).first_name}
-                        userEmail={(invite as OrganizationInviteType).target_email}
+                        name={(invite as OrganizationInviteType).first_name}
+                        email={(invite as OrganizationInviteType).target_email}
                     />
                 )
             },
