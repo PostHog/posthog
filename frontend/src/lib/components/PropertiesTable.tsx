@@ -97,7 +97,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
 
     const valueComponent = (
         <span
-            className={canEdit ? `editable` : ''}
+            className={canEdit ? 'editable ph-no-capture' : 'ph-no-capture'}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
             {stringWithWBR(String(value))}
@@ -105,7 +105,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
     )
 
     return (
-        <div className="properties-table-value ph-no-capture">
+        <div className="properties-table-value">
             {typeToIcon[valueType] ? (
                 <>
                     {!editing ? (

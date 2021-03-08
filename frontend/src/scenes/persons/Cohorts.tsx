@@ -64,6 +64,7 @@ function _Cohorts(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
+            className: 'ph-no-capture',
             sorter: (a: CohortType, b: CohortType) => ('' + a.name).localeCompare(b.name),
         },
         {
@@ -154,7 +155,7 @@ function _Cohorts(): JSX.Element {
                     loading={cohortsLoading}
                     rowKey="id"
                     pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                    rowClassName={'cursor-pointer ' + 'ph-no-capture'}
+                    rowClassName="cursor-pointer"
                     onRow={(cohort) => ({
                         onClick: () => setOpenCohort(cohort),
                     })}

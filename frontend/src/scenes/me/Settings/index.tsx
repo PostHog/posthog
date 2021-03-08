@@ -20,7 +20,7 @@ function _MySettings(): JSX.Element {
         <div style={{ marginBottom: 128 }}>
             <PageHeader title="My Settings" />
             <Card>
-                <span className="ph-no-capture">
+                <span>
                     <h2 id="password" className="subtitle">
                         Change Password
                     </h2>

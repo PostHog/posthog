@@ -98,12 +98,12 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
             <Form.Item
                 name="name"
                 label="Name"
-                className="ph-no-capture"
                 rules={[
                     { required: true, message: 'Please give your feature flag a name, like "experimental feature".' },
                 ]}
             >
                 <Input
+                    className="ph-ignore-input"
                     autoFocus={isNew}
                     onChange={(e) => form.setFieldsValue({ key: slugify(e.target.value) })}
                     data-attr="feature-flag-name"
@@ -145,11 +145,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
                         />
                     )}
 
-                    <Form.Item
-                        className="ph-no-capture"
-                        label="Filter by user properties"
-                        style={{ position: 'relative' }}
-                    >
+                    <Form.Item label="Filter by user properties" style={{ position: 'relative' }}>
                         <PropertyFilters
                             pageKey={`feature-flag-${featureFlag.id}-${index}-${groups.length}`}
                             propertyFilters={group?.properties}

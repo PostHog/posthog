@@ -79,7 +79,6 @@ export function PropertiesVolumeTable(): JSX.Element {
                 />
             )}
             <Table
-                className="ph-no-capture"
                 dataSource={user?.team?.event_properties_with_usage
                     .filter((item: PropertyUsageType) => (keyMapping.event[item.key] ? showPostHogProps : true))
                     .filter((item: PropertyUsageType) =>

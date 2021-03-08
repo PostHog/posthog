@@ -210,7 +210,6 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             </div>
 
             <Table
-                className="ph-no-capture"
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
                 size="small"

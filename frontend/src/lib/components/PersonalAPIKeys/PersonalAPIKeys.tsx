@@ -106,6 +106,7 @@ function PersonalAPIKeysTable(): JSX.Element {
             title: 'Value',
             dataIndex: 'value',
             key: 'value',
+            className: 'ph-no-capture',
             render: RowValue,
         },
         {

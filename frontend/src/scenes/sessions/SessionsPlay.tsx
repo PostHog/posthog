@@ -96,7 +96,7 @@ function _SessionsPlay(): JSX.Element {
     }
 
     return (
-        <div className="session-player ph-no-capture">
+        <div className="session-player">
             <Row gutter={16} style={{ height: '100%' }}>
                 <Col span={18} style={{ paddingRight: 0 }}>
                     <div className="mb-05" style={{ display: 'flex' }}>
@@ -122,17 +122,19 @@ function _SessionsPlay(): JSX.Element {
                             </>
                         )}
                     </div>
-                    <div className="ph-no-capture player-container">
+                    <div className="player-container">
                         {isLoadingSession ? (
                             <Loading />
                         ) : (
-                            <Player
-                                ref={playerRef}
-                                events={sessionPlayerData?.snapshots || []}
-                                onPlayerTimeChange={setCurrentPlayerTime}
-                                onNext={showNext ? goToNext : undefined}
-                                onPrevious={showPrev ? goToPrevious : undefined}
-                            />
+                            <span className="ph-no-capture">
+                                <Player
+                                    ref={playerRef}
+                                    events={sessionPlayerData?.snapshots || []}
+                                    onPlayerTimeChange={setCurrentPlayerTime}
+                                    onNext={showNext ? goToNext : undefined}
+                                    onPrevious={showPrev ? goToPrevious : undefined}
+                                />
+                            </span>
                         )}
                     </div>
                 </Col>
