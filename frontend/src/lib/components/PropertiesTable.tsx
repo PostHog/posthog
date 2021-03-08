@@ -176,7 +176,7 @@ export function PropertiesTable({
             title: 'key',
             render: function Key(item: any): JSX.Element {
                 return (
-                    <div className="properties-table-key ph-no-capture">
+                    <div className="properties-table-key">
                         {onDelete && nestingLevel <= 1 && !keyMappingKeys.includes(item[0]) && (
                             <Popconfirm
                                 onConfirm={() => onDelete(item[0])}
