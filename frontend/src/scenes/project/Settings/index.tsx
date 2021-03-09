@@ -75,7 +75,7 @@ function _ProjectSettings(): JSX.Element {
             <PageHeader
                 title="Project Settings"
                 caption={`Organize your analytics within the project. These settings only apply to ${
-                    currentTeam?.name ?? '–'
+                    currentTeam?.name ?? 'the current project'
                 }.`}
             />
             <Card>

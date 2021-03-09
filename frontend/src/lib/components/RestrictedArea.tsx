@@ -28,7 +28,7 @@ export function RestrictedArea({ Component, minimumAccessLevel }: RestrictedArea
             if (minimumAccessLevel === OrganizationMembershipLevel.Owner) {
                 return 'This area is restricted to the organization owner.'
             }
-            return `This area is restricted to organization ${OrganizationMembershipLevel[minimumAccessLevel]}s and up. Your level is only ${currentOrganization.membership_level}.`
+            return `This area is restricted to organization ${OrganizationMembershipLevel[minimumAccessLevel]}s and up. Your level is ${currentOrganization.membership_level}.`
         }
         return null
     }, [currentOrganization])
