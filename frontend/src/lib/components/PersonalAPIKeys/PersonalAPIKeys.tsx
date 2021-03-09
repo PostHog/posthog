@@ -7,6 +7,7 @@ import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import { PersonalAPIKeyType } from '~/types'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { CopyToClipboardInline } from '../CopyToClipboard'
+import { ColumnsType } from 'antd/lib/table'
 
 function CreateKeyModal({
     isVisible,
@@ -96,7 +97,7 @@ function PersonalAPIKeysTable(): JSX.Element {
     const { keys } = useValues(personalAPIKeysLogic) as { keys: PersonalAPIKeyType[] }
     const { deleteKey } = useActions(personalAPIKeysLogic)
 
-    const columns = [
+    const columns: ColumnsType<Record<string, any>> = [
         {
             title: 'Label',
             dataIndex: 'label',
@@ -106,6 +107,7 @@ function PersonalAPIKeysTable(): JSX.Element {
             title: 'Value',
             dataIndex: 'value',
             key: 'value',
+            className: 'ph-no-capture',
             render: RowValue,
         },
         {
@@ -118,7 +120,7 @@ function PersonalAPIKeysTable(): JSX.Element {
             title: 'Created',
             dataIndex: 'created_at',
             key: 'createdAt',
-            render: humanFriendlyDetailedTime,
+            render: (createdAt: string | null) => humanFriendlyDetailedTime(createdAt),
         },
         {
             title: '',
