@@ -1,19 +1,19 @@
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Input, Popconfirm, Select, Switch } from 'antd'
-import { DeleteOutlined, CodeOutlined } from '@ant-design/icons'
+import { Button, Form, Popconfirm, Switch, Tooltip } from 'antd'
+import { DeleteOutlined, CodeOutlined, LockFilled } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Link } from 'lib/components/Link'
 import { Drawer } from 'lib/components/Drawer'
 import { LocalPluginTag } from 'scenes/plugins/plugin/LocalPluginTag'
-import { UploadField } from './UploadField'
 import { defaultConfigForPlugin, getConfigSchemaArray } from 'scenes/plugins/utils'
 import Markdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from './PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
+import { PluginField } from 'scenes/plugins/edit/PluginField'
 
 function EnabledDisabledSwitch({
     value,
@@ -29,6 +29,17 @@ function EnabledDisabledSwitch({
         </>
     )
 }
+
+const SecretFieldIcon = (): JSX.Element => (
+    <>
+        <Tooltip
+            placement="topLeft"
+            title="This is a secret write-only field. Its value is not available after saving."
+        >
+            <LockFilled style={{ marginRight: 5 }} />
+        </Tooltip>
+    </>
+)
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -57,7 +68,8 @@ export function PluginDrawer(): JSX.Element {
         return (
             Array.isArray(fieldConfig.choices) &&
             !!fieldConfig.choices.length &&
-            !fieldConfig.choices.find((c) => typeof c !== 'string')
+            !fieldConfig.choices.find((c) => typeof c !== 'string') &&
+            !fieldConfig.secret
         )
     }
 
@@ -173,7 +185,12 @@ export function PluginDrawer(): JSX.Element {
                                     )}
                                     {fieldConfig.type && isValidField(fieldConfig) ? (
                                         <Form.Item
-                                            label={fieldConfig.name || fieldConfig.key}
+                                            label={
+                                                <>
+                                                    {fieldConfig.secret && <SecretFieldIcon />}
+                                                    {fieldConfig.name || fieldConfig.key}
+                                                </>
+                                            }
                                             extra={
                                                 fieldConfig.hint && (
                                                     <Markdown source={fieldConfig.hint} linkTarget="_blank" />
@@ -188,30 +205,16 @@ export function PluginDrawer(): JSX.Element {
                                                 },
                                             ]}
                                         >
-                                            {fieldConfig.type === 'attachment' ? (
-                                                <UploadField />
-                                            ) : fieldConfig.type === 'string' ? (
-                                                <Input />
-                                            ) : fieldConfig.type === 'choice' ? (
-                                                <Select dropdownMatchSelectWidth={false}>
-                                                    {fieldConfig.choices.map((choice) => (
-                                                        <Select.Option value={choice} key={choice}>
-                                                            {choice}
-                                                        </Select.Option>
-                                                    ))}
-                                                </Select>
-                                            ) : (
-                                                <strong style={{ color: 'var(--danger)' }}>
-                                                    Unknown field type "<code>{fieldConfig.type}</code>".
-                                                    <br />
-                                                    You may need to upgrade PostHog!
-                                                </strong>
-                                            )}
+                                            <PluginField fieldConfig={fieldConfig} />
                                         </Form.Item>
                                     ) : (
-                                        <p style={{ color: 'var(--danger)' }}>
-                                            Invalid config field <i>{fieldConfig.name || fieldConfig.key}</i>.
-                                        </p>
+                                        <>
+                                            {fieldConfig.type ? (
+                                                <p style={{ color: 'var(--danger)' }}>
+                                                    Invalid config field <i>{fieldConfig.name || fieldConfig.key}</i>.
+                                                </p>
+                                            ) : null}
+                                        </>
                                     )}
                                 </React.Fragment>
                             ))}

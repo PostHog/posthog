@@ -6,6 +6,7 @@ import { NumberOutlined, CalendarOutlined, BulbOutlined, StopOutlined, DeleteOut
 import { isURL } from 'lib/utils'
 import { IconExternalLink, IconText } from 'lib/components/icons'
 import './PropertiesTable.scss'
+import stringWithWBR from 'lib/utils/stringWithWBR'
 
 type HandledType = 'string' | 'string, parsable as datetime' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -26,7 +27,7 @@ const typeToIcon: Record<HandledType | string, JSX.Element> = {
 
 interface BasePropertyType {
     rootKey?: string // The key name of the object if it's nested
-    onEdit?: (key: string | undefined, newValue: any, oldValue?: any) => void // If set, it will allow inline editing
+    onEdit?: (key: string, newValue: any, oldValue?: any) => void // If set, it will allow inline editing
     nestingLevel?: number
 }
 
@@ -89,7 +90,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
 
     const handleValueChange = (newValue: any, save: boolean): void => {
         setEditing(false)
-        if (save && onEdit && newValue != value) {
+        if (rootKey !== undefined && save && onEdit && newValue != value) {
             onEdit(rootKey, newValue, value)
         }
     }
@@ -99,7 +100,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
             className={canEdit ? `editable` : ''}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
-            {String(value)}
+            {stringWithWBR(String(value))}
         </span>
     )
 
@@ -140,6 +141,7 @@ interface PropertiesTableType extends BasePropertyType {
     properties: any
     sortProperties?: boolean
     onDelete?: (key: string) => void
+    className?: string
 }
 
 export function PropertiesTable({
@@ -149,6 +151,7 @@ export function PropertiesTable({
     sortProperties = false,
     nestingLevel = 0,
     onDelete,
+    className = '',
 }: PropertiesTableType): JSX.Element {
     const objectProperties = useMemo(() => {
         if (!(properties instanceof Object)) {
@@ -227,6 +230,7 @@ export function PropertiesTable({
                 size="small"
                 pagination={false}
                 dataSource={objectProperties}
+                className={className}
             />
         )
     }

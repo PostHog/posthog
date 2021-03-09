@@ -58,7 +58,7 @@ export function ActionsLineGraph({
                 }
             />
         ) : (
-            <LineGraphEmptyState color={color} />
+            <LineGraphEmptyState color={color} isDashboard={!!dashboardItemId} />
         )
     ) : (
         <Loading />

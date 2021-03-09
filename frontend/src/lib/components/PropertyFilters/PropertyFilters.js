@@ -52,7 +52,7 @@ const FilterRow = React.memo(function FilterRow({
                     onClick={() => {
                         remove(index)
                     }}
-                    style={{ cursor: 'pointer', float: 'none' }}
+                    style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
                 />
             )}
             {key && showConditionBadge && index + 1 < totalCount && (

@@ -45,6 +45,7 @@ function defaultFilters(filters: Record<string, any>): Record<string, any> {
         retention_type: filters.retention_type || RETENTION_FIRST_TIME,
         display: filters.display || ACTIONS_TABLE,
         properties: filters.properties || [],
+        insight: ViewType.RETENTION,
     }
 }
 
