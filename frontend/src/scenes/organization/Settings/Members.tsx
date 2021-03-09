@@ -83,7 +83,7 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
                 Modal.confirm({
                     centered: true,
                     title: `Pass on organization ownership to ${member.user_first_name}?`,
-                    content: `You won't be ${user.organization?.name} owner anymore - you'll become just an administrator.`,
+                    content: `You will stop being the owner of ${user.organization?.name}, becoming just an administrator.`,
                     icon: <SwapOutlined />,
                     okType: 'danger',
                     okText: 'Pass Ownership',
@@ -178,7 +178,8 @@ function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
 
     const allowDeletion =
         // higher-ranked users cannot be removed, at the same time the currently logged-in user can leave any time
-        (member.level <= currentMembershipLevel || member.user_id === user.id) &&
+        ((currentMembershipLevel >= OrganizationMembershipLevel.Admin && member.level <= currentMembershipLevel) ||
+            member.user_id === user.id) &&
         // unless that user is the organization's owner, in which case they can't leave
         member.level !== OrganizationMembershipLevel.Owner
 
@@ -215,11 +216,17 @@ export function Members({ user }: { user: UserType }): JSX.Element {
             key: 'user_first_name',
             render: (firstName: string, member: Record<string, any>) =>
                 member.user_id == user.id ? `${firstName} (me)` : firstName,
+            sorter: (a, b) =>
+                (a as OrganizationMemberType).user_first_name.localeCompare(
+                    (b as OrganizationMemberType).user_first_name
+                ),
         },
         {
             title: 'Email',
             dataIndex: 'user_email',
             key: 'user_email',
+            sorter: (a, b) =>
+                (a as OrganizationMemberType).user_email.localeCompare((b as OrganizationMemberType).user_email),
         },
         {
             title: 'Level',
@@ -228,12 +235,17 @@ export function Members({ user }: { user: UserType }): JSX.Element {
             render: function LevelRender(_, member) {
                 return LevelComponent(member as OrganizationMemberType)
             },
+            sorter: (a, b) => (a as OrganizationMemberType).level - (b as OrganizationMemberType).level,
+            defaultSortOrder: 'descend',
         },
         {
             title: 'Joined At',
             dataIndex: 'joined_at',
             key: 'joined_at',
             render: (joinedAt: string) => humanFriendlyDetailedTime(joinedAt),
+            sorter: (a, b) =>
+                (a as OrganizationMemberType).joined_at.localeCompare((b as OrganizationMemberType).joined_at),
+            defaultSortOrder: 'ascend',
         },
         {
             dataIndex: 'actions',
