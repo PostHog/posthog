@@ -48,7 +48,6 @@ export const dashboardLogic = kea({
                         return dashboard
                     } catch (error) {
                         if (error.status === 404) {
-                            // silently escape
                             return []
                         }
                         throw error
@@ -120,10 +119,9 @@ export const dashboardLogic = kea({
         items: [() => [selectors.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [() => [selectors.allItemsLoading], (allItemsLoading) => allItemsLoading],
         dashboard: [
-            () => [selectors.allItems, dashboardsModel.selectors.dashboards],
-            (allItems, dashboards) => {
-                let dashboard = dashboards.find((d) => d.id === props.id) || false
-                return dashboard ? dashboard : allItems
+            () => [dashboardsModel.selectors.dashboards],
+            (dashboards) => {
+                return dashboards.find((d) => d.id === props.id)
             },
         ],
         breakpoints: [() => [], () => ({ lg: 1600, sm: 940, xs: 480, xxs: 0 })],
