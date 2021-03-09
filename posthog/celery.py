@@ -74,14 +74,6 @@ def setup_periodic_tasks(sender, **kwargs):
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
-    if settings.ASYNC_EVENT_ACTION_MAPPING:
-        sender.add_periodic_task(
-            (60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
-            calculate_event_action_mappings.s(),
-            name="calculate event action mappings",
-            expires=(60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
-        )
-
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
         sender.add_periodic_task(60, calculate_event_property_usage.s(), name="calculate event property usage")
 
@@ -200,13 +192,6 @@ def run_session_recording_retention():
     from posthog.tasks.session_recording_retention import session_recording_retention_scheduler
 
     session_recording_retention_scheduler()
-
-
-@app.task(ignore_result=True)
-def calculate_event_action_mappings():
-    from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
-
-    calculate_actions_from_last_calculation()
 
 
 @app.task(ignore_result=True)
