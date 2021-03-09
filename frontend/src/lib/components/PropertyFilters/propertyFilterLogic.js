@@ -100,11 +100,7 @@ export const propertyFilterLogic = kea({
                 searchParams.properties = cleanedFilters
 
                 if (!objectsEqual(properties, cleanedFilters)) {
-                    if (searchParams.properties.length !== 0) {
-                        router.actions.push(pathname, searchParams)
-                    } else {
-                        router.actions.push(pathname)
-                    }
+                    router.actions.push(pathname, searchParams)
                 }
             }
         },

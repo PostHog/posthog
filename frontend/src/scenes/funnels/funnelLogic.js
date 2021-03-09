@@ -81,8 +81,8 @@ export const funnelLogic = kea({
 
                 insightLogic.actions.startQuery()
 
-                const eventCount = params.events.length
-                const actionCount = params.actions.length
+                const eventCount = params.events?.length
+                const actionCount = params.actions?.length
                 const interval = params.interval
 
                 try {
