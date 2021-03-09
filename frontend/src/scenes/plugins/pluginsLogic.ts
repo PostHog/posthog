@@ -425,14 +425,19 @@ export const pluginsLogic = kea<
         pluginsNeedingUpdates: [
             (s) => [s.installedPlugins, organizationLogic.selectors.currentOrganization],
             (installedPlugins, currentOrganization) => {
-                // show either plugins that need to be updated or that were just updated
-                if (currentOrganization?.plugins_access_level !== PluginsAccessLevel.Root) {
+                // Disable this for orgs who can't install plugins
+                if (
+                    !currentOrganization ||
+                    (currentOrganization.plugins_access_level ?? 0) < PluginsAccessLevel.Install
+                ) {
                     return []
                 }
+                // Show either plugins that need to be updated or that were just updated, and only the current org's
                 return installedPlugins.filter(
-                    ({ plugin_type: pluginType, tag, latest_tag: latestTag, updateStatus }) =>
-                        pluginType !== PluginInstallationType.Source &&
-                        ((latestTag && tag !== latestTag) ||
+                    ({ plugin_type, tag, latest_tag, updateStatus, organization_id }) =>
+                        organization_id === currentOrganization.id &&
+                        plugin_type !== PluginInstallationType.Source &&
+                        ((latest_tag && tag !== latest_tag) ||
                             (updateStatus && !updateStatus.error && (updateStatus.updated || !updateStatus.upToDate)))
                 )
             },
