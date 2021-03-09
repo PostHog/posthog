@@ -20,6 +20,8 @@ import { Link } from 'lib/components/Link'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { userLogic } from 'scenes/userLogic'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
+import { RestrictedArea } from '../../../lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from '../../../lib/constants'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -192,7 +194,7 @@ function _ProjectSettings(): JSX.Element {
                     with us!
                 </p>
                 <Divider />
-                <DangerZone />
+                <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
             </Card>
         </div>
     )
