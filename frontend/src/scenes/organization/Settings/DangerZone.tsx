@@ -5,10 +5,10 @@ import { red } from '@ant-design/colors'
 import { Button } from 'antd'
 import confirm from 'antd/lib/modal/confirm'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { OrganizationMembershipLevel } from 'lib/constants'
 import Paragraph from 'antd/lib/typography/Paragraph'
+import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
 
-export function DangerZone(): JSX.Element {
+export function DangerZone({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteCurrentOrganization } = useActions(organizationLogic)
 
@@ -33,35 +33,29 @@ export function DangerZone(): JSX.Element {
         })
     }
 
-    let accessRestrictionReason: string | null = null
-    if ((currentOrganization?.membership_level ?? -1) < OrganizationMembershipLevel.Owner) {
-        accessRestrictionReason = 'This section is restricted to the organization owner.'
-    }
-
     return (
         <div style={{ color: 'var(--danger)' }}>
             <h2 style={{ color: 'var(--danger)' }} className="subtitle">
                 Danger Zone
             </h2>
-            {!currentOrganization || accessRestrictionReason ? (
-                <i className="access-restricted">{accessRestrictionReason}</i>
-            ) : (
-                <div className="mt">
+            <div className="mt">
+                {!isRestricted && (
                     <Paragraph type="danger">
                         This is <b>irreversible</b>. Please be certain.
                     </Paragraph>
-                    <Button
-                        type="default"
-                        danger
-                        onClick={confirmDeleteProject}
-                        className="mr-05"
-                        data-attr="delete-project-button"
-                        icon={<DeleteOutlined />}
-                    >
-                        Delete {currentOrganization.name}
-                    </Button>
-                </div>
-            )}
+                )}
+                <Button
+                    type="default"
+                    danger
+                    onClick={confirmDeleteProject}
+                    className="mr-05"
+                    data-attr="delete-project-button"
+                    icon={<DeleteOutlined />}
+                    disabled={isRestricted}
+                >
+                    Delete {currentOrganization?.name || 'the current organization'}
+                </Button>
+            </div>
         </div>
     )
 }

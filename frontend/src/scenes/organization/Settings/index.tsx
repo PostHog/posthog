@@ -60,7 +60,7 @@ function _OrganizationSettings({ user }: { user: UserType }): JSX.Element {
                 <Divider />
                 <Members user={user} />
                 <Divider />
-                <DangerZone />
+                <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Owner} />
             </Card>
         </>
     )
