@@ -24,7 +24,7 @@ import { PopconfirmProps } from 'antd/lib/popconfirm'
 
 export interface Action {
     Icon: any
-    title?: string
+    title: string
     callback: () => void
     popconfirmProps?: Omit<PopconfirmProps, 'onConfirm'>
 }
