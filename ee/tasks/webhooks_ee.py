@@ -35,7 +35,7 @@ def post_event_to_webhook_ee(self: Task, event: Dict[str, Any], team_id: int, si
     try:
         is_zapier_available = team.organization.is_feature_available("zapier")
 
-        actionFilters = {"team_id": team_id}
+        actionFilters = {"team_id": team_id, "deleted": False}
         if not is_zapier_available:
             if not team.slack_incoming_webhook:
                 return  # Exit this task if neither Zapier nor webhook URL are available
