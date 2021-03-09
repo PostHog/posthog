@@ -278,7 +278,7 @@ export interface CohortType {
     created_by?: Record<string, any>
     created_at?: string
     deleted?: boolean
-    id: number
+    id: number | 'new'
     is_calculating?: boolean
     last_calculation?: string
     is_static?: boolean
