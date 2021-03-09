@@ -118,7 +118,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
                             {canEdit && boolNullTypes.includes(valueType) ? (
                                 <Dropdown overlay={boolNullSelect}>{valueComponent}</Dropdown>
                             ) : (
-                                <> {valueComponent}</>
+                                <>{valueComponent}</>
                             )}
 
                             {isURL(value) && (
