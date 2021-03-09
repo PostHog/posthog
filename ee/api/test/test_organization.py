@@ -29,12 +29,19 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertFalse(Organization.objects.filter(id=organization.id).exists())
         self.assertFalse(Team.objects.filter(id=team.id).exists())
 
-    def test_no_delete_last_organization(self):
+    def test_delete_last_organization(self):
         org_id = self.organization.id
         self.assertTrue(Organization.objects.filter(id=org_id).exists())
+
         response = self.client.delete(f"/api/organizations/{org_id}")
-        self.assertEqual(response.status_code, 204)
+
+        self.assertEqual(response.status_code, 204, "Did not successfully delete last organization on the instance")
         self.assertFalse(Organization.objects.filter(id=org_id).exists())
+        self.assertFalse(Organization.objects.exists())
+
+        response_bis = self.client.delete(f"/api/organizations/{org_id}")
+
+        self.assertEqual(response_bis.status_code, 404, "Did not return a 404 on trying to delete a nonexistent org")
 
     def test_no_delete_organization_not_administrating(self):
         organization, organization_membership, team = Organization.objects.bootstrap(self.user)
