@@ -41,7 +41,11 @@ export const dashboardsModel = kea({
                 }
                 return result
             },
-            renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),
+            renameDashboard: async ({ id, name }, breakpoint) => {
+                await breakpoint(700)
+                const response = await api.update(`api/dashboard/${id}`, { name })
+                return response
+            },
             setIsSharedDashboard: async ({ id, isShared }) =>
                 await api.update(`api/dashboard/${id}`, { is_shared: isShared }),
             deleteDashboard: async ({ id }) => await api.update(`api/dashboard/${id}`, { deleted: true }),

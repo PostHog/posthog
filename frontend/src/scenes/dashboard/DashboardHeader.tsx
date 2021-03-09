@@ -1,5 +1,5 @@
 import { Loading, triggerResizeAfterADelay } from 'lib/utils'
-import { Button, Dropdown, Menu, Select, Tooltip } from 'antd'
+import { Button, Dropdown, Input, Menu, Select, Tooltip } from 'antd'
 import { router } from 'kea-router'
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
@@ -22,11 +22,12 @@ import { DashboardType } from '~/types'
 
 export function DashboardHeader(): JSX.Element {
     const { dashboard, isOnEditMode } = useValues(dashboardLogic)
-    const { addNewDashboard, setIsOnEditMode } = useActions(dashboardLogic)
+    const { addNewDashboard, setIsOnEditMode, renameDashboard } = useActions(dashboardLogic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [fullScreen, setFullScreen] = useState(false)
     const [showShareModal, setShowShareModal] = useState(false)
+    const [newDashboardName, setNewDashboardName] = useState(dashboard.name)
 
     const togglePresentationMode = (): void => {
         setFullScreen(!fullScreen)
@@ -123,28 +124,47 @@ export function DashboardHeader(): JSX.Element {
                 <Loading />
             ) : (
                 <>
-                    <div className="dashboard-select">
-                        <Select
-                            value={dashboard?.id || null}
-                            onChange={(id) =>
-                                id === 'new' ? addNewDashboard() : router.actions.push(`/dashboard/${id}`)
-                            }
-                            bordered={false}
-                            dropdownMatchSelectWidth={false}
-                        >
-                            {dashboards.map((dash: DashboardType) => (
-                                <Select.Option key={dash.id} value={dash.id}>
-                                    {dash.name || <span style={{ color: 'var(--text-muted)' }}>Untitled</span>}
-                                    {dash.is_shared && (
-                                        <Tooltip title="This dashboard is publicly shared">
-                                            <ShareAltOutlined style={{ marginLeft: 4 }} />
-                                        </Tooltip>
-                                    )}
-                                </Select.Option>
-                            ))}
-                            <Select.Option value="new">+ New Dashboard</Select.Option>
-                        </Select>
-                    </div>
+                    {isOnEditMode ? (
+                        <Input
+                            placeholder="Dashboard name (e.g. Weekly KPIs)"
+                            value={newDashboardName}
+                            autoFocus
+                            size="large"
+                            style={{ maxWidth: 400 }}
+                            onChange={(e) => {
+                                setNewDashboardName(e.target.value) // To update the input immediately
+                                renameDashboard(e.target.value) // This is breakpointed (i.e. debounced) to avoid multiple API calls
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    setIsOnEditMode(false)
+                                }
+                            }}
+                        />
+                    ) : (
+                        <div className="dashboard-select">
+                            <Select
+                                value={dashboard?.id || null}
+                                onChange={(id) =>
+                                    id === 'new' ? addNewDashboard() : router.actions.push(`/dashboard/${id}`)
+                                }
+                                bordered={false}
+                                dropdownMatchSelectWidth={false}
+                            >
+                                {dashboards.map((dash: DashboardType) => (
+                                    <Select.Option key={dash.id} value={dash.id}>
+                                        {dash.name || <span style={{ color: 'var(--text-muted)' }}>Untitled</span>}
+                                        {dash.is_shared && (
+                                            <Tooltip title="This dashboard is publicly shared">
+                                                <ShareAltOutlined style={{ marginLeft: 4 }} />
+                                            </Tooltip>
+                                        )}
+                                    </Select.Option>
+                                ))}
+                                <Select.Option value="new">+ New Dashboard</Select.Option>
+                            </Select>
+                        </div>
+                    )}
 
                     <div className="dashboard-meta">
                         {isOnEditMode ? (

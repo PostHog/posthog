@@ -20,7 +20,7 @@ export const dashboardLogic = kea({
 
     actions: () => ({
         addNewDashboard: true,
-        renameDashboard: true,
+        renameDashboard: (name) => ({ name }),
         setIsSharedDashboard: (id, isShared) => ({ id, isShared }), // whether the dashboard is shared or not
         setIsOnSharedMode: (isOnSharedMode) => ({ isOnSharedMode }), // whether the dashboard is open in shared mode (i.e. with a shareToken)
         updateLayouts: (layouts) => ({ layouts }),
@@ -271,14 +271,8 @@ export const dashboardLogic = kea({
         setIsSharedDashboard: ({ id, isShared }) => {
             dashboardsModel.actions.setIsSharedDashboard({ id, isShared })
         },
-        renameDashboard: async () => {
-            prompt({ key: `rename-dashboard-${key}` }).actions.prompt({
-                title: 'Rename dashboard',
-                placeholder: 'Please enter the new name',
-                value: values.dashboard.name,
-                error: 'You must enter name',
-                success: (name) => dashboardsModel.actions.renameDashboard({ id: values.dashboard.id, name }),
-            })
+        renameDashboard: ({ name }) => {
+            dashboardsModel.actions.renameDashboard({ id: values.dashboard.id, name })
         },
         updateLayouts: () => {
             actions.saveLayouts()
