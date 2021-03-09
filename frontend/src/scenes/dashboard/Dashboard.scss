@@ -52,6 +52,15 @@ $dashboard-title-size: 32px;
                     height: 35px;
                     overflow: hidden;
                     text-overflow: ellipsis;
+                    display: flex;
+                    align-items: center;
+
+                    .anticon-share-alt {
+                        font-size: $dashboard-title-size * 0.65;
+                        color: $success;
+                        margin-left: 6px !important;
+                        margin-right: 4px;
+                    }
                 }
             }
             &.ant-select-open {

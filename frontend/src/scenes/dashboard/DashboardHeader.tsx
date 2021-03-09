@@ -1,5 +1,5 @@
 import { Loading, triggerResizeAfterADelay } from 'lib/utils'
-import { Button, Dropdown, Menu, Select } from 'antd'
+import { Button, Dropdown, Menu, Select, Tooltip } from 'antd'
 import { router } from 'kea-router'
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
@@ -53,10 +53,10 @@ export function DashboardHeader(): JSX.Element {
                             </>
                         )}
                         <Menu.Item icon={<EditOutlined />} onClick={() => setIsOnEditMode(true)}>
-                            Edit mode (E)
+                            Edit mode
                         </Menu.Item>
                         <Menu.Item icon={<FullscreenOutlined />} onClick={togglePresentationMode}>
-                            Presentation mode (F12)
+                            Presentation mode
                         </Menu.Item>
                         {dashboard.pinned ? (
                             <Menu.Item icon={<PushpinFilled />} onClick={() => unpinDashboard(dashboard.id)}>
@@ -132,10 +132,14 @@ export function DashboardHeader(): JSX.Element {
                             bordered={false}
                             dropdownMatchSelectWidth={false}
                         >
-                            {!dashboard ? <Select.Option value="">Not Found</Select.Option> : null}
                             {dashboards.map((dash: DashboardType) => (
                                 <Select.Option key={dash.id} value={dash.id}>
-                                    {dash.name || <span style={{ color: 'var(--gray)' }}>Untitled</span>}
+                                    {dash.name || <span style={{ color: 'var(--text-muted)' }}>Untitled</span>}
+                                    {dash.is_shared && (
+                                        <Tooltip title="This dashboard is publicly shared">
+                                            <ShareAltOutlined style={{ marginLeft: 4 }} />
+                                        </Tooltip>
+                                    )}
                                 </Select.Option>
                             ))}
                             <Select.Option value="new">+ New Dashboard</Select.Option>
