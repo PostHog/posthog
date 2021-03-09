@@ -5,7 +5,7 @@ from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 from django.urls.base import reverse
 from rest_framework import exceptions, generics, permissions, response, serializers, status, viewsets
@@ -23,6 +23,7 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     UninitiatedOrCloudOnly,
+    extract_organization,
 )
 from posthog.tasks import user_identify
 from posthog.utils import mask_email_address
@@ -46,6 +47,18 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
         ):
             return False
         return True
+
+
+class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
+        organization = extract_organization(object)
+        min_level = (
+            OrganizationMembership.Level.OWNER if request.method == "DELETE" else OrganizationMembership.Level.ADMIN
+        )
+        return OrganizationMembership.objects.get(user=request.user, organization=organization).level >= min_level
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
@@ -116,7 +129,7 @@ class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     permission_classes = [
         permissions.IsAuthenticated,
         OrganizationMemberPermissions,
-        OrganizationAdminWritePermissions,
+        OrganizationPermissionsWithDelete,
     ]
     queryset = Organization.objects.none()
     lookup_field = "id"

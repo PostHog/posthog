@@ -83,7 +83,7 @@ class APITestMixin(ErrorResponsesMixin):
             organization=self.organization,
             email=email,
             password=password,
-            level=OrganizationMembership.Level.ADMIN,
+            level=OrganizationMembership.Level.OWNER,
             **kwargs,
         )
 
