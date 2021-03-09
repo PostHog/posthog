@@ -246,25 +246,9 @@ class EventManager(models.QuerySet):
                     ).hash
             event = super().create(*args, **kwargs)
 
-            # Matching actions to events can get very expensive to do as events are streaming in
-            # In a few cases we have had it OOM Postgres with the query it is running
-            # Short term solution is to have this be configurable to be run in batch
-            if not settings.ASYNC_EVENT_ACTION_MAPPING:
-                should_post_webhook = False
-                relations = []
-                for action in event.actions:
-                    relations.append(action.events.through(action_id=action.pk, event_id=event.pk))
-                    if is_ee_enabled():
-                        continue  # avoiding duplication here - in EE hooks are handled by webhooks_ee.py
-                    action.on_perform(event)
-                    if action.post_to_slack:
-                        should_post_webhook = True
-                Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
-                team = kwargs.get("team", event.team)
-                if (
-                    should_post_webhook and team and team.slack_incoming_webhook and not is_ee_enabled()
-                ):  # ee will handle separately
-                    celery.current_app.send_task("posthog.tasks.webhooks.post_event_to_webhook", (event.pk, site_url))
+            celery.current_app.send_task(
+                "posthog.tasks.calculate_action.calculate_actions_for_event", (event.pk, site_url)
+            )
 
             return event
 
