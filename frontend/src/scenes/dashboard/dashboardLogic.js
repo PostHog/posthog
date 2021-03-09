@@ -125,6 +125,23 @@ export const dashboardLogic = kea({
     selectors: ({ props, selectors }) => ({
         items: [() => [selectors.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [() => [selectors.allItemsLoading], (allItemsLoading) => allItemsLoading],
+        lastRefreshed: [
+            () => [selectors.items],
+            (items) => {
+                if (!items || !items.length) {
+                    return null
+                }
+                let lastRefreshed = items[0].last_refresh
+
+                for (const item of items) {
+                    if (item.last_refresh < lastRefreshed) {
+                        lastRefreshed = item.last_refresh
+                    }
+                }
+
+                return lastRefreshed
+            },
+        ],
         dashboard: [
             () => [dashboardsModel.selectors.dashboards],
             (dashboards) => {

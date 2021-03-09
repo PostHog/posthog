@@ -19,7 +19,6 @@ import { FullScreen } from 'lib/components/FullScreen'
 import moment from 'moment'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardType } from '~/types'
-import './DashboardHeader.scss'
 
 export function DashboardHeader(): JSX.Element {
     const { dashboard } = useValues(dashboardLogic)

@@ -1,5 +1,22 @@
 @import '~/vars';
 
+.dashboard {
+    margin-top: $default_spacing * 2;
+
+    .dashboard-items-actions {
+        margin-bottom: $default_spacing;
+        display: flex;
+
+        .left-item {
+            flex-grow: 1;
+        }
+
+        .ant-btn {
+            padding-left: 4px !important;
+        }
+    }
+}
+
 .dashboard-header {
     display: flex;
     justify-content: space-between;

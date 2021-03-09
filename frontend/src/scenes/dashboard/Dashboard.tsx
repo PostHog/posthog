@@ -8,7 +8,10 @@ import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { hot } from 'react-hot-loader/root'
 import { DateFilter } from 'lib/components/DateFilter'
-import { CalendarOutlined } from '@ant-design/icons'
+import { CalendarOutlined, ReloadOutlined } from '@ant-design/icons'
+import moment from 'moment'
+import { Button } from 'antd'
+import './Dashboard.scss'
 
 interface Props {
     id: string
@@ -25,9 +28,9 @@ function _Dashboard({ id, shareToken }: Props): JSX.Element {
 }
 
 function DashboardView(): JSX.Element {
-    const { dashboard, itemsLoading, items, isOnSharedMode } = useValues(dashboardLogic)
+    const { dashboard, itemsLoading, items, isOnSharedMode, lastRefreshed } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { updateAndRefreshDashboard } = useActions(dashboardLogic)
+    const { updateAndRefreshDashboard, refreshAllDashboardItems } = useActions(dashboardLogic)
 
     if (dashboardsLoading || itemsLoading) {
         return <SceneLoading />
@@ -42,12 +45,18 @@ function DashboardView(): JSX.Element {
     }
 
     return (
-        <div style={{ marginTop: 32 }}>
+        <div className="dashboard">
             {!isOnSharedMode && <DashboardHeader />}
 
             {items && items.length ? (
                 <div>
-                    <div className="text-right mb">
+                    <div className="dashboard-items-actions">
+                        <div className="left-item">
+                            Last updated <b>{moment(lastRefreshed).fromNow()}</b>
+                            <Button type="link" icon={<ReloadOutlined />} onClick={refreshAllDashboardItems}>
+                                Refresh
+                            </Button>
+                        </div>
                         <DateFilter
                             defaultValue="Custom"
                             showCustom
