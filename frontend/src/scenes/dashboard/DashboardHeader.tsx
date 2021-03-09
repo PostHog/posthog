@@ -59,14 +59,6 @@ export function DashboardHeader(): JSX.Element {
                             ))}
                             <Select.Option value="new">+ New Dashboard</Select.Option>
                         </Select>
-                        {dashboard.created_by ? (
-                            <div className="dashboard-header-created-by">
-                                Created by {dashboard.created_by.first_name || dashboard.created_by.email || '-'} on{' '}
-                                {moment(dashboard.created_at).format(
-                                    moment(dashboard.created_at).year() === moment().year() ? 'MMMM Do' : 'MMMM Do YYYY'
-                                )}
-                            </div>
-                        ) : null}
                     </div>
 
                     <div className="dashboard-meta">
@@ -76,6 +68,23 @@ export function DashboardHeader(): JSX.Element {
                                     trigger={['click']}
                                     overlay={
                                         <Menu>
+                                            {dashboard.created_by && (
+                                                <>
+                                                    <Menu.Item disabled>
+                                                        Created by{' '}
+                                                        {dashboard.created_by.first_name ||
+                                                            dashboard.created_by.email ||
+                                                            '-'}{' '}
+                                                        on{' '}
+                                                        {moment(dashboard.created_at).format(
+                                                            moment(dashboard.created_at).year() === moment().year()
+                                                                ? 'MMMM Do'
+                                                                : 'MMMM Do YYYY'
+                                                        )}
+                                                    </Menu.Item>
+                                                    <Menu.Divider />
+                                                </>
+                                            )}
                                             <Menu.Item icon={<EditOutlined />}>Edit mode (E)</Menu.Item>
                                             <Menu.Item icon={<FullscreenOutlined />} onClick={togglePresentationMode}>
                                                 Presentation mode (F12)
