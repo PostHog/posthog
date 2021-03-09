@@ -32,6 +32,7 @@ export const dashboardLogic = kea({
         refreshDashboardItem: (id) => ({ id }),
         refreshAllDashboardItems: true,
         updateAndRefreshDashboard: true,
+        setIsOnSharedMode: (isOnSharedMode) => ({ isOnSharedMode }), // whether the user is opening the dashboard in shared mode (i.e. with a shareToken)
     }),
 
     loaders: ({ props }) => ({
@@ -94,12 +95,10 @@ export const dashboardLogic = kea({
                 return { ...state, items: item.dashboard === parseInt(props.id) ? [...state.items, item] : state.items }
             },
         },
-        draggingEnabled: [
-            () => (isAndroidOrIOS() ? 'off' : 'on'),
+        columns: [
+            null,
             {
-                enableDragging: () => 'on',
-                enableWobblyDragging: () => 'wobbly',
-                disableDragging: () => 'off',
+                updateContainerWidth: (_, { columns }) => columns,
             },
         ],
         containerWidth: [
@@ -108,10 +107,18 @@ export const dashboardLogic = kea({
                 updateContainerWidth: (_, { containerWidth }) => containerWidth,
             },
         ],
-        columns: [
-            null,
+        draggingEnabled: [
+            () => (isAndroidOrIOS() ? 'off' : 'on'),
             {
-                updateContainerWidth: (_, { columns }) => columns,
+                enableDragging: () => 'on',
+                enableWobblyDragging: () => 'wobbly',
+                disableDragging: () => 'off',
+            },
+        ],
+        isOnSharedMode: [
+            false,
+            {
+                setIsOnSharedMode: (_, { isOnSharedMode }) => isOnSharedMode,
             },
         ],
     }),
@@ -224,8 +231,11 @@ export const dashboardLogic = kea({
             },
         ],
     }),
-    events: ({ actions, cache }) => ({
-        afterMount: [actions.loadDashboardItems],
+    events: ({ actions, cache, props }) => ({
+        afterMount: () => {
+            actions.loadDashboardItems()
+            actions.setIsOnSharedMode(!!props.shareToken)
+        },
         beforeUnmount: () => {
             if (cache.draggingToastId) {
                 toast.dismiss(cache.draggingToastId)
@@ -233,7 +243,6 @@ export const dashboardLogic = kea({
             }
         },
     }),
-
     listeners: ({ actions, values, key, cache }) => ({
         addNewDashboard: async () => {
             prompt({ key: `new-dashboard-${key}` }).actions.prompt({

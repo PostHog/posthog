@@ -6,7 +6,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { HedgehogOverlay } from 'lib/components/HedgehogOverlay/HedgehogOverlay'
 import { hot } from 'react-hot-loader/root'
 
 interface Props {
@@ -18,13 +17,13 @@ export const Dashboard = hot(_Dashboard)
 function _Dashboard({ id, shareToken }: Props): JSX.Element {
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseInt(id), shareToken }}>
-            <DashboardView id={id} shareToken={shareToken} />
+            <DashboardView />
         </BindLogic>
     )
 }
 
-function DashboardView({ id, shareToken }: Props): JSX.Element {
-    const { dashboard, itemsLoading, items } = useValues(dashboardLogic)
+function DashboardView(): JSX.Element {
+    const { dashboard, itemsLoading, items, isOnSharedMode } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
     if (dashboardsLoading || itemsLoading) {
@@ -34,18 +33,17 @@ function DashboardView({ id, shareToken }: Props): JSX.Element {
     if (!dashboard) {
         return (
             <>
-                <p>A dashboard with the ID {id} was not found!</p>
-                <HedgehogOverlay type="sad" />
+                <p>Dashboard not found.</p>
             </>
         )
     }
 
     return (
         <div style={{ marginTop: 32 }}>
-            {!shareToken && <DashboardHeader />}
+            {!isOnSharedMode && <DashboardHeader />}
 
             {items && items.length ? (
-                <DashboardItems inSharedMode={!!shareToken} />
+                <DashboardItems inSharedMode={isOnSharedMode} />
             ) : (
                 <p>
                     There are no panels on this dashboard.{' '}
