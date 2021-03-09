@@ -83,6 +83,12 @@ export function DashboardHeader(): JSX.Element {
                 <Button type="link" className="btn-lg-2x" data-attr="dashboard-more" icon={<EllipsisOutlined />} />
             </Dropdown>
             <Button
+                type="link"
+                data-attr="dashboard-edit-mode"
+                icon={<EditOutlined />}
+                onClick={() => setIsOnEditMode(true)}
+            />
+            <Button
                 type="primary"
                 onClick={() => setShowShareModal(true)}
                 data-attr="dashboard-share-button"

@@ -4,7 +4,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { toast } from 'react-toastify'
-import { Link } from 'lib/components/Link'
 import React from 'react'
 import { clearDOMTextSelection, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -12,6 +11,7 @@ import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dateFilterLogic } from 'lib/components/DateFilter/dateFilterLogic'
+import { Button } from 'antd'
 
 export const dashboardLogic = kea({
     connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic, dateFilterLogic],
@@ -321,18 +321,25 @@ export const dashboardLogic = kea({
                 if (!cache.draggingToastId) {
                     cache.draggingToastId = toast(
                         <>
-                            <p className="headline">Rearranging panels!</p>
-                            <p>
-                                <Link onClick={() => actions.setIsOnEditMode(false)}>Click here</Link> to stop.
-                            </p>
+                            <h1>Dashboard edit mode</h1>
+                            <p>Tap below when finished.</p>
+                            <div className="text-right">
+                                <Button>Finish editing</Button>
+                            </div>
                         </>,
                         {
+                            type: 'info',
                             autoClose: false,
                             onClick: () => actions.setIsOnEditMode(false),
                             closeButton: false,
-                            className: 'drag-items-toast',
+                            className: 'drag-items-toast accent-border',
                         }
                     )
+                }
+            } else {
+                if (cache.draggingToastId) {
+                    toast.dismiss(cache.draggingToastId)
+                    cache.draggingToastId = null
                 }
             }
         },
