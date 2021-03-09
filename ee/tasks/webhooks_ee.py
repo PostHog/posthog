@@ -4,6 +4,8 @@ import requests
 import statsd
 from celery import Task
 from django.conf import settings
+from django.db.utils import DataError
+from sentry_sdk import capture_exception
 
 from ee.clickhouse.models.element import chain_to_elements
 from posthog.celery import app
@@ -43,7 +45,17 @@ def post_event_to_webhook_ee(self: Task, event: Dict[str, Any], team_id: int, si
                 actionFilters["post_to_slack"] = True  # We only need to fire for actions that are posted to webhook URL
 
         for action in cast(Sequence[Action], Action.objects.filter(**actionFilters).all()):
-            qs = Event.objects.filter(pk=ephemeral_postgres_event.pk).query_db_by_action(action)
+            try:
+                # Wrapped in len to evaluate right away
+                qs = len(Event.objects.filter(pk=ephemeral_postgres_event.pk).query_db_by_action(action))
+            except DataError as e:
+                # Ignore invalid regex errors, which are user mistakes
+                if not "invalid regular expression" in str(e):
+                    capture_exception(e)
+                continue
+            except:
+                capture_exception()
+                continue
             if not qs:
                 continue
             # REST hooks
