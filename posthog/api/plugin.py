@@ -11,7 +11,7 @@ from django.core.files.uploadedfile import UploadedFile
 from django.db.models import Q
 from django.http.response import Http404
 from django.utils.timezone import now
-from rest_framework import request, serializers, views, viewsets
+from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -44,11 +44,12 @@ SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
 class CloudRootOrPrivateInstallPluginsAccessLevel(BasePermission):
     message = "Your organization's plugins access level is insufficient."
 
-    def has_permission(self, view: views.View) -> bool:
+    def has_permission(self, viewset) -> bool:  # type: ignore
+        # For some reason DRF provides a viewset here
         min_level = (
             Organization.PluginsAccessLevel.ROOT if settings.MULTI_TENANCY else Organization.PluginsAccessLevel.INSTALL
         )
-        organization = view.request.user.organization
+        organization = viewset.request.user.organization
         return organization.plugins_access_level >= min_level
 
 
