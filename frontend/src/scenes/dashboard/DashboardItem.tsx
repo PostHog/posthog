@@ -22,14 +22,12 @@ import {
     BlockOutlined,
     CopyOutlined,
     DeliveredProcedureOutlined,
-    ReloadOutlined,
     BarChartOutlined,
     SaveOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
-import moment from 'moment'
 import { logicFromInsight, ViewType } from 'scenes/insights/insightLogic'
 import { dashboardsModel } from '~/models'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
@@ -48,7 +46,6 @@ interface Props {
     enableWobblyDragging?: () => void
     index: number
     layout?: any
-    onRefresh?: () => void
     footer?: JSX.Element
     onClick?: () => void
     preventLoading?: boolean
@@ -167,7 +164,6 @@ export function DashboardItem({
     enableWobblyDragging,
     index,
     layout,
-    onRefresh,
     footer,
     onClick,
     preventLoading,
@@ -212,7 +208,6 @@ export function DashboardItem({
         preventLoading,
     }
 
-    const { loadResults } = useActions(logicFromInsight(item.filters.insight, logicProps))
     const { results, resultsLoading } = useValues(logicFromInsight(item.filters.insight, logicProps))
     const previousLoading = usePrevious(resultsLoading)
 
@@ -220,8 +215,6 @@ export function DashboardItem({
     useEffect(() => {
         if (previousLoading && !resultsLoading && !initialLoaded) {
             setInitialLoaded(true)
-        } else if (previousLoading && !resultsLoading && initialLoaded) {
-            onRefresh && onRefresh()
         }
     }, [resultsLoading])
 
@@ -294,19 +287,6 @@ export function DashboardItem({
                                         />
                                     </Tooltip>
                                 ))}
-                            <Tooltip
-                                title={
-                                    <i>
-                                        Refreshed:{' '}
-                                        {item.last_refresh ? moment(item.last_refresh).fromNow() : 'just now'}
-                                    </i>
-                                }
-                            >
-                                <ReloadOutlined
-                                    style={{ cursor: 'pointer', marginTop: -3 }}
-                                    onClick={() => loadResults(true)}
-                                />
-                            </Tooltip>
                             <Dropdown
                                 placement="bottomRight"
                                 trigger={['click']}

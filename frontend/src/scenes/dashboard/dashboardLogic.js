@@ -21,7 +21,8 @@ export const dashboardLogic = kea({
     actions: () => ({
         addNewDashboard: true,
         renameDashboard: true,
-        setIsSharedDashboard: (id, isShared) => ({ id, isShared }),
+        setIsSharedDashboard: (id, isShared) => ({ id, isShared }), // whether the dashboard is shared or not
+        setIsOnSharedMode: (isOnSharedMode) => ({ isOnSharedMode }), // whether the dashboard is open in shared mode (i.e. with a shareToken)
         updateLayouts: (layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth, columns) => ({ containerWidth, columns }),
         saveLayouts: true,
@@ -29,10 +30,8 @@ export const dashboardLogic = kea({
         enableDragging: true,
         enableWobblyDragging: true,
         disableDragging: true,
-        refreshDashboardItem: (id) => ({ id }),
         refreshAllDashboardItems: true,
         updateAndRefreshDashboard: true,
-        setIsOnSharedMode: (isOnSharedMode) => ({ isOnSharedMode }), // whether the user is opening the dashboard in shared mode (i.e. with a shareToken)
     }),
 
     loaders: ({ props }) => ({
@@ -343,14 +342,6 @@ export const dashboardLogic = kea({
             if (cache.draggingToastId) {
                 toast.dismiss(cache.draggingToastId)
                 cache.draggingToastId = null
-            }
-        },
-        refreshDashboardItem: async ({ id }, breakpoint) => {
-            const dashboardItem = await api.get(`api/insight/${id}`)
-            await breakpoint()
-            dashboardsModel.actions.updateDashboardItem(dashboardItem)
-            if (dashboardItem.refreshing) {
-                setTimeout(() => actions.refreshDashboardItem(id), 1000)
             }
         },
         refreshAllDashboardItems: async (_, breakpoint) => {

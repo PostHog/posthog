@@ -17,7 +17,6 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
     const { dashboard, items, layouts, layoutForItem, breakpoints, cols, draggingEnabled } = useValues(dashboardLogic)
     const {
         loadDashboardItems,
-        refreshDashboardItem,
         updateLayouts,
         updateContainerWidth,
         updateItemColor,
@@ -106,7 +105,6 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
                         inSharedMode={inSharedMode}
                         enableWobblyDragging={draggingEnabled !== 'off' ? noop : enableWobblyDragging}
                         index={index}
-                        onRefresh={() => refreshDashboardItem(item.id)}
                     />
                 </div>
             ))}
