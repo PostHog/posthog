@@ -1,12 +1,14 @@
 import React from 'react'
 import { Link } from 'lib/components/Link'
 import { SceneLoading } from 'lib/utils'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { hot } from 'react-hot-loader/root'
+import { DateFilter } from 'lib/components/DateFilter'
+import { CalendarOutlined } from '@ant-design/icons'
 
 interface Props {
     id: string
@@ -25,6 +27,7 @@ function _Dashboard({ id, shareToken }: Props): JSX.Element {
 function DashboardView(): JSX.Element {
     const { dashboard, itemsLoading, items, isOnSharedMode } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
+    const { updateAndRefreshDashboard } = useActions(dashboardLogic)
 
     if (dashboardsLoading || itemsLoading) {
         return <SceneLoading />
@@ -43,7 +46,22 @@ function DashboardView(): JSX.Element {
             {!isOnSharedMode && <DashboardHeader />}
 
             {items && items.length ? (
-                <DashboardItems inSharedMode={isOnSharedMode} />
+                <div>
+                    <div className="text-right mb">
+                        <DateFilter
+                            defaultValue="Custom"
+                            showCustom
+                            onChange={updateAndRefreshDashboard}
+                            makeLabel={(key) => (
+                                <>
+                                    <CalendarOutlined />
+                                    <span className="hide-when-small"> {key}</span>
+                                </>
+                            )}
+                        />
+                    </div>
+                    <DashboardItems inSharedMode={isOnSharedMode} />
+                </div>
             ) : (
                 <p>
                     There are no panels on this dashboard.{' '}

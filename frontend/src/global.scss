@@ -341,6 +341,15 @@ code.code {
     margin-left: 5px;
 }
 
+.btn-lg-2x {
+    font-size: 1.5rem !important;
+    line-height: 1 !important;
+    svg {
+        width: 1.5rem !important;
+        height: 1.5rem !important;
+    }
+}
+
 // Badges styles
 .badge {
     border-radius: 50%;

@@ -40,6 +40,8 @@
     }
     .dashboard-meta {
         white-space: nowrap;
+        display: flex;
+        align-items: center;
         .ant-btn {
             .anticon {
                 vertical-align: baseline;

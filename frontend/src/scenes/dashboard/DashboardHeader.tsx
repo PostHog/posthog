@@ -1,7 +1,5 @@
-import './DashboardHeader.scss'
-
 import { Loading, triggerResizeAfterADelay } from 'lib/utils'
-import { Button, Dropdown, Menu, Select, Tooltip } from 'antd'
+import { Button, Dropdown, Menu, Select } from 'antd'
 import { router } from 'kea-router'
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
@@ -15,32 +13,26 @@ import {
     DeleteOutlined,
     FullscreenOutlined,
     FullscreenExitOutlined,
-    LockOutlined,
-    UnlockOutlined,
     ShareAltOutlined,
-    ReloadOutlined,
-    CalendarOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
 import moment from 'moment'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardType } from '~/types'
-import { DateFilter } from 'lib/components/DateFilter'
+import './DashboardHeader.scss'
 
 export function DashboardHeader(): JSX.Element {
-    const { dashboard, draggingEnabled } = useValues(dashboardLogic)
-    const {
-        addNewDashboard,
-        renameDashboard,
-        enableDragging,
-        disableDragging,
-        updateAndRefreshDashboard,
-        refreshAllDashboardItems,
-    } = useActions(dashboardLogic)
+    const { dashboard } = useValues(dashboardLogic)
+    const { addNewDashboard } = useActions(dashboardLogic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [fullScreen, setFullScreen] = useState(false)
     const [showShareModal, setShowShareModal] = useState(false)
+
+    const togglePresentationMode = (): void => {
+        setFullScreen(!fullScreen)
+        triggerResizeAfterADelay()
+    }
 
     return (
         <div className={`dashboard-header${fullScreen ? ' full-screen' : ''}`}>
@@ -76,104 +68,72 @@ export function DashboardHeader(): JSX.Element {
                             </div>
                         ) : null}
                     </div>
-                    {dashboard ? (
-                        <div className="dashboard-meta">
-                            <Tooltip title="Select time period">
-                                <DateFilter
-                                    defaultValue="Custom"
-                                    showCustom
-                                    onChange={updateAndRefreshDashboard}
-                                    makeLabel={(key) => (
-                                        <>
-                                            <CalendarOutlined />
-                                            <span className="hide-when-small"> {key}</span>
-                                        </>
-                                    )}
-                                />
-                            </Tooltip>
 
-                            {!fullScreen ? (
-                                <Tooltip title={dashboard.pinned ? 'Pinned into sidebar' : 'Pin into sidebar'}>
-                                    <Button
-                                        className="button-box-when-small"
-                                        type={dashboard.pinned ? 'primary' : undefined}
-                                        onClick={() =>
-                                            dashboard.pinned ? unpinDashboard(dashboard.id) : pinDashboard(dashboard.id)
-                                        }
-                                    >
-                                        {dashboard.pinned ? <PushpinFilled /> : <PushpinOutlined />}
-                                        <span className="hide-when-small">{dashboard.pinned ? 'Pinned' : 'Pin'}</span>
-                                    </Button>
-                                </Tooltip>
-                            ) : null}
-                            <Tooltip title={'Share dashboard.'}>
-                                <Button
-                                    className="button-box-when-small enable-dragging-button"
-                                    type={dashboard.is_shared ? 'primary' : undefined}
-                                    onClick={() => setShowShareModal(true)}
-                                    data-attr="dashboard-share-button"
-                                >
-                                    <ShareAltOutlined />
-                                    <span className="hide-when-small">
-                                        {dashboard.is_shared ? 'Shared' : 'Share dashboard'}
-                                    </span>
-                                </Button>
-                            </Tooltip>
-
-                            <Tooltip title="Click here to reload all dashboard items">
-                                <Button className="button-box" onClick={refreshAllDashboardItems}>
-                                    <ReloadOutlined />
-                                </Button>
-                            </Tooltip>
-
-                            <Tooltip title="Click here or long press on a panel to rearrange the dashboard.">
-                                <Button
-                                    className="button-box enable-dragging-button"
-                                    type={draggingEnabled === 'off' ? 'primary' : undefined}
-                                    onClick={draggingEnabled === 'off' ? enableDragging : disableDragging}
-                                >
-                                    {draggingEnabled !== 'off' ? <UnlockOutlined /> : <LockOutlined />}
-                                </Button>
-                            </Tooltip>
-
-                            <Tooltip title={fullScreen ? 'Presentation Mode Activated' : 'Activate Presentation Mode'}>
-                                <Button
-                                    className="button-box"
-                                    onClick={() => {
-                                        setFullScreen(!fullScreen)
-                                        triggerResizeAfterADelay()
-                                    }}
-                                >
-                                    {fullScreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
-                                </Button>
-                            </Tooltip>
-
-                            {!fullScreen ? (
+                    <div className="dashboard-meta">
+                        {!fullScreen ? (
+                            <>
                                 <Dropdown
                                     trigger={['click']}
                                     overlay={
                                         <Menu>
-                                            <Menu.Item icon={<EditOutlined />} onClick={renameDashboard}>
-                                                Rename "{dashboard.name}"
+                                            <Menu.Item icon={<EditOutlined />}>Edit mode (E)</Menu.Item>
+                                            <Menu.Item icon={<FullscreenOutlined />} onClick={togglePresentationMode}>
+                                                Presentation mode (F12)
                                             </Menu.Item>
+                                            {dashboard.pinned ? (
+                                                <Menu.Item
+                                                    icon={<PushpinFilled />}
+                                                    onClick={() => unpinDashboard(dashboard.id)}
+                                                >
+                                                    Unpin dashboard
+                                                </Menu.Item>
+                                            ) : (
+                                                <Menu.Item
+                                                    icon={<PushpinOutlined />}
+                                                    onClick={() => pinDashboard(dashboard.id)}
+                                                >
+                                                    Pin dashboard
+                                                </Menu.Item>
+                                            )}
+
+                                            <Menu.Divider />
                                             <Menu.Item
                                                 icon={<DeleteOutlined />}
                                                 onClick={() => deleteDashboard({ id: dashboard.id, redirect: true })}
-                                                className="text-danger"
+                                                danger
                                             >
-                                                Delete
+                                                Delete dashboard
                                             </Menu.Item>
                                         </Menu>
                                     }
                                     placement="bottomRight"
                                 >
-                                    <Button className="button-box">
-                                        <EllipsisOutlined />
-                                    </Button>
+                                    <Button
+                                        type="link"
+                                        className="btn-lg-2x"
+                                        data-attr="dashboard-more"
+                                        icon={<EllipsisOutlined />}
+                                    />
                                 </Dropdown>
-                            ) : null}
-                        </div>
-                    ) : null}
+                                <Button
+                                    type="primary"
+                                    onClick={() => setShowShareModal(true)}
+                                    data-attr="dashboard-share-button"
+                                    icon={<ShareAltOutlined />}
+                                >
+                                    Send or share
+                                </Button>
+                            </>
+                        ) : (
+                            <Button
+                                onClick={togglePresentationMode}
+                                data-attr="dashboard-exit-presentation-mode"
+                                icon={<FullscreenExitOutlined />}
+                            >
+                                Exit presentation mode
+                            </Button>
+                        )}
+                    </div>
                 </>
             )}
         </div>
