@@ -15,6 +15,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.demo import create_demo_team
 from posthog.event_usage import report_onboarding_completed, report_user_joined_organization, report_user_signed_up
+from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.permissions import (
@@ -110,7 +111,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         }
 
 
-class OrganizationViewSet(viewsets.ModelViewSet):
+class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     serializer_class = OrganizationSerializer
     permission_classes = [
         permissions.IsAuthenticated,
@@ -128,11 +129,9 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             return [permission() for permission in [permissions.IsAuthenticated, PremiumMultiorganizationPermissions]]
         return super().get_permissions()
 
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
+    def perform_destroy(self, instance):
         instance.teams.all().delete()
-        self.perform_destroy(instance)
-        return response.Response(status=status.HTTP_204_NO_CONTENT)
+        return super().perform_destroy(instance)
 
     def get_queryset(self) -> QuerySet:
         return self.request.user.organizations.all()
