@@ -102,19 +102,22 @@ function _Invites(): JSX.Element {
     return (
         <div>
             <h2 className="subtitle" style={{ justifyContent: 'space-between' }}>
-                Invites
-                <CreateInviteModalWithButton />
+                Pending Invites
+                {!!invites.length && <CreateInviteModalWithButton />}
             </h2>
-            {!!invites.length && (
-                <Table
-                    dataSource={invites}
-                    columns={columns}
-                    rowKey="id"
-                    pagination={false}
-                    loading={invitesLoading}
-                    style={{ marginTop: '1rem' }}
-                />
-            )}
+            <Table
+                dataSource={invites}
+                columns={columns}
+                rowKey="id"
+                pagination={false}
+                loading={invitesLoading}
+                style={{ marginTop: '1rem' }}
+                locale={{
+                    emptyText: function InvitesTableCTA() {
+                        return <CreateInviteModalWithButton />
+                    },
+                }}
+            />
         </div>
     )
 }
