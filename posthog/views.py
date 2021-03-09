@@ -12,7 +12,6 @@ from rest_framework.exceptions import AuthenticationFailed
 
 from posthog.ee import is_ee_enabled
 from posthog.models import User
-from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api
 from posthog.settings import AUTO_LOGIN, TEST
 from posthog.utils import (
     get_redis_info,
@@ -156,20 +155,6 @@ def system_status(request):
             "key": "plugin_sever_version",
             "metric": "Plugin server version",
             "value": get_plugin_server_version() or "unknown",
-        }
-    )
-    metrics.append(
-        {
-            "key": "plugins_install",
-            "metric": "Plugins can be installed",
-            "value": can_install_plugins_via_api(team.organization),
-        }
-    )
-    metrics.append(
-        {
-            "key": "plugins_configure",
-            "metric": "Plugins can be configured",
-            "value": can_configure_plugins_via_api(team.organization),
         }
     )
 
