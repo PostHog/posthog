@@ -43,7 +43,8 @@ interface Props {
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
     inSharedMode?: boolean
-    enableWobblyDragging?: () => void
+    isOnEditMode: boolean
+    setEditMode?: () => void
     index: number
     layout?: any
     footer?: JSX.Element
@@ -161,7 +162,8 @@ export function DashboardItem({
     loadDashboardItems,
     isDraggingRef,
     inSharedMode,
-    enableWobblyDragging,
+    isOnEditMode,
+    setEditMode,
     index,
     layout,
     footer,
@@ -193,7 +195,7 @@ export function DashboardItem({
     const { renameDashboardItem } = useActions(dashboardItemsModel)
     const otherDashboards: DashboardType[] = dashboards.filter((d: DashboardType) => d.id !== dashboardId)
 
-    const longPressProps = useLongPress(enableWobblyDragging, {
+    const longPressProps = useLongPress(setEditMode, {
         ms: 500,
         touch: true,
         click: false,
@@ -233,7 +235,7 @@ export function DashboardItem({
                 </div>
             )}
             <div className={`dashboard-item-container ${className}`}>
-                <div className="dashboard-item-header" style={{ cursor: inSharedMode ? 'inherit' : 'move' }}>
+                <div className="dashboard-item-header" style={{ cursor: isOnEditMode ? 'move' : 'inherit' }}>
                     <div className="dashboard-item-title" data-attr="dashboard-item-title">
                         {inSharedMode ? (
                             item.name

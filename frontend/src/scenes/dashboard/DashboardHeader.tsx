@@ -21,8 +21,8 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardType } from '~/types'
 
 export function DashboardHeader(): JSX.Element {
-    const { dashboard } = useValues(dashboardLogic)
-    const { addNewDashboard } = useActions(dashboardLogic)
+    const { dashboard, isOnEditMode } = useValues(dashboardLogic)
+    const { addNewDashboard, setIsOnEditMode } = useActions(dashboardLogic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [fullScreen, setFullScreen] = useState(false)
@@ -32,6 +32,82 @@ export function DashboardHeader(): JSX.Element {
         setFullScreen(!fullScreen)
         triggerResizeAfterADelay()
     }
+
+    const actionsDefault = (
+        <>
+            <Dropdown
+                trigger={['click']}
+                overlay={
+                    <Menu>
+                        {dashboard.created_by && (
+                            <>
+                                <Menu.Item disabled>
+                                    Created by {dashboard.created_by.first_name || dashboard.created_by.email || '-'} on{' '}
+                                    {moment(dashboard.created_at).format(
+                                        moment(dashboard.created_at).year() === moment().year()
+                                            ? 'MMMM Do'
+                                            : 'MMMM Do YYYY'
+                                    )}
+                                </Menu.Item>
+                                <Menu.Divider />
+                            </>
+                        )}
+                        <Menu.Item icon={<EditOutlined />} onClick={() => setIsOnEditMode(true)}>
+                            Edit mode (E)
+                        </Menu.Item>
+                        <Menu.Item icon={<FullscreenOutlined />} onClick={togglePresentationMode}>
+                            Presentation mode (F12)
+                        </Menu.Item>
+                        {dashboard.pinned ? (
+                            <Menu.Item icon={<PushpinFilled />} onClick={() => unpinDashboard(dashboard.id)}>
+                                Unpin dashboard
+                            </Menu.Item>
+                        ) : (
+                            <Menu.Item icon={<PushpinOutlined />} onClick={() => pinDashboard(dashboard.id)}>
+                                Pin dashboard
+                            </Menu.Item>
+                        )}
+
+                        <Menu.Divider />
+                        <Menu.Item
+                            icon={<DeleteOutlined />}
+                            onClick={() => deleteDashboard({ id: dashboard.id, redirect: true })}
+                            danger
+                        >
+                            Delete dashboard
+                        </Menu.Item>
+                    </Menu>
+                }
+                placement="bottomRight"
+            >
+                <Button type="link" className="btn-lg-2x" data-attr="dashboard-more" icon={<EllipsisOutlined />} />
+            </Dropdown>
+            <Button
+                type="primary"
+                onClick={() => setShowShareModal(true)}
+                data-attr="dashboard-share-button"
+                icon={<ShareAltOutlined />}
+            >
+                Send or share
+            </Button>
+        </>
+    )
+
+    const actionsPresentationMode = (
+        <Button
+            onClick={togglePresentationMode}
+            data-attr="dashboard-exit-presentation-mode"
+            icon={<FullscreenExitOutlined />}
+        >
+            Exit presentation mode
+        </Button>
+    )
+
+    const actionsEditMode = (
+        <Button data-attr="dashboard-edit-mode-save" type="primary" onClick={() => setIsOnEditMode(false)}>
+            Finish editing
+        </Button>
+    )
 
     return (
         <div className={`dashboard-header${fullScreen ? ' full-screen' : ''}`}>
@@ -61,85 +137,12 @@ export function DashboardHeader(): JSX.Element {
                     </div>
 
                     <div className="dashboard-meta">
-                        {!fullScreen ? (
-                            <>
-                                <Dropdown
-                                    trigger={['click']}
-                                    overlay={
-                                        <Menu>
-                                            {dashboard.created_by && (
-                                                <>
-                                                    <Menu.Item disabled>
-                                                        Created by{' '}
-                                                        {dashboard.created_by.first_name ||
-                                                            dashboard.created_by.email ||
-                                                            '-'}{' '}
-                                                        on{' '}
-                                                        {moment(dashboard.created_at).format(
-                                                            moment(dashboard.created_at).year() === moment().year()
-                                                                ? 'MMMM Do'
-                                                                : 'MMMM Do YYYY'
-                                                        )}
-                                                    </Menu.Item>
-                                                    <Menu.Divider />
-                                                </>
-                                            )}
-                                            <Menu.Item icon={<EditOutlined />}>Edit mode (E)</Menu.Item>
-                                            <Menu.Item icon={<FullscreenOutlined />} onClick={togglePresentationMode}>
-                                                Presentation mode (F12)
-                                            </Menu.Item>
-                                            {dashboard.pinned ? (
-                                                <Menu.Item
-                                                    icon={<PushpinFilled />}
-                                                    onClick={() => unpinDashboard(dashboard.id)}
-                                                >
-                                                    Unpin dashboard
-                                                </Menu.Item>
-                                            ) : (
-                                                <Menu.Item
-                                                    icon={<PushpinOutlined />}
-                                                    onClick={() => pinDashboard(dashboard.id)}
-                                                >
-                                                    Pin dashboard
-                                                </Menu.Item>
-                                            )}
-
-                                            <Menu.Divider />
-                                            <Menu.Item
-                                                icon={<DeleteOutlined />}
-                                                onClick={() => deleteDashboard({ id: dashboard.id, redirect: true })}
-                                                danger
-                                            >
-                                                Delete dashboard
-                                            </Menu.Item>
-                                        </Menu>
-                                    }
-                                    placement="bottomRight"
-                                >
-                                    <Button
-                                        type="link"
-                                        className="btn-lg-2x"
-                                        data-attr="dashboard-more"
-                                        icon={<EllipsisOutlined />}
-                                    />
-                                </Dropdown>
-                                <Button
-                                    type="primary"
-                                    onClick={() => setShowShareModal(true)}
-                                    data-attr="dashboard-share-button"
-                                    icon={<ShareAltOutlined />}
-                                >
-                                    Send or share
-                                </Button>
-                            </>
+                        {isOnEditMode ? (
+                            <>{actionsEditMode}</>
+                        ) : !fullScreen ? (
+                            <>{actionsDefault}</>
                         ) : (
-                            <Button
-                                onClick={togglePresentationMode}
-                                data-attr="dashboard-exit-presentation-mode"
-                                icon={<FullscreenExitOutlined />}
-                            >
-                                Exit presentation mode
-                            </Button>
+                            <>{actionsPresentationMode}</>
                         )}
                     </div>
                 </>
