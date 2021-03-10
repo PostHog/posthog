@@ -176,7 +176,7 @@ export const sceneLogic = kea<sceneLogicType>({
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
         setLoadedScene: (scene: Scene, loadedScene: LoadedScene) => ({ scene, loadedScene }),
         showUpgradeModal: (featureName: string, featureBenefit: string) => ({
-            featureNameBenefit: [featureName, featureBenefit],
+            featureNameBenefit: [featureName, featureBenefit] as [string, string],
         }),
         hideUpgradeModal: true,
         takeToPricing: true,
@@ -217,7 +217,7 @@ export const sceneLogic = kea<sceneLogicType>({
         upgradeModalFeatureNameBenefit: [
             null as [string, string] | null,
             {
-                showUpgradeModal: (_, { featureNameBenefit }) => featureNameBenefit,
+                showUpgradeModal: (_, { featureNameBenefit }) => featureNameBenefit as [string, string],
                 hideUpgradeModal: () => null,
                 takeToPricing: () => null,
             },
@@ -251,8 +251,8 @@ export const sceneLogic = kea<sceneLogicType>({
         return mapping
     },
     listeners: ({ values, actions }) => ({
-        showUpgradeModal: ({ featureName }) => {
-            posthog.capture('upgrade modal shown', { featureName })
+        showUpgradeModal: ({ featureNameBenefit }) => {
+            posthog.capture('upgrade modal shown', { featureNameBenefit })
         },
         hideUpgradeModal: () => {
             posthog.capture('upgrade modal cancellation')
