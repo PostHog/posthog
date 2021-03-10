@@ -118,10 +118,11 @@ function _ProjectSettings(): JSX.Element {
                     actions={[
                         {
                             Icon: ReloadOutlined,
+                            title: 'Reset Project API Key',
                             popconfirmProps: {
                                 title: (
                                     <>
-                                        Reset the project's API Key?{' '}
+                                        Reset the project's API key?{' '}
                                         <b>This will invalidate the current API key and cannot be undone.</b>
                                     </>
                                 ),

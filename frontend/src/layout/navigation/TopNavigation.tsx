@@ -30,11 +30,36 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
 import { UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/TeamMembers/CreateInviteModal'
+import MD5 from 'crypto-js/md5'
+
+export interface ProfilePictureProps {
+    name?: string
+    email?: string
+}
+
+export function ProfilePicture({ name, email }: ProfilePictureProps): JSX.Element {
+    const [didImageError, setDidImageError] = useState(false)
+    if (email && !didImageError) {
+        const emailHash = MD5(email.trim().toLowerCase()).toString()
+        const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
+        return (
+            <img
+                className="profile-picture"
+                src={gravatarUrl}
+                onError={() => setDidImageError(true)}
+                title={`This is ${email}'s Gravatar.`}
+            />
+        )
+    } else if (name) {
+        return <div className="profile-picture">{name[0]?.toUpperCase()}</div>
+    }
+    return <div className="profile-picture">?</div>
+}
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
         <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
-            <div className="pp">{user.name[0]?.toUpperCase()}</div>
+            <ProfilePicture name={user.name} email={user.email} />
             <div className="details hide-lte-lg">
                 <span>{user.name}</span>
                 <span>{user.organization?.name}</span>
@@ -67,7 +92,7 @@ export function _TopNavigation(): JSX.Element {
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
             <div className="whoami" style={{ paddingRight: 16, paddingLeft: 16 }}>
-                <div className="pp">{user?.name[0]?.toUpperCase()}</div>
+                <ProfilePicture name={user?.name} email={user?.email} />
                 <div className="details">
                     <span>{user?.email}</span>
                     <span>{user?.organization?.name}</span>

@@ -185,10 +185,7 @@ export const eventsTableLogic = kea({
                 return
             }
 
-            if (
-                !objectsEqual(searchParams?.properties, []) &&
-                !objectsEqual(searchParams.properties || {}, values.properties)
-            ) {
+            if (!objectsEqual(searchParams.properties || {}, values.properties)) {
                 actions.setProperties(searchParams.properties || {})
             }
         },
