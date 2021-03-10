@@ -1,14 +1,19 @@
 import { useEffect } from 'react'
 
-export function useAnchor(hash) {
+export function useAnchor(hash: string): void {
     useEffect(() => {
         if (hash && document.getElementById(hash.substr(1))) {
             // Check if there is a hash and if an element with that id exists
             const element = document.getElementById(hash.substr(1))
-            element.style.background = 'rgba(247, 165, 1, 0.3)'
-            var elementPosition = element.getBoundingClientRect().top + window.pageYOffset
+
+            if (!element) {
+                return
+            }
+
+            element.classList.add('highlighted')
+            const elementPosition = element.getBoundingClientRect().top + window.pageYOffset
             window.scrollTo({
-                top: elementPosition - 80, // compensate for header
+                top: elementPosition - 50 - 32, // compensate for header & top margin of pages
                 behavior: 'smooth',
             })
         }
