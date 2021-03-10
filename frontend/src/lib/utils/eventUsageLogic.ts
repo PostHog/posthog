@@ -4,13 +4,15 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
-import { AnnotationType, FilterType, DashboardType, PersonType } from '~/types'
+import { AnnotationType, FilterType, DashboardType, PersonType, DashboardModeType } from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { Moment } from 'moment'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
-export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterType, DashboardType, PersonType>>({
+export const eventUsageLogic = kea<
+    eventUsageLogicType<AnnotationType, FilterType, DashboardType, PersonType, DashboardModeType>
+>({
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
@@ -48,10 +50,18 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
         reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
-        reportDashboardEditModeToggled: (
-            isOnEditMode: boolean,
-            source: 'long_press' | 'more_dropdown' | 'dashboard_header' | 'hotkey' | 'rename_input' | 'toast' | null
-        ) => ({ isOnEditMode, source }),
+        reportDashboardModeToggled: (
+            mode: DashboardModeType,
+            source:
+                | 'long_press'
+                | 'more_dropdown'
+                | 'dashboard_header'
+                | 'hotkey'
+                | 'input_enter'
+                | 'toast'
+                | 'browser'
+                | null
+        ) => ({ mode, source }),
         reportDashboardRefreshed: (lastRefreshed?: string | Moment | null) => ({ lastRefreshed }),
         reportDashboardDateRangeChanged: (dateFrom?: string | Moment, dateTo?: string | Moment | null) => ({
             dateFrom,
@@ -59,13 +69,6 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
         }),
         reportDashboardPinToggled: (pinned: boolean, source: 'more_dropdown' | 'main_nav' | 'dashboards_list') => ({
             pinned,
-            source,
-        }),
-        reportDashboardPresentationModeToggled: (
-            isPresentationMode: boolean,
-            source: 'more_dropdown' | 'hotkey' | 'dashboard_header' | 'browser' | null
-        ) => ({
-            isPresentationMode,
             source,
         }),
         reportDashboardDropdownNavigation: true,
@@ -262,8 +265,8 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
                 total_properties: totalProperties,
             })
         },
-        reportDashboardEditModeToggled: async ({ isOnEditMode, source }) => {
-            posthog.capture(`dashboard edit mode toggled`, { is_on_edit_mode: isOnEditMode, source })
+        reportDashboardModeToggled: async ({ mode, source }) => {
+            posthog.capture('dashboard mode toggled', { mode, source })
         },
         reportDashboardRefreshed: async ({ lastRefreshed }) => {
             posthog.capture(`dashboard refreshed`, { last_refreshed: lastRefreshed?.toString() })
@@ -276,9 +279,6 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
         },
         reportDashboardPinToggled: async ({ pinned, source }) => {
             posthog.capture(`dashboard pin toggled`, { pinned: pinned, source })
-        },
-        reportDashboardPresentationModeToggled: async ({ isPresentationMode, source }) => {
-            posthog.capture(`dashboard presentation mode toggled`, { is_presentation_mode: isPresentationMode, source })
         },
         reportDashboardDropdownNavigation: async () => {
             /* Triggered when a user navigates using the dropdown in the header.

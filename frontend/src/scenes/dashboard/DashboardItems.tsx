@@ -13,8 +13,8 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 const ReactGridLayout = WidthProvider(Responsive)
 
 export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX.Element {
-    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, isOnEditMode } = useValues(dashboardLogic)
-    const { loadDashboardItems, updateLayouts, updateContainerWidth, updateItemColor, setIsOnEditMode } = useActions(
+    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, dashboardMode } = useValues(dashboardLogic)
+    const { loadDashboardItems, updateLayouts, updateContainerWidth, updateItemColor, setDashboardMode } = useActions(
         dashboardLogic
     )
     const { duplicateDashboardItem } = useActions(dashboardItemsModel)
@@ -26,13 +26,13 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
     // can not click links when dragging and 250ms after
     const isDragging = useRef(false)
     const dragEndTimeout = useRef<number | null>(null)
-    const className = 'layout' + (isOnEditMode ? ' dragging-items wobbly' : '')
+    const className = 'layout' + (dashboardMode === 'edit' ? ' dragging-items wobbly' : '')
 
     return (
         <ReactGridLayout
             className={className}
-            isDraggable={isOnEditMode}
-            isResizable={isOnEditMode}
+            isDraggable={dashboardMode === 'edit'}
+            isResizable={dashboardMode === 'edit'}
             layouts={layouts}
             rowHeight={50}
             margin={[20, 20]}
@@ -97,8 +97,8 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         inSharedMode={inSharedMode}
-                        isOnEditMode={isOnEditMode}
-                        setEditMode={() => setIsOnEditMode(true, 'long_press')}
+                        isOnEditMode={dashboardMode === 'edit'}
+                        setEditMode={() => setDashboardMode('edit', 'long_press')}
                         index={index}
                     />
                 </div>

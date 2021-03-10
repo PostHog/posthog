@@ -53,6 +53,7 @@ export function KeyboardHotkeys({ hotkeys }: { hotkeys: HotKeys }): JSX.Element 
             }
 
             if (key.toLowerCase() === relevantKey) {
+                event.preventDefault()
                 hotkey.action()
                 break
             }

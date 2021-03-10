@@ -24,14 +24,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HotkeyButton } from 'lib/components/HotkeyButton'
 
 export function DashboardHeader(): JSX.Element {
-    const { dashboard, isOnEditMode, isOnFullScreenMode, shareModalOpened } = useValues(dashboardLogic)
-    const {
-        addNewDashboard,
-        setIsOnEditMode,
-        renameDashboard,
-        setIsOnFullScreenMode,
-        setShareModalOpened,
-    } = useActions(dashboardLogic)
+    const { dashboard, dashboardMode } = useValues(dashboardLogic)
+    const { addNewDashboard, renameDashboard, setDashboardMode } = useActions(dashboardLogic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [newDashboardName, setNewDashboardName] = useState(dashboard.name)
@@ -55,12 +49,12 @@ export function DashboardHeader(): JSX.Element {
                                 <Menu.Divider />
                             </>
                         )}
-                        <Menu.Item icon={<EditOutlined />} onClick={() => setIsOnEditMode(true, 'more_dropdown')}>
+                        <Menu.Item icon={<EditOutlined />} onClick={() => setDashboardMode('edit', 'more_dropdown')}>
                             Edit mode (E)
                         </Menu.Item>
                         <Menu.Item
                             icon={<FullscreenOutlined />}
-                            onClick={() => setIsOnFullScreenMode(!isOnFullScreenMode, 'more_dropdown')}
+                            onClick={() => setDashboardMode('fullscreen', 'more_dropdown')}
                         >
                             Full screen mode (F)
                         </Menu.Item>
@@ -98,7 +92,7 @@ export function DashboardHeader(): JSX.Element {
                 type="link"
                 data-attr="dashboard-edit-mode"
                 icon={<EditOutlined />}
-                onClick={() => setIsOnEditMode(true, 'dashboard_header')}
+                onClick={() => setDashboardMode('edit', 'dashboard_header')}
             />
             <HotkeyButton
                 onClick={() => alert('todo')}
@@ -110,7 +104,7 @@ export function DashboardHeader(): JSX.Element {
             </HotkeyButton>
             <HotkeyButton
                 type="primary"
-                onClick={() => setShareModalOpened(true)}
+                onClick={() => setDashboardMode('sharing', 'dashboard_header')}
                 data-attr="dashboard-share-button"
                 icon={<ShareAltOutlined />}
                 hotkey="s"
@@ -122,7 +116,7 @@ export function DashboardHeader(): JSX.Element {
 
     const actionsPresentationMode = (
         <Button
-            onClick={() => setIsOnFullScreenMode(!isOnFullScreenMode, 'dashboard_header')}
+            onClick={() => setDashboardMode(null, 'dashboard_header')}
             data-attr="dashboard-exit-presentation-mode"
             icon={<FullscreenExitOutlined />}
         >
@@ -134,21 +128,21 @@ export function DashboardHeader(): JSX.Element {
         <Button
             data-attr="dashboard-edit-mode-save"
             type="primary"
-            onClick={() => setIsOnEditMode(false, 'dashboard_header')}
+            onClick={() => setDashboardMode(null, 'dashboard_header')}
         >
             Finish editing
         </Button>
     )
 
     return (
-        <div className={`dashboard-header${isOnFullScreenMode ? ' full-screen' : ''}`}>
-            {isOnFullScreenMode && <FullScreen onExit={() => setIsOnFullScreenMode(false, 'browser')} />}
-            <ShareModal onCancel={() => setShareModalOpened(false)} visible={shareModalOpened} />
+        <div className={`dashboard-header${dashboardMode === 'fullscreen' ? ' full-screen' : ''}`}>
+            {dashboardMode === 'fullscreen' && <FullScreen onExit={() => setDashboardMode(null, 'browser')} />}
+            <ShareModal onCancel={() => setDashboardMode(null, 'browser')} visible={dashboardMode === 'sharing'} />
             {dashboardsLoading ? (
                 <Loading />
             ) : (
                 <>
-                    {isOnEditMode ? (
+                    {dashboardMode === 'edit' ? (
                         <Input
                             placeholder="Dashboard name (e.g. Weekly KPIs)"
                             value={newDashboardName}
@@ -161,7 +155,7 @@ export function DashboardHeader(): JSX.Element {
                             }}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
-                                    setIsOnEditMode(false, 'rename_input')
+                                    setDashboardMode(null, 'input_enter')
                                 }
                             }}
                         />
@@ -196,12 +190,12 @@ export function DashboardHeader(): JSX.Element {
                     )}
 
                     <div className="dashboard-meta">
-                        {isOnEditMode ? (
+                        {dashboardMode === 'edit' ? (
                             <>{actionsEditMode}</>
-                        ) : !isOnFullScreenMode ? (
-                            <>{actionsDefault}</>
-                        ) : (
+                        ) : dashboardMode === 'fullscreen' ? (
                             <>{actionsPresentationMode}</>
+                        ) : (
+                            <>{actionsDefault}</>
                         )}
                     </div>
                 </>

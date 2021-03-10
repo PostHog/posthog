@@ -27,11 +27,24 @@ export function Dashboard({ id, shareToken }: Props): JSX.Element {
 }
 
 function DashboardView(): JSX.Element {
-    const { dashboard, itemsLoading, items, isOnSharedMode, lastRefreshed, filters: dashboardFilters } = useValues(
-        dashboardLogic
-    )
+    const { dashboard, itemsLoading, items, lastRefreshed, dashboardMode } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { refreshAllDashboardItems, setDates } = useActions(dashboardLogic)
+    const { updateAndRefreshDashboard, refreshAllDashboardItems, setDashboardMode } = useActions(dashboardLogic)
+
+    const HOTKEYS = {
+        e: {
+            action: () => setDashboardMode(dashboardMode === 'edit' ? null : 'edit', 'hotkey'),
+            disabled: dashboardMode !== null && dashboardMode !== 'edit',
+        },
+        f: {
+            action: () => setDashboardMode(dashboardMode === 'fullscreen' ? null : 'fullscreen', 'hotkey'),
+            disabled: dashboardMode !== null && dashboardMode !== 'fullscreen',
+        },
+        s: {
+            action: () => setDashboardMode(dashboardMode === 'sharing' ? null : 'sharing', 'hotkey'),
+            disabled: dashboardMode !== null && dashboardMode !== 'sharing',
+        },
+    }
 
     if (dashboardsLoading || itemsLoading) {
         return <SceneLoading />
@@ -47,10 +60,8 @@ function DashboardView(): JSX.Element {
 
     return (
         <div className="dashboard">
-            {!isOnSharedMode && <DashboardHeader />}
-
+            {dashboardMode !== 'public' && <DashboardHeader />}
             <KeyboardHotkeys hotkeys={HOTKEYS} />
-
             {items && items.length ? (
                 <div>
                     <div className="dashboard-items-actions">
@@ -74,7 +85,7 @@ function DashboardView(): JSX.Element {
                             )}
                         />
                     </div>
-                    <DashboardItems inSharedMode={isOnSharedMode} />
+                    <DashboardItems inSharedMode={dashboardMode === 'public'} />
                 </div>
             ) : (
                 <p>

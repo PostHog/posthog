@@ -571,6 +571,13 @@ export interface PreflightStatus {
     available_social_auth_providers: AuthBackends
 }
 
+export type DashboardModeType =
+    | 'edit' // When the dashboard is being edited
+    | 'fullscreen' // When the dashboard is on full screen (presentation) mode
+    | 'sharing' // When the sharing configuration is opened
+    | 'public' // When viewing the dashboard publicly via a shareToken
+    | null // Default mode
+
 export type Keys =
     | 'a'
     | 'b'
