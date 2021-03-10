@@ -44,28 +44,31 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertEqual(response_bis.status_code, 404, "Did not return a 404 on trying to delete a nonexistent org")
 
     def test_no_delete_organization_not_owning(self):
-        for level in OrganizationMembership.Level:
+        for level in (OrganizationMembership.Level.MEMBER, OrganizationMembership.Level.ADMIN):
             self.organization_membership.level = level
             self.organization_membership.save()
             response = self.client.delete(f"/api/organizations/{self.organization.id}")
-            if level != OrganizationMembership.Level.OWNER:
-                potential_err_message = f"Somehow managed to delete the org as a level {level} (which is not owner)"
-                self.assertEqual(
-                    response.data,
-                    {
-                        "attr": None,
-                        "detail": "Your organization access level is insufficient.",
-                        "code": "permission_denied",
-                        "type": "authentication_error",
-                    },
-                    potential_err_message,
-                )
-                self.assertEqual(response.status_code, 403, potential_err_message)
-                self.assertTrue(self.organization.name, self.CONFIG_ORGANIZATION_NAME)
-            else:
-                potential_err_message = f"Somehow did not delete the org as a level {level} (which is owner)"
-                self.assertEqual(response.status_code, 204, potential_err_message)
-                self.assertTrue(self.organization.name, "Woof")
+            potential_err_message = f"Somehow managed to delete the org as a level {level} (which is not owner)"
+            self.assertEqual(
+                response.data,
+                {
+                    "attr": None,
+                    "detail": "Your organization access level is insufficient.",
+                    "code": "permission_denied",
+                    "type": "authentication_error",
+                },
+                potential_err_message,
+            )
+            self.assertEqual(response.status_code, 403, potential_err_message)
+            self.assertTrue(self.organization.name, self.CONFIG_ORGANIZATION_NAME)
+
+    def test_delete_organization_owning(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        response = self.client.delete(f"/api/organizations/{self.organization.id}")
+        potential_err_message = f"Somehow did not delete the org as the owner"
+        self.assertEqual(response.status_code, 204, potential_err_message)
+        self.assertFalse(Organization.objects.filter(id=self.organization.id).exists())
 
     def test_no_delete_organization_not_belonging_to(self):
         for level in OrganizationMembership.Level:
