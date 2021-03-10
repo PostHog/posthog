@@ -53,7 +53,7 @@ export function DashboardHeader(): JSX.Element {
                                 <Menu.Divider />
                             </>
                         )}
-                        <Menu.Item icon={<EditOutlined />} onClick={() => setIsOnEditMode(true)}>
+                        <Menu.Item icon={<EditOutlined />} onClick={() => setIsOnEditMode(true, 'more_dropdown')}>
                             Edit mode
                         </Menu.Item>
                         <Menu.Item icon={<FullscreenOutlined />} onClick={togglePresentationMode}>
@@ -87,7 +87,7 @@ export function DashboardHeader(): JSX.Element {
                 type="link"
                 data-attr="dashboard-edit-mode"
                 icon={<EditOutlined />}
-                onClick={() => setIsOnEditMode(true)}
+                onClick={() => setIsOnEditMode(true, 'dashboard_header')}
             />
             <Button
                 type="primary"
@@ -111,7 +111,11 @@ export function DashboardHeader(): JSX.Element {
     )
 
     const actionsEditMode = (
-        <Button data-attr="dashboard-edit-mode-save" type="primary" onClick={() => setIsOnEditMode(false)}>
+        <Button
+            data-attr="dashboard-edit-mode-save"
+            type="primary"
+            onClick={() => setIsOnEditMode(false, 'dashboard_header')}
+        >
             Finish editing
         </Button>
     )
@@ -137,7 +141,7 @@ export function DashboardHeader(): JSX.Element {
                             }}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
-                                    setIsOnEditMode(false)
+                                    setIsOnEditMode(false, 'rename_input')
                                 }
                             }}
                         />

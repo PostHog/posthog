@@ -27,7 +27,7 @@ export const dashboardLogic = kea({
         updateContainerWidth: (containerWidth, columns) => ({ containerWidth, columns }),
         saveLayouts: true,
         updateItemColor: (id, color) => ({ id, color }),
-        setIsOnEditMode: (isOnEditMode) => ({ isOnEditMode }),
+        setIsOnEditMode: (isOnEditMode, source = null) => ({ isOnEditMode, source }),
         refreshAllDashboardItems: true,
         updateAndRefreshDashboard: true,
     }),
@@ -306,7 +306,7 @@ export const dashboardLogic = kea({
             actions.updateDashboard(filters)
             dashboardItemsModel.actions.refreshAllDashboardItems(filters)
         },
-        setIsOnEditMode: ({ isOnEditMode }) => {
+        setIsOnEditMode: ({ isOnEditMode, source }) => {
             if (isOnEditMode) {
                 clearDOMTextSelection()
                 window.setTimeout(clearDOMTextSelection, 200)
@@ -324,7 +324,7 @@ export const dashboardLogic = kea({
                         {
                             type: 'info',
                             autoClose: false,
-                            onClick: () => actions.setIsOnEditMode(false),
+                            onClick: () => actions.setIsOnEditMode(false, 'toast'),
                             closeButton: false,
                             className: 'drag-items-toast accent-border',
                         }
@@ -336,6 +336,7 @@ export const dashboardLogic = kea({
                     cache.draggingToastId = null
                 }
             }
+            eventUsageLogic.actions.reportDashboardEditModeToggled(isOnEditMode, source)
         },
     }),
 })

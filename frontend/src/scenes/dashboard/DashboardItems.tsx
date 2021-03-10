@@ -97,7 +97,7 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
                         isDraggingRef={isDragging}
                         inSharedMode={inSharedMode}
                         isOnEditMode={isOnEditMode}
-                        setEditMode={() => setIsOnEditMode(true)}
+                        setEditMode={() => setIsOnEditMode(true, 'long_press')}
                         index={index}
                     />
                 </div>
