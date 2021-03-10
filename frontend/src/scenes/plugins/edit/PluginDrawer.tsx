@@ -2,7 +2,6 @@ import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Button, Checkbox, Form, Popconfirm, Switch, Tooltip } from 'antd'
-import { red } from '@ant-design/colors'
 import { DeleteOutlined, CodeOutlined, LockFilled } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
@@ -177,8 +176,8 @@ export function PluginDrawer(): JSX.Element {
 
                             {user?.organization?.plugins_access_level === PluginsAccessLevel.Root && (
                                 <>
-                                    <h3 className="l3" style={{ marginTop: 32, color: red.primary }}>
-                                        Instance Control
+                                    <h3 className="l3" style={{ marginTop: 32 }}>
+                                        Installation
                                     </h3>
                                     <Tooltip
                                         title={
@@ -197,7 +196,7 @@ export function PluginDrawer(): JSX.Element {
                                                 })
                                             }
                                         />
-                                        <strong style={{ paddingLeft: 10, color: red.primary }}>Manage globally</strong>
+                                        <span style={{ paddingLeft: 10 }}>Mark as global</span>
                                     </Tooltip>
                                 </>
                             )}
