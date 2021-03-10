@@ -4,7 +4,6 @@ import re
 
 import django.contrib.postgres.fields.jsonb
 from django.db import migrations
-from django.db.models.query_utils import Q
 
 from posthog.utils import GenericEmails
 

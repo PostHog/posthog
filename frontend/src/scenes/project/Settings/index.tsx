@@ -20,9 +20,9 @@ import { Link } from 'lib/components/Link'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { userLogic } from 'scenes/userLogic'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
-import { TestAccountFilters } from './TestAccountFilters'
 import { RestrictedArea } from '../../../lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from '../../../lib/constants'
+import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -149,13 +149,12 @@ function _ProjectSettings(): JSX.Element {
                 with PostHog, so it's safe to use in public apps.
                 <Divider />
                 <h2 className="subtitle" id="testaccounts">
-                    Filtering out test accounts and team members
+                    Filter out test accounts and team members
                 </h2>
                 <p>
-                    You can add filters here that will allow you to filter out test account and team members from your.
-                    These filters will be added to all queries.
+                    Filter out test accounts and internal team members from all your queries for more accurate insights.
                 </p>
-                <TestAccountFilters />
+                <TestAccountFiltersConfig />
                 <Divider />
                 <h2 className="subtitle" id="urls">
                     Permitted Domains/URLs
