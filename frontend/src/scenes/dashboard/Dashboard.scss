@@ -17,6 +17,19 @@ $dashboard-title-size: 32px;
             padding-left: 4px !important;
         }
     }
+
+    &.not-found {
+        text-align: center;
+        .graphic {
+            background: url('../../../public/not-found-rocket.svg') no-repeat center center;
+            height: 270px;
+            width: 100%;
+        }
+        p {
+            margin: 0 auto;
+            max-width: 600px;
+        }
+    }
 }
 
 .dashboard-header {
