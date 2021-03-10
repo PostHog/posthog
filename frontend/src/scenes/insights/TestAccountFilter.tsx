@@ -4,6 +4,7 @@ import { Link } from 'lib/components/Link'
 import React from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { FilterType } from '~/types'
+import { SettingOutlined } from '@ant-design/icons'
 
 export function TestAccountFilter({
     filters,
@@ -19,8 +20,8 @@ export function TestAccountFilter({
         <Tooltip
             title={
                 hasFilters
-                    ? 'Filter out test accounts and team members from this query.'
-                    : "You don't have a test account filter set up. Click configure to set it up."
+                    ? 'Filter out test accounts and internal team members from this query.'
+                    : "You don't have a test account filter set up. Click settings to set it up."
             }
         >
             <Switch
@@ -34,9 +35,10 @@ export function TestAccountFilter({
                     marginLeft: '10px',
                 }}
             >
-                <small>
-                    Filter out test accounts. <Link to="/project/settings#testaccounts">Configure</Link>
-                </small>
+                Filter out test accounts.{' '}
+                <Link to="/project/settings#testaccounts">
+                    <SettingOutlined /> Settings
+                </Link>
             </label>
         </Tooltip>
     )
