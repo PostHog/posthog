@@ -53,11 +53,14 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
         ) => ({ isOnEditMode, source }),
         reportDashboardRefreshed: (lastRefreshed: string) => ({ lastRefreshed }),
         reportDashboardDateRangeChanged: (dateFrom?: string, dateTo?: string) => ({ dateFrom, dateTo }),
-        reportDashboardPinToggled: (pinned: boolean, source: 'more_dropdown' | 'main_nav' | 'dashboard_list') => ({
+        reportDashboardPinToggled: (pinned: boolean, source: 'more_dropdown' | 'main_nav' | 'dashboards_list') => ({
             pinned,
             source,
         }),
-        reportDashboardPresentationModeToggled: (isPresentationMode: boolean, source: 'more_dropdown' | 'hotkey') => ({
+        reportDashboardPresentationModeToggled: (
+            isPresentationMode: boolean,
+            source: 'more_dropdown' | 'hotkey' | 'dashboard_header' | 'browser' | null
+        ) => ({
             isPresentationMode,
             source,
         }),
@@ -265,7 +268,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
             posthog.capture(`dashboard date range changed`, { date_from: dateFrom, date_to: dateTo })
         },
         reportDashboardPinToggled: async ({ pinned, source }) => {
-            posthog.capture(`dashboard date range changed`, { pinned: pinned, source })
+            posthog.capture(`dashboard pin toggled`, { pinned: pinned, source })
         },
         reportDashboardPresentationModeToggled: async ({ isPresentationMode, source }) => {
             posthog.capture(`dashboard presentation mode toggled`, { is_presentation_mode: isPresentationMode, source })

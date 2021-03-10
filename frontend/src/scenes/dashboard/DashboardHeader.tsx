@@ -19,6 +19,7 @@ import { FullScreen } from 'lib/components/FullScreen'
 import moment from 'moment'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardType } from '~/types'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function DashboardHeader(): JSX.Element {
     const { dashboard, isOnEditMode } = useValues(dashboardLogic)
@@ -28,10 +29,16 @@ export function DashboardHeader(): JSX.Element {
     const [fullScreen, setFullScreen] = useState(false)
     const [showShareModal, setShowShareModal] = useState(false)
     const [newDashboardName, setNewDashboardName] = useState(dashboard.name)
+    const { reportDashboardPresentationModeToggled } = useActions(eventUsageLogic)
 
-    const togglePresentationMode = (): void => {
-        setFullScreen(!fullScreen)
+    const togglePresentationMode = (
+        source: 'more_dropdown' | 'hotkey' | 'dashboard_header' | 'browser' | null,
+        newMode?: boolean
+    ): void => {
+        const _newMode = newMode !== undefined ? newMode : !fullScreen
+        setFullScreen(_newMode)
         triggerResizeAfterADelay()
+        reportDashboardPresentationModeToggled(_newMode, source)
     }
 
     const actionsDefault = (
@@ -56,15 +63,24 @@ export function DashboardHeader(): JSX.Element {
                         <Menu.Item icon={<EditOutlined />} onClick={() => setIsOnEditMode(true, 'more_dropdown')}>
                             Edit mode
                         </Menu.Item>
-                        <Menu.Item icon={<FullscreenOutlined />} onClick={togglePresentationMode}>
+                        <Menu.Item
+                            icon={<FullscreenOutlined />}
+                            onClick={() => togglePresentationMode('more_dropdown')}
+                        >
                             Presentation mode
                         </Menu.Item>
                         {dashboard.pinned ? (
-                            <Menu.Item icon={<PushpinFilled />} onClick={() => unpinDashboard(dashboard.id)}>
+                            <Menu.Item
+                                icon={<PushpinFilled />}
+                                onClick={() => unpinDashboard(dashboard.id, 'more_dropdown')}
+                            >
                                 Unpin dashboard
                             </Menu.Item>
                         ) : (
-                            <Menu.Item icon={<PushpinOutlined />} onClick={() => pinDashboard(dashboard.id)}>
+                            <Menu.Item
+                                icon={<PushpinOutlined />}
+                                onClick={() => pinDashboard(dashboard.id, 'more_dropdown')}
+                            >
                                 Pin dashboard
                             </Menu.Item>
                         )}
@@ -102,7 +118,7 @@ export function DashboardHeader(): JSX.Element {
 
     const actionsPresentationMode = (
         <Button
-            onClick={togglePresentationMode}
+            onClick={() => togglePresentationMode('dashboard_header')}
             data-attr="dashboard-exit-presentation-mode"
             icon={<FullscreenExitOutlined />}
         >
@@ -122,7 +138,7 @@ export function DashboardHeader(): JSX.Element {
 
     return (
         <div className={`dashboard-header${fullScreen ? ' full-screen' : ''}`}>
-            {fullScreen ? <FullScreen onExit={() => setFullScreen(false)} /> : null}
+            {fullScreen ? <FullScreen onExit={() => togglePresentationMode('browser', false)} /> : null}
             {showShareModal && <ShareModal onCancel={() => setShowShareModal(false)} />}
             {dashboardsLoading ? (
                 <Loading />
