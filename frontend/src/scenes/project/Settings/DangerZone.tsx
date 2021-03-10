@@ -1,60 +1,77 @@
-import React from 'react'
+import React, { Dispatch, SetStateAction, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { ExclamationCircleOutlined, DeleteOutlined } from '@ant-design/icons'
-import { red } from '@ant-design/colors'
-import { Button } from 'antd'
+import { DeleteOutlined } from '@ant-design/icons'
+import { Button, Modal } from 'antd'
 import { teamLogic } from 'scenes/teamLogic'
-import confirm from 'antd/lib/modal/confirm'
 import Paragraph from 'antd/lib/typography/Paragraph'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
 
-export function DangerZone({ isRestricted }: RestrictedComponentProps): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const { deleteCurrentTeam } = useActions(teamLogic)
+export function DeleteProjectModal({
+    isVisible,
+    setIsVisible,
+}: {
+    isVisible: boolean
+    setIsVisible: Dispatch<SetStateAction<boolean>>
+}): JSX.Element {
+    const { currentTeam, teamBeingDeleted } = useValues(teamLogic)
+    const { deleteTeam } = useActions(teamLogic)
 
-    function confirmDeleteProject(): void {
-        confirm({
-            title: 'Delete the entire project?',
-            content: (
-                <>
-                    Project deletion <b>cannot be undone</b>. You will lose all data, <b>including events</b>, related
-                    to the project.
-                </>
-            ),
-            icon: <ExclamationCircleOutlined color={red.primary} />,
-            okText: currentTeam ? `Delete ${currentTeam.name}` : <i>Loading current project…</i>,
-            okType: 'danger',
-            okButtonProps: {
+    const isDeletionInProgress = !!currentTeam && teamBeingDeleted?.id === currentTeam.id
+
+    return (
+        <Modal
+            title="Delete the project and its data?"
+            okText={`Delete ${currentTeam ? currentTeam.name : 'the current project'}`}
+            okType="danger"
+            onOk={currentTeam ? () => deleteTeam(currentTeam) : undefined}
+            okButtonProps={{
                 // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
                 'data-attr': 'delete-project-ok',
-            },
-            cancelText: 'Cancel',
-            onOk: deleteCurrentTeam,
-        })
-    }
+                loading: isDeletionInProgress,
+            }}
+            onCancel={() => setIsVisible(false)}
+            cancelButtonProps={{
+                disabled: isDeletionInProgress,
+            }}
+            visible={isVisible}
+        >
+            Project deletion <b>cannot be undone</b>. You will lose all data, <b>including events</b>, related to the
+            project.
+        </Modal>
+    )
+}
+
+export function DangerZone({ isRestricted }: RestrictedComponentProps): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+
+    const [isModalVisible, setIsModalVisible] = useState(false)
+
     return (
-        <div style={{ color: 'var(--danger)' }}>
-            <h2 style={{ color: 'var(--danger)' }} className="subtitle">
-                Danger Zone
-            </h2>
-            <div className="mt">
-                {!isRestricted && (
-                    <Paragraph type="danger">
-                        This is <b>irreversible</b>. Please be certain.
-                    </Paragraph>
-                )}
-                <Button
-                    type="default"
-                    danger
-                    onClick={confirmDeleteProject}
-                    className="mr-05"
-                    data-attr="delete-project-button"
-                    icon={<DeleteOutlined />}
-                    disabled={isRestricted}
-                >
-                    Delete {currentTeam?.name || 'the current project'}
-                </Button>
+        <>
+            <div style={{ color: 'var(--danger)' }}>
+                <h2 style={{ color: 'var(--danger)' }} className="subtitle">
+                    Danger Zone
+                </h2>
+                <div className="mt">
+                    {!isRestricted && (
+                        <Paragraph type="danger">
+                            This is <b>irreversible</b>. Please be certain.
+                        </Paragraph>
+                    )}
+                    <Button
+                        type="default"
+                        danger
+                        onClick={() => setIsModalVisible(true)}
+                        className="mr-05"
+                        data-attr="delete-project-button"
+                        icon={<DeleteOutlined />}
+                        disabled={isRestricted}
+                    >
+                        Delete {currentTeam?.name || 'the current project'}
+                    </Button>
+                </div>
             </div>
-        </div>
+            <DeleteProjectModal isVisible={isModalVisible} setIsVisible={setIsModalVisible} />
+        </>
     )
 }

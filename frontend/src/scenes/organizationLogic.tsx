@@ -4,7 +4,6 @@ import { organizationLogicType } from './organizationLogicType'
 import { OrganizationType, PersonalizationData } from '~/types'
 import { toast } from 'react-toastify'
 import { userLogic } from './userLogic'
-import { teamLogic } from './teamLogic'
 
 interface OrganizationUpdatePayload {
     name?: string
@@ -13,7 +12,19 @@ interface OrganizationUpdatePayload {
 
 export const organizationLogic = kea<organizationLogicType<OrganizationType, PersonalizationData>>({
     actions: {
-        deleteCurrentOrganization: true,
+        deleteOrganization: (organization: OrganizationType) => ({ organization }),
+        deleteOrganizationSuccess: true,
+        deleteOrganizationFailure: true,
+    },
+    reducers: {
+        organizationBeingDeleted: [
+            null as OrganizationType | null,
+            {
+                deleteOrganization: (_, { organization }) => organization,
+                deleteOrganizationSuccess: () => null,
+                deleteOrganizationFailure: () => null,
+            },
+        ],
     },
     loaders: ({ values }) => ({
         currentOrganization: [
@@ -26,12 +37,7 @@ export const organizationLogic = kea<organizationLogicType<OrganizationType, Per
                         return null
                     }
                 },
-                createOrganization: async (name: string) => {
-                    const result = await api.create('api/organizations/', { name })
-                    teamLogic.actions.loadCurrentTeam()
-                    userLogic.actions.loadUser()
-                    return result
-                },
+                createOrganization: async (name: string) => await api.create('api/organizations/', { name }),
                 updateOrganization: async (payload: OrganizationUpdatePayload) =>
                     await api.update('api/organizations/@current', payload),
                 renameCurrentOrganization: async (newName: string) => {
@@ -51,19 +57,24 @@ export const organizationLogic = kea<organizationLogicType<OrganizationType, Per
             },
         ],
     }),
-    listeners: ({ values }) => ({
+    listeners: ({ actions }) => ({
         createOrganizationSuccess: () => {
             window.location.href = '/organization/members'
         },
         renameCurrentOrganizationSuccess: () => {
             toast.success('Organization has been renamed')
         },
-        deleteCurrentOrganization: async () => {
-            if (values.currentOrganization) {
-                toast(`Deleting organization ${values.currentOrganization.name}…`)
-                await api.delete(`api/organizations/${values.currentOrganization.id}`)
+        deleteOrganization: async ({ organization }) => {
+            try {
+                await api.delete(`api/organizations/${organization.id}`)
                 location.reload()
+                actions.deleteOrganizationSuccess()
+            } catch {
+                actions.deleteOrganizationFailure()
             }
+        },
+        deleteOrganizationSuccess: () => {
+            toast.success('Organization has been deleted')
         },
     }),
     events: ({ actions }) => ({

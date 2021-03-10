@@ -142,10 +142,6 @@ class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             return [permission() for permission in [permissions.IsAuthenticated, PremiumMultiorganizationPermissions]]
         return super().get_permissions()
 
-    def perform_destroy(self, instance):
-        instance.teams.all().delete()
-        return super().perform_destroy(instance)
-
     def get_queryset(self) -> QuerySet:
         return self.request.user.organizations.all()
 
