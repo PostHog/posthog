@@ -48,10 +48,13 @@ export function ProfilePicture({ name, email }: ProfilePictureProps): JSX.Elemen
                 src={gravatarUrl}
                 onError={() => setDidImageError(true)}
                 title={`This is ${email}'s Gravatar.`}
+                alt=""
             />
         )
     } else if (name) {
         return <div className="profile-picture">{name[0]?.toUpperCase()}</div>
+    } else if (email) {
+        return <div className="profile-picture">{email[0]?.toUpperCase()}</div>
     }
     return <div className="profile-picture">?</div>
 }
