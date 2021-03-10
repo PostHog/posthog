@@ -16,7 +16,7 @@ export const dashboardsModel = kea({
         pinDashboard: (id, source = null) => ({ id, source }),
         unpinDashboard: (id, source = null) => ({ id, source }),
     }),
-    loaders: () => ({
+    loaders: ({ values }) => ({
         rawDashboards: [
             {},
             {
@@ -47,6 +47,7 @@ export const dashboardsModel = kea({
             renameDashboard: async ({ id, name }, breakpoint) => {
                 await breakpoint(700)
                 const response = await api.update(`api/dashboard/${id}`, { name })
+                eventUsageLogic.actions.reportDashboardRenamed(values.rawDashboards[id].name.length, name.length)
                 return response
             },
             setIsSharedDashboard: async ({ id, isShared }) =>

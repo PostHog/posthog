@@ -64,7 +64,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
             isPresentationMode,
             source,
         }),
-        reportDashboardDropdownNavigation: (destIsShared: boolean) => ({ destIsShared }),
+        reportDashboardDropdownNavigation: true,
         reportDashboardRenamed: (originalLength: number, newLength: number) => ({ originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
     },
@@ -273,11 +273,10 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
         reportDashboardPresentationModeToggled: async ({ isPresentationMode, source }) => {
             posthog.capture(`dashboard presentation mode toggled`, { is_presentation_mode: isPresentationMode, source })
         },
-        reportDashboardDropdownNavigation: async ({ destIsShared }) => {
+        reportDashboardDropdownNavigation: async () => {
             /* Triggered when a user navigates using the dropdown in the header.
-                destIsShared: whether the dashboard being navigated to is publicly shared
-            */
-            posthog.capture(`dashboard dropdown navigated`, { destination_is_shared: destIsShared })
+             */
+            posthog.capture(`dashboard dropdown navigated`)
         },
         reportDashboardRenamed: async ({ originalLength, newLength }) => {
             posthog.capture(`dashboard renamed`, { original_length: originalLength, new_length: newLength })

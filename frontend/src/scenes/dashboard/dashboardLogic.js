@@ -270,6 +270,7 @@ export const dashboardLogic = kea({
         },
         setIsSharedDashboard: ({ id, isShared }) => {
             dashboardsModel.actions.setIsSharedDashboard({ id, isShared })
+            eventUsageLogic.actions.reportDashboardShareToggled(isShared)
         },
         renameDashboard: ({ name }) => {
             dashboardsModel.actions.renameDashboard({ id: values.dashboard.id, name })

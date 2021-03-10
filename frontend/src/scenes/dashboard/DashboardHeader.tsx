@@ -165,9 +165,14 @@ export function DashboardHeader(): JSX.Element {
                         <div className="dashboard-select">
                             <Select
                                 value={dashboard?.id || null}
-                                onChange={(id) =>
-                                    id === 'new' ? addNewDashboard() : router.actions.push(`/dashboard/${id}`)
-                                }
+                                onChange={(id) => {
+                                    if (id === 'new') {
+                                        addNewDashboard()
+                                    } else {
+                                        router.actions.push(`/dashboard/${id}`)
+                                        eventUsageLogic.actions.reportDashboardDropdownNavigation()
+                                    }
+                                }}
                                 bordered={false}
                                 dropdownMatchSelectWidth={false}
                             >
