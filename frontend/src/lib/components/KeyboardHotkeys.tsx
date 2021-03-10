@@ -34,14 +34,15 @@ interface HotKeys {
     x?: HotKeyInterface
     y?: HotKeyInterface
     z?: HotKeyInterface
+    escape?: HotKeyInterface
 }
 
 export function KeyboardHotkeys({ hotkeys }: { hotkeys: HotKeys }): JSX.Element {
     useEventListener('keydown', (event) => {
         const key = (event as KeyboardEvent).key
 
-        // Ignore typing on inputs (default behavior)
-        if ((event.target as HTMLElement).tagName === 'INPUT') {
+        // Ignore typing on inputs (default behavior); except Esc key
+        if (key !== 'Escape' && (event.target as HTMLElement).tagName === 'INPUT') {
             return
         }
 

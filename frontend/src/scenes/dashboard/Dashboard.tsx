@@ -49,6 +49,11 @@ function DashboardView(): JSX.Element {
             action: () => addGraph(),
             disabled: dashboardMode !== null && dashboardMode !== 'edit',
         },
+        escape: {
+            // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
+            action: () => setDashboardMode(null, 'hotkey'),
+            disabled: dashboardMode !== 'edit',
+        },
     }
 
     if (dashboardsLoading || itemsLoading) {
