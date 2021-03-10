@@ -28,6 +28,7 @@ export const dashboardLogic = kea({
         updateItemColor: (id, color) => ({ id, color }),
         setIsOnEditMode: (isOnEditMode, source = null) => ({ isOnEditMode, source }),
         setIsOnFullScreenMode: (newMode, source = null) => ({ newMode, source }),
+        setShareModalOpened: (shareModalOpened) => ({ shareModalOpened }),
         refreshAllDashboardItems: true,
         updateAndRefreshDashboard: true,
         setDates: (dateFrom, dateTo, reloadDashboard = true) => ({ dateFrom, dateTo, reloadDashboard }),
@@ -127,6 +128,12 @@ export const dashboardLogic = kea({
             false,
             {
                 setIsOnSharedMode: (_, { isOnSharedMode }) => isOnSharedMode,
+            },
+        ],
+        shareModalOpened: [
+            false,
+            {
+                setShareModalOpened: (_, { shareModalOpened }) => shareModalOpened,
             },
         ],
     }),

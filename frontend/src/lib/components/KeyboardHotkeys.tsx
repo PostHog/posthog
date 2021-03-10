@@ -1,38 +1,11 @@
 import { useEventListener } from 'lib/hooks/useEventListener'
 import React from 'react'
+import { Keys } from '~/types'
 
 interface HotKeyInterface {
     action: () => void
     disabled?: boolean
 }
-
-type Keys =
-    | 'a'
-    | 'b'
-    | 'c'
-    | 'd'
-    | 'e'
-    | 'f'
-    | 'g'
-    | 'h'
-    | 'i'
-    | 'j'
-    | 'k'
-    | 'l'
-    | 'm'
-    | 'n'
-    | 'o'
-    | 'p'
-    | 'q'
-    | 'r'
-    | 's'
-    | 't'
-    | 'u'
-    | 'v'
-    | 'w'
-    | 'x'
-    | 'y'
-    | 'z'
 
 interface HotKeys {
     a?: HotKeyInterface

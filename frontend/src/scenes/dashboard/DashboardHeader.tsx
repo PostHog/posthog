@@ -14,19 +14,26 @@ import {
     FullscreenOutlined,
     FullscreenExitOutlined,
     ShareAltOutlined,
+    PlusOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
 import moment from 'moment'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { HotkeyButton } from 'lib/components/HotkeyButton'
 
 export function DashboardHeader(): JSX.Element {
-    const { dashboard, isOnEditMode, isOnFullScreenMode } = useValues(dashboardLogic)
-    const { addNewDashboard, setIsOnEditMode, renameDashboard, setIsOnFullScreenMode } = useActions(dashboardLogic)
+    const { dashboard, isOnEditMode, isOnFullScreenMode, shareModalOpened } = useValues(dashboardLogic)
+    const {
+        addNewDashboard,
+        setIsOnEditMode,
+        renameDashboard,
+        setIsOnFullScreenMode,
+        setShareModalOpened,
+    } = useActions(dashboardLogic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
-    const [showShareModal, setShowShareModal] = useState(false)
     const [newDashboardName, setNewDashboardName] = useState(dashboard.name)
 
     const actionsDefault = (
@@ -93,14 +100,23 @@ export function DashboardHeader(): JSX.Element {
                 icon={<EditOutlined />}
                 onClick={() => setIsOnEditMode(true, 'dashboard_header')}
             />
-            <Button
+            <HotkeyButton
+                onClick={() => alert('todo')}
+                data-attr="dashboard-add-graph-header"
+                icon={<PlusOutlined />}
+                hotkey="n"
+            >
+                Add graph
+            </HotkeyButton>
+            <HotkeyButton
                 type="primary"
-                onClick={() => setShowShareModal(true)}
+                onClick={() => setShareModalOpened(true)}
                 data-attr="dashboard-share-button"
                 icon={<ShareAltOutlined />}
+                hotkey="s"
             >
                 Send or share
-            </Button>
+            </HotkeyButton>
         </>
     )
 
@@ -127,7 +143,7 @@ export function DashboardHeader(): JSX.Element {
     return (
         <div className={`dashboard-header${isOnFullScreenMode ? ' full-screen' : ''}`}>
             {isOnFullScreenMode && <FullScreen onExit={() => setIsOnFullScreenMode(false, 'browser')} />}
-            {showShareModal && <ShareModal onCancel={() => setShowShareModal(false)} />}
+            <ShareModal onCancel={() => setShareModalOpened(false)} visible={shareModalOpened} />
             {dashboardsLoading ? (
                 <Loading />
             ) : (
