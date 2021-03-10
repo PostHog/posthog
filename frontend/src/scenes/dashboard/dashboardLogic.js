@@ -30,6 +30,7 @@ export const dashboardLogic = kea({
         refreshAllDashboardItems: true,
         updateAndRefreshDashboard: true,
         setDates: (dateFrom, dateTo, reloadDashboard = true) => ({ dateFrom, dateTo, reloadDashboard }),
+        addGraph: true, // takes the user to insights to add a graph
     }),
 
     loaders: ({ actions, props }) => ({
@@ -352,6 +353,11 @@ export const dashboardLogic = kea({
             }
 
             eventUsageLogic.actions.reportDashboardModeToggled(mode, source)
+        },
+        addGraph: () => {
+            router.actions.push(
+                `/insights?insight=TRENDS#backTo=${values.dashboard.name}&backToURL=/dashboard/${values.dashboard.id}`
+            )
         },
     }),
 })

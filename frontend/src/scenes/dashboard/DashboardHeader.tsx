@@ -1,6 +1,5 @@
 import { Loading } from 'lib/utils'
 import { Button, Dropdown, Input, Menu, Select, Tooltip } from 'antd'
-import { router } from 'kea-router'
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -22,10 +21,11 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HotkeyButton } from 'lib/components/HotkeyButton'
+import { router } from 'kea-router'
 
 export function DashboardHeader(): JSX.Element {
     const { dashboard, dashboardMode } = useValues(dashboardLogic)
-    const { addNewDashboard, renameDashboard, setDashboardMode } = useActions(dashboardLogic)
+    const { addNewDashboard, renameDashboard, setDashboardMode, addGraph } = useActions(dashboardLogic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [newDashboardName, setNewDashboardName] = useState(dashboard.name)
@@ -95,7 +95,7 @@ export function DashboardHeader(): JSX.Element {
                 onClick={() => setDashboardMode('edit', 'dashboard_header')}
             />
             <HotkeyButton
-                onClick={() => alert('todo')}
+                onClick={() => addGraph()}
                 data-attr="dashboard-add-graph-header"
                 icon={<PlusOutlined />}
                 hotkey="n"

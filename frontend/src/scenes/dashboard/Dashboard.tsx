@@ -1,5 +1,4 @@
 import React from 'react'
-import { Link } from 'lib/components/Link'
 import { SceneLoading } from 'lib/utils'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -29,7 +28,9 @@ export function Dashboard({ id, shareToken }: Props): JSX.Element {
 function DashboardView(): JSX.Element {
     const { dashboard, itemsLoading, items, lastRefreshed, dashboardMode } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { updateAndRefreshDashboard, refreshAllDashboardItems, setDashboardMode } = useActions(dashboardLogic)
+    const { updateAndRefreshDashboard, refreshAllDashboardItems, setDashboardMode, addGraph } = useActions(
+        dashboardLogic
+    )
 
     const HOTKEYS = {
         e: {
@@ -43,6 +44,10 @@ function DashboardView(): JSX.Element {
         s: {
             action: () => setDashboardMode(dashboardMode === 'sharing' ? null : 'sharing', 'hotkey'),
             disabled: dashboardMode !== null && dashboardMode !== 'sharing',
+        },
+        n: {
+            action: () => addGraph(),
+            disabled: dashboardMode !== null && dashboardMode !== 'edit',
         },
     }
 
@@ -90,7 +95,9 @@ function DashboardView(): JSX.Element {
             ) : (
                 <p>
                     There are no panels on this dashboard.{' '}
-                    <Link to="/insights?insight=TRENDS">Click here to add some!</Link>
+                    <Button type="link" onClick={addGraph}>
+                        Click here to add some!
+                    </Button>
                 </p>
             )}
         </div>
