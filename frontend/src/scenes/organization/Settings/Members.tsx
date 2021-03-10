@@ -82,11 +82,11 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
             if (listLevel === OrganizationMembershipLevel.Owner) {
                 Modal.confirm({
                     centered: true,
-                    title: `Pass on organization ownership to ${member.user_first_name}?`,
-                    content: `You will stop being the owner of ${user.organization?.name}, becoming just an administrator.`,
+                    title: `Transfer organization ownership to ${member.user_first_name}?`,
+                    content: `You will no longer be the owner of ${user.organization?.name}. After the transfer you will become an administrator.`,
                     icon: <SwapOutlined />,
                     okType: 'danger',
-                    okText: 'Pass Ownership',
+                    okText: 'Transfer Ownership',
                     onOk() {
                         changeMemberAccessLevel(member, listLevel)
                     },
@@ -120,17 +120,17 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
                                 {listLevel === OrganizationMembershipLevel.Owner ? (
                                     <>
                                         <CrownFilled style={{ marginRight: '0.5rem' }} />
-                                        Pass on organization ownership
+                                        Transfer organization ownership
                                     </>
                                 ) : listLevel > level ? (
                                     <>
                                         <UpOutlined style={{ marginRight: '0.5rem' }} />
-                                        Promote to {organizationMembershipLevelToName.get(listLevel)}
+                                        Upgrade to {organizationMembershipLevelToName.get(listLevel)}
                                     </>
                                 ) : (
                                     <>
                                         <DownOutlined style={{ marginRight: '0.5rem' }} />
-                                        Demote to {organizationMembershipLevelToName.get(listLevel)}
+                                        Downgrade to {organizationMembershipLevelToName.get(listLevel)}
                                     </>
                                 )}
                             </a>
