@@ -25,7 +25,7 @@ const determineFilterLabel = (visible, filter) => {
     return 'Add filters'
 }
 
-export function ActionFilterRow({ logic, filter, index, hideMathSelector, singleFilter }) {
+export function ActionFilterRow({ logic, filter, index, hideMathSelector, singleFilter, letter }) {
     const node = useRef()
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
     const {
@@ -88,6 +88,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
     return (
         <div>
             <Row gutter={8} className="mt">
+                {letter && <Col className="action-row-letter">{letter}</Col>}
                 <Col style={{ maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}>
                     <Button
                         data-attr={'trend-element-subject-' + index}

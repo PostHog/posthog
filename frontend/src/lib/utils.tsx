@@ -747,3 +747,5 @@ export function sortedKeys(object: Record<string, any>): Record<string, any> {
     }
     return newObject
 }
+
+export const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
