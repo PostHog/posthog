@@ -20,7 +20,7 @@ import { Link } from 'lib/components/Link'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { userLogic } from 'scenes/userLogic'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
-import { TestAccountFilters } from './TestAccountFilters'
+import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -147,7 +147,7 @@ function _ProjectSettings(): JSX.Element {
                 <p>
                     Filter out test accounts and internal team members from all your queries for more accurate insights.
                 </p>
-                <TestAccountFilters />
+                <TestAccountFiltersConfig />
                 <Divider />
                 <h2 className="subtitle" id="urls">
                     Permitted Domains/URLs

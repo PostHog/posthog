@@ -4,7 +4,7 @@ import { userLogic } from 'scenes/userLogic'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { FilterType } from '~/types'
 
-export function TestAccountFilters(): JSX.Element {
+export function TestAccountFiltersConfig(): JSX.Element {
     const { userUpdateRequest } = useActions(userLogic)
     const { user } = useValues(userLogic)
 
