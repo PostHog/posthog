@@ -175,7 +175,9 @@ export const sceneLogic = kea<sceneLogicType>({
         loadScene: (scene: Scene, params: Params) => ({ scene, params }),
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
         setLoadedScene: (scene: Scene, loadedScene: LoadedScene) => ({ scene, loadedScene }),
-        showUpgradeModal: (featureName: string) => ({ featureName }),
+        showUpgradeModal: (featureName: string, featureBenefit: string) => ({
+            featureNameBenefit: [featureName, featureBenefit],
+        }),
         hideUpgradeModal: true,
         takeToPricing: true,
     },
@@ -212,10 +214,10 @@ export const sceneLogic = kea<sceneLogicType>({
                 setScene: () => null,
             },
         ],
-        upgradeModalFeatureName: [
-            null as string | null,
+        upgradeModalFeatureNameBenefit: [
+            null as [string, string] | null,
             {
-                showUpgradeModal: (_, { featureName }) => featureName,
+                showUpgradeModal: (_, { featureNameBenefit }) => featureNameBenefit,
                 hideUpgradeModal: () => null,
                 takeToPricing: () => null,
             },

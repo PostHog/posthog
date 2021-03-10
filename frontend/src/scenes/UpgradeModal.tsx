@@ -6,7 +6,7 @@ import { UserType } from '~/types'
 import { sceneLogic } from './sceneLogic'
 
 export function UpgradeModal(): JSX.Element {
-    const { upgradeModalFeatureName } = useValues(sceneLogic)
+    const { upgradeModalFeatureNameBenefit } = useValues(sceneLogic)
     const { hideUpgradeModal, takeToPricing } = useActions(sceneLogic)
 
     return (
@@ -16,19 +16,24 @@ export function UpgradeModal(): JSX.Element {
             cancelText="Maybe Later"
             onOk={takeToPricing}
             onCancel={hideUpgradeModal}
-            visible={!!upgradeModalFeatureName}
+            visible={!!upgradeModalFeatureNameBenefit}
         >
-            <b>{upgradeModalFeatureName && capitalizeFirstLetter(upgradeModalFeatureName)}</b> is an advanced PostHog
-            feature. Upgrade now and get access to this, as well as to other powerful enhancements.
+            <p>
+                <b>{upgradeModalFeatureNameBenefit && capitalizeFirstLetter(upgradeModalFeatureNameBenefit[0])}</b> is
+                an advanced PostHog feature.
+            </p>
+            <p>{upgradeModalFeatureNameBenefit && upgradeModalFeatureNameBenefit[1]}</p>
+            <p>Upgrade now and get access to this, as well as to other powerful enhancements.</p>
         </Modal>
     )
 }
 
 export function guardPremiumFeature(
     user: UserType | null,
-    showUpgradeModal: (featureName: string) => void,
+    showUpgradeModal: (featureName: string, featurBenefit: string) => void,
     key: string,
     name: string,
+    benefit: string,
     featureAvailableCallback?: () => void,
     guardOn: {
         cloud: boolean
@@ -52,7 +57,7 @@ export function guardPremiumFeature(
     if (featureAvailable) {
         featureAvailableCallback?.()
     } else {
-        showUpgradeModal(name)
+        showUpgradeModal(name, benefit)
     }
 
     return !featureAvailable
