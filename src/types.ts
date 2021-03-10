@@ -107,6 +107,8 @@ export interface Plugin {
     error?: PluginError
     from_json?: boolean
     from_web?: boolean
+    created_at: string
+    updated_at: string
 }
 
 export interface PluginConfig {
@@ -120,6 +122,8 @@ export interface PluginConfig {
     error?: PluginError
     attachments?: Record<string, PluginAttachment>
     vm?: PluginConfigVMReponse | null
+    created_at: string
+    updated_at: string
 }
 
 export interface PluginJsonConfig {
