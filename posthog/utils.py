@@ -196,6 +196,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     except (Team.DoesNotExist, AttributeError):
         team = Team.objects.first()
 
+    context["self_capture"] = False
     context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
 
     # TODO: BEGINS DEPRECATED CODE
@@ -235,6 +236,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["git_branch"] = get_git_branch()
 
     if settings.SELF_CAPTURE:
+        context["self_capture"] = True
         if team:
             context["js_posthog_api_key"] = f"'{team.api_token}'"
             context["js_posthog_host"] = "window.location.origin"
