@@ -8,7 +8,7 @@ import { status } from '../status'
 import { PluginConfigId, PluginsServer } from '../types'
 import { createRedis } from '../utils'
 
-const LOCKED_RESOURCE = 'plugin-server:locks:schedule'
+export const LOCKED_RESOURCE = 'plugin-server:locks:schedule'
 
 export async function startSchedule(
     server: PluginsServer,

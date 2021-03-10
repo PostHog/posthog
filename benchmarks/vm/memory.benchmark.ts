@@ -31,6 +31,8 @@ const mockPlugin: Plugin = {
     tag: 'v1.0.0',
     archive: null,
     error: undefined,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
 }
 
 const mockConfig: PluginConfig = {
@@ -44,6 +46,8 @@ const mockConfig: PluginConfig = {
     error: undefined,
     attachments: {},
     vm: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
 }
 
 test('test vm memory usage', async () => {

@@ -1,13 +1,14 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { createServer } from '../src/server'
-import { runTasksDebounced, startSchedule, waitForTasksToFinish } from '../src/services/schedule'
+import { LOCKED_RESOURCE, runTasksDebounced, startSchedule, waitForTasksToFinish } from '../src/services/schedule'
 import { LogLevel } from '../src/types'
 import { delay } from '../src/utils'
 import { resetTestDatabase } from './helpers/sql'
 import { setupPiscina } from './helpers/worker'
 
 jest.mock('../src/sql')
+jest.mock('../src/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 function createEvent(index = 0): PluginEvent {
@@ -28,10 +29,10 @@ test('runTasksDebounced', async () => {
         const counterKey = 'test_counter_2'
         async function setupPlugin (meta) {
             await meta.cache.set(counterKey, 0)
-        } 
+        }
         async function processEvent (event, meta) {
             event.properties['counter'] = await meta.cache.get(counterKey)
-            return event 
+            return event
         }
         async function runEveryMinute (meta) {
             // stall for a second
@@ -94,88 +95,90 @@ test('runTasksDebounced exception', async () => {
     await closeServer()
 })
 
-test('redlock', async () => {
-    const workerThreads = 2
-    const testCode = `
-        async function runEveryMinute (meta) {
-            throw new Error('lol')
+describe('startSchedule', () => {
+    let server: any, piscina: any, closeServer: any, redis: any
+
+    beforeEach(async () => {
+        const workerThreads = 2
+        const testCode = `
+            async function runEveryMinute (meta) {
+                throw new Error('lol')
+            }
+        `
+        await resetTestDatabase(testCode)
+        piscina = setupPiscina(workerThreads, 10)
+        const [_server, _closeServer] = await createServer({ LOG_LEVEL: LogLevel.Log, SCHEDULE_LOCK_TTL: 3 })
+        server = _server
+        closeServer = _closeServer
+
+        redis = await server.redisPool.acquire()
+        await redis.del(LOCKED_RESOURCE)
+    })
+
+    afterEach(async () => {
+        await redis.del(LOCKED_RESOURCE)
+        await server.redisPool.release(redis)
+        await piscina.destroy()
+        await closeServer()
+    })
+
+    test('redlock', async () => {
+        let lock1 = false
+        let lock2 = false
+        let lock3 = false
+
+        const stopSchedule1 = await startSchedule(server, piscina, () => {
+            lock1 = true
+        })
+        const stopSchedule2 = await startSchedule(server, piscina, () => {
+            lock2 = true
+        })
+        const stopSchedule3 = await startSchedule(server, piscina, () => {
+            lock3 = true
+        })
+
+        await delay(1500)
+
+        expect(lock1).toBe(true)
+        expect(lock2).toBe(false)
+        expect(lock3).toBe(false)
+
+        await stopSchedule1()
+
+        await delay(1500)
+
+        expect(lock2 || lock3).toBe(true)
+
+        if (lock3) {
+            await stopSchedule3()
+            await delay(1000)
+            expect(lock2).toBe(true)
+            await stopSchedule2()
+        } else {
+            await stopSchedule2()
+            await delay(1000)
+            expect(lock3).toBe(true)
+            await stopSchedule3()
         }
-    `
-    await resetTestDatabase(testCode)
-    const piscina = setupPiscina(workerThreads, 10)
-    const [server, closeServer] = await createServer({ LOG_LEVEL: LogLevel.Log, SCHEDULE_LOCK_TTL: 3 })
-
-    let lock1 = false
-    let lock2 = false
-    let lock3 = false
-
-    const stopSchedule1 = await startSchedule(server, piscina, () => {
-        lock1 = true
-    })
-    const stopSchedule2 = await startSchedule(server, piscina, () => {
-        lock2 = true
-    })
-    const stopSchedule3 = await startSchedule(server, piscina, () => {
-        lock3 = true
     })
 
-    await delay(1500)
+    test('unobtained redlock does not leave itself hanging', async () => {
+        let lock1 = false
+        let lock2 = false
 
-    expect(lock1).toBe(true)
-    expect(lock2).toBe(false)
-    expect(lock3).toBe(false)
+        const stopSchedule1 = await startSchedule(server, piscina, () => {
+            lock1 = true
+        })
+        const stopSchedule2 = await startSchedule(server, piscina, () => {
+            lock2 = true
+        })
 
-    await stopSchedule1()
+        await delay(1500)
 
-    await delay(1500)
+        expect(lock1).toBe(true)
+        expect(lock2).toBe(false)
 
-    expect(lock2 || lock3).toBe(true)
-
-    if (lock3) {
-        await stopSchedule3()
-        await delay(1000)
-        expect(lock2).toBe(true)
+        await stopSchedule1()
         await stopSchedule2()
-    } else {
-        await stopSchedule2()
-        await delay(1000)
-        expect(lock3).toBe(true)
-        await stopSchedule3()
-    }
-
-    await piscina.destroy()
-    await closeServer()
-})
-
-test('unobtained redlock does not leave itself hanging', async () => {
-    const workerThreads = 2
-    const testCode = `
-        async function runEveryMinute (meta) {
-            throw new Error('lol')
-        }
-    `
-    await resetTestDatabase(testCode)
-    const [server, closeServer] = await createServer({ LOG_LEVEL: LogLevel.Log, SCHEDULE_LOCK_TTL: 3 })
-    const piscina = setupPiscina(workerThreads, 10)
-
-    let lock1 = false
-    let lock2 = false
-
-    const stopSchedule1 = await startSchedule(server, piscina, () => {
-        lock1 = true
     })
-    const stopSchedule2 = await startSchedule(server, piscina, () => {
-        lock2 = true
-    })
-
-    await delay(1500)
-
-    expect(lock1).toBe(true)
-    expect(lock2).toBe(false)
-
-    await stopSchedule1()
-    await stopSchedule2()
-
-    await piscina.destroy()
-    await closeServer()
 })

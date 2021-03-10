@@ -47,6 +47,8 @@ test('getPluginConfigRows', async () => {
             order: 0,
             plugin_id: 60,
             team_id: 2,
+            created_at: expect.anything(),
+            updated_at: expect.anything(),
         },
     ])
     await server.db.postgresQuery("update posthog_team set plugins_opt_in='f'")
@@ -92,6 +94,8 @@ test('getPluginRows', async () => {
             source: null,
             tag: '0.0.2',
             url: 'https://www.npmjs.com/package/posthog-maxmind-plugin',
+            created_at: expect.anything(),
+            updated_at: expect.anything(),
         },
     ])
     await server.db.postgresQuery("update posthog_team set plugins_opt_in='f'")
@@ -108,6 +112,8 @@ test('setError', async () => {
         order: 0,
         config: {},
         error: undefined,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
     }
     server.db.postgresQuery = jest.fn() as any
 
