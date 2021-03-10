@@ -3,8 +3,10 @@ from typing import cast
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
+from posthog.models import organization
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
+from posthog.models.user import User
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):
@@ -65,10 +67,17 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
     def test_delete_organization_owning(self):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
+        membership_ids = OrganizationMembership.objects.filter(organization=self.organization).values_list(
+            "id", flat=True
+        )
+
         response = self.client.delete(f"/api/organizations/{self.organization.id}")
+
         potential_err_message = f"Somehow did not delete the org as the owner"
         self.assertEqual(response.status_code, 204, potential_err_message)
-        self.assertFalse(Organization.objects.filter(id=self.organization.id).exists())
+        self.assertFalse(Organization.objects.filter(id=self.organization.id).exists(), potential_err_message)
+        self.assertFalse(OrganizationMembership.objects.filter(id__in=membership_ids).exists())
+        self.assertTrue(User.objects.filter(id=self.user.pk).exists())
 
     def test_no_delete_organization_not_belonging_to(self):
         for level in OrganizationMembership.Level:
