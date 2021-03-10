@@ -1,32 +1,32 @@
-import React, { Dispatch, SetStateAction, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { DeleteOutlined } from '@ant-design/icons'
 import { Button, Modal } from 'antd'
-import { teamLogic } from 'scenes/teamLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import Paragraph from 'antd/lib/typography/Paragraph'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
+import React, { Dispatch, SetStateAction, useState } from 'react'
 
-export function DeleteProjectModal({
+export function DeleteOrganizationModal({
     isVisible,
     setIsVisible,
 }: {
     isVisible: boolean
     setIsVisible: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
-    const { currentTeam, teamBeingDeleted } = useValues(teamLogic)
-    const { deleteTeam } = useActions(teamLogic)
+    const { currentOrganization, organizationBeingDeleted } = useValues(organizationLogic)
+    const { deleteOrganization } = useActions(organizationLogic)
 
-    const isDeletionInProgress = !!currentTeam && teamBeingDeleted?.id === currentTeam.id
+    const isDeletionInProgress = !!currentOrganization && organizationBeingDeleted?.id === currentOrganization.id
 
     return (
         <Modal
-            title="Delete the project and its data?"
-            okText={`Delete ${currentTeam ? currentTeam.name : 'the current project'}`}
+            title="Delete the entire organization?"
+            okText={`Delete ${currentOrganization ? currentOrganization.name : 'the current organization'}`}
             okType="danger"
-            onOk={currentTeam ? () => deleteTeam(currentTeam) : undefined}
+            onOk={currentOrganization ? () => deleteOrganization(currentOrganization) : undefined}
             okButtonProps={{
                 // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
-                'data-attr': 'delete-project-ok',
+                'data-attr': 'delete-organization-ok',
                 loading: isDeletionInProgress,
             }}
             onCancel={() => setIsVisible(false)}
@@ -35,14 +35,14 @@ export function DeleteProjectModal({
             }}
             visible={isVisible}
         >
-            Project deletion <b>cannot be undone</b>. You will lose all data, <b>including events</b>, related to the
-            project.
+            Organization deletion <b>cannot be undone</b>. You will lose all data, <b>including all events</b>, related
+            to all projects within this organization.
         </Modal>
     )
 }
 
 export function DangerZone({ isRestricted }: RestrictedComponentProps): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentOrganization } = useValues(organizationLogic)
 
     const [isModalVisible, setIsModalVisible] = useState(false)
 
@@ -67,11 +67,11 @@ export function DangerZone({ isRestricted }: RestrictedComponentProps): JSX.Elem
                         icon={<DeleteOutlined />}
                         disabled={isRestricted}
                     >
-                        Delete {currentTeam?.name || 'the current project'}
+                        Delete {currentOrganization?.name || 'the current organization'}
                     </Button>
                 </div>
             </div>
-            <DeleteProjectModal isVisible={isModalVisible} setIsVisible={setIsModalVisible} />
+            <DeleteOrganizationModal isVisible={isModalVisible} setIsVisible={setIsModalVisible} />
         </>
     )
 }
