@@ -4,7 +4,6 @@ import re
 
 import django.contrib.postgres.fields.jsonb
 from django.db import migrations
-from django.db.models.query_utils import Q
 
 from posthog.utils import GenericEmails
 
@@ -41,7 +40,7 @@ def reverse(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0130_dashboard_creation_mode"),
+        ("posthog", "0131_add_plugins_updated_created_at"),
     ]
 
     operations = [
