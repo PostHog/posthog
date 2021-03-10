@@ -6,6 +6,7 @@ import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
 import { AnnotationType, FilterType, DashboardType, PersonType } from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { Moment } from 'moment'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
@@ -51,8 +52,11 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
             isOnEditMode: boolean,
             source: 'long_press' | 'more_dropdown' | 'dashboard_header' | 'hotkey' | 'rename_input' | 'toast' | null
         ) => ({ isOnEditMode, source }),
-        reportDashboardRefreshed: (lastRefreshed: string) => ({ lastRefreshed }),
-        reportDashboardDateRangeChanged: (dateFrom?: string, dateTo?: string) => ({ dateFrom, dateTo }),
+        reportDashboardRefreshed: (lastRefreshed?: string | Moment | null) => ({ lastRefreshed }),
+        reportDashboardDateRangeChanged: (dateFrom?: string | Moment, dateTo?: string | Moment | null) => ({
+            dateFrom,
+            dateTo,
+        }),
         reportDashboardPinToggled: (pinned: boolean, source: 'more_dropdown' | 'main_nav' | 'dashboards_list') => ({
             pinned,
             source,
@@ -262,10 +266,13 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
             posthog.capture(`dashboard edit mode toggled`, { is_on_edit_mode: isOnEditMode, source })
         },
         reportDashboardRefreshed: async ({ lastRefreshed }) => {
-            posthog.capture(`dashboard refreshed`, { last_refreshed: lastRefreshed })
+            posthog.capture(`dashboard refreshed`, { last_refreshed: lastRefreshed?.toString() })
         },
         reportDashboardDateRangeChanged: async ({ dateFrom, dateTo }) => {
-            posthog.capture(`dashboard date range changed`, { date_from: dateFrom, date_to: dateTo })
+            posthog.capture(`dashboard date range changed`, {
+                date_from: dateFrom?.toString(),
+                date_to: dateTo.toString(),
+            })
         },
         reportDashboardPinToggled: async ({ pinned, source }) => {
             posthog.capture(`dashboard pin toggled`, { pinned: pinned, source })

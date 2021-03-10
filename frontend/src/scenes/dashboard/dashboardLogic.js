@@ -297,7 +297,7 @@ export const dashboardLogic = kea({
         refreshAllDashboardItems: async (_, breakpoint) => {
             await breakpoint(200)
             dashboardItemsModel.actions.refreshAllDashboardItems({})
-            eventUsageLogic.actions.reportDashboardRefreshed(values.lastRefreshed.toString())
+            eventUsageLogic.actions.reportDashboardRefreshed(values.lastRefreshed)
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
             await breakpoint(200)
@@ -307,10 +307,7 @@ export const dashboardLogic = kea({
             }
             actions.updateDashboard(filters)
             dashboardItemsModel.actions.refreshAllDashboardItems(filters)
-            eventUsageLogic.actions.reportDashboardDateRangeChanged(
-                filters.date_from?.toString(),
-                filters.date_to?.toString()
-            )
+            eventUsageLogic.actions.reportDashboardDateRangeChanged(filters.date_from, filters.date_to)
         },
         setIsOnEditMode: ({ isOnEditMode, source }) => {
             if (isOnEditMode) {
