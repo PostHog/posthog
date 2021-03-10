@@ -85,13 +85,7 @@ class APITestMixin(ErrorResponsesMixin):
     CONFIG_AUTO_LOGIN: bool = True
 
     def _create_user(self, email: str, password: Optional[str] = None, **kwargs) -> User:
-        return User.objects.create_and_join(
-            organization=self.organization,
-            email=email,
-            password=password,
-            level=OrganizationMembership.Level.ADMIN,
-            **kwargs,
-        )
+        return User.objects.create_and_join(organization=self.organization, email=email, password=password, **kwargs,)
 
     def setUp(self):
         super().setUp()  # type: ignore
@@ -104,7 +98,9 @@ class APITestMixin(ErrorResponsesMixin):
             ],
         )
         if self.CONFIG_USER_EMAIL:
-            self.user = self._create_user(self.CONFIG_USER_EMAIL, self.CONFIG_PASSWORD)
+            self.user = self._create_user(
+                self.CONFIG_USER_EMAIL, self.CONFIG_PASSWORD, level=OrganizationMembership.Level.OWNER
+            )
             self.organization_membership = self.user.organization_memberships.get()
             if self.CONFIG_AUTO_LOGIN:
                 self.client.force_login(self.user)  # type: ignore

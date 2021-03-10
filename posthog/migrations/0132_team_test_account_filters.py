@@ -41,7 +41,7 @@ def reverse(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0130_dashboard_creation_mode"),
+        ("posthog", "0131_add_plugins_updated_created_at"),
     ]
 
     operations = [

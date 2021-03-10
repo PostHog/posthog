@@ -12,6 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
 import { createdByColumn } from 'lib/components/Table'
+import { AnnotationType } from '~/types'
 
 const { TextArea } = Input
 
@@ -23,15 +24,16 @@ function _Annotations(): JSX.Element {
     )
     const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
-    const [selectedAnnotation, setSelected] = useState(null)
+    const [selectedAnnotation, setSelected] = useState({} as AnnotationType)
 
     const columns = [
         {
             title: 'Annotation',
             key: 'annotation',
-            render: function RenderAnnotation(annotation): JSX.Element {
+            render: function RenderAnnotation(annotation: AnnotationType): JSX.Element {
                 return (
                     <span
+                        className="ph-no-capture"
                         style={{
                             whiteSpace: 'nowrap',
                             overflow: 'hidden',
@@ -48,25 +50,25 @@ function _Annotations(): JSX.Element {
         createdByColumn(annotations),
         {
             title: 'Date Marker',
-            render: function RenderDateMarker(annotation): JSX.Element {
+            render: function RenderDateMarker(annotation: AnnotationType): JSX.Element {
                 return <span>{moment(annotation.date_marker).format('YYYY-MM-DD')}</span>
             },
         },
         {
             title: 'Last Updated',
-            render: function RenderLastUpdated(annotation): JSX.Element {
+            render: function RenderLastUpdated(annotation: AnnotationType): JSX.Element {
                 return <span>{humanFriendlyDetailedTime(annotation.updated_at)}</span>
             },
         },
         {
             title: 'Status',
-            render: function RenderStatus(annotation): JSX.Element {
+            render: function RenderStatus(annotation: AnnotationType): JSX.Element {
                 return annotation.deleted ? <Tag color="red">Deleted</Tag> : <Tag color="green">Active</Tag>
             },
         },
         {
             title: 'Type',
-            render: function RenderType(annotation): JSX.Element {
+            render: function RenderType(annotation: AnnotationType): JSX.Element {
                 return annotation.scope !== 'dashboard_item' ? (
                     <Tag color="blue">Global</Tag>
                 ) : (
@@ -78,7 +80,7 @@ function _Annotations(): JSX.Element {
 
     function closeModal(): void {
         setOpen(false)
-        setTimeout(() => setSelected(null), 500)
+        setTimeout(() => setSelected({} as AnnotationType), 500)
     }
 
     return (
@@ -229,7 +231,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                                         key={AnnotationScope.Project}
                                         icon={<ProjectOutlined />}
                                     >
-                                        Project {user?.team.name}
+                                        Project {user?.team?.name}
                                     </Menu.Item>
                                 ) : (
                                     <Menu.Item
@@ -239,7 +241,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                                         key={AnnotationScope.Organization}
                                         icon={<DeploymentUnitOutlined />}
                                     >
-                                        Organization {user?.organization.name}
+                                        Organization {user?.organization?.name}
                                     </Menu.Item>
                                 )}
                             </Menu>
@@ -277,9 +279,9 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                     Date:
                     <DatePicker
                         style={{ marginTop: 16, marginLeft: 8, marginBottom: 16 }}
-                        getPopupContainer={(trigger): HTMLElement => trigger.parentElement}
+                        getPopupContainer={(trigger): HTMLElement => trigger.parentElement as HTMLElement}
                         value={selectedDate}
-                        onChange={(date): void => setDate(date)}
+                        onChange={(date): void => setDate(date as moment.Moment)}
                         allowClear={false}
                     />
                 </div>

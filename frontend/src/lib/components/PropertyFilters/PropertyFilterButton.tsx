@@ -16,7 +16,7 @@ const PropertyFilterButton: React.FunctionComponent<Props> = ({ item, onClick }:
 
     return (
         <Button type="primary" shape="round" style={{ maxWidth: '75%' }} onClick={onClick}>
-            <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <span className="ph-no-capture" style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {formatPropertyLabel(item, cohorts, keyMapping)}
             </span>
         </Button>

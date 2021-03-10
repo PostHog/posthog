@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.core.validators import MinLengthValidator
 from django.db import models
+from django.dispatch.dispatcher import receiver
 
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.utils import GenericEmails
@@ -111,3 +112,9 @@ class Team(models.Model):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
+
+
+@receiver(models.signals.pre_delete, sender=Team)
+def team_deleted(sender, instance, **kwargs):
+    instance.event_set.all().delete()
+    instance.elementgroup_set.all().delete()
