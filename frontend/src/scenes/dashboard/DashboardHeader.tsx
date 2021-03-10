@@ -181,7 +181,7 @@ export function DashboardHeader(): JSX.Element {
                                         {dash.name || <span style={{ color: 'var(--text-muted)' }}>Untitled</span>}
                                         {dash.is_shared && (
                                             <Tooltip title="This dashboard is publicly shared">
-                                                <ShareAltOutlined style={{ marginLeft: 4 }} />
+                                                <ShareAltOutlined style={{ marginLeft: 4, float: 'right' }} />
                                             </Tooltip>
                                         )}
                                     </Select.Option>
