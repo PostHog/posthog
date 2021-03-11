@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models import Action, ActionStep, Cohort, Event, Organization, Person
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
+from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 
 from .base import TransactionBaseTest
 
@@ -59,6 +60,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     distinct_id="blabla",
                     properties={"$some_property": "other_value"},
                 )
+
+            calculate_actions_from_last_calculation()
             return sign_up_action, person
 
         def _create_breakdown_events(self):
@@ -145,6 +148,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             event_factory(
                 team=self.team, event="sign up", distinct_id="person1", timestamp="2019-11-27T16:50:00Z",
             )
+            calculate_actions_from_last_calculation()
 
             return person1, person2, person3, person4, person5, person6, person7
 
@@ -256,6 +260,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             event_factory(
                 team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-05T12:00:00Z",
             )
+            calculate_actions_from_last_calculation()
             # test people
             action_response = self.client.get(
                 "/api/action/people/",
