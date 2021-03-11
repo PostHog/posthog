@@ -1,6 +1,12 @@
 import React from 'react'
 import { Button, Col, Empty, Row, Skeleton, Space, Tag } from 'antd'
-import { CloudDownloadOutlined, SyncOutlined } from '@ant-design/icons'
+import {
+    CloudDownloadOutlined,
+    SyncOutlined,
+    SaveOutlined,
+    CloseOutlined,
+    OrderedListOutlined,
+} from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Subtitle } from 'lib/components/PageHeader'
@@ -59,6 +65,7 @@ export function InstalledTab(): JSX.Element {
         updateStatus,
         rearranging,
         temporaryOrder,
+        pluginOrderSaveable,
     } = useValues(pluginsLogic)
     const {
         checkForUpdates,
@@ -67,12 +74,12 @@ export function InstalledTab(): JSX.Element {
         setTemporaryOrder,
         cancelRearranging,
         savePluginOrders,
+        makePluginOrderSaveable,
     } = useActions(pluginsLogic)
 
-    const upgradeButton =
-        user?.organization &&
+    const upgradeButton = user?.organization &&
         user.organization.plugins_access_level === PluginsAccessLevel.Root &&
-        hasNonSourcePlugins ? (
+        hasNonSourcePlugins && (
             <Button
                 type="default"
                 icon={pluginsNeedingUpdates.length > 0 ? <SyncOutlined /> : <CloudDownloadOutlined />}
@@ -87,24 +94,39 @@ export function InstalledTab(): JSX.Element {
                     ? 'Check again'
                     : 'Check for updates'}
             </Button>
-        ) : (
-            <></>
         )
 
     const canRearrange =
         (user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Config && enabledPlugins.length > 1
 
     const rearrangingButtons = rearranging ? (
-        <Space>
-            <Button type="primary" loading={loading} onClick={() => savePluginOrders(temporaryOrder)}>
-                Save Order
+        <>
+            <Button
+                type="primary"
+                icon={<SaveOutlined />}
+                loading={loading}
+                onClick={() => savePluginOrders(temporaryOrder)}
+                disabled={!pluginOrderSaveable}
+            >
+                Save order
             </Button>
-            <Button type="default" onClick={cancelRearranging}>
+            <Button type="default" icon={<CloseOutlined />} onClick={cancelRearranging}>
                 Cancel
             </Button>
-        </Space>
+        </>
     ) : (
-        <></>
+        <>
+            <Button icon={<OrderedListOutlined />} onClick={() => rearrange()} disabled={enabledPlugins.length <= 1}>
+                Edit order
+            </Button>
+        </>
+    )
+
+    const buttons = (
+        <Space>
+            {rearrangingButtons}
+            {!rearranging && upgradeButton}
+        </Space>
     )
 
     const onSortEnd = ({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void => {
@@ -135,10 +157,7 @@ export function InstalledTab(): JSX.Element {
         <div>
             {pluginsNeedingUpdates.length > 0 ? (
                 <>
-                    <Subtitle
-                        subtitle={`Plugins to update (${pluginsNeedingUpdates.length})`}
-                        buttons={<>{upgradeButton}</>}
-                    />
+                    <Subtitle subtitle={`Plugins to update (${pluginsNeedingUpdates.length})`} buttons={buttons} />
                     <Row gutter={16} style={{ marginTop: 16 }}>
                         {pluginsNeedingUpdates.map((plugin) => (
                             <InstalledPlugin key={plugin.id} plugin={plugin} showUpdateButton />
@@ -151,29 +170,19 @@ export function InstalledTab(): JSX.Element {
                 <>
                     <Subtitle
                         subtitle={
-                            rearranging ? (
-                                <>
-                                    Rearranging plugins{' '}
+                            <>
+                                {`Enabled plugins (${enabledPlugins.length})`}
+                                {rearranging && (
                                     <Tag color="red" style={{ fontWeight: 'normal', marginLeft: 10 }}>
-                                        Unsaved
+                                        Reordering in progress
                                     </Tag>
-                                </>
-                            ) : (
-                                `Enabled plugins (${enabledPlugins.length})`
-                            )
+                                )}
+                            </>
                         }
-                        buttons={
-                            rearranging ? (
-                                rearrangingButtons
-                            ) : pluginsNeedingUpdates.length === 0 ? (
-                                upgradeButton
-                            ) : (
-                                <></>
-                            )
-                        }
+                        buttons={buttons}
                     />
                     {canRearrange || rearranging ? (
-                        <SortablePlugins useDragHandle onSortEnd={onSortEnd}>
+                        <SortablePlugins useDragHandle onSortEnd={onSortEnd} onSortOver={makePluginOrderSaveable}>
                             {enabledPlugins.map((plugin, index) => (
                                 <SortablePlugin
                                     key={plugin.id}

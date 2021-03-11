@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
 from django.conf import settings
 from django.contrib.postgres.fields import JSONField
@@ -8,6 +8,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
+from posthog.models.team import Team
 from posthog.utils import mask_email_address
 
 from .utils import UUIDModel, sane_repr
@@ -120,6 +121,20 @@ class Organization(UUIDModel):
         self.setup_section_2_completed = True
         self.save()
         return self
+
+    def get_analytics_metadata(self):
+        return {
+            "member_count": self.members.count(),
+            "project_count": self.teams.count(),
+            "person_count": sum((team.person_set.count() for team in self.teams.all())),
+            "setup_section_2_completed": self.setup_section_2_completed,
+            "personalization": self.personalization,
+        }
+
+
+@receiver(models.signals.pre_delete, sender=Organization)
+def organization_deleted(sender, instance, **kwargs):
+    instance.teams.all().delete()
 
 
 class OrganizationMembership(UUIDModel):

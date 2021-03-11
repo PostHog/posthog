@@ -77,7 +77,7 @@ export function PluginCard({
                 <Row align="middle" className="plugin-card-row">
                     {typeof order === 'number' && typeof maxOrder === 'number' ? (
                         <DragColumn>
-                            <div className={`arrow${order !== maxOrder ? ' hide' : ''}`}>
+                            <div className={`arrow${order === 1 ? ' hide' : ''}`}>
                                 <DownOutlined />
                             </div>
                             <div>
@@ -106,9 +106,7 @@ export function PluginCard({
                                 cancelText="No"
                                 disabled={rearranging}
                             >
-                                <div>
-                                    <Switch checked={pluginConfig.enabled} disabled={rearranging} />
-                                </div>
+                                <Switch checked={pluginConfig.enabled} disabled={rearranging} />
                             </Popconfirm>
                         </Col>
                     )}
@@ -119,7 +117,6 @@ export function PluginCard({
                         <div>
                             <strong style={{ marginRight: 8 }}>{name}</strong>
                             {maintainer && !pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
-                            {!description && !url ? <br /> : null}
                             {pluginConfig?.error ? (
                                 <PluginError
                                     error={pluginConfig.error}

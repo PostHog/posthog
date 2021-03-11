@@ -20,6 +20,9 @@ import { Link } from 'lib/components/Link'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { userLogic } from 'scenes/userLogic'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
+import { RestrictedArea } from '../../../lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from '../../../lib/constants'
+import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -72,7 +75,12 @@ function _ProjectSettings(): JSX.Element {
 
     return (
         <div style={{ marginBottom: 128 }}>
-            <PageHeader title="Project Settings" />
+            <PageHeader
+                title="Project Settings"
+                caption={`Organize your analytics within the project. These settings only apply to ${
+                    currentTeam?.name ?? 'the current project'
+                }.`}
+            />
             <Card>
                 <h2 id="name" className="subtitle">
                     Display Name
@@ -117,10 +125,11 @@ function _ProjectSettings(): JSX.Element {
                     actions={[
                         {
                             Icon: ReloadOutlined,
+                            title: 'Reset Project API Key',
                             popconfirmProps: {
                                 title: (
                                     <>
-                                        Reset the project's API Key?{' '}
+                                        Reset the project's API key?{' '}
                                         <b>This will invalidate the current API key and cannot be undone.</b>
                                     </>
                                 ),
@@ -138,6 +147,14 @@ function _ProjectSettings(): JSX.Element {
                 </CodeSnippet>
                 Write-only means it can only create new events. It can't read events or any of your other data stored
                 with PostHog, so it's safe to use in public apps.
+                <Divider />
+                <h2 className="subtitle" id="testaccounts">
+                    Filter out test accounts and team members
+                </h2>
+                <p>
+                    Filter out test accounts and internal team members from all your queries for more accurate insights.
+                </p>
+                <TestAccountFiltersConfig />
                 <Divider />
                 <h2 className="subtitle" id="urls">
                     Permitted Domains/URLs
@@ -187,10 +204,7 @@ function _ProjectSettings(): JSX.Element {
                     with us!
                 </p>
                 <Divider />
-                <h2 style={{ color: 'var(--danger)' }} className="subtitle">
-                    Danger Zone
-                </h2>
-                <DangerZone />
+                <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
             </Card>
         </div>
     )

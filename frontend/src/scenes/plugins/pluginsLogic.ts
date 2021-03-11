@@ -68,6 +68,7 @@ export const pluginsLogic = kea<
             temporaryOrder,
             movedPluginId,
         }),
+        makePluginOrderSaveable: true,
         savePluginOrders: (newOrders: Record<number, number>) => ({ newOrders }),
         cancelRearranging: true,
     },
@@ -336,6 +337,14 @@ export const pluginsLogic = kea<
             {
                 checkForUpdates: () => true,
                 checkedForUpdates: () => false,
+            },
+        ],
+        pluginOrderSaveable: [
+            false,
+            {
+                makePluginOrderSaveable: () => true,
+                cancelRearranging: () => false,
+                savePluginOrdersSuccess: () => false,
             },
         ],
         rearranging: [

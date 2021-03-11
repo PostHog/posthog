@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Tuple
 
@@ -57,6 +58,14 @@ def get_value_of_token(action: Action, event: Event, site_url: str, token_parts:
     elif token_parts[0] == "event":
         if token_parts[1] == "name":
             text = markdown = event.event
+        elif token_parts[1] == "properties" and len(token_parts) > 2:
+            property_name = token_parts[2]
+            if property_name in event.properties:
+                property = event.properties[property_name]
+                text = markdown = property if isinstance(property, str) else json.dumps(property)
+            else:
+                text = markdown = "undefined"
+
     else:
         raise ValueError
     return text, markdown
@@ -105,7 +114,7 @@ def post_event_to_webhook(self: Task, event_id: int, site_url: str) -> None:
     try:
         event = Event.objects.get(pk=event_id)
         team = event.team
-        actions = [action for action in event.action_set.all() if action.post_to_slack]
+        actions = [action for action in event.actions if action.post_to_slack]
 
         if not site_url:
             site_url = settings.SITE_URL
