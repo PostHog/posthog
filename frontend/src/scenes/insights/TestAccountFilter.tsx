@@ -27,7 +27,10 @@ export function TestAccountFilter({
             <Switch
                 disabled={!hasFilters}
                 checked={hasFilters ? filters.filter_test_accounts : false}
-                onChange={(checked: boolean) => onChange({ filter_test_accounts: checked })}
+                onChange={(checked: boolean) => {
+                    localStorage.setItem('default_filter_test_accounts', checked.toString())
+                    onChange({ filter_test_accounts: checked })
+                }}
                 size="small"
             />
             <label

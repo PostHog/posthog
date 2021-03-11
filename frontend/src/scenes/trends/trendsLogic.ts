@@ -15,7 +15,7 @@ import {
     ACTION_TYPE,
     ShownAsValue,
 } from 'lib/constants'
-import { ViewType, insightLogic, DEFAULT_FILTER_TEST_ACCOUNTS } from '../insights/insightLogic'
+import { ViewType, insightLogic, defaultFilterTestAccounts } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
 import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
@@ -467,7 +467,7 @@ export const trendsLogic = kea<
                             order: 0,
                         },
                     ]
-                    cleanSearchParams.filter_test_accounts = DEFAULT_FILTER_TEST_ACCOUNTS
+                    cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts()
                 }
 
                 if (searchParams.insight === ViewType.STICKINESS) {
