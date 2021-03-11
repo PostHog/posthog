@@ -49,7 +49,13 @@ class TestMixin(ErrorResponsesMixin):
         if hasattr(super(), "setUp"):
             super().setUp()  # type: ignore
         self.organization: Organization = Organization.objects.create(name=self.TESTS_ORGANIZATION_NAME)
-        self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
+        self.team: Team = Team.objects.create(
+            organization=self.organization,
+            api_token=self.TESTS_API_TOKEN,
+            test_account_filters=[
+                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+            ],
+        )
         if self.TESTS_EMAIL:
             self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
             self.organization_membership = self.user.organization_memberships.get()
@@ -84,7 +90,13 @@ class APITestMixin(ErrorResponsesMixin):
     def setUp(self):
         super().setUp()  # type: ignore
         self.organization: Organization = Organization.objects.create(name=self.CONFIG_ORGANIZATION_NAME)
-        self.team: Team = Team.objects.create(organization=self.organization, api_token=self.CONFIG_API_TOKEN)
+        self.team: Team = Team.objects.create(
+            organization=self.organization,
+            api_token=self.CONFIG_API_TOKEN,
+            test_account_filters=[
+                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+            ],
+        )
         if self.CONFIG_USER_EMAIL:
             self.user = self._create_user(
                 self.CONFIG_USER_EMAIL, self.CONFIG_PASSWORD, level=OrganizationMembership.Level.OWNER

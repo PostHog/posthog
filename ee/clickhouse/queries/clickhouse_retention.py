@@ -33,7 +33,9 @@ from posthog.queries.retention import Retention
 class ClickhouseRetention(Retention):
     def _execute_sql(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
         period = filter.period
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+        )
         target_entity = filter.target_entity
         returning_entity = filter.returning_entity
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME

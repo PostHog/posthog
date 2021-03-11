@@ -39,6 +39,7 @@ const cleanFunnelParams = (filters) => {
         ...(filters.display ? { display: filters.display } : {}),
         ...(filters.interval ? { interval: filters.interval } : {}),
         ...(filters.properties ? { properties: filters.properties } : {}),
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
         interval: autocorrectInterval(filters),
         insight: ViewType.FUNNELS,
     }
