@@ -565,7 +565,7 @@ export const pluginsLogic = kea<
             actions.loadPlugins()
             actions.loadPluginConfigs()
 
-            if ((userLogic.values.user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Install) {
+            if ((userLogic.values.user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Root) {
                 actions.loadRepository()
             }
         },
