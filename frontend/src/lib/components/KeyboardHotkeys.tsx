@@ -1,12 +1,12 @@
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { Keys } from '~/types'
 
-interface HotKeyInterface {
+export interface HotKeyInterface {
     action: () => void
     disabled?: boolean
 }
 
-type HotKeys = Record<Keys, HotKeyInterface>
+export type HotKeys = Partial<Record<Keys, HotKeyInterface>>
 
 export function KeyboardHotkeys({ hotkeys }: { hotkeys: HotKeys }): null {
     useEventListener('keydown', (event) => {
