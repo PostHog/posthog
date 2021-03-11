@@ -170,32 +170,34 @@ export function PluginDrawer(): JSX.Element {
                                 </div>
                             ) : null}
 
-                            {user?.organization?.plugins_access_level === PluginsAccessLevel.Root && (
-                                <>
-                                    <h3 className="l3" style={{ marginTop: 32 }}>
-                                        Installation
-                                    </h3>
-                                    <Tooltip
-                                        title={
-                                            <>
-                                                Enabling this will mark this plugin as installed for{' '}
-                                                <b>all organizations</b> in this instance of PostHog.
-                                            </>
-                                        }
-                                        placement="bottom"
-                                    >
-                                        <Checkbox
-                                            checked={editingPlugin.is_global}
-                                            onChange={(e) =>
-                                                patchPlugin(editingPlugin.id, {
-                                                    is_global: e.target.checked,
-                                                })
+                            {user?.organization?.plugins_access_level === PluginsAccessLevel.Root &&
+                                user?.is_multi_tenancy && (
+                                    <>
+                                        <h3 className="l3" style={{ marginTop: 32 }}>
+                                            Installation
+                                        </h3>
+                                        <Tooltip
+                                            title={
+                                                <>
+                                                    Enabling this will mark this plugin as installed for{' '}
+                                                    <b>all organizations</b> in this instance of PostHog.
+                                                </>
                                             }
-                                        />
-                                        <span style={{ paddingLeft: 10 }}>Mark as global</span>
-                                    </Tooltip>
-                                </>
-                            )}
+                                            placement="bottom"
+                                        >
+                                            <Checkbox
+                                                checked={editingPlugin.is_global}
+                                                onChange={(e) =>
+                                                    patchPlugin(editingPlugin.id, {
+                                                        is_global: e.target.checked,
+                                                    })
+                                                }
+                                            >
+                                                <span style={{ paddingLeft: 10 }}>Mark as global</span>
+                                            </Checkbox>
+                                        </Tooltip>
+                                    </>
+                                )}
 
                             <h3 className="l3" style={{ marginTop: 32 }}>
                                 Configuration
