@@ -20,6 +20,7 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 from posthog.tasks.process_event import process_event as _process_event
 from posthog.test.base import BaseTest
 
@@ -43,7 +44,7 @@ def factory_test_process_event(
             self.team.ingested_event = True  # avoid sending `first team event ingested` to PostHog
             self.team.save()
 
-            num_queries = 28
+            num_queries = 30
             if settings.EE_AVAILABLE:  # extra queries to check for hooks
                 num_queries += 4
             if settings.MULTI_TENANCY:  # extra query to check for billing plan
@@ -68,6 +69,7 @@ def factory_test_process_event(
                     now().isoformat(),
                     now().isoformat(),
                 )
+                calculate_actions_from_last_calculation()
 
             self.assertEqual(Person.objects.get().distinct_ids, ["2"])
             event = get_events()[0]
