@@ -631,8 +631,10 @@ class GenericEmails:
 
     def __init__(self):
         with open(get_absolute_path("helpers/generic_emails.txt"), "r") as f:
-            dd = [x.rstrip() for x in f]
-            self.emails = dd
+            self.emails = {x.rstrip(): True for x in f}
 
     def is_generic(self, email: str) -> bool:
-        return any(maybe in email for maybe in self.emails)
+        at_location = email.find("@")
+        if at_location == -1:
+            return False
+        return self.emails.get(email[at_location + 1 :], False)
