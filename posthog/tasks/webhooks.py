@@ -57,6 +57,9 @@ def get_value_of_token(action: Action, event: Event, site_url: str, token_parts:
     elif token_parts[0] == "event":
         if token_parts[1] == "name":
             text = markdown = event.event
+        elif token_parts[1] == "properties" and len(token_parts) > 2 and token_parts[2] in event.properties:
+            text = markdown = event.properties[token_parts[2]]
+
     else:
         raise ValueError
     return text, markdown
