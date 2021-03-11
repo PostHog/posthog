@@ -1,5 +1,4 @@
 import { useEventListener } from 'lib/hooks/useEventListener'
-import React from 'react'
 import { Keys } from '~/types'
 
 interface HotKeyInterface {
@@ -7,37 +6,9 @@ interface HotKeyInterface {
     disabled?: boolean
 }
 
-interface HotKeys {
-    a?: HotKeyInterface
-    b?: HotKeyInterface
-    c?: HotKeyInterface
-    d?: HotKeyInterface
-    e?: HotKeyInterface
-    f?: HotKeyInterface
-    g?: HotKeyInterface
-    h?: HotKeyInterface
-    i?: HotKeyInterface
-    j?: HotKeyInterface
-    k?: HotKeyInterface
-    l?: HotKeyInterface
-    m?: HotKeyInterface
-    n?: HotKeyInterface
-    o?: HotKeyInterface
-    p?: HotKeyInterface
-    q?: HotKeyInterface
-    r?: HotKeyInterface
-    s?: HotKeyInterface
-    t?: HotKeyInterface
-    u?: HotKeyInterface
-    v?: HotKeyInterface
-    w?: HotKeyInterface
-    x?: HotKeyInterface
-    y?: HotKeyInterface
-    z?: HotKeyInterface
-    escape?: HotKeyInterface
-}
+type HotKeys = Record<Keys, HotKeyInterface>
 
-export function KeyboardHotkeys({ hotkeys }: { hotkeys: HotKeys }): JSX.Element {
+export function KeyboardHotkeys({ hotkeys }: { hotkeys: HotKeys }): null {
     useEventListener('keydown', (event) => {
         const key = (event as KeyboardEvent).key
 
@@ -61,5 +32,5 @@ export function KeyboardHotkeys({ hotkeys }: { hotkeys: HotKeys }): JSX.Element 
         }
     })
 
-    return <></>
+    return null
 }
