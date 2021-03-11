@@ -213,10 +213,6 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
 
-    @action(methods=["GET"], detail=False)
-    def status(self, request: request.Request, **kwargs):
-        return Response({"status": "online" if is_plugin_server_alive() else "offline"})
-
     @action(methods=["GET"], detail=True)
     def check_for_updates(self, request: request.Request, **kwargs):
         if not can_install_plugins_via_api(self.organization):

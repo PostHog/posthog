@@ -381,43 +381,6 @@ class TestPluginAPI(APIBaseTest):
             response = self.client.get("/api/organizations/@current/plugins/repository/")
             self.assertEqual(response.status_code, 200)
 
-    def test_plugin_status(self, mock_get, mock_reload):
-        response = self.client.get("/api/organizations/@current/plugins/status/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data, {"status": "offline"})
-
-        get_client().set("@posthog-plugin-server/ping", now().isoformat())
-        response = self.client.get("/api/organizations/@current/plugins/status/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data, {"status": "online"})
-
-        with self.settings(MULTI_TENANCY=False):
-            self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL
-            self.organization.save()
-            response = self.client.get("/api/organizations/@current/plugins/status/")
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.data, {"status": "online"})
-        with self.settings(MULTI_TENANCY=True):
-            self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL
-            self.organization.save()
-            response = self.client.get("/api/organizations/@current/plugins/status/")
-            self.assertEqual(response.status_code, 403)
-            self.assertEqual(
-                response.data,
-                {
-                    "attr": None,
-                    "code": "permission_denied",
-                    "detail": "Your organization's plugins access level is insufficient.",
-                    "type": "authentication_error",
-                },
-            )
-
-        for level in (Organization.PluginsAccessLevel.CONFIG, Organization.PluginsAccessLevel.NONE):
-            self.organization.plugins_access_level = level
-            self.organization.save()
-            response = self.client.get("/api/organizations/@current/plugins/status/")
-            self.assertEqual(response.status_code, 403)
-
     def test_install_plugin_on_multiple_orgs(self, mock_get, mock_reload):
         my_org = self.organization
         other_org = Organization.objects.create(
