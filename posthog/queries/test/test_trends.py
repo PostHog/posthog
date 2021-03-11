@@ -1624,14 +1624,14 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(event_response[2]["label"], "watched movie - cohort1")
             self.assertEqual(event_response[3]["label"], "watched movie - all users")
 
-            self.assertEqual(sum(event_response[0]["data"]), 1)
-            self.assertEqual(event_response[0]["breakdown_value"], cohort.pk)
+            self.assertEqual(sum(event_response[0]["data"]), 4)
+            self.assertEqual(event_response[0]["breakdown_value"], cohort3.pk)
 
             self.assertEqual(sum(event_response[1]["data"]), 3)
             self.assertEqual(event_response[1]["breakdown_value"], cohort2.pk)
 
-            self.assertEqual(sum(event_response[2]["data"]), 4)
-            self.assertEqual(event_response[2]["breakdown_value"], cohort3.pk)
+            self.assertEqual(sum(event_response[2]["data"]), 1)
+            self.assertEqual(event_response[2]["breakdown_value"], cohort.pk)
 
             self.assertEqual(sum(event_response[3]["data"]), 7)
             self.assertEqual(event_response[3]["breakdown_value"], "all")
