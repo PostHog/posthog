@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Tuple
 
@@ -58,7 +59,8 @@ def get_value_of_token(action: Action, event: Event, site_url: str, token_parts:
         if token_parts[1] == "name":
             text = markdown = event.event
         elif token_parts[1] == "properties" and len(token_parts) > 2 and token_parts[2] in event.properties:
-            text = markdown = event.properties[token_parts[2]]
+            property = event.properties.get(token_parts[2])
+            text = markdown = property if isinstance(property, str) else json.dumps(property)
 
     else:
         raise ValueError
