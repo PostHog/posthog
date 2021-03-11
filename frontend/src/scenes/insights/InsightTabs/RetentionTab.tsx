@@ -142,10 +142,7 @@ export function RetentionTab(): JSX.Element {
             <hr />
             <h4 className="secondary">Filters</h4>
             <PropertyFilters pageKey="insight-retention" />
-            <TestAccountFilter
-                filters={filters}
-                onChange={(_filters: Partial<FilterType>): void => setFilters(_filters)}
-            />
+            <TestAccountFilter filters={filters} onChange={setFilters} />
             <>
                 <hr />
                 <h4 className="secondary">Current Date</h4>

@@ -103,10 +103,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
             <hr />
             <h4 className="secondary">Filters</h4>
             <PropertyFilters pageKey="trends-filters" />
-            <TestAccountFilter
-                filters={filters}
-                onChange={(_filters: Partial<FilterType>): void => setFilters(_filters)}
-            />
+            <TestAccountFilter filters={filters} onChange={setFilters} />
             {(!filters.insight || filters.insight === ViewType.TRENDS) &&
                 featureFlags['3275-formulas'] &&
                 user?.ee_enabled && (

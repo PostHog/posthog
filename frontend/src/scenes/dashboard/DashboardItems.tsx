@@ -92,16 +92,7 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
                     <DashboardItem
                         key={item.id}
                         dashboardId={dashboard.id}
-                        item={{
-                            ...item,
-                            result:
-                                !dashboard.filters.date_from && !dashboard.filters.date_to
-                                    ? item.result
-                                    : dashboard.filters.date_from === item.filters.date_from &&
-                                      dashboard.filters.date_to === item.filters.date_to
-                                    ? item.result
-                                    : null,
-                        }}
+                        item={item}
                         layout={
                             resizingItem?.i?.toString() === item.id.toString() ? resizingItem : layoutForItem[item.id]
                         }
