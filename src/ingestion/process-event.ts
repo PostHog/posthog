@@ -449,10 +449,13 @@ export class EventsProcessor {
     }
 
     private async shouldSendHooksTask(team: Team): Promise<boolean> {
+        // Webhooks
         if (team.slack_incoming_webhook) {
             return true
         }
+        // REST hooks (Zapier)
         if (!this.pluginsServer.KAFKA_ENABLED) {
+            // REST hooks are EE-only
             return false
         }
         const timeout = timeoutGuard(`Still running "shouldSendHooksTask". Timeout warning after 30 sec!`)
@@ -510,12 +513,32 @@ export class EventsProcessor {
                     },
                 ],
             })
+            if (await this.shouldSendHooksTask(team)) {
+                this.pluginsServer.statsd?.increment(`hooks.send_task`)
+                this.celery.sendTask(
+                    'ee.tasks.webhooks_ee.post_event_to_webhook_ee',
+                    [
+                        {
+                            event,
+                            properties,
+                            distinct_id: distinctId,
+                            timestamp,
+                            elements_chain: elementsChain,
+                        },
+                        team.id,
+                        siteUrl,
+                    ],
+                    {}
+                )
+            }
         } else {
             let elementsHash = ''
             if (elements && elements.length > 0) {
                 elementsHash = await this.db.createElementGroup(elements, team.id)
             }
-            await this.db.postgresQuery(
+            const {
+                rows: [event],
+            } = await this.db.postgresQuery(
                 'INSERT INTO posthog_event (created_at, event, distinct_id, properties, team_id, timestamp, elements, elements_hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
                 [
                     data.createdAt,
@@ -528,25 +551,10 @@ export class EventsProcessor {
                     elementsHash,
                 ]
             )
-        }
-
-        if (await this.shouldSendHooksTask(team)) {
-            this.pluginsServer.statsd?.increment(`hooks.send_task`)
-            this.celery.sendTask(
-                'ee.tasks.webhooks_ee.post_event_to_webhook_ee',
-                [
-                    {
-                        event,
-                        properties,
-                        distinct_id: distinctId,
-                        timestamp,
-                        elements_chain: elementsChain,
-                    },
-                    team.id,
-                    siteUrl,
-                ],
-                {}
-            )
+            if (await this.shouldSendHooksTask(team)) {
+                this.pluginsServer.statsd?.increment(`hooks.send_task`)
+                this.celery.sendTask('posthog.tasks.webhooks.post_event_to_webhook', [event.id, siteUrl], {})
+            }
         }
 
         return data
