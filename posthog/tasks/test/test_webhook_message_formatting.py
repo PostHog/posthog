@@ -90,16 +90,18 @@ class TestWebhookMessage(BaseTest):
 
     def test_get_formatted_message(self) -> None:
         self.team.slack_incoming_webhook = "https://hooks.slack.com/services/"
-        event1 = Event.objects.create(team=self.team, distinct_id="2", properties={"$browser": "Chrome"})
+        event1 = Event.objects.create(
+            team=self.team, distinct_id="2", properties={"$browser": "Chrome", "custom_prop_page": "Pricing"}
+        )
         action1 = Action.objects.create(
             team=self.team,
             name="action1",
             id=1,
-            slack_message_format="[user.name] did action from browser [user.browser]",
+            slack_message_format="[user.name] did action from browser [user.browser] on [event.properties.custom_prop_page] page",
         )
 
         text, markdown = get_formatted_message(action1, event1, "https://localhost:8000")
-        self.assertEqual(text, "2 did action from browser Chrome")
+        self.assertEqual(text, "2 did action from browser Chrome on Pricing page")
 
     def test_get_formatted_message_default(self) -> None:
         """
