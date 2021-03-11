@@ -157,11 +157,10 @@ EE_AVAILABLE = False
 
 PLUGIN_SERVER_INGESTION = get_from_env("PLUGIN_SERVER_INGESTION", not TEST, type_cast=strtobool)
 
-ASYNC_EVENT_ACTION_MAPPING = get_from_env("ASYNC_EVENT_ACTION_MAPPING", False, type_cast=strtobool)
-
-# Enable if ingesting with the plugin server into postgres, as it's not able to calculate the mapping on the fly
-if PRIMARY_DB == RDBMS.POSTGRES:
-    ASYNC_EVENT_ACTION_MAPPING = True
+# Enabled if using the FOSS version: the plugin server will do the ingestion, this task will match events to actions
+ASYNC_EVENT_ACTION_MAPPING = get_from_env(
+    "ASYNC_EVENT_ACTION_MAPPING", PRIMARY_DB == RDBMS.POSTGRES, type_cast=strtobool
+)
 
 ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", True, type_cast=strtobool)
 
