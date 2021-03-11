@@ -105,7 +105,7 @@ def post_event_to_webhook(self: Task, event_id: int, site_url: str) -> None:
     try:
         event = Event.objects.get(pk=event_id)
         team = event.team
-        actions = [action for action in event.action_set.all() if action.post_to_slack]
+        actions = [action for action in event.actions if action.post_to_slack]
 
         if not site_url:
             site_url = settings.SITE_URL
