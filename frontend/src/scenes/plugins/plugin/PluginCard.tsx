@@ -21,7 +21,6 @@ import { SourcePluginTag } from './SourcePluginTag'
 import { CommunityPluginTag } from './CommunityPluginTag'
 import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
-import { PluginsAccessLevel } from '../../../lib/constants'
 import { endWithPeriod } from '../../../lib/utils'
 
 interface PluginCardProps {
@@ -58,6 +57,7 @@ export function PluginCard({
         updateStatus,
         hasMoved,
         is_global,
+        organization_id,
         organization_name,
     } = plugin
 
@@ -130,7 +130,7 @@ export function PluginCard({
                                     <GlobalOutlined /> Managed by {organization_name}
                                 </Tag>
                             )}
-                            {user?.organization?.plugins_access_level === PluginsAccessLevel.Root && (
+                            {user?.organization?.id === organization_id && (
                                 <>
                                     {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
                                     {updateStatus?.error ? (
