@@ -20,7 +20,7 @@ import { EventsProcessor } from './ingestion/process-event'
 import { startSchedule } from './services/schedule'
 import { status } from './status'
 import { PluginsServer, PluginsServerConfig, Queue } from './types'
-import { createRedis, delay, UUIDT } from './utils'
+import { createPostgresPool, createRedis, delay, UUIDT } from './utils'
 import { startFastifyInstance, stopFastifyInstance } from './web/server'
 import { startQueue } from './worker/queue'
 
@@ -102,14 +102,7 @@ export async function createServer(
         timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
     )
 
-    const postgres = new Pool({
-        connectionString: serverConfig.DATABASE_URL,
-        ssl: process.env.DYNO // Means we are on Heroku
-            ? {
-                  rejectUnauthorized: false,
-              }
-            : undefined,
-    })
+    const postgres = createPostgresPool(serverConfig)
 
     const redisPool = createPool<Redis.Redis>(
         {
