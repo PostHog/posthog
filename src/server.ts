@@ -104,7 +104,7 @@ export async function createServer(
 
     const postgres = new Pool({
         connectionString: serverConfig.DATABASE_URL,
-        ssl: process.env.DEPLOYMENT?.startsWith('Heroku')
+        ssl: process.env.DYNO // Means we are on Heroku
             ? {
                   rejectUnauthorized: false,
               }
