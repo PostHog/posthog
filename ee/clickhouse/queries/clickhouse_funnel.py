@@ -97,7 +97,11 @@ class ClickhouseFunnel(Funnel):
     def _get_trends(self) -> List[Dict[str, Any]]:
         serialized: Dict[str, Any] = {"count": 0, "data": [], "days": [], "labels": []}
         prop_filters, prop_filter_params = parse_prop_clauses(
-            self._filter.properties, self._team.pk, prepend="global", allow_denormalized_props=True
+            self._filter.properties,
+            self._team.pk,
+            prepend="global",
+            allow_denormalized_props=True,
+            filter_test_accounts=self._filter.filter_test_accounts,
         )
         parsed_date_from, parsed_date_to, _ = parse_timestamps(
             filter=self._filter, table="events.", team_id=self._team.pk

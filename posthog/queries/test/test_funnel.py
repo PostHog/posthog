@@ -364,7 +364,9 @@ def funnel_trends_test_factory(Funnel, event_factory, person_factory):
                 dropped_1 = person_factory(distinct_ids=["dropped_1"], team=self.team)
             with freeze_time("2021-01-01T03:21:34.000Z"):
                 dropped_2 = person_factory(distinct_ids=["dropped_2"], team=self.team)
-                completed_1 = person_factory(distinct_ids=["completed_1"], team=self.team)
+                completed_1 = person_factory(
+                    distinct_ids=["completed_1"], team=self.team, properties={"email": "test@posthog.com"}
+                )
                 across_days = person_factory(distinct_ids=["across_days"], team=self.team)
                 event_factory(event="sign up", distinct_id="dropped_1", team=self.team)
                 event_factory(event="sign up", distinct_id="dropped_2", team=self.team)
@@ -382,7 +384,7 @@ def funnel_trends_test_factory(Funnel, event_factory, person_factory):
                 event_factory(event="pay", distinct_id="completed_2", team=self.team)
                 event_factory(event="pay", distinct_id="across_days", team=self.team)
 
-        def _run(self, date_from=None, date_to=None, interval=None):
+        def _run(self, date_from=None, date_to=None, interval=None, filter_test_accounts=False):
             self._create_events()
             return Funnel(
                 team=self.team,
@@ -393,6 +395,7 @@ def funnel_trends_test_factory(Funnel, event_factory, person_factory):
                         "interval": interval if interval else "day",
                         "date_from": date_from,
                         **({"date_to": date_to} if date_to else {}),
+                        **({FILTER_TEST_ACCOUNTS: True} if filter_test_accounts else {}),
                         "events": [{"id": "sign up", "order": 0}, {"id": "pay", "order": 1},],
                     }
                 ),
@@ -529,6 +532,11 @@ def funnel_trends_test_factory(Funnel, event_factory, person_factory):
                 response = self._run("-1d", "dStart")
             self.assertEqual(response[0]["data"][0], 25)
             self.assertEqual(response[0]["labels"][0], "Fri. 1 January")
+
+        def test_filter_test_accounts(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run(filter_test_accounts=True)
+            self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 0, 0, 50])
 
     return TestFunnelTrends
 
