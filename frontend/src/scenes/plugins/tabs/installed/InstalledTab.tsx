@@ -59,7 +59,7 @@ export function InstalledTab(): JSX.Element {
         disabledPlugins,
         loading,
         checkingForUpdates,
-        hasNonSourcePlugins,
+        hasUpdateablePlugins,
         pluginsNeedingUpdates,
         installedPluginUrls,
         updateStatus,
@@ -77,9 +77,8 @@ export function InstalledTab(): JSX.Element {
         makePluginOrderSaveable,
     } = useActions(pluginsLogic)
 
-    const upgradeButton = user?.organization &&
-        user.organization.plugins_access_level === PluginsAccessLevel.Root &&
-        hasNonSourcePlugins && (
+    const upgradeButton = (user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Install &&
+        hasUpdateablePlugins && (
             <Button
                 type="default"
                 icon={pluginsNeedingUpdates.length > 0 ? <SyncOutlined /> : <CloudDownloadOutlined />}

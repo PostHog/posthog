@@ -452,18 +452,18 @@ export const pluginsLogic = kea<
             },
         ],
         installedPluginUrls: [
-            (s) => [s.installedPlugins],
-            (installedPlugins) => {
+            (s) => [s.installedPlugins, organizationLogic.selectors.currentOrganization],
+            (installedPlugins, currentOrganization) => {
                 const names: Record<string, boolean> = {}
                 installedPlugins.forEach((plugin) => {
-                    if (plugin.url) {
+                    if (plugin.url && plugin.organization_id === currentOrganization?.id) {
                         names[plugin.url.replace(/\/+$/, '')] = true
                     }
                 })
                 return names
             },
         ],
-        hasNonSourcePlugins: [
+        hasUpdateablePlugins: [
             (s) => [s.installedPluginUrls],
             (installedPluginUrls) => Object.keys(installedPluginUrls).length > 0,
         ],
