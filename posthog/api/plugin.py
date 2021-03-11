@@ -1,30 +1,25 @@
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Dict, Optional, Set
 
 import requests
 from dateutil.relativedelta import relativedelta
-from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
-from django.db.models import Q
+from django.db.models import Model, Q
 from django.http.response import Http404
 from django.utils.timezone import now
-from rest_framework import request, serializers, viewsets
+from rest_framework import request, serializers, views, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
 from posthog.models.organization import Organization
-from posthog.permissions import (
-    OrganizationMemberPermissions,
-    ProjectMembershipNecessaryPermissions,
-    get_organization_from_view,
-)
+from posthog.permissions import OrganizationMemberPermissions, ProjectMembershipNecessaryPermissions
 from posthog.plugins import (
     can_configure_plugins_via_api,
     can_install_plugins_via_api,
@@ -41,16 +36,23 @@ from posthog.utils import is_plugin_server_alive
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
 
 
-class CloudRootOrPrivateInstallPluginsAccessLevel(BasePermission):
-    message = "Your organization's plugins access level is insufficient."
+class PluginsAccessLevelPermission(BasePermission):
+    message = "Your organization's plugin access level is insufficient."
 
-    def has_permission(self, viewset) -> bool:  # type: ignore
-        # For some reason DRF provides a viewset here
+    def has_permission(self, request: requests.Request, view: views.View) -> bool:
         min_level = (
-            Organization.PluginsAccessLevel.ROOT if settings.MULTI_TENANCY else Organization.PluginsAccessLevel.INSTALL
+            Organization.PluginsAccessLevel.CONFIG
+            if request.method in SAFE_METHODS
+            else Organization.PluginsAccessLevel.INSTALL
         )
-        organization = viewset.request.user.organization
-        return organization.plugins_access_level >= min_level
+        return view.organization.plugins_access_level >= min_level
+
+
+class PluginOwnershipPermission(BasePermission):
+    message = "This plugin installation is managed by another organization."
+
+    def has_object_permission(self, request: requests.Request, view, object: Model) -> bool:
+        return view.organization == object.organization
 
 
 class PluginSerializer(serializers.ModelSerializer):
@@ -181,14 +183,13 @@ class PluginSerializer(serializers.ModelSerializer):
 class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
-
-    def get_permissions(self) -> List[BasePermission]:
-        super_permissions: List[Any] = super().get_permissions()
-        if self.action in ("repository", "status"):
-            # Repository is only available for root orgs on cloud, otherwise for root OR install orgs
-            super_permissions.append(CloudRootOrPrivateInstallPluginsAccessLevel)
-        return super_permissions
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        OrganizationMemberPermissions,
+        PluginsAccessLevelPermission,
+        PluginOwnershipPermission,
+    ]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -217,7 +218,6 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def check_for_updates(self, request: request.Request, **kwargs):
         if not can_install_plugins_via_api(self.organization):
             raise PermissionDenied("Plugin installation is not available for the current organization!")
-
         plugin = self.get_object()
         latest_url = parse_url(plugin.url, get_latest_if_none=True)
         plugin.latest_tag = latest_url.get("tag", latest_url.get("version", None))
@@ -231,7 +231,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         plugin: Plugin = self.get_object()
         organization = self.organization
         if plugin.organization != organization:
-            raise Http404
+            raise NotFound()
         if not can_install_plugins_via_api(self.organization, plugin.organization_id):
             raise PermissionDenied("Plugin upgrading is not available for the current organization!")
         serializer = PluginSerializer(plugin, context={"organization": organization})

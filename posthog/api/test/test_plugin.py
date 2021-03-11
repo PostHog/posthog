@@ -5,7 +5,7 @@ from unittest import mock
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils.timezone import now
 
-from posthog.models import Plugin, PluginAttachment, PluginConfig
+from posthog.models import Plugin, PluginAttachment, PluginConfig, organization
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.plugins.access import can_configure_plugins_via_api, can_install_plugins_via_api
 from posthog.plugins.test.mock import mocked_plugin_requests_get
@@ -121,8 +121,9 @@ class TestPluginAPI(APIBaseTest):
         # Other org
         patch_response_other_org_2 = self.client.patch(f"/api/organizations/{other_org.id}/plugins/{install_response.data['id']}", {"description": "Y"})  # type: ignore
         self.assertEqual(patch_response_other_org_2.status_code, 403)
-        self.assertTrue(
-            "This plugin is managed by another organization:" in patch_response_other_org_2.json().get("detail")
+        self.assertIn(
+            "This plugin installation is managed by another organization",
+            patch_response_other_org_2.json().get("detail"),
         )
 
     def test_update_plugin_auth_to_globally_managed(self, mock_get, mock_reload):
@@ -136,7 +137,7 @@ class TestPluginAPI(APIBaseTest):
                 self.organization.save()
                 response = self.client.patch(f"/api/organizations/@current/plugins/{install_response.data['id']}/", {"is_global": False})  # type: ignore
                 self.assertEqual(
-                    response.status_code, 404, "Plugin was not 404 for org despite it having no plugin install acces`s"
+                    response.status_code, 403, "Plugin was not 403 for org despite it having no plugin install acces`s"
                 )
 
         self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL
@@ -192,7 +193,7 @@ class TestPluginAPI(APIBaseTest):
             self.organization.plugins_access_level = level
             self.organization.save()
             response = self.client.post(api_url, {"url": repo_url})
-            self.assertEqual(response.status_code, 404)
+            self.assertEqual(response.status_code, 403)
 
     def test_delete_plugin_auth(self, mock_get, mock_reload):
         repo_url = "https://github.com/PostHog/helloworldplugin"
@@ -205,12 +206,31 @@ class TestPluginAPI(APIBaseTest):
             self.organization.plugins_access_level = level
             self.organization.save()
             response = self.client.delete(api_url)
-            self.assertEqual(response.status_code, 404)
+            self.assertEqual(response.status_code, 403)
 
         self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL
         self.organization.save()
         response = self.client.delete(api_url)
         self.assertEqual(response.status_code, 204)
+
+    def test_cannot_delete_of_other_orgs_plugin(self, mock_get, mock_reload):
+        other_org = Organization.objects.create(
+            name="FooBar2", plugins_access_level=Organization.PluginsAccessLevel.INSTALL
+        )
+        OrganizationMembership.objects.create(organization=other_org, user=self.user)
+
+        repo_url = "https://github.com/PostHog/helloworldplugin"
+        response = self.client.post(f"/api/organizations/@current/plugins/", {"url": repo_url})
+
+        self.assertEqual(response.status_code, 201)
+
+        self.user.current_organization = other_org
+        self.user.save()
+
+        api_url = f"/api/organizations/@current/plugins/{response.data['id']}"
+        response = self.client.delete(api_url)
+
+        self.assertEqual(response.status_code, 404)
 
     def test_create_plugin_repo_url(self, mock_get, mock_reload):
         self.assertEqual(mock_reload.call_count, 0)
@@ -360,26 +380,6 @@ class TestPluginAPI(APIBaseTest):
                 },
             ],
         )
-        for level in (Organization.PluginsAccessLevel.NONE, Organization.PluginsAccessLevel.CONFIG):
-            self.organization.plugins_access_level = level
-            self.organization.save()
-            response = self.client.get("/api/organizations/@current/plugins/repository/")
-            self.assertEqual(response.status_code, 403)
-
-        self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL
-        self.organization.save()
-        with self.settings(MULTI_TENANCY=True):  # Repository is only available to root orgs on Cloud
-            response = self.client.get("/api/organizations/@current/plugins/repository/")
-            self.assertEqual(response.status_code, 403)
-        with self.settings(MULTI_TENANCY=False):
-            response = self.client.get("/api/organizations/@current/plugins/repository/")
-            self.assertEqual(response.status_code, 200)
-
-        self.organization.plugins_access_level = Organization.PluginsAccessLevel.ROOT
-        self.organization.save()
-        with self.settings(MULTI_TENANCY=True):
-            response = self.client.get("/api/organizations/@current/plugins/repository/")
-            self.assertEqual(response.status_code, 200)
 
     def test_install_plugin_on_multiple_orgs(self, mock_get, mock_reload):
         my_org = self.organization
