@@ -56,8 +56,6 @@ export function PluginDrawer(): JSX.Element {
     } = useActions(pluginsLogic)
     const [form] = Form.useForm()
 
-    const canDelete = (user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Install
-
     useEffect(() => {
         if (editingPlugin) {
             form.setFieldsValue({
@@ -95,7 +93,7 @@ export function PluginDrawer(): JSX.Element {
                     <>
                         <div style={{ display: 'flex' }}>
                             <div style={{ flexGrow: 1 }}>
-                                {canDelete && (
+                                {editingPlugin?.organization_id === user?.organization?.id && (
                                     <Popconfirm
                                         placement="topLeft"
                                         title="Are you sure you wish to uninstall this plugin?"
