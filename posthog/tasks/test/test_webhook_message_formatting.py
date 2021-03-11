@@ -101,7 +101,7 @@ class TestWebhookMessage(BaseTest):
         )
 
         text, markdown = get_formatted_message(action1, event1, "https://localhost:8000")
-        self.assertEqual(text, "2 from browser Chrome on Pricing page with undefined")
+        self.assertEqual(text, "2 from Chrome on Pricing page with undefined")
 
     def test_get_formatted_message_default(self) -> None:
         """
