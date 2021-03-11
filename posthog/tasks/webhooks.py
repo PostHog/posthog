@@ -58,9 +58,13 @@ def get_value_of_token(action: Action, event: Event, site_url: str, token_parts:
     elif token_parts[0] == "event":
         if token_parts[1] == "name":
             text = markdown = event.event
-        elif token_parts[1] == "properties" and len(token_parts) > 2 and token_parts[2] in event.properties:
-            property = event.properties.get(token_parts[2])
-            text = markdown = property if isinstance(property, str) else json.dumps(property)
+        elif token_parts[1] == "properties" and len(token_parts) > 2:
+            property_name = token_parts[2]
+            if property_name in event.properties:
+                property = event.properties[property_name]
+                text = markdown = property if isinstance(property, str) else json.dumps(property)
+            else:
+                text = markdown = "undefined"
 
     else:
         raise ValueError
