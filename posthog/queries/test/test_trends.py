@@ -9,6 +9,7 @@ from posthog.models import Action, ActionStep, Cohort, Event, Filter, Organizati
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.queries.abstract_test.test_timerange import AbstractTimerangeTest
 from posthog.queries.trends import Trends
+from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 from posthog.test.base import APIBaseTest
 from posthog.utils import relative_date_parse
 
@@ -63,7 +64,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 )
 
             no_events = action_factory(team=self.team, name="no events")
+            no_events.calculate_events()
             sign_up_action = action_factory(team=self.team, name="sign up")
+            sign_up_action.calculate_events()
 
             return sign_up_action, person
 
@@ -76,6 +79,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": i},
                     )
             sign_up_action = action_factory(team=self.team, name="sign up")
+            sign_up_action.calculate_events()
 
         def _compare_entity_response(self, response1, response2, remove=("action", "label")):
             if len(response1):
@@ -1367,10 +1371,12 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
 
         def test_dau_filtering(self):
-            sign_up_action, person = self._create_events()
+            with freeze_time("2020-01-01"):
+                sign_up_action, person = self._create_events()
             with freeze_time("2020-01-02"):
                 person_factory(team_id=self.team.pk, distinct_ids=["someone_else"])
                 event_factory(team=self.team, event="sign up", distinct_id="someone_else")
+                calculate_actions_from_last_calculation()
             with freeze_time("2020-01-04"):
                 action_response = trends().run(
                     Filter(data={"actions": [{"id": sign_up_action.id, "math": "dau"}]}), self.team
@@ -1418,6 +1424,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 )
 
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": None})
+            sign_up_action.calculate_events()
             return sign_up_action
 
         def _test_math_property_aggregation(self, math_property, values, expected_value):
@@ -1468,6 +1475,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": "x"})
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": None})
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 8})
+            calculate_actions_from_last_calculation()
             action_response = trends().run(
                 Filter(data={"actions": [{"id": sign_up_action.id, "math": "avg", "math_property": "some_number"}]}),
                 self.team,
@@ -1577,18 +1585,18 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(sum(event_response[0]["data"]), 1)
 
         def test_breakdown_by_cohort(self):
-            person1, person2, person3, person4 = self._create_multiple_people()
-            cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"name": "person1"}}])
-            cohort2 = cohort_factory(name="cohort2", team=self.team, groups=[{"properties": {"name": "person2"}}])
-            cohort3 = cohort_factory(
-                name="cohort3",
-                team=self.team,
-                groups=[{"properties": {"name": "person1"}}, {"properties": {"name": "person2"}},],
-            )
-            action = action_factory(name="watched movie", team=self.team)
-            action.calculate_events()
-
+            with freeze_time("2020-01-01T13:01:01Z"):
+                person1, person2, person3, person4 = self._create_multiple_people()
+                cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"name": "person1"}}])
+                cohort2 = cohort_factory(name="cohort2", team=self.team, groups=[{"properties": {"name": "person2"}}])
+                cohort3 = cohort_factory(
+                    name="cohort3",
+                    team=self.team,
+                    groups=[{"properties": {"name": "person1"}}, {"properties": {"name": "person2"}},],
+                )
             with freeze_time("2020-01-04T13:01:01Z"):
+                action = action_factory(name="watched movie", team=self.team)
+                action.calculate_events()
                 action_response = trends().run(
                     Filter(
                         data={
@@ -1611,9 +1619,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
-            self.assertEqual(event_response[0]["label"], "watched movie - cohort1")
+            self.assertEqual(event_response[0]["label"], "watched movie - cohort3")
             self.assertEqual(event_response[1]["label"], "watched movie - cohort2")
-            self.assertEqual(event_response[2]["label"], "watched movie - cohort3")
+            self.assertEqual(event_response[2]["label"], "watched movie - cohort1")
             self.assertEqual(event_response[3]["label"], "watched movie - all users")
 
             self.assertEqual(sum(event_response[0]["data"]), 1)
