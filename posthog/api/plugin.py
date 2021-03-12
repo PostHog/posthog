@@ -39,7 +39,7 @@ SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
 class PluginsAccessLevelPermission(BasePermission):
     message = "Your organization's plugin access level is insufficient."
 
-    def has_permission(self, request: requests.Request, view: views.View) -> bool:
+    def has_permission(self, request, view) -> bool:
         min_level = (
             Organization.PluginsAccessLevel.CONFIG
             if request.method in SAFE_METHODS
@@ -51,7 +51,7 @@ class PluginsAccessLevelPermission(BasePermission):
 class PluginOwnershipPermission(BasePermission):
     message = "This plugin installation is managed by another organization."
 
-    def has_object_permission(self, request: requests.Request, view, object: Model) -> bool:
+    def has_object_permission(self, request, view, object) -> bool:
         return view.organization == object.organization
 
 

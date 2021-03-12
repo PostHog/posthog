@@ -227,7 +227,7 @@ class TestPluginAPI(APIBaseTest):
         self.user.current_organization = other_org
         self.user.save()
 
-        api_url = f"/api/organizations/@current/plugins/{response.data['id']}"
+        api_url = f"/api/organizations/@current/plugins/{response.data['id']}"  # type: ignore
         response = self.client.delete(api_url)
 
         self.assertEqual(response.status_code, 404)
