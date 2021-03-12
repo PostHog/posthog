@@ -3,7 +3,6 @@ import { useValues, useActions } from 'kea'
 import { featureFlagLogic } from './featureFlagLogic'
 import { Table, Switch, Drawer, Button } from 'antd'
 import { EditFeatureFlag } from './EditFeatureFlag'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
@@ -17,15 +16,17 @@ export function FeatureFlags() {
     const { featureFlags, featureFlagsLoading } = useValues(logic)
     const { updateFeatureFlag, loadFeatureFlags } = useActions(logic)
 
-    let columns = [
+    const columns = [
         {
             title: 'Name',
             dataIndex: 'name',
+            className: 'ph-no-capture',
             sorter: (a, b) => ('' + a.name).localeCompare(b.name),
         },
         {
             title: 'Key',
             dataIndex: 'key',
+            className: 'ph-no-capture',
             sorter: (a, b) => ('' + a.key).localeCompare(b.key),
         },
         createdAtColumn(),
@@ -120,7 +121,7 @@ export function FeatureFlags() {
                     onClick: () => setOpenFeatureFlag(featureFlag),
                 })}
                 size="small"
-                rowClassName={'cursor-pointer ' + rrwebBlockClass}
+                rowClassName="cursor-pointer"
                 data-attr="feature-flag-table"
             />
             <Drawer

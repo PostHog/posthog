@@ -10,7 +10,6 @@ import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
 import { eventToName, toParams } from 'lib/utils'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 
@@ -96,10 +95,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                     return { props: { colSpan: 0 } }
                 }
                 return showLinkToPerson ? (
-                    <Link
-                        to={`/person/${encodeURIComponent(event.distinct_id)}`}
-                        className={'ph-no-capture ' + rrwebBlockClass}
-                    >
+                    <Link to={`/person/${encodeURIComponent(event.distinct_id)}`} className="ph-no-capture">
                         {event.person}
                     </Link>
                 ) : (
@@ -118,7 +114,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                 if (filtersEnabled) {
                     return (
                         <FilterPropertyLink
-                            className={'ph-no-capture ' + rrwebBlockClass}
+                            className="ph-no-capture"
                             property={param}
                             value={event.properties[param]}
                             filters={{ properties }}
@@ -214,7 +210,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                     loading={isLoading}
                     columns={columns}
                     size="small"
-                    className={rrwebBlockClass + ' ph-no-capture'}
+                    className="ph-no-capture"
                     locale={{
                         emptyText: (
                             <span>

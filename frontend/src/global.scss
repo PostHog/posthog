@@ -81,6 +81,10 @@ style files without adding already imported styles. */
     font-size: 22px;
     line-height: 26px;
     font-weight: 700;
+
+    &.highlighted {
+        padding: $default_spacing $default_spacing $default_spacing $default_spacing / 2;
+    }
 }
 
 .l3 {
@@ -226,6 +230,11 @@ code.code {
 // Random general styles
 .cursor-pointer {
     cursor: pointer;
+}
+
+.highlighted {
+    background-color: $yellow_50;
+    border-radius: $radius;
 }
 
 // Toasts

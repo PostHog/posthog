@@ -69,6 +69,13 @@ SESSION_SQL = """
                         {date_from}
                         {date_to}
                         AND distinct_id IN %(distinct_ids)s
+                    GROUP BY
+                        uuid,
+                        event,
+                        properties,
+                        timestamp,
+                        distinct_id,
+                        elements_chain
                     ORDER BY
                         distinct_id,
                         timestamp

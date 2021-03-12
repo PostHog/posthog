@@ -43,7 +43,9 @@ class ClickhousePaths(Paths):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
         event, path_type, start_comparator = self._determine_path_type(filter.path_type if filter else None)
 
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+        )
 
         # Step 0. Event culling subexpression for step 1.
         # Make an expression that removes events in a session that are definitely unused.
