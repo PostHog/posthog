@@ -28,9 +28,16 @@ export function ActionAttribute({ attribute, value }: { attribute: string; value
                 {value}
             </a>
         ) : attribute === 'selector' ? (
-            <span style={{ fontFamily: 'monospace' }}>
-                <SelectorString value={value || ''} />
-            </span>
+            value ? (
+                <span style={{ fontFamily: 'monospace' }}>
+                    <SelectorString value={value || ''} />
+                </span>
+            ) : (
+                <span>
+                    Could not generate a unique selector for this element. Please instrument with unique <code>id</code>{' '}
+                    or <code>data-attr</code> attributes.
+                </span>
+            )
         ) : (
             value
         )
