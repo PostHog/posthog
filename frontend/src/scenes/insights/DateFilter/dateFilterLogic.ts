@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import { Moment } from 'moment'
-import { dateFilterLogicType } from 'lib/components/DateFilter/dateFilterLogicType'
+import { dateFilterLogicType } from 'scenes/insights/DateFilter/dateFilterLogicType'
 import { objectsEqual } from 'lib/utils'
 
 interface UrlParams {

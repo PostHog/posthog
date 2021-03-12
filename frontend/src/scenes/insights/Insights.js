@@ -4,7 +4,7 @@ import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import moment from 'moment'
-import { DateFilter } from 'lib/components/DateFilter'
+import { DateFilter } from './DateFilter/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 
 import { PageHeader } from 'lib/components/PageHeader'
