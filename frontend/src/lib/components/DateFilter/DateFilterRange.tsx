@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import moment from 'moment'
 import { Button, DatePicker } from 'antd'
 
-export function DateFilterCustom(props: {
+export function DateFilterRange(props: {
     onClickOutside: () => void
     onClick: (e: React.MouseEvent) => void
     onDateFromChange: (date: moment.Moment | undefined) => void

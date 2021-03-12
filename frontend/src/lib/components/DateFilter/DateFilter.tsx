@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Select } from 'antd'
 import moment, { Moment } from 'moment'
 import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
-import { DateFilterCustom } from 'lib/components/DateFilter/DateFilterCustom'
+import { DateFilterRange } from 'lib/components/DateFilter/DateFilterRange'
 
 export interface DateFilterProps {
     defaultValue: string
@@ -107,7 +107,7 @@ export function DateFilter({
             dropdownRender={(menu: React.ReactElement) => {
                 if (dateRangeOpen) {
                     return (
-                        <DateFilterCustom
+                        <DateFilterRange
                             getPopupContainer={getPopupContainer}
                             onClick={dropdownOnClick}
                             onDateFromChange={(date) => setRangeDateFrom(date)}
