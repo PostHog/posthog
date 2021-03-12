@@ -118,8 +118,6 @@ export async function createServer(
         }
     )
 
-    const db = new DB(postgres, redisPool, kafkaProducer, clickhouse)
-
     let statsd: StatsD | undefined
     if (serverConfig.STATSD_HOST) {
         statsd = new StatsD({
@@ -135,6 +133,8 @@ export async function createServer(
             )
         }
     }
+
+    const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd)
 
     const server: Omit<PluginsServer, 'eventsProcessor'> = {
         ...serverConfig,
