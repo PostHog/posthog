@@ -20,9 +20,8 @@ export function FunnelViz({
     const container = useRef(null)
     const [steps, setSteps] = useState(stepsParam)
     const logic = funnelLogic({ dashboardItemId, cachedResults, filters: defaultFilters })
-    const { results: stepsResult, resultsLoading: funnelLoading } = useValues(logic)
+    const { results: stepsResult, resultsLoading: funnelLoading, filters } = useValues(logic)
     const { loadResults: loadFunnel } = useActions(logic)
-    const { filters } = useValues(logic)
     const [{ fromItem }] = useState(router.values.hashParams)
 
     function buildChart() {
