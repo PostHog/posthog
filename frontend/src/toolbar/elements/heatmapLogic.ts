@@ -16,6 +16,7 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
         enableHeatmap: true,
         disableHeatmap: true,
         setShowHeatmapTooltip: (showHeatmapTooltip: boolean) => ({ showHeatmapTooltip }),
+        setHeatmapFilter: (filter: Record<string, any>) => ({ filter }),
     },
 
     reducers: {
@@ -42,18 +43,26 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                 setShowHeatmapTooltip: (_, { showHeatmapTooltip }) => showHeatmapTooltip,
             },
         ],
+        heatmapFilter: [
+            {} as Record<string, any>,
+            {
+                setHeatmapFilter: (_, { filter }) => filter,
+            },
+        ],
     },
 
-    loaders: {
+    loaders: ({ values }) => ({
         events: [
             [] as ElementsEventType[],
             {
                 resetEvents: () => [],
                 getEvents: async ({ $current_url }: { $current_url: string }, breakpoint) => {
-                    const params = {
+                    const params: Record<string, any> = {
                         properties: [{ key: '$current_url', value: $current_url }],
                         temporary_token: toolbarLogic.values.temporaryToken,
+                        ...values.heatmapFilter,
                     }
+
                     const url = `${toolbarLogic.values.apiURL}api/element/stats/${encodeParams(params, '?')}`
                     const response = await fetch(url)
                     const results = await response.json()
@@ -73,7 +82,7 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                 },
             },
         ],
-    },
+    }),
 
     selectors: {
         elements: [
@@ -225,6 +234,9 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                 await breakpoint(1000)
                 actions.setShowHeatmapTooltip(false)
             }
+        },
+        setHeatmapFilter: () => {
+            actions.getEvents({ $current_url: currentPageLogic.values.href })
         },
     }),
 })

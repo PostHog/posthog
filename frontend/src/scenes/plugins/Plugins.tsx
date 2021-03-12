@@ -1,6 +1,5 @@
 import './Plugins.scss'
 import React, { useEffect } from 'react'
-import { hot } from 'react-hot-loader/root'
 import { PluginDrawer } from 'scenes/plugins/edit/PluginDrawer'
 import { RepositoryTab } from 'scenes/plugins/tabs/repository/RepositoryTab'
 import { InstalledTab } from 'scenes/plugins/tabs/installed/InstalledTab'
@@ -14,8 +13,7 @@ import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
 import { PluginsAccessLevel } from '../../lib/constants'
 
-export const Plugins = hot(_Plugins)
-function _Plugins(): JSX.Element | null {
+export function Plugins(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { pluginTab } = useValues(pluginsLogic)
     const { setPluginTab } = useActions(pluginsLogic)

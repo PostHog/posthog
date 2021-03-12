@@ -1,6 +1,5 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import React from 'react'
-import { hot } from 'react-hot-loader/root'
 import { Button, Col, Collapse, Progress, Row, Switch } from 'antd'
 import {
     ProjectOutlined,
@@ -111,8 +110,7 @@ function OnboardingStep({
     )
 }
 
-export const OnboardingSetup = hot(_OnboardingSetup)
-function _OnboardingSetup(): JSX.Element {
+export function OnboardingSetup(): JSX.Element {
     const {
         stepProjectSetup,
         stepInstallation,

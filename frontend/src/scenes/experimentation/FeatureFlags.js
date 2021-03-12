@@ -1,5 +1,4 @@
 import React, { Fragment, useState } from 'react'
-import { hot } from 'react-hot-loader/root'
 import { useValues, useActions } from 'kea'
 import { featureFlagLogic } from './featureFlagLogic'
 import { Table, Switch, Drawer, Button } from 'antd'
@@ -11,8 +10,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/PropertyFiltersDisplay'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 
-export const FeatureFlags = hot(_FeatureFlags)
-function _FeatureFlags() {
+export function FeatureFlags() {
     const [openFeatureFlag, setOpenFeatureFlag] = useState(false)
     const logic = featureFlagLogic({ closeDrawer: () => setOpenFeatureFlag(false) })
     const { featureFlags, featureFlagsLoading } = useValues(logic)
