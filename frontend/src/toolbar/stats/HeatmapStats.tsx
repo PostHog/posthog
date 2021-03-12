@@ -4,7 +4,7 @@ import { List, Space, Spin } from 'antd'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { getShadowRootPopupContainer } from '~/toolbar/utils'
-import { DateFilterComponent } from 'lib/components/DateFilter/DateFilterComponent'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 export function HeatmapStats(): JSX.Element {
     const { countedElements, clickCount, heatmapEnabled, heatmapLoading, heatmapFilter } = useValues(heatmapLogic)
@@ -16,7 +16,7 @@ export function HeatmapStats(): JSX.Element {
             {heatmapEnabled ? (
                 <>
                     <div style={{ marginTop: 0, marginBottom: 10 }}>
-                        <DateFilterComponent
+                        <DateFilter
                             defaultValue="Last 7 days"
                             dateFrom={heatmapFilter.date_from}
                             dateTo={heatmapFilter.date_to}

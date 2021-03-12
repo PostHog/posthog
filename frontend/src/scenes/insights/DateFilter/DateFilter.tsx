@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { dateFilterLogic } from './dateFilterLogic'
-import { DateFilterProps, DateFilterComponent } from 'lib/components/DateFilter/DateFilterComponent'
+import { DateFilterProps, DateFilter as DateFilterComponent } from 'lib/components/DateFilter/DateFilter'
 
 export function DateFilter(props: DateFilterProps): JSX.Element {
     const {

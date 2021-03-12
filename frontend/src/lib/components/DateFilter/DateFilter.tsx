@@ -20,7 +20,7 @@ interface RawDateFilterProps extends DateFilterProps {
     dateTo?: string | Moment
 }
 
-export function DateFilterComponent({
+export function DateFilter({
     bordered,
     defaultValue,
     showCustom,
