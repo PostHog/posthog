@@ -93,19 +93,22 @@ export function PluginDrawer(): JSX.Element {
                     <>
                         <div style={{ display: 'flex' }}>
                             <div style={{ flexGrow: 1 }}>
-                                {editingPlugin?.organization_id === user?.organization?.id && (
-                                    <Popconfirm
-                                        placement="topLeft"
-                                        title="Are you sure you wish to uninstall this plugin?"
-                                        onConfirm={editingPlugin ? () => uninstallPlugin(editingPlugin.name) : () => {}}
-                                        okText="Uninstall"
-                                        cancelText="Cancel"
-                                    >
-                                        <Button style={{ color: 'var(--red)', float: 'left' }} type="link">
-                                            <DeleteOutlined /> Uninstall
-                                        </Button>
-                                    </Popconfirm>
-                                )}
+                                {editingPlugin?.organization_id === user?.organization?.id &&
+                                    (user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Install && (
+                                        <Popconfirm
+                                            placement="topLeft"
+                                            title="Are you sure you wish to uninstall this plugin?"
+                                            onConfirm={
+                                                editingPlugin ? () => uninstallPlugin(editingPlugin.name) : () => {}
+                                            }
+                                            okText="Uninstall"
+                                            cancelText="Cancel"
+                                        >
+                                            <Button style={{ color: 'var(--red)', float: 'left' }} type="link">
+                                                <DeleteOutlined /> Uninstall
+                                            </Button>
+                                        </Popconfirm>
+                                    )}
                             </div>
                             <div>
                                 <Button onClick={() => editPlugin(null)} style={{ marginRight: 16 }}>

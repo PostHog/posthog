@@ -22,6 +22,7 @@ import { CommunityPluginTag } from './CommunityPluginTag'
 import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
 import { endWithPeriod } from '../../../lib/utils'
+import { PluginsAccessLevel } from '../../../lib/constants'
 
 interface PluginCardProps {
     plugin: Partial<PluginTypeWithConfig>
@@ -130,31 +131,32 @@ export function PluginCard({
                                     <GlobalOutlined /> Managed by {organization_name}
                                 </Tag>
                             )}
-                            {user?.organization?.id === organization_id && (
-                                <>
-                                    {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
-                                    {updateStatus?.error ? (
-                                        <Tag color="red">
-                                            <WarningOutlined /> Error checking for updates
-                                        </Tag>
-                                    ) : checkingForUpdates &&
-                                      !updateStatus &&
-                                      pluginType !== PluginInstallationType.Source ? (
-                                        <Tag color="blue">
-                                            <LoadingOutlined /> Checking for updates…
-                                        </Tag>
-                                    ) : url && latestTag && tag ? (
-                                        tag === latestTag ? (
-                                            <Tag color="green">
-                                                <CheckOutlined /> Up to date
+                            {user?.organization?.id === organization_id &&
+                                (user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Install && (
+                                    <>
+                                        {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
+                                        {updateStatus?.error ? (
+                                            <Tag color="red">
+                                                <WarningOutlined /> Error checking for updates
                                             </Tag>
-                                        ) : (
-                                            <UpdateAvailable url={url} tag={tag} latestTag={latestTag} />
-                                        )
-                                    ) : null}
-                                    {pluginType === PluginInstallationType.Source ? <SourcePluginTag /> : null}
-                                </>
-                            )}
+                                        ) : checkingForUpdates &&
+                                          !updateStatus &&
+                                          pluginType !== PluginInstallationType.Source ? (
+                                            <Tag color="blue">
+                                                <LoadingOutlined /> Checking for updates…
+                                            </Tag>
+                                        ) : url && latestTag && tag ? (
+                                            tag === latestTag ? (
+                                                <Tag color="green">
+                                                    <CheckOutlined /> Up to date
+                                                </Tag>
+                                            ) : (
+                                                <UpdateAvailable url={url} tag={tag} latestTag={latestTag} />
+                                            )
+                                        ) : null}
+                                        {pluginType === PluginInstallationType.Source ? <SourcePluginTag /> : null}
+                                    </>
+                                )}
                         </div>
                         <div>
                             {endWithPeriod(description)}
