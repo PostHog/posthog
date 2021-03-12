@@ -17,7 +17,6 @@ export function HeatmapStats(): JSX.Element {
                 <>
                     <div style={{ marginTop: 0, marginBottom: 10 }}>
                         <DateFilterComponent
-                            key={'asd'}
                             defaultValue="Last 7 days"
                             dateFrom={heatmapFilter.date_from}
                             dateTo={heatmapFilter.date_to}

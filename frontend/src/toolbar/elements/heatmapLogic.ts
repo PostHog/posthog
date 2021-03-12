@@ -51,7 +51,7 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
         ],
     },
 
-    loaders: {
+    loaders: ({ values }) => ({
         events: [
             [] as ElementsEventType[],
             {
@@ -60,7 +60,7 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                     const params: Record<string, any> = {
                         properties: [{ key: '$current_url', value: $current_url }],
                         temporary_token: toolbarLogic.values.temporaryToken,
-                        ...heatmapLogic.values.heatmapFilter,
+                        ...values.heatmapFilter,
                     }
 
                     const url = `${toolbarLogic.values.apiURL}api/element/stats/${encodeParams(params, '?')}`
@@ -82,7 +82,7 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                 },
             },
         ],
-    },
+    }),
 
     selectors: {
         elements: [

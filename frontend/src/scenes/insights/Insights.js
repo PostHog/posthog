@@ -134,7 +134,7 @@ export function Insights() {
                                 data-attr="insight-history-button"
                                 onClick={() => setActiveView('history')}
                             >
-                                History!
+                                History
                             </Button>
                         ),
                     }}

@@ -177,6 +177,7 @@ function createEntry(entry) {
                 },
             ],
         },
+        // add devServer config only to 'main' entry
         ...(entry === 'main'
             ? {
                   devServer: {
