@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Player, PlayerRef, findCurrent } from 'posthog-react-rrweb-player'
+import { Player, PlayerRef, findCurrent } from '@posthog/react-rrweb-player'
 import { Card, Col, Input, Row, Skeleton, Tag } from 'antd'
 import {
     UserOutlined,
@@ -10,7 +10,6 @@ import {
     MobileOutlined,
     TabletOutlined,
 } from '@ant-design/icons'
-import { hot } from 'react-hot-loader/root'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { colorForString } from 'lib/utils'
@@ -45,8 +44,7 @@ function DeviceIcon({ width }: { width: number }): JSX.Element {
     return <LaptopOutlined />
 }
 
-export const SessionsPlay = hot(_SessionsPlay)
-function _SessionsPlay(): JSX.Element {
+export function SessionsPlay(): JSX.Element {
     const {
         session,
         sessionPlayerData,

@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 import { Button, Card, Input, Divider } from 'antd'
-import { hot } from 'react-hot-loader/root'
 import { UserType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Invites } from './Invites'
@@ -45,8 +44,7 @@ function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
     )
 }
 
-export const OrganizationSettings = hot(_OrganizationSettings)
-function _OrganizationSettings({ user }: { user: UserType }): JSX.Element {
+export function OrganizationSettings({ user }: { user: UserType }): JSX.Element {
     return (
         <>
             <PageHeader

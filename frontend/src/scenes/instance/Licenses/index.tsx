@@ -1,5 +1,4 @@
 import React from 'react'
-import { hot } from 'react-hot-loader/root'
 import { Alert, Form, Button, Table, Input } from 'antd'
 import { licenseLogic } from './logic'
 import { useValues, useActions } from 'kea'
@@ -38,8 +37,7 @@ const columns = [
     },
 ]
 
-export const Licenses = hot(_Licenses)
-function _Licenses(): JSX.Element {
+export function Licenses(): JSX.Element {
     const [form] = Form.useForm()
     const { licenses, licensesLoading, error } = useValues(licenseLogic)
     const { createLicense } = useActions(licenseLogic)
