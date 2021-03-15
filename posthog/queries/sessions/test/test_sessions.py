@@ -321,13 +321,29 @@ def sessions_test_factory(sessions, event_factory, person_factory):
 
             with freeze_time("2012-01-12T03:40:30.000Z"):
                 response = sessions().run(
-                    SessionsFilter(data={"date_from": "all", "session": "dist", FILTER_TEST_ACCOUNTS: True}), self.team
+                    SessionsFilter(
+                        data={
+                            "date_from": "all",
+                            "session": "dist",
+                            FILTER_TEST_ACCOUNTS: True,
+                            "events": [{"id": "1st action"},],
+                        }
+                    ),
+                    self.team,
                 )
                 self.assertEqual(response[6]["count"], 0)
                 self.assertEqual(response[7]["count"], 1)
 
                 response = sessions().run(
-                    SessionsFilter(data={"interval": "day", "session": "avg", FILTER_TEST_ACCOUNTS: True}), self.team
+                    SessionsFilter(
+                        data={
+                            "interval": "day",
+                            "session": "avg",
+                            FILTER_TEST_ACCOUNTS: True,
+                            "events": [{"id": "1st action"},],
+                        }
+                    ),
+                    self.team,
                 )
                 self.assertEqual(response[0]["data"][6], 26)
 

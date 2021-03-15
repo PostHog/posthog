@@ -27,7 +27,7 @@ class ClickhouseSessionsDist:
             team_id=team.pk,
             date_from=parsed_date_from,
             date_to=parsed_date_to,
-            filters=filters if filter.properties else "",
+            filters=filters if filters else "",
             sessions_limit="",
             entity_filter=f"AND ({entity_query})",
         )
