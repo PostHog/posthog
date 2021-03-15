@@ -391,6 +391,8 @@ export async function createRedis(serverConfig: PluginsServerConfig): Promise<Re
 export function createPostgresPool(serverConfig: PluginsServerConfig): Pool {
     const postgres = new Pool({
         connectionString: serverConfig.DATABASE_URL,
+        idleTimeoutMillis: 500,
+        max: 10,
         ssl: process.env.DYNO // Means we are on Heroku
             ? {
                   rejectUnauthorized: false,
