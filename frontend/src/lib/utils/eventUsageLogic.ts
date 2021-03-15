@@ -271,7 +271,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
         reportDashboardDateRangeChanged: async ({ dateFrom, dateTo }) => {
             posthog.capture(`dashboard date range changed`, {
                 date_from: dateFrom?.toString(),
-                date_to: dateTo.toString(),
+                date_to: dateTo?.toString(),
             })
         },
         reportDashboardPinToggled: async ({ pinned, source }) => {

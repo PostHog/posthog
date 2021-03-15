@@ -52,7 +52,7 @@ function DashboardView(): JSX.Element {
                 <div>
                     <div className="dashboard-items-actions">
                         <div className="left-item">
-                            Last updated <b>{moment(lastRefreshed).fromNow() || 'a while ago'}</b>
+                            Last updated <b>{lastRefreshed ? moment(lastRefreshed).fromNow() : 'a while ago'}</b>
                             <Button type="link" icon={<ReloadOutlined />} onClick={refreshAllDashboardItems}>
                                 Refresh
                             </Button>

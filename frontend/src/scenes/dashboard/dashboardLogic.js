@@ -314,7 +314,7 @@ export const dashboardLogic = kea({
             if (reloadDashboard) {
                 actions.updateAndRefreshDashboard()
             }
-            eventUsageLogic.actions.reportDashboardDateRangeChanged(filters.date_from, filters.date_to)
+            eventUsageLogic.actions.reportDashboardDateRangeChanged(values.filters.date_from, values.filters.date_to)
         },
         setIsOnEditMode: ({ isOnEditMode, source }) => {
             if (isOnEditMode) {
