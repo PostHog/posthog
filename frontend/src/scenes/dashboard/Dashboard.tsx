@@ -10,7 +10,7 @@ import { CalendarOutlined, ReloadOutlined } from '@ant-design/icons'
 import moment from 'moment'
 import { Button } from 'antd'
 import './Dashboard.scss'
-import { KeyboardHotkeys } from 'lib/components/KeyboardHotkeys'
+import { useHotKeys } from 'lib/hooks/useHotKeys'
 
 interface Props {
     id: string
@@ -68,10 +68,11 @@ function DashboardView(): JSX.Element {
         )
     }
 
+    useHotKeys(HOTKEYS)
+
     return (
         <div className="dashboard">
             {dashboardMode !== 'public' && <DashboardHeader />}
-            <KeyboardHotkeys hotkeys={HOTKEYS} />
             {items && items.length ? (
                 <div>
                     <div className="dashboard-items-actions">
