@@ -1,7 +1,6 @@
 import React from 'react'
 import { kea, useActions, useValues } from 'kea'
 
-import { hot } from 'react-hot-loader/root'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Tabs } from 'antd'
 import { ActionsTable } from 'scenes/actions/ActionsTable'
@@ -35,8 +34,7 @@ const eventsLogic = kea<eventsLogicType>({
     }),
 })
 
-export const ManageEvents = hot(_ManageEvents)
-function _ManageEvents({}): JSX.Element {
+export function ManageEvents(): JSX.Element {
     const { tab } = useValues(eventsLogic)
     const { setTab } = useActions(eventsLogic)
 

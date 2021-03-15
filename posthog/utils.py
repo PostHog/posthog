@@ -47,6 +47,9 @@ DATERANGE_MAP = {
 }
 ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
 
+# https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
+__location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
+
 
 def format_label_date(date: datetime.datetime, interval: str) -> str:
     labels_format = "%a. {day} %B"
@@ -614,3 +617,26 @@ def is_valid_regex(value: Any) -> bool:
         return True
     except re.error:
         return False
+
+
+def get_absolute_path(to: str) -> str:
+    """
+    Returns an absolute path in the FS based on posthog/posthog (back-end root folder)
+    """
+    return os.path.join(__location__, to)
+
+
+class GenericEmails:
+    """
+    List of generic emails that we don't want to use to filter out test accounts.
+    """
+
+    def __init__(self):
+        with open(get_absolute_path("helpers/generic_emails.txt"), "r") as f:
+            self.emails = {x.rstrip(): True for x in f}
+
+    def is_generic(self, email: str) -> bool:
+        at_location = email.find("@")
+        if at_location == -1:
+            return False
+        return self.emails.get(email[at_location + 1 :], False)

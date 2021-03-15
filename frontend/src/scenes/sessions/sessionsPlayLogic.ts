@@ -5,7 +5,7 @@ import { eventToName, toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from './sessionsPlayLogicType'
 import { PersonType, SessionType } from '~/types'
 import moment from 'moment'
-import { EventIndex } from 'posthog-react-rrweb-player'
+import { EventIndex } from '@posthog/react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { toast } from 'react-toastify'
 

@@ -22,14 +22,13 @@ import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
-import { hot } from 'react-hot-loader/root'
 import { isMobile, platformCommandControlKey } from 'lib/utils'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
-import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
+import { BulkInviteModal } from 'scenes/organization/Settings/BulkInviteModal'
 import { UserType } from '~/types'
-import { CreateInviteModalWithButton } from 'scenes/organization/TeamMembers/CreateInviteModal'
+import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import MD5 from 'crypto-js/md5'
 
 export interface ProfilePictureProps {
@@ -48,10 +47,13 @@ export function ProfilePicture({ name, email }: ProfilePictureProps): JSX.Elemen
                 src={gravatarUrl}
                 onError={() => setDidImageError(true)}
                 title={`This is ${email}'s Gravatar.`}
+                alt=""
             />
         )
     } else if (name) {
         return <div className="profile-picture">{name[0]?.toUpperCase()}</div>
+    } else if (email) {
+        return <div className="profile-picture">{email[0]?.toUpperCase()}</div>
     }
     return <div className="profile-picture">?</div>
 }
@@ -68,8 +70,7 @@ export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     )
 }
 
-export const TopNavigation = hot(_TopNavigation)
-export function _TopNavigation(): JSX.Element {
+export function TopNavigation(): JSX.Element {
     const {
         setMenuCollapsed,
         setChangelogModalOpen,
@@ -116,7 +117,7 @@ export function _TopNavigation(): JSX.Element {
                 </div>
                 <div style={{ marginTop: 10 }}>
                     <LinkButton
-                        to="/organization/members"
+                        to="/organization/settings"
                         data-attr="top-menu-item-org-settings"
                         style={{ width: '100%' }}
                         icon={<SettingOutlined />}

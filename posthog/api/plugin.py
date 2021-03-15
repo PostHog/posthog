@@ -246,9 +246,11 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
         # Keep old value for secret fields if no new value in the request
         secret_fields = _get_secret_fields_for_plugin(plugin_config.plugin)
-        for key in secret_fields:
-            if validated_data["config"].get(key) is None:  # explicitly checking None to allow ""
-                validated_data["config"][key] = plugin_config.config.get(key)
+
+        if "config" in validated_data:
+            for key in secret_fields:
+                if validated_data["config"].get(key) is None:  # explicitly checking None to allow ""
+                    validated_data["config"][key] = plugin_config.config.get(key)
 
         response = super().update(plugin_config, validated_data)
         self._update_plugin_attachments(plugin_config)

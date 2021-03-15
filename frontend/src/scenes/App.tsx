@@ -1,4 +1,3 @@
-import { hot } from 'react-hot-loader/root'
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { Layout } from 'antd'
@@ -23,8 +22,7 @@ function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
 }
 
-export const App = hot(_App)
-function _App(): JSX.Element | null {
+export function App(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)

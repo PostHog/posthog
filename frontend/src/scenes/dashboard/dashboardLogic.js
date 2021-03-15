@@ -11,10 +11,9 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { dateFilterLogic } from 'lib/components/DateFilter/dateFilterLogic'
 
 export const dashboardLogic = kea({
-    connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic, dateFilterLogic],
+    connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
 
     key: (props) => props.id,
 
@@ -32,9 +31,10 @@ export const dashboardLogic = kea({
         refreshDashboardItem: (id) => ({ id }),
         refreshAllDashboardItems: true,
         updateAndRefreshDashboard: true,
+        setDates: (dateFrom, dateTo, reloadDashboard = true) => ({ dateFrom, dateTo, reloadDashboard }),
     }),
 
-    loaders: ({ props }) => ({
+    loaders: ({ actions, props }) => ({
         allItems: [
             {},
             {
@@ -43,7 +43,7 @@ export const dashboardLogic = kea({
                         const dashboard = await api.get(
                             `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken })}`
                         )
-                        dateFilterLogic.actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to)
+                        actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
@@ -64,6 +64,12 @@ export const dashboardLogic = kea({
         ],
     }),
     reducers: ({ props }) => ({
+        filters: [
+            { date_from: undefined, date_to: undefined },
+            {
+                setDates: (state, { dateFrom, dateTo }) => ({ ...state, date_from: dateFrom, date_to: dateTo }),
+            },
+        ],
         allItems: {
             [dashboardItemsModel.actions.renameDashboardItemSuccess]: (state, { item }) => {
                 return { ...state, items: state.items.map((i) => (i.id === item.id ? item : i)) }
@@ -335,12 +341,13 @@ export const dashboardLogic = kea({
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
             await breakpoint(200)
-            const filters = {
-                date_from: dateFilterLogic.values.dates.dateFrom,
-                date_to: dateFilterLogic.values.dates.dateTo,
+            actions.updateDashboard(values.filters)
+            dashboardItemsModel.actions.refreshAllDashboardItems(values.filters)
+        },
+        setDates: ({ reloadDashboard }) => {
+            if (reloadDashboard) {
+                actions.updateAndRefreshDashboard()
             }
-            actions.updateDashboard(filters)
-            dashboardItemsModel.actions.refreshAllDashboardItems(filters)
         },
     }),
 })
