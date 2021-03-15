@@ -1,4 +1,5 @@
 from ipaddress import ip_address, ip_network
+from typing import List
 
 from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
@@ -11,7 +12,7 @@ from .auth import PersonalAPIKeyAuthentication
 
 class AllowIP(object):
 
-    trusted_proxies = []
+    trusted_proxies: List[str] = []
 
     def __init__(self, get_response):
         if not settings.ALLOWED_IP_BLOCKS:

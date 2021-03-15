@@ -116,9 +116,24 @@ if not TEST:
 if get_from_env("DISABLE_SECURE_SSL_REDIRECT", False, type_cast=strtobool):
     SECURE_SSL_REDIRECT = False
 
+
+# IP block settings
+ALLOWED_IP_BLOCKS = get_list(os.getenv("ALLOWED_IP_BLOCKS", ""))
+TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
+TRUST_ALL_PROXIES = os.getenv("TRUST_ALL_PROXIES", False)
+
 if get_from_env("IS_BEHIND_PROXY", False, type_cast=strtobool):
     USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+    if not TRUST_ALL_PROXIES and not TRUSTED_PROXIES:
+        print_warning(
+            (
+                "️You indicated your instance is behind a proxy (IS_BEHIND_PROXY env var),",
+                " but you haven't configured any trusted proxies. See",
+                " https://posthog.com/docs/configuring-posthog/running-behind-proxy for details.",
+            )
+        )
 
 
 # Clickhouse Settings
@@ -164,12 +179,6 @@ if PLUGIN_SERVER_INGESTION and PRIMARY_DB == RDBMS.POSTGRES:
     ASYNC_EVENT_ACTION_MAPPING = True
 
 ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", True, type_cast=strtobool)
-
-# IP block settings
-ALLOWED_IP_BLOCKS = get_list(os.getenv("ALLOWED_IP_BLOCKS", ""))
-TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
-TRUST_ALL_PROXIES = os.getenv("TRUST_ALL_PROXIES", False)
-
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
