@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
-import { hot } from 'react-hot-loader/root'
 import { SessionsView } from '../sessions/SessionsView'
 import { EventsTable } from 'scenes/events'
 import { useActions, useValues } from 'kea'
@@ -17,8 +16,7 @@ import { NewPropertyComponent } from './NewPropertyComponent'
 
 const { TabPane } = Tabs
 
-export const Person = hot(_Person)
-function _Person(): JSX.Element {
+export function Person(): JSX.Element {
     const [activeTab, setActiveTab] = useState('events')
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
 

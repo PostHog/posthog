@@ -122,6 +122,7 @@ export interface TeamType {
     plugins_opt_in: boolean
     ingested_event: boolean
     is_demo: boolean
+    test_account_filters: FilterType[]
 }
 
 export interface ActionType {
@@ -485,6 +486,7 @@ export interface FilterType {
     people_day?: any
     people_action?: any
     formula?: any
+    filter_test_accounts?: boolean
 }
 
 export interface SystemStatus {

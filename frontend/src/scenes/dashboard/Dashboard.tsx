@@ -6,8 +6,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { hot } from 'react-hot-loader/root'
-import { DateFilter } from 'lib/components/DateFilter'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined, ReloadOutlined } from '@ant-design/icons'
 import moment from 'moment'
 import { Button } from 'antd'
@@ -18,8 +17,7 @@ interface Props {
     shareToken?: string
 }
 
-export const Dashboard = hot(_Dashboard)
-function _Dashboard({ id, shareToken }: Props): JSX.Element {
+export function Dashboard({ id, shareToken }: Props): JSX.Element {
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseInt(id), shareToken }}>
             <DashboardView />

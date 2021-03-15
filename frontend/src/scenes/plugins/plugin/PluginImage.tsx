@@ -14,18 +14,15 @@ export function PluginImage({ url, pluginType }: { url?: string; pluginType?: Pl
         }
     }, [url])
 
-    return (
-        <div className="plugin-image">
-            {pluginType === 'source' ? (
-                <CodeOutlined style={{ fontSize: 40 }} />
-            ) : (
-                <img
-                    src={state.image}
-                    style={{ maxWidth: '100%', maxHeight: '100%' }}
-                    alt=""
-                    onError={() => setState({ ...state, image: imgPluginDefault })}
-                />
-            )}
-        </div>
+    return pluginType === 'source' ? (
+        <CodeOutlined style={{ fontSize: 80 }} className="plugin-image" />
+    ) : (
+        <img
+            className="plugin-image"
+            src={state.image}
+            style={{ maxWidth: 'calc(min(100%, 80px))', maxHeight: 'calc(min(100%, 120px))' }}
+            alt=""
+            onError={() => setState({ ...state, image: imgPluginDefault })}
+        />
     )
 }

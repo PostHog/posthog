@@ -1,10 +1,9 @@
 import React from 'react'
-import { Table, Modal, Divider } from 'antd'
+import { Table, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { invitesLogic } from './invitesLogic'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { hot } from 'react-hot-loader/root'
 import { OrganizationInviteType, UserNestedType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CreateInviteModalWithButton } from './CreateInviteModal'
@@ -46,8 +45,7 @@ function makeActionsComponent(
         )
     }
 }
-export const Invites = hot(_Invites)
-function _Invites(): JSX.Element {
+export function Invites(): JSX.Element {
     const { invites, invitesLoading } = useValues(invitesLogic)
     const { deleteInvite } = useActions(invitesLogic)
 
@@ -99,11 +97,11 @@ function _Invites(): JSX.Element {
         },
     ]
 
-    return invites.length ? (
-        <>
+    return (
+        <div>
             <h2 className="subtitle" style={{ justifyContent: 'space-between' }}>
-                Pending Organization Invites
-                <CreateInviteModalWithButton />
+                Pending Invites
+                {!!invites.length && <CreateInviteModalWithButton />}
             </h2>
             <Table
                 dataSource={invites}
@@ -112,12 +110,12 @@ function _Invites(): JSX.Element {
                 pagination={false}
                 loading={invitesLoading}
                 style={{ marginTop: '1rem' }}
+                locale={{
+                    emptyText: function InvitesTableCTA() {
+                        return <CreateInviteModalWithButton />
+                    },
+                }}
             />
-            <Divider />
-        </>
-    ) : (
-        <div className="text-right">
-            <CreateInviteModalWithButton />
         </div>
     )
 }

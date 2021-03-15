@@ -914,10 +914,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/clickhouse/-/clickhouse-1.7.0.tgz#21fa1e8cfa0637b688f91964e0efeedbf4cf7a3c"
   integrity sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==
 
-"@posthog/plugin-server@0.11.4":
-  version "0.11.4"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.11.4.tgz#041e46d3ebb7d0bc7b079d84e0edda935132577b"
-  integrity sha512-KLd0cfq8lmkZPCJLQQ6/5P4v5fEBbk31AI612ek4lXfEDTEWy2H86LJMiE+HiFCb8ci9JOBeDZUikuuKNQz2SQ==
+"@posthog/plugin-server@0.11.9":
+  version "0.11.9"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.11.9.tgz#01dfcaa92baea0e38cd100eee63ddf1638b6ed31"
+  integrity sha512-Tb0nAXVcXnPkH2GEm7iG0UN86gGfa9//p37/wF0JbVh021NMqc/7UQZ4jHeOoo/zalcyY+CEJpE55ppHPh9HZg==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"

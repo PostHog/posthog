@@ -5,7 +5,7 @@ from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 from django.urls.base import reverse
 from rest_framework import exceptions, generics, permissions, response, serializers, status, viewsets
@@ -15,6 +15,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.demo import create_demo_team
 from posthog.event_usage import report_onboarding_completed, report_user_joined_organization, report_user_signed_up
+from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.permissions import (
@@ -22,6 +23,7 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     UninitiatedOrCloudOnly,
+    extract_organization,
 )
 from posthog.tasks import user_identify
 from posthog.utils import mask_email_address
@@ -45,6 +47,18 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
         ):
             return False
         return True
+
+
+class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
+        organization = extract_organization(object)
+        min_level = (
+            OrganizationMembership.Level.OWNER if request.method == "DELETE" else OrganizationMembership.Level.ADMIN
+        )
+        return OrganizationMembership.objects.get(user=request.user, organization=organization).level >= min_level
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
@@ -110,12 +124,12 @@ class OrganizationSerializer(serializers.ModelSerializer):
         }
 
 
-class OrganizationViewSet(viewsets.ModelViewSet):
+class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     serializer_class = OrganizationSerializer
     permission_classes = [
         permissions.IsAuthenticated,
         OrganizationMemberPermissions,
-        OrganizationAdminWritePermissions,
+        OrganizationPermissionsWithDelete,
     ]
     queryset = Organization.objects.none()
     lookup_field = "id"
@@ -127,16 +141,6 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             # because they require an existing org, unneded anyways because permissions are organization-based
             return [permission() for permission in [permissions.IsAuthenticated, PremiumMultiorganizationPermissions]]
         return super().get_permissions()
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        for member in instance.members.all():
-            if member.organizations.count() <= 1:
-                raise exceptions.ValidationError(
-                    f"Cannot remove organization since that would leave member {member.email} organization-less, which is not supported yet."
-                )
-        self.perform_destroy(instance)
-        return response.Response(status=status.HTTP_204_NO_CONTENT)
 
     def get_queryset(self) -> QuerySet:
         return self.request.user.organizations.all()
