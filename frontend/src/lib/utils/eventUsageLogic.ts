@@ -4,14 +4,24 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
-import { AnnotationType, FilterType, DashboardType, PersonType, DashboardModeType } from '~/types'
+import { AnnotationType, FilterType, DashboardType, PersonType, DashboardMode } from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { Moment } from 'moment'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
+export enum EventSource {
+    LongPress = 'long_press',
+    MoreDropdown = 'more_dropdown',
+    DashboardHeader = 'dashboard_header',
+    Hotkey = 'hotkey',
+    InputEnter = 'input_enter',
+    Toast = 'toast',
+    Browser = 'browser',
+}
+
 export const eventUsageLogic = kea<
-    eventUsageLogicType<AnnotationType, FilterType, DashboardType, PersonType, DashboardModeType>
+    eventUsageLogicType<AnnotationType, FilterType, DashboardType, PersonType, DashboardMode>
 >({
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
@@ -50,18 +60,7 @@ export const eventUsageLogic = kea<
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
         reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
-        reportDashboardModeToggled: (
-            mode: DashboardModeType,
-            source:
-                | 'long_press'
-                | 'more_dropdown'
-                | 'dashboard_header'
-                | 'hotkey'
-                | 'input_enter'
-                | 'toast'
-                | 'browser'
-                | null
-        ) => ({ mode, source }),
+        reportDashboardModeToggled: (mode: DashboardMode, source: EventSource | null) => ({ mode, source }),
         reportDashboardRefreshed: (lastRefreshed?: string | Moment | null) => ({ lastRefreshed }),
         reportDashboardDateRangeChanged: (dateFrom?: string | Moment, dateTo?: string | Moment | null) => ({
             dateFrom,

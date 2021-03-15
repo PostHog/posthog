@@ -22,7 +22,7 @@ export const dashboardLogic = kea({
         renameDashboard: (name) => ({ name }),
         setIsSharedDashboard: (id, isShared) => ({ id, isShared }), // whether the dashboard is shared or not
         // dashboardMode represents the current state in which the dashboard is being viewed (:TODO: move definitions to TS)
-        setDashboardMode: (mode, source) => ({ mode, source }), // see DashboardModeType
+        setDashboardMode: (mode, source) => ({ mode, source }), // see DashboardMode
         updateLayouts: (layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth, columns) => ({ containerWidth, columns }),
         saveLayouts: true,
