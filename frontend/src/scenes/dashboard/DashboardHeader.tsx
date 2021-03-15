@@ -120,7 +120,7 @@ export function DashboardHeader(): JSX.Element {
             data-attr="dashboard-exit-presentation-mode"
             icon={<FullscreenExitOutlined />}
         >
-            Exit presentation mode
+            Exit full screen mode
         </Button>
     )
 
