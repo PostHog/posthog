@@ -5,12 +5,13 @@ import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import React from 'react'
-import { clearDOMTextSelection, toParams } from 'lib/utils'
+import { clearDOMTextSelection, toParams, triggerResizeAfterADelay } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { ViewType } from 'scenes/insights/insightLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { EventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Button } from 'antd'
+import { DashboardMode } from '../../types'
 
 export const dashboardLogic = kea({
     connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
@@ -21,15 +22,16 @@ export const dashboardLogic = kea({
         addNewDashboard: true,
         renameDashboard: (name) => ({ name }),
         setIsSharedDashboard: (id, isShared) => ({ id, isShared }), // whether the dashboard is shared or not
-        setIsOnSharedMode: (isOnSharedMode) => ({ isOnSharedMode }), // whether the dashboard is open in shared mode (i.e. with a shareToken)
+        // dashboardMode represents the current state in which the dashboard is being viewed (:TODO: move definitions to TS)
+        setDashboardMode: (mode, source) => ({ mode, source }), // see DashboardMode
         updateLayouts: (layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth, columns) => ({ containerWidth, columns }),
         saveLayouts: true,
         updateItemColor: (id, color) => ({ id, color }),
-        setIsOnEditMode: (isOnEditMode, source = null) => ({ isOnEditMode, source }),
         refreshAllDashboardItems: true,
         updateAndRefreshDashboard: true,
         setDates: (dateFrom, dateTo, reloadDashboard = true) => ({ dateFrom, dateTo, reloadDashboard }),
+        addGraph: true, // takes the user to insights to add a graph
     }),
 
     loaders: ({ actions, props }) => ({
@@ -110,16 +112,10 @@ export const dashboardLogic = kea({
                 updateContainerWidth: (_, { containerWidth }) => containerWidth,
             },
         ],
-        isOnEditMode: [
-            false,
+        dashboardMode: [
+            null,
             {
-                setIsOnEditMode: (_, { isOnEditMode }) => isOnEditMode,
-            },
-        ],
-        isOnSharedMode: [
-            false,
-            {
-                setIsOnSharedMode: (_, { isOnSharedMode }) => isOnSharedMode,
+                setDashboardMode: (_, { mode }) => mode,
             },
         ],
     }),
@@ -252,7 +248,9 @@ export const dashboardLogic = kea({
     events: ({ actions, cache, props }) => ({
         afterMount: () => {
             actions.loadDashboardItems()
-            actions.setIsOnSharedMode(!!props.shareToken)
+            if (props.shareToken) {
+                actions.setDashboardMode(DashboardMode.Public, EventSource.Browser)
+            }
         },
         beforeUnmount: () => {
             if (cache.draggingToastId) {
@@ -316,8 +314,9 @@ export const dashboardLogic = kea({
             }
             eventUsageLogic.actions.reportDashboardDateRangeChanged(values.filters.date_from, values.filters.date_to)
         },
-        setIsOnEditMode: ({ isOnEditMode, source }) => {
-            if (isOnEditMode) {
+        setDashboardMode: async ({ mode, source }) => {
+            // Edit mode special handling
+            if (mode === DashboardMode.Edit) {
                 clearDOMTextSelection()
                 window.setTimeout(clearDOMTextSelection, 200)
                 window.setTimeout(clearDOMTextSelection, 1000)
@@ -334,19 +333,31 @@ export const dashboardLogic = kea({
                         {
                             type: 'info',
                             autoClose: false,
-                            onClick: () => actions.setIsOnEditMode(false, 'toast'),
+                            onClick: () => actions.setDashboardMode(null, EventSource.Toast),
                             closeButton: false,
                             className: 'drag-items-toast accent-border',
                         }
                     )
                 }
             } else {
+                // Clean edit mode toast if applicable
                 if (cache.draggingToastId) {
                     toast.dismiss(cache.draggingToastId)
                     cache.draggingToastId = null
                 }
             }
-            eventUsageLogic.actions.reportDashboardEditModeToggled(isOnEditMode, source)
+
+            // Full screen mode special handling
+            if (mode === DashboardMode.Fullscreen) {
+                triggerResizeAfterADelay()
+            }
+
+            eventUsageLogic.actions.reportDashboardModeToggled(mode, source)
+        },
+        addGraph: () => {
+            router.actions.push(
+                `/insights?insight=TRENDS#backTo=${values.dashboard.name}&backToURL=/dashboard/${values.dashboard.id}`
+            )
         },
     }),
 })

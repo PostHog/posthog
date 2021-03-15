@@ -570,3 +570,39 @@ export interface PreflightStatus {
     celery: boolean
     available_social_auth_providers: AuthBackends
 }
+
+export enum DashboardMode { // Default mode is null
+    Edit = 'edit', // When the dashboard is being edited
+    Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
+    Sharing = 'sharing', // When the sharing configuration is opened
+    Public = 'public', // When viewing the dashboard publicly via a shareToken
+}
+
+export type Keys =
+    | 'a'
+    | 'b'
+    | 'c'
+    | 'd'
+    | 'e'
+    | 'f'
+    | 'g'
+    | 'h'
+    | 'i'
+    | 'j'
+    | 'k'
+    | 'l'
+    | 'm'
+    | 'n'
+    | 'o'
+    | 'p'
+    | 'q'
+    | 'r'
+    | 's'
+    | 't'
+    | 'u'
+    | 'v'
+    | 'w'
+    | 'x'
+    | 'y'
+    | 'z'
+    | 'escape'

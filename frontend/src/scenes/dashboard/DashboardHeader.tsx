@@ -1,6 +1,5 @@
-import { Loading, triggerResizeAfterADelay } from 'lib/utils'
+import { Loading } from 'lib/utils'
 import { Button, Dropdown, Input, Menu, Select, Tooltip } from 'antd'
-import { router } from 'kea-router'
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -14,32 +13,22 @@ import {
     FullscreenOutlined,
     FullscreenExitOutlined,
     ShareAltOutlined,
+    PlusOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
 import moment from 'moment'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardType } from '~/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardMode, DashboardType } from '~/types'
+import { EventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { HotkeyButton } from 'lib/components/HotkeyButton'
+import { router } from 'kea-router'
 
 export function DashboardHeader(): JSX.Element {
-    const { dashboard, isOnEditMode } = useValues(dashboardLogic)
-    const { addNewDashboard, setIsOnEditMode, renameDashboard } = useActions(dashboardLogic)
+    const { dashboard, dashboardMode } = useValues(dashboardLogic)
+    const { addNewDashboard, renameDashboard, setDashboardMode, addGraph } = useActions(dashboardLogic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
-    const [fullScreen, setFullScreen] = useState(false)
-    const [showShareModal, setShowShareModal] = useState(false)
     const [newDashboardName, setNewDashboardName] = useState(dashboard.name)
-    const { reportDashboardPresentationModeToggled } = useActions(eventUsageLogic)
-
-    const togglePresentationMode = (
-        source: 'more_dropdown' | 'hotkey' | 'dashboard_header' | 'browser' | null,
-        newMode?: boolean
-    ): void => {
-        const _newMode = newMode !== undefined ? newMode : !fullScreen
-        setFullScreen(_newMode)
-        triggerResizeAfterADelay()
-        reportDashboardPresentationModeToggled(_newMode, source)
-    }
 
     const actionsDefault = (
         <>
@@ -60,26 +49,29 @@ export function DashboardHeader(): JSX.Element {
                                 <Menu.Divider />
                             </>
                         )}
-                        <Menu.Item icon={<EditOutlined />} onClick={() => setIsOnEditMode(true, 'more_dropdown')}>
-                            Edit mode
+                        <Menu.Item
+                            icon={<EditOutlined />}
+                            onClick={() => setDashboardMode(DashboardMode.Edit, EventSource.MoreDropdown)}
+                        >
+                            Edit mode (E)
                         </Menu.Item>
                         <Menu.Item
                             icon={<FullscreenOutlined />}
-                            onClick={() => togglePresentationMode('more_dropdown')}
+                            onClick={() => setDashboardMode(DashboardMode.Fullscreen, EventSource.MoreDropdown)}
                         >
-                            Presentation mode
+                            Full screen mode (F)
                         </Menu.Item>
                         {dashboard.pinned ? (
                             <Menu.Item
                                 icon={<PushpinFilled />}
-                                onClick={() => unpinDashboard(dashboard.id, 'more_dropdown')}
+                                onClick={() => unpinDashboard(dashboard.id, EventSource.MoreDropdown)}
                             >
                                 Unpin dashboard
                             </Menu.Item>
                         ) : (
                             <Menu.Item
                                 icon={<PushpinOutlined />}
-                                onClick={() => pinDashboard(dashboard.id, 'more_dropdown')}
+                                onClick={() => pinDashboard(dashboard.id, EventSource.MoreDropdown)}
                             >
                                 Pin dashboard
                             </Menu.Item>
@@ -103,26 +95,35 @@ export function DashboardHeader(): JSX.Element {
                 type="link"
                 data-attr="dashboard-edit-mode"
                 icon={<EditOutlined />}
-                onClick={() => setIsOnEditMode(true, 'dashboard_header')}
+                onClick={() => setDashboardMode(DashboardMode.Edit, EventSource.DashboardHeader)}
             />
-            <Button
+            <HotkeyButton
+                onClick={() => addGraph()}
+                data-attr="dashboard-add-graph-header"
+                icon={<PlusOutlined />}
+                hotkey="n"
+            >
+                Add graph
+            </HotkeyButton>
+            <HotkeyButton
                 type="primary"
-                onClick={() => setShowShareModal(true)}
+                onClick={() => setDashboardMode(DashboardMode.Sharing, EventSource.DashboardHeader)}
                 data-attr="dashboard-share-button"
                 icon={<ShareAltOutlined />}
+                hotkey="s"
             >
                 Send or share
-            </Button>
+            </HotkeyButton>
         </>
     )
 
     const actionsPresentationMode = (
         <Button
-            onClick={() => togglePresentationMode('dashboard_header')}
+            onClick={() => setDashboardMode(null, EventSource.DashboardHeader)}
             data-attr="dashboard-exit-presentation-mode"
             icon={<FullscreenExitOutlined />}
         >
-            Exit presentation mode
+            Exit full screen mode
         </Button>
     )
 
@@ -130,21 +131,26 @@ export function DashboardHeader(): JSX.Element {
         <Button
             data-attr="dashboard-edit-mode-save"
             type="primary"
-            onClick={() => setIsOnEditMode(false, 'dashboard_header')}
+            onClick={() => setDashboardMode(null, EventSource.DashboardHeader)}
         >
             Finish editing
         </Button>
     )
 
     return (
-        <div className={`dashboard-header${fullScreen ? ' full-screen' : ''}`}>
-            {fullScreen ? <FullScreen onExit={() => togglePresentationMode('browser', false)} /> : null}
-            {showShareModal && <ShareModal onCancel={() => setShowShareModal(false)} />}
+        <div className={`dashboard-header${dashboardMode === DashboardMode.Fullscreen ? ' full-screen' : ''}`}>
+            {dashboardMode === DashboardMode.Fullscreen && (
+                <FullScreen onExit={() => setDashboardMode(null, EventSource.Browser)} />
+            )}
+            <ShareModal
+                onCancel={() => setDashboardMode(null, EventSource.Browser)}
+                visible={dashboardMode === DashboardMode.Sharing}
+            />
             {dashboardsLoading ? (
                 <Loading />
             ) : (
                 <>
-                    {isOnEditMode ? (
+                    {dashboardMode === DashboardMode.Edit ? (
                         <Input
                             placeholder="Dashboard name (e.g. Weekly KPIs)"
                             value={newDashboardName}
@@ -157,7 +163,7 @@ export function DashboardHeader(): JSX.Element {
                             }}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
-                                    setIsOnEditMode(false, 'rename_input')
+                                    setDashboardMode(null, EventSource.InputEnter)
                                 }
                             }}
                         />
@@ -192,13 +198,11 @@ export function DashboardHeader(): JSX.Element {
                     )}
 
                     <div className="dashboard-meta">
-                        {isOnEditMode ? (
-                            <>{actionsEditMode}</>
-                        ) : !fullScreen ? (
-                            <>{actionsDefault}</>
-                        ) : (
-                            <>{actionsPresentationMode}</>
-                        )}
+                        {dashboardMode === DashboardMode.Edit
+                            ? actionsEditMode
+                            : dashboardMode === DashboardMode.Fullscreen
+                            ? actionsPresentationMode
+                            : actionsDefault}
                     </div>
                 </>
             )}
