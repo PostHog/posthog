@@ -1,7 +1,7 @@
 import ClickHouse from '@posthog/clickhouse'
 import { Properties } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
-import { StatsD } from 'hot-shots'
+import { StatsD, Tags } from 'hot-shots'
 import Redis from 'ioredis'
 import { Producer, ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
@@ -67,9 +67,10 @@ export class DB {
 
     public async postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
         queryTextOrConfig: string | QueryConfig<I>,
-        values?: I
+        values?: I,
+        tag?: string
     ): Promise<QueryResult<R>> {
-        return this.instrumentQuery('query.postgres', async () => {
+        return this.instrumentQuery('query.postgres', tag, async () => {
             const timeout = timeoutGuard(`Postgres slow query warning after 30 sec: ${queryTextOrConfig}`)
             try {
                 return await this.postgres.query(queryTextOrConfig, values)
@@ -82,7 +83,7 @@ export class DB {
     public async postgresTransaction<ReturnType extends any>(
         transaction: (client: PoolClient) => Promise<ReturnType>
     ): Promise<ReturnType> {
-        return this.instrumentQuery('query.postgres_transation', async () => {
+        return this.instrumentQuery('query.postgres_transation', undefined, async () => {
             const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
             const client = await this.postgres.connect()
             try {
@@ -106,7 +107,7 @@ export class DB {
         query: string,
         options?: ClickHouse.QueryOptions
     ): Promise<ClickHouse.QueryResult<Record<string, any>>> {
-        return this.instrumentQuery('query.clickhouse', async () => {
+        return this.instrumentQuery('query.clickhouse', undefined, async () => {
             if (!this.clickhouse) {
                 throw new Error('ClickHouse connection has not been provided to this DB instance!')
             }
@@ -122,23 +123,25 @@ export class DB {
     // Kafka
 
     public async sendKafkaMessage(kafkaMessage: ProducerRecord): Promise<void> {
-        if (!this.kafkaProducer) {
-            throw new Error('Kafka connection has not been provided!')
-        }
-        const timeout = timeoutGuard(
-            `Kafka message sending delayed. Waiting over 30 sec to send to topic: ${kafkaMessage.topic}`
-        )
-        try {
-            await this.kafkaProducer.send(kafkaMessage)
-        } finally {
-            clearTimeout(timeout)
-        }
+        return this.instrumentQuery('query.kafka_send', undefined, async () => {
+            if (!this.kafkaProducer) {
+                throw new Error('Kafka connection has not been provided!')
+            }
+            const timeout = timeoutGuard(
+                `Kafka message sending delayed. Waiting over 30 sec to send to topic: ${kafkaMessage.topic}`
+            )
+            try {
+                await this.kafkaProducer.send(kafkaMessage)
+            } finally {
+                clearTimeout(timeout)
+            }
+        })
     }
 
     // Redis
 
     public async redisGet(key: string, defaultValue: unknown, parseJSON = true): Promise<unknown> {
-        return this.instrumentQuery('query.regisGet', async () => {
+        return this.instrumentQuery('query.regisGet', undefined, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard(`Getting redis key delayed. Waiting over 30 sec to get key: ${key}`)
             try {
@@ -165,7 +168,7 @@ export class DB {
     }
 
     public async redisSet(key: string, value: unknown, ttlSeconds?: number, stringify = true): Promise<void> {
-        return this.instrumentQuery('query.redisSet', async () => {
+        return this.instrumentQuery('query.redisSet', undefined, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard(`Setting redis key delayed. Waiting over 30 sec to set key: ${key}`)
             try {
@@ -183,7 +186,7 @@ export class DB {
     }
 
     public async redisIncr(key: string): Promise<number> {
-        return this.instrumentQuery('query.redisIncr', async () => {
+        return this.instrumentQuery('query.redisIncr', undefined, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard(`Incrementing redis key delayed. Waiting over 30 sec to incr key: ${key}`)
             try {
@@ -196,7 +199,7 @@ export class DB {
     }
 
     public async redisExpire(key: string, ttlSeconds: number): Promise<boolean> {
-        return this.instrumentQuery('query.redisExpire', async () => {
+        return this.instrumentQuery('query.redisExpire', undefined, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard(`Expiring redis key delayed. Waiting over 30 sec to expire key: ${key}`)
             try {
@@ -209,7 +212,7 @@ export class DB {
     }
 
     public async redisLPush(key: string, value: unknown, stringify = true): Promise<number> {
-        return this.instrumentQuery('query.redisLPush', async () => {
+        return this.instrumentQuery('query.redisLPush', undefined, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard(`LPushing redis key delayed. Waiting over 30 sec to lpush key: ${key}`)
             try {
@@ -223,7 +226,7 @@ export class DB {
     }
 
     public async redisBRPop(key1: string, key2: string): Promise<[string, string]> {
-        return this.instrumentQuery('query.redisBRPop', async () => {
+        return this.instrumentQuery('query.redisBRPop', undefined, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard(
                 `BRPoping redis key delayed. Waiting over 30 sec to brpop keys: ${key1}, ${key2}`
@@ -253,7 +256,8 @@ export class DB {
                 return rest
             }) as ClickHousePerson[]
         } else if (database === Database.Postgres) {
-            return ((await this.postgresQuery('SELECT * FROM posthog_person')).rows as RawPerson[]).map(
+            return ((await this.postgresQuery('SELECT * FROM posthog_person', undefined, 'fetchPersons'))
+                .rows as RawPerson[]).map(
                 (rawPerson: RawPerson) =>
                     ({
                         ...rawPerson,
@@ -278,7 +282,8 @@ export class DB {
                 posthog_person.team_id = $1
                 AND posthog_persondistinctid.team_id = $1
                 AND posthog_persondistinctid.distinct_id = $2`,
-            [teamId, distinctId]
+            [teamId, distinctId],
+            'fetchPerson'
         )
         if (selectResult.rows.length > 0) {
             const rawPerson: RawPerson = selectResult.rows[0]
@@ -353,7 +358,8 @@ export class DB {
             `UPDATE posthog_person SET ${Object.keys(update).map(
                 (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
             )} WHERE id = $${Object.values(update).length + 1}`,
-            values
+            values,
+            'updatePerson'
         )
 
         if (this.kafkaProducer) {
@@ -413,7 +419,8 @@ export class DB {
         } else if (database === Database.Postgres) {
             const result = await this.postgresQuery(
                 'SELECT * FROM posthog_persondistinctid WHERE person_id=$1 and team_id=$2 ORDER BY id',
-                [person.id, person.team_id]
+                [person.id, person.team_id],
+                'fetchDistinctIds'
             )
             return result.rows as PersonDistinctId[]
         } else {
@@ -475,9 +482,11 @@ export class DB {
     // Organization
 
     public async fetchOrganization(organizationId: string): Promise<RawOrganization | undefined> {
-        const selectResult = await this.postgresQuery(`SELECT * FROM posthog_organization WHERE id $1`, [
-            organizationId,
-        ])
+        const selectResult = await this.postgresQuery(
+            `SELECT * FROM posthog_organization WHERE id $1`,
+            [organizationId],
+            'fetchOrganization'
+        )
         const rawOrganization: RawOrganization = selectResult.rows[0]
         return rawOrganization
     }
@@ -580,14 +589,19 @@ export class DB {
         return hash
     }
 
-    private async instrumentQuery<T>(metricName: string, runQuery: () => Promise<T>): Promise<T> {
+    private async instrumentQuery<T>(
+        metricName: string,
+        tag: string | undefined,
+        runQuery: () => Promise<T>
+    ): Promise<T> {
+        const tags: Tags | undefined = tag ? { queryTag: tag } : undefined
         const timer = new Date()
-        this.statsd?.increment(`${metricName}.inflight`)
+
+        this.statsd?.increment(`${metricName}.total`, tags)
         try {
             return await runQuery()
         } finally {
-            this.statsd?.timing(metricName, timer)
-            this.statsd?.decrement(`${metricName}.inflight`)
+            this.statsd?.timing(metricName, timer, tags)
         }
     }
 }
