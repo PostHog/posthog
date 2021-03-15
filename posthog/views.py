@@ -11,7 +11,7 @@ from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
 from posthog.ee import is_ee_enabled
-from posthog.models import User
+from posthog.models import User, organization
 from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api
 from posthog.settings import AUTO_LOGIN, TEST
 from posthog.utils import (
@@ -60,7 +60,7 @@ def stats(request):
 @never_cache
 @login_required
 def system_status(request):
-    team = request.user.team
+    organization = request.user.organization
     is_multitenancy: bool = getattr(settings, "MULTI_TENANCY", False)
 
     if is_multitenancy and not request.user.is_staff:
@@ -162,14 +162,14 @@ def system_status(request):
         {
             "key": "plugins_install",
             "metric": "Plugins can be installed",
-            "value": can_install_plugins_via_api(team.organization),
+            "value": can_install_plugins_via_api(organization),
         }
     )
     metrics.append(
         {
             "key": "plugins_configure",
             "metric": "Plugins can be configured",
-            "value": can_configure_plugins_via_api(team.organization),
+            "value": can_configure_plugins_via_api(organization),
         }
     )
 
