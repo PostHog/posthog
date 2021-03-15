@@ -286,9 +286,7 @@ WSGI_APPLICATION = "posthog.wsgi.application"
 
 SOCIAL_AUTH_POSTGRES_JSONFIELD = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
-SOCIAL_AUTH_REDIRECT_IS_HTTPS = get_from_env(
-    "SOCIAL_AUTH_REDIRECT_IS_HTTPS", IS_BEHIND_PROXY or not DEBUG, type_cast=strtobool
-)
+SOCIAL_AUTH_REDIRECT_IS_HTTPS = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=strtobool)
 
 AUTHENTICATION_BACKENDS = (
     "axes.backends.AxesBackend",
