@@ -83,7 +83,7 @@ def setup_periodic_tasks(sender, **kwargs):
         )
 
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
-        sender.add_periodic_task(60, calculate_event_property_usage.s(), name="calculate event property usage")
+        sender.add_periodic_task(60 * 60, calculate_event_property_usage.s(), name="calculate event property usage")
 
 
 @app.task(ignore_result=True)

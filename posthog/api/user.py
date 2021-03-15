@@ -167,6 +167,7 @@ def user(request):
                 "install": can_install_plugins_via_api(user.organization),
                 "configure": can_configure_plugins_via_api(user.organization),
             },
+            "is_event_property_usage_enabled": getattr(settings, "ASYNC_EVENT_PROPERTY_USAGE", False),
         }
     )
 
