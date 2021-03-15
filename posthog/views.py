@@ -60,7 +60,6 @@ def stats(request):
 @never_cache
 @login_required
 def system_status(request):
-    organization = request.user.organization
     is_multitenancy: bool = getattr(settings, "MULTI_TENANCY", False)
 
     if is_multitenancy and not request.user.is_staff:
@@ -156,20 +155,6 @@ def system_status(request):
             "key": "plugin_sever_version",
             "metric": "Plugin server version",
             "value": get_plugin_server_version() or "unknown",
-        }
-    )
-    metrics.append(
-        {
-            "key": "plugins_install",
-            "metric": "Plugins can be installed",
-            "value": can_install_plugins_via_api(organization),
-        }
-    )
-    metrics.append(
-        {
-            "key": "plugins_configure",
-            "metric": "Plugins can be configured",
-            "value": can_configure_plugins_via_api(organization),
         }
     )
 
