@@ -26,11 +26,11 @@ export function Dashboard({ id, shareToken }: Props): JSX.Element {
 }
 
 function DashboardView(): JSX.Element {
-    const { dashboard, itemsLoading, items, lastRefreshed, dashboardMode } = useValues(dashboardLogic)
-    const { dashboardsLoading } = useValues(dashboardsModel)
-    const { updateAndRefreshDashboard, refreshAllDashboardItems, setDashboardMode, addGraph } = useActions(
+    const { dashboard, itemsLoading, items, lastRefreshed, filters: dashboardFilters, dashboardMode } = useValues(
         dashboardLogic
     )
+    const { dashboardsLoading } = useValues(dashboardsModel)
+    const { refreshAllDashboardItems, setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
 
     const HOTKEYS = {
         e: {
