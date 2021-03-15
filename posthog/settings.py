@@ -167,7 +167,7 @@ ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", True, ty
 
 # IP block settings
 ALLOWED_IP_BLOCKS = get_list(os.getenv("ALLOWED_IP_BLOCKS", ""))
-TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", False)
+TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
 TRUST_ALL_PROXIES = os.getenv("TRUST_ALL_PROXIES", False)
 
 
