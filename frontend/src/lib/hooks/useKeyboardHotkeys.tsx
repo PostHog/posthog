@@ -1,14 +1,15 @@
 import { useEventListener } from 'lib/hooks/useEventListener'
+import { DependencyList } from 'react'
 import { Keys } from '~/types'
 
-export interface HotKeyInterface {
+export interface HotkeyInterface {
     action: () => void
     disabled?: boolean
 }
 
-export type HotKeys = Partial<Record<Keys, HotKeyInterface>>
+export type Hotkeys = Partial<Record<Keys, HotkeyInterface>>
 
-export function useKeyboardHotkeys(hotkeys: HotKeys): void {
+export function useKeyboardHotkeys(hotkeys: Hotkeys, deps?: DependencyList): void {
     useEventListener(
         'keydown',
         (event) => {
@@ -34,6 +35,6 @@ export function useKeyboardHotkeys(hotkeys: HotKeys): void {
             }
         },
         undefined,
-        [hotkeys]
+        [hotkeys, ...(deps || [])]
     )
 }

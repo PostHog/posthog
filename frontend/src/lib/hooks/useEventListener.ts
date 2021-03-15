@@ -35,6 +35,6 @@ export function useEventListener(
                 element.removeEventListener(eventName, eventListener)
             }
         },
-        [eventName, element, ...(deps ?? [])] // Re-run if eventName or element changes
+        [eventName, element, ...(deps || [])] // Re-run if eventName or element changes
     )
 }

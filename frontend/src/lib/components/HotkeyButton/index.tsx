@@ -3,11 +3,11 @@ import React from 'react'
 import { Keys } from '~/types'
 import './index.scss'
 
-interface HotKeyButtonProps extends ButtonProps {
+interface HotkeyButtonProps extends ButtonProps {
     hotkey: Keys
 }
 
-export function HotkeyButton({ hotkey, children, ...props }: HotKeyButtonProps): JSX.Element {
+export function HotkeyButton({ hotkey, children, ...props }: HotkeyButtonProps): JSX.Element {
     return (
         <span className="hotkey-button">
             <Button {...props}>

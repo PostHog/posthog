@@ -9,8 +9,9 @@ import { clearDOMTextSelection, toParams, triggerResizeAfterADelay } from 'lib/u
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { ViewType } from 'scenes/insights/insightLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { EventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Button } from 'antd'
+import { DashboardMode } from '../../types'
 
 export const dashboardLogic = kea({
     connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
@@ -248,8 +249,7 @@ export const dashboardLogic = kea({
         afterMount: () => {
             actions.loadDashboardItems()
             if (props.shareToken) {
-                console.log('setting public')
-                actions.setDashboardMode('public', 'browser')
+                actions.setDashboardMode(DashboardMode.Public, EventSource.Browser)
             }
         },
         beforeUnmount: () => {
@@ -316,7 +316,7 @@ export const dashboardLogic = kea({
         },
         setDashboardMode: async ({ mode, source }) => {
             // Edit mode special handling
-            if (mode === 'edit') {
+            if (mode === DashboardMode.Edit) {
                 clearDOMTextSelection()
                 window.setTimeout(clearDOMTextSelection, 200)
                 window.setTimeout(clearDOMTextSelection, 1000)
@@ -333,7 +333,7 @@ export const dashboardLogic = kea({
                         {
                             type: 'info',
                             autoClose: false,
-                            onClick: () => actions.setDashboardMode(null, 'toast'),
+                            onClick: () => actions.setDashboardMode(null, EventSource.Toast),
                             closeButton: false,
                             className: 'drag-items-toast accent-border',
                         }
@@ -348,7 +348,7 @@ export const dashboardLogic = kea({
             }
 
             // Full screen mode special handling
-            if (mode === 'fullscreen') {
+            if (mode === DashboardMode.Fullscreen) {
                 triggerResizeAfterADelay()
             }
 

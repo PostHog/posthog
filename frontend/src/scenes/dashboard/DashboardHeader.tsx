@@ -198,9 +198,9 @@ export function DashboardHeader(): JSX.Element {
                     )}
 
                     <div className="dashboard-meta">
-                        {dashboardMode === 'edit'
+                        {dashboardMode === DashboardMode.Edit
                             ? actionsEditMode
-                            : dashboardMode === 'fullscreen'
+                            : dashboardMode === DashboardMode.Fullscreen
                             ? actionsPresentationMode
                             : actionsDefault}
                     </div>
