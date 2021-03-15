@@ -71,7 +71,7 @@ function DashboardView(): JSX.Element {
     return (
         <div className="dashboard">
             {dashboardMode !== 'public' && <DashboardHeader />}
-            <KeyboardHotkeys hotkeys={HOTKEYS} />
+            {dashboardMode !== 'public' && <KeyboardHotkeys hotkeys={HOTKEYS} />}
             {items && items.length ? (
                 <div>
                     <div className="dashboard-items-actions">
