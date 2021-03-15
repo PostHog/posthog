@@ -10,7 +10,7 @@ import { CalendarOutlined, ReloadOutlined } from '@ant-design/icons'
 import moment from 'moment'
 import { Button } from 'antd'
 import './Dashboard.scss'
-import { KeyboardHotkeys } from 'lib/components/KeyboardHotkeys'
+import { useKeyboardHotkeys } from '../../lib/hooks/useKeyboardHotkeys'
 
 interface Props {
     id: string
@@ -32,29 +32,34 @@ function DashboardView(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { refreshAllDashboardItems, setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
 
-    const HOTKEYS = {
-        e: {
-            action: () => setDashboardMode(dashboardMode === 'edit' ? null : 'edit', 'hotkey'),
-            disabled: dashboardMode !== null && dashboardMode !== 'edit',
-        },
-        f: {
-            action: () => setDashboardMode(dashboardMode === 'fullscreen' ? null : 'fullscreen', 'hotkey'),
-            disabled: dashboardMode !== null && dashboardMode !== 'fullscreen',
-        },
-        s: {
-            action: () => setDashboardMode(dashboardMode === 'sharing' ? null : 'sharing', 'hotkey'),
-            disabled: dashboardMode !== null && dashboardMode !== 'sharing',
-        },
-        n: {
-            action: () => addGraph(),
-            disabled: dashboardMode !== null && dashboardMode !== 'edit',
-        },
-        escape: {
-            // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
-            action: () => setDashboardMode(null, 'hotkey'),
-            disabled: dashboardMode !== 'edit',
-        },
-    }
+    const HOTKEYS =
+        dashboardMode === 'public'
+            ? {}
+            : {
+                  e: {
+                      action: () => setDashboardMode(dashboardMode === 'edit' ? null : 'edit', 'hotkey'),
+                      disabled: dashboardMode !== null && dashboardMode !== 'edit',
+                  },
+                  f: {
+                      action: () => setDashboardMode(dashboardMode === 'fullscreen' ? null : 'fullscreen', 'hotkey'),
+                      disabled: dashboardMode !== null && dashboardMode !== 'fullscreen',
+                  },
+                  s: {
+                      action: () => setDashboardMode(dashboardMode === 'sharing' ? null : 'sharing', 'hotkey'),
+                      disabled: dashboardMode !== null && dashboardMode !== 'sharing',
+                  },
+                  n: {
+                      action: () => addGraph(),
+                      disabled: dashboardMode !== null && dashboardMode !== 'edit',
+                  },
+                  escape: {
+                      // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
+                      action: () => setDashboardMode(null, 'hotkey'),
+                      disabled: dashboardMode !== 'edit',
+                  },
+              }
+
+    useKeyboardHotkeys(HOTKEYS)
 
     if (dashboardsLoading || itemsLoading) {
         return <SceneLoading />
@@ -71,7 +76,6 @@ function DashboardView(): JSX.Element {
     return (
         <div className="dashboard">
             {dashboardMode !== 'public' && <DashboardHeader />}
-            {dashboardMode !== 'public' && <KeyboardHotkeys hotkeys={HOTKEYS} />}
             {items && items.length ? (
                 <div>
                     <div className="dashboard-items-actions">
