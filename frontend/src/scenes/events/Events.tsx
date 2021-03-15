@@ -35,13 +35,13 @@ const eventsLogic = kea<eventsLogicType>({
     }),
 })
 
-function UsageDisabledWarning(): JSX.Element {
+function UsageDisabledWarning({ tab }: { tab: string }): JSX.Element {
     return (
         <Alert
             type="warning"
             message={
                 <>
-                    Event usage is not enabled on your instance. If you want to enable event usage please set the follow
+                    {tab} is not enabled on your instance. If you want to enable event usage please set the follow
                     environment variable: <pre style={{ display: 'inline' }}>ASYNC_EVENT_PROPERTY_USAGE=1</pre>
                     <br />
                     <br />
@@ -64,7 +64,7 @@ export function ManageEvents(): JSX.Element {
             <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={setTab}>
                 <Tabs.TabPane tab="Events" key="live">
                     See all events that are being sent to this project in real time.
-                    <EventsTable />
+                    <EventsTable fixedFilters={''} pageKey={undefined} />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key="actions">
                     <ActionsTable />
@@ -74,14 +74,22 @@ export function ManageEvents(): JSX.Element {
                     queries where made using this event.
                     <br />
                     <br />
-                    {user?.is_event_property_usage_enabled ? <EventsVolumeTable /> : <UsageDisabledWarning />}
+                    {user?.is_event_property_usage_enabled ? (
+                        <EventsVolumeTable />
+                    ) : (
+                        <UsageDisabledWarning tab="Events Stats" />
+                    )}
                 </Tabs.TabPane>
                 <Tabs.TabPane tab="Properties Stats" key="properties">
                     See all property keys that have ever been sent to this team, including the volume and how often
                     queries where made using this property key.
                     <br />
                     <br />
-                    {user?.is_event_property_usage_enabled ? <PropertiesVolumeTable /> : <UsageDisabledWarning />}
+                    {user?.is_event_property_usage_enabled ? (
+                        <PropertiesVolumeTable />
+                    ) : (
+                        <UsageDisabledWarning tab="Properties Stats" />
+                    )}
                 </Tabs.TabPane>
             </Tabs>
         </div>
