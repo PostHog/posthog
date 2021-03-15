@@ -131,12 +131,9 @@ function DashboardView(): JSX.Element {
                     <DashboardItems inSharedMode={dashboardMode === DashboardMode.Public} />
                 </div>
             ) : (
-                <p>
-                    There are no panels on this dashboard.{' '}
-                    <Button type="link" onClick={addGraph}>
-                        Click here to add some!
-                    </Button>
-                </p>
+                <div className="empty-state">
+                    <div className="graphic" />
+                </div>
             )}
         </div>
     )

@@ -30,6 +30,15 @@ $dashboard-title-size: 32px;
             max-width: 600px;
         }
     }
+
+    .empty-state {
+        height: calc(100vh - 100px);
+        .graphic {
+            background: url('../../../public/dashboard-empty-state.svg') no-repeat center center;
+            height: 100%;
+            width: 100%;
+        }
+    }
 }
 
 .dashboard-header {
