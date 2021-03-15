@@ -11,7 +11,7 @@ from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
 from posthog.ee import is_ee_enabled
-from posthog.models import User, organization
+from posthog.models import User
 from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api
 from posthog.settings import AUTO_LOGIN, TEST
 from posthog.utils import (
