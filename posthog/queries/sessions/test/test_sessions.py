@@ -2,13 +2,15 @@ import unittest
 
 from freezegun import freeze_time
 
+from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Event
 from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.models.person import Person
 from posthog.queries.sessions.sessions import Sessions
 from posthog.test.base import BaseTest
 
 
-def sessions_test_factory(sessions, event_factory):
+def sessions_test_factory(sessions, event_factory, person_factory):
     class TestSessions(BaseTest):
         def test_sessions_avg_length(self):
             # make sure out of range event doesn't get included
@@ -303,8 +305,34 @@ def sessions_test_factory(sessions, event_factory):
                     self.assertEqual(item["count"], 1)
                     self.assertEqual(compared_response[index]["count"], 1)
 
+        def test_filter_test_accounts(self):
+            # 0 seconds
+            person_factory(team_id=self.team.pk, distinct_ids=["2"], properties={"email": "test@posthog.com"})
+            person_factory(
+                team_id=self.team.pk, distinct_ids=["4"],
+            )
+            with freeze_time("2012-01-11T01:25:30.000Z"):
+                event_factory(team=self.team, event="1st action", distinct_id="2")
+                event_factory(team=self.team, event="1st action", distinct_id="4")
+            with freeze_time("2012-01-11T01:31:30.000Z"):
+                event_factory(team=self.team, event="1st action", distinct_id="2")
+            with freeze_time("2012-01-11T01:51:30.000Z"):
+                event_factory(team=self.team, event="1st action", distinct_id="4")
+
+            with freeze_time("2012-01-12T03:40:30.000Z"):
+                response = sessions().run(
+                    SessionsFilter(data={"date_from": "all", "session": "dist", FILTER_TEST_ACCOUNTS: True}), self.team
+                )
+                self.assertEqual(response[6]["count"], 0)
+                self.assertEqual(response[7]["count"], 1)
+
+                response = sessions().run(
+                    SessionsFilter(data={"interval": "day", "session": "avg", FILTER_TEST_ACCOUNTS: True}), self.team
+                )
+                self.assertEqual(response[0]["data"][6], 26)
+
     return TestSessions
 
 
-class DjangoSessionsTest(sessions_test_factory(Sessions, Event.objects.create)):  # type: ignore
+class DjangoSessionsTest(sessions_test_factory(Sessions, Event.objects.create, Person.objects.create)):  # type: ignore
     pass

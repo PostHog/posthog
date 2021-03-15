@@ -35,7 +35,6 @@ export function AdvancedTab(): JSX.Element {
                 }
                 type="warning"
                 showIcon
-                closable
             />
             <Subtitle subtitle="Advanced Options" />
             <SourcePlugin />

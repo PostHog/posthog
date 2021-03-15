@@ -7,14 +7,12 @@ import { Link } from 'lib/components/Link'
 import { PlusOutlined } from '@ant-design/icons'
 import { Table } from 'antd'
 import { PushpinFilled, PushpinOutlined, DeleteOutlined, AppstoreAddOutlined } from '@ant-design/icons'
-import { hot } from 'react-hot-loader/root'
 import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 import { PageHeader } from 'lib/components/PageHeader'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 import { DashboardType } from '~/types'
 
-export const Dashboards = hot(_Dashboards)
-function _Dashboards(): JSX.Element {
+export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard } = useActions(dashboardsModel)
     const { setNewDashboardDrawer } = useActions(dashboardsLogic)

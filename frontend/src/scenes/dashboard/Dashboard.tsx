@@ -8,15 +8,13 @@ import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { HedgehogOverlay } from 'lib/components/HedgehogOverlay/HedgehogOverlay'
-import { hot } from 'react-hot-loader/root'
 
 interface Props {
     id: string
     shareToken?: string
 }
 
-export const Dashboard = hot(_Dashboard)
-function _Dashboard({ id, shareToken }: Props): JSX.Element {
+export function Dashboard({ id, shareToken }: Props): JSX.Element {
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseInt(id), shareToken }}>
             <DashboardView id={id} shareToken={shareToken} />

@@ -6,6 +6,7 @@ import { NumberOutlined, CalendarOutlined, BulbOutlined, StopOutlined, DeleteOut
 import { isURL } from 'lib/utils'
 import { IconExternalLink, IconText } from 'lib/components/icons'
 import './PropertiesTable.scss'
+import stringWithWBR from 'lib/utils/stringWithWBR'
 
 type HandledType = 'string' | 'string, parsable as datetime' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -96,10 +97,10 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
 
     const valueComponent = (
         <span
-            className={canEdit ? `editable` : ''}
+            className={canEdit ? 'editable ph-no-capture' : 'ph-no-capture'}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
-            {String(value)}
+            {stringWithWBR(String(value))}
         </span>
     )
 
@@ -117,7 +118,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
                             {canEdit && boolNullTypes.includes(valueType) ? (
                                 <Dropdown overlay={boolNullSelect}>{valueComponent}</Dropdown>
                             ) : (
-                                <> {valueComponent}</>
+                                <>{valueComponent}</>
                             )}
 
                             {isURL(value) && (

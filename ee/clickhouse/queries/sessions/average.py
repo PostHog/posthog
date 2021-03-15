@@ -20,7 +20,9 @@ class ClickhouseSessionsAvg:
 
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter, team.pk)
 
-        filters, params = parse_prop_clauses(filter.properties, team.pk)
+        filters, params = parse_prop_clauses(
+            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+        )
 
         interval_notation = get_trunc_func_ch(filter.interval)
         num_intervals, seconds_in_interval, _ = get_time_diff(

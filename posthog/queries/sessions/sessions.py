@@ -89,7 +89,9 @@ class Sessions(BaseQuery):
             Event.objects.filter(team=team)
             .add_person_id(team.pk)
             .filter(~Q(event="$feature_flag_called"))
-            .filter(properties_to_Q(filter.properties, team_id=team.pk))
+            .filter(
+                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
+            )
             .order_by("-timestamp")
         )
 

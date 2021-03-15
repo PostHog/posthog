@@ -8,6 +8,7 @@ import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { FilterType } from '~/types'
 import { Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
+import { TestAccountFilter } from '../TestAccountFilter'
 
 export function SessionTab(): JSX.Element {
     const { filters } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
@@ -37,6 +38,7 @@ export function SessionTab(): JSX.Element {
             <hr />
             <h4 className="secondary">Filters</h4>
             <PropertyFilters pageKey="trends-sessions" />
+            <TestAccountFilter filters={filters} onChange={setFilters} />
         </>
     )
 }
