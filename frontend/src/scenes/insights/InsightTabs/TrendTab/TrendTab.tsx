@@ -57,9 +57,11 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         <h4 className="secondary">Formula</h4>
                         <Formula
                             filters={filters}
-                            onFocus={setIsUsingFormulas}
+                            onFocus={(hasFocus, localFormula) =>
+                                setIsUsingFormulas(hasFocus ? true : localFormula ? true : false)
+                            }
                             onChange={(formula: string): void => {
-                                setIsUsingFormulas(formula)
+                                setIsUsingFormulas(formula ? true : false)
                                 setFilters({ formula })
                             }}
                         />
@@ -119,9 +121,11 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         <h4 className="secondary">Formula</h4>
                         <Formula
                             filters={filters}
-                            onFocus={setIsUsingFormulas}
+                            onFocus={(hasFocus, localFormula) =>
+                                setIsUsingFormulas(hasFocus ? true : localFormula ? true : false)
+                            }
                             onChange={(formula: string): void => {
-                                setIsUsingFormulas(formula)
+                                setIsUsingFormulas(formula ? true : false)
                                 setFilters({ formula })
                             }}
                         />

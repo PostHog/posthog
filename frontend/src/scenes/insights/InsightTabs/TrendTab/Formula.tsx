@@ -10,7 +10,7 @@ export function Formula({
 }: {
     filters: Partial<FilterType>
     onChange: (formula: string) => void
-    onFocus: (hasFocus: boolean) => void
+    onFocus: (hasFocus: boolean, localFormula: string) => void
 }): JSX.Element {
     const [value, setValue] = useState(filters.formula)
     useEffect(() => {
@@ -31,8 +31,8 @@ export function Formula({
                         .join('')
                     setValue(value)
                 }}
-                onFocus={() => onFocus(true)}
-                onBlur={() => !filters.formula && onFocus(false)}
+                onFocus={() => onFocus(true, value)}
+                onBlur={() => !filters.formula && onFocus(false, value)}
                 disabled={filters.shown_as === STICKINESS || filters.shown_as === LIFECYCLE}
                 enterButton="Apply"
                 onSearch={onChange}
