@@ -297,17 +297,19 @@ export class EventsProcessor {
             const otherPersonDistinctIds: PersonDistinctId[] = (
                 await this.db.postgresQuery(
                     'SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2',
-                    [otherPerson.id, mergeInto.team_id]
+                    [otherPerson.id, mergeInto.team_id],
+                    'otherPersonDistinctIds'
                 )
             ).rows
             for (const personDistinctId of otherPersonDistinctIds) {
                 await this.db.moveDistinctId(otherPerson, personDistinctId, mergeInto)
             }
 
-            await this.db.postgresQuery('UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2', [
-                mergeInto.id,
-                otherPerson.id,
-            ])
+            await this.db.postgresQuery(
+                'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
+                [mergeInto.id, otherPerson.id],
+                'updateCohortPeople'
+            )
 
             await this.db.deletePerson(otherPerson)
         }
@@ -342,7 +344,11 @@ export class EventsProcessor {
             }))
         }
 
-        const teamQueryResult = await this.db.postgresQuery('SELECT * FROM posthog_team WHERE id = $1', [teamId])
+        const teamQueryResult = await this.db.postgresQuery(
+            'SELECT * FROM posthog_team WHERE id = $1',
+            [teamId],
+            'selectTeam'
+        )
         const team: Team = teamQueryResult.rows[0]
 
         if (!team) {
@@ -357,7 +363,8 @@ export class EventsProcessor {
 
         const pdiSelectResult = await this.db.postgresQuery(
             'SELECT COUNT(*) AS pdicount FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
-            [teamId, distinctId]
+            [teamId, distinctId],
+            'pdicount'
         )
         const pdiCount = parseInt(pdiSelectResult.rows[0].pdicount)
 
@@ -394,7 +401,8 @@ export class EventsProcessor {
             // First event for the team captured
             const organizationMembers = await this.db.postgresQuery(
                 'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
-                [team.organization_id]
+                [team.organization_id],
+                'posthog_organizationmembership'
             )
             const distinctIds: { distinct_id: string }[] = organizationMembers.rows
             for (const { distinct_id } of distinctIds) {
@@ -441,7 +449,8 @@ export class EventsProcessor {
                     JSON.stringify(team.event_properties_with_usage),
                     JSON.stringify(team.event_properties_numerical),
                     team.id,
-                ]
+                ],
+                'storeNamesAndProperties'
             )
             clearTimeout(timeout2)
         }
@@ -462,7 +471,8 @@ export class EventsProcessor {
         try {
             const hookQueryResult = await this.db.postgresQuery(
                 `SELECT COUNT(*) FROM ee_hook WHERE team_id = $1 AND event = 'action_performed' LIMIT 1`,
-                [team.id]
+                [team.id],
+                'shouldSendHooksTask'
             )
             return parseInt(hookQueryResult.rows[0].count) > 0
         } catch (error) {
@@ -549,7 +559,8 @@ export class EventsProcessor {
                     data.timestamp,
                     JSON.stringify(elements || []),
                     elementsHash,
-                ]
+                ],
+                'createEventInsert'
             )
             if (await this.shouldSendHooksTask(team)) {
                 this.pluginsServer.statsd?.increment(`hooks.send_task`)
@@ -591,7 +602,8 @@ export class EventsProcessor {
         } else {
             const insertResult = await this.db.postgresQuery(
                 'INSERT INTO posthog_sessionrecordingevent (created_at, team_id, distinct_id, session_id, timestamp, snapshot_data) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-                [data.created_at, data.team_id, data.distinct_id, data.session_id, data.timestamp, data.snapshot_data]
+                [data.created_at, data.team_id, data.distinct_id, data.session_id, data.timestamp, data.snapshot_data],
+                'insertSessionRecording'
             )
             const eventCreated = insertResult.rows[0] as PostgresSessionRecordingEvent
             return eventCreated
