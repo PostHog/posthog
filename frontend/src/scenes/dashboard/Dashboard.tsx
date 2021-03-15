@@ -26,9 +26,11 @@ export function Dashboard({ id, shareToken }: Props): JSX.Element {
 }
 
 function DashboardView(): JSX.Element {
-    const { dashboard, itemsLoading, items, isOnSharedMode, lastRefreshed } = useValues(dashboardLogic)
+    const { dashboard, itemsLoading, items, isOnSharedMode, lastRefreshed, filters: dashboardFilters } = useValues(
+        dashboardLogic
+    )
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { updateAndRefreshDashboard, refreshAllDashboardItems } = useActions(dashboardLogic)
+    const { refreshAllDashboardItems, setDates } = useActions(dashboardLogic)
 
     if (dashboardsLoading || itemsLoading) {
         return <SceneLoading />
@@ -58,7 +60,9 @@ function DashboardView(): JSX.Element {
                         <DateFilter
                             defaultValue="Custom"
                             showCustom
-                            onChange={updateAndRefreshDashboard}
+                            dateFrom={dashboardFilters?.date_from}
+                            dateTo={dashboardFilters?.date_to}
+                            onChange={setDates}
                             makeLabel={(key) => (
                                 <>
                                     <CalendarOutlined />
