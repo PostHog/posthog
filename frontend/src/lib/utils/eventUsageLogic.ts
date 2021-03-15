@@ -6,6 +6,7 @@ import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
 import { AnnotationType, FilterType, DashboardType, PersonType } from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { Moment } from 'moment'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
@@ -14,7 +15,6 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
         reportInsightViewed: (filters: Partial<FilterType>, isFirstLoad: boolean) => ({ filters, isFirstLoad }),
-        reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
         reportBookmarkletDragged: true,
         reportIngestionBookmarkletCollapsible: (activePanels: string[]) => ({ activePanels }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
@@ -47,6 +47,30 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
             oldPropertyType?: string,
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
+        reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
+        reportDashboardEditModeToggled: (
+            isOnEditMode: boolean,
+            source: 'long_press' | 'more_dropdown' | 'dashboard_header' | 'hotkey' | 'rename_input' | 'toast' | null
+        ) => ({ isOnEditMode, source }),
+        reportDashboardRefreshed: (lastRefreshed?: string | Moment | null) => ({ lastRefreshed }),
+        reportDashboardDateRangeChanged: (dateFrom?: string | Moment, dateTo?: string | Moment | null) => ({
+            dateFrom,
+            dateTo,
+        }),
+        reportDashboardPinToggled: (pinned: boolean, source: 'more_dropdown' | 'main_nav' | 'dashboards_list') => ({
+            pinned,
+            source,
+        }),
+        reportDashboardPresentationModeToggled: (
+            isPresentationMode: boolean,
+            source: 'more_dropdown' | 'hotkey' | 'dashboard_header' | 'browser' | null
+        ) => ({
+            isPresentationMode,
+            source,
+        }),
+        reportDashboardDropdownNavigation: true,
+        reportDashboardRenamed: (originalLength: number, newLength: number) => ({ originalLength, newLength }),
+        reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -237,6 +261,35 @@ export const eventUsageLogic = kea<eventUsageLogicType<AnnotationType, FilterTyp
                 new_property_type: newPropertyType !== 'undefined' ? newPropertyType : undefined,
                 total_properties: totalProperties,
             })
+        },
+        reportDashboardEditModeToggled: async ({ isOnEditMode, source }) => {
+            posthog.capture(`dashboard edit mode toggled`, { is_on_edit_mode: isOnEditMode, source })
+        },
+        reportDashboardRefreshed: async ({ lastRefreshed }) => {
+            posthog.capture(`dashboard refreshed`, { last_refreshed: lastRefreshed?.toString() })
+        },
+        reportDashboardDateRangeChanged: async ({ dateFrom, dateTo }) => {
+            posthog.capture(`dashboard date range changed`, {
+                date_from: dateFrom?.toString(),
+                date_to: dateTo?.toString(),
+            })
+        },
+        reportDashboardPinToggled: async ({ pinned, source }) => {
+            posthog.capture(`dashboard pin toggled`, { pinned: pinned, source })
+        },
+        reportDashboardPresentationModeToggled: async ({ isPresentationMode, source }) => {
+            posthog.capture(`dashboard presentation mode toggled`, { is_presentation_mode: isPresentationMode, source })
+        },
+        reportDashboardDropdownNavigation: async () => {
+            /* Triggered when a user navigates using the dropdown in the header.
+             */
+            posthog.capture(`dashboard dropdown navigated`)
+        },
+        reportDashboardRenamed: async ({ originalLength, newLength }) => {
+            posthog.capture(`dashboard renamed`, { original_length: originalLength, new_length: newLength })
+        },
+        reportDashboardShareToggled: async ({ isShared }) => {
+            posthog.capture(`dashboard share toggled`, { is_shared: isShared })
         },
     },
 })

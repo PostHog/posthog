@@ -4,13 +4,13 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { toast } from 'react-toastify'
-import { Link } from 'lib/components/Link'
 import React from 'react'
-import { isAndroidOrIOS, clearDOMTextSelection, toParams } from 'lib/utils'
+import { clearDOMTextSelection, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Button } from 'antd'
 
 export const dashboardLogic = kea({
     connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
@@ -19,16 +19,14 @@ export const dashboardLogic = kea({
 
     actions: () => ({
         addNewDashboard: true,
-        renameDashboard: true,
-        setIsSharedDashboard: (id, isShared) => ({ id, isShared }),
+        renameDashboard: (name) => ({ name }),
+        setIsSharedDashboard: (id, isShared) => ({ id, isShared }), // whether the dashboard is shared or not
+        setIsOnSharedMode: (isOnSharedMode) => ({ isOnSharedMode }), // whether the dashboard is open in shared mode (i.e. with a shareToken)
         updateLayouts: (layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth, columns) => ({ containerWidth, columns }),
         saveLayouts: true,
         updateItemColor: (id, color) => ({ id, color }),
-        enableDragging: true,
-        enableWobblyDragging: true,
-        disableDragging: true,
-        refreshDashboardItem: (id) => ({ id }),
+        setIsOnEditMode: (isOnEditMode, source = null) => ({ isOnEditMode, source }),
         refreshAllDashboardItems: true,
         updateAndRefreshDashboard: true,
         setDates: (dateFrom, dateTo, reloadDashboard = true) => ({ dateFrom, dateTo, reloadDashboard }),
@@ -48,7 +46,6 @@ export const dashboardLogic = kea({
                         return dashboard
                     } catch (error) {
                         if (error.status === 404) {
-                            // silently escape
                             return []
                         }
                         throw error
@@ -101,12 +98,10 @@ export const dashboardLogic = kea({
                 return { ...state, items: item.dashboard === parseInt(props.id) ? [...state.items, item] : state.items }
             },
         },
-        draggingEnabled: [
-            () => (isAndroidOrIOS() ? 'off' : 'on'),
+        columns: [
+            null,
             {
-                enableDragging: () => 'on',
-                enableWobblyDragging: () => 'wobbly',
-                disableDragging: () => 'off',
+                updateContainerWidth: (_, { columns }) => columns,
             },
         ],
         containerWidth: [
@@ -115,21 +110,43 @@ export const dashboardLogic = kea({
                 updateContainerWidth: (_, { containerWidth }) => containerWidth,
             },
         ],
-        columns: [
-            null,
+        isOnEditMode: [
+            false,
             {
-                updateContainerWidth: (_, { columns }) => columns,
+                setIsOnEditMode: (_, { isOnEditMode }) => isOnEditMode,
+            },
+        ],
+        isOnSharedMode: [
+            false,
+            {
+                setIsOnSharedMode: (_, { isOnSharedMode }) => isOnSharedMode,
             },
         ],
     }),
     selectors: ({ props, selectors }) => ({
         items: [() => [selectors.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [() => [selectors.allItemsLoading], (allItemsLoading) => allItemsLoading],
+        lastRefreshed: [
+            () => [selectors.items],
+            (items) => {
+                if (!items || !items.length) {
+                    return null
+                }
+                let lastRefreshed = items[0].last_refresh
+
+                for (const item of items) {
+                    if (item.last_refresh < lastRefreshed) {
+                        lastRefreshed = item.last_refresh
+                    }
+                }
+
+                return lastRefreshed
+            },
+        ],
         dashboard: [
-            () => [selectors.allItems, dashboardsModel.selectors.dashboards],
-            (allItems, dashboards) => {
-                let dashboard = dashboards.find((d) => d.id === props.id) || false
-                return dashboard ? dashboard : allItems
+            () => [dashboardsModel.selectors.dashboards],
+            (dashboards) => {
+                return dashboards.find((d) => d.id === props.id)
             },
         ],
         breakpoints: [() => [], () => ({ lg: 1600, sm: 940, xs: 480, xxs: 0 })],
@@ -232,8 +249,11 @@ export const dashboardLogic = kea({
             },
         ],
     }),
-    events: ({ actions, cache }) => ({
-        afterMount: [actions.loadDashboardItems],
+    events: ({ actions, cache, props }) => ({
+        afterMount: () => {
+            actions.loadDashboardItems()
+            actions.setIsOnSharedMode(!!props.shareToken)
+        },
         beforeUnmount: () => {
             if (cache.draggingToastId) {
                 toast.dismiss(cache.draggingToastId)
@@ -241,7 +261,6 @@ export const dashboardLogic = kea({
             }
         },
     }),
-
     listeners: ({ actions, values, key, cache }) => ({
         addNewDashboard: async () => {
             prompt({ key: `new-dashboard-${key}` }).actions.prompt({
@@ -252,29 +271,19 @@ export const dashboardLogic = kea({
                 success: (name) => dashboardsModel.actions.addDashboard({ name }),
             })
         },
-
         [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
             router.actions.push(`/dashboard/${dashboard.id}`)
         },
-
         setIsSharedDashboard: ({ id, isShared }) => {
             dashboardsModel.actions.setIsSharedDashboard({ id, isShared })
+            eventUsageLogic.actions.reportDashboardShareToggled(isShared)
         },
-
-        renameDashboard: async () => {
-            prompt({ key: `rename-dashboard-${key}` }).actions.prompt({
-                title: 'Rename dashboard',
-                placeholder: 'Please enter the new name',
-                value: values.dashboard.name,
-                error: 'You must enter name',
-                success: (name) => dashboardsModel.actions.renameDashboard({ id: values.dashboard.id, name }),
-            })
+        renameDashboard: ({ name }) => {
+            dashboardsModel.actions.renameDashboard({ id: values.dashboard.id, name })
         },
-
         updateLayouts: () => {
             actions.saveLayouts()
         },
-
         saveLayouts: async (_, breakpoint) => {
             await breakpoint(300)
             await api.update(`api/dashboard_item/layouts`, {
@@ -288,56 +297,13 @@ export const dashboardLogic = kea({
                 }),
             })
         },
-
         updateItemColor: ({ id, color }) => {
             api.update(`api/insight/${id}`, { color })
-        },
-
-        enableWobblyDragging: () => {
-            clearDOMTextSelection()
-            window.setTimeout(clearDOMTextSelection, 200)
-            window.setTimeout(clearDOMTextSelection, 1000)
-
-            if (!cache.draggingToastId) {
-                cache.draggingToastId = toast(
-                    <>
-                        <p className="headline">Rearranging panels!</p>
-                        <p>
-                            <Link onClick={() => actions.disableDragging()}>Click here</Link> to stop.
-                        </p>
-                    </>,
-                    {
-                        autoClose: false,
-                        onClick: () => actions.disableDragging(),
-                        closeButton: false,
-                        className: 'drag-items-toast',
-                    }
-                )
-            }
-        },
-        enableDragging: () => {
-            if (cache.draggingToastId) {
-                toast.dismiss(cache.draggingToastId)
-                cache.draggingToastId = null
-            }
-        },
-        disableDragging: () => {
-            if (cache.draggingToastId) {
-                toast.dismiss(cache.draggingToastId)
-                cache.draggingToastId = null
-            }
-        },
-        refreshDashboardItem: async ({ id }, breakpoint) => {
-            const dashboardItem = await api.get(`api/insight/${id}`)
-            await breakpoint()
-            dashboardsModel.actions.updateDashboardItem(dashboardItem)
-            if (dashboardItem.refreshing) {
-                setTimeout(() => actions.refreshDashboardItem(id), 1000)
-            }
         },
         refreshAllDashboardItems: async (_, breakpoint) => {
             await breakpoint(200)
             dashboardItemsModel.actions.refreshAllDashboardItems({})
+            eventUsageLogic.actions.reportDashboardRefreshed(values.lastRefreshed)
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
             await breakpoint(200)
@@ -348,6 +314,39 @@ export const dashboardLogic = kea({
             if (reloadDashboard) {
                 actions.updateAndRefreshDashboard()
             }
+            eventUsageLogic.actions.reportDashboardDateRangeChanged(values.filters.date_from, values.filters.date_to)
+        },
+        setIsOnEditMode: ({ isOnEditMode, source }) => {
+            if (isOnEditMode) {
+                clearDOMTextSelection()
+                window.setTimeout(clearDOMTextSelection, 200)
+                window.setTimeout(clearDOMTextSelection, 1000)
+
+                if (!cache.draggingToastId) {
+                    cache.draggingToastId = toast(
+                        <>
+                            <h1>Dashboard edit mode</h1>
+                            <p>Tap below when finished.</p>
+                            <div className="text-right">
+                                <Button>Finish editing</Button>
+                            </div>
+                        </>,
+                        {
+                            type: 'info',
+                            autoClose: false,
+                            onClick: () => actions.setIsOnEditMode(false, 'toast'),
+                            closeButton: false,
+                            className: 'drag-items-toast accent-border',
+                        }
+                    )
+                }
+            } else {
+                if (cache.draggingToastId) {
+                    toast.dismiss(cache.draggingToastId)
+                    cache.draggingToastId = null
+                }
+            }
+            eventUsageLogic.actions.reportDashboardEditModeToggled(isOnEditMode, source)
         },
     }),
 })

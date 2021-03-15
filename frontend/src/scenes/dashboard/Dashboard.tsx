@@ -1,13 +1,16 @@
 import React from 'react'
 import { Link } from 'lib/components/Link'
 import { SceneLoading } from 'lib/utils'
-import { BindLogic, useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
+import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { HedgehogOverlay } from 'lib/components/HedgehogOverlay/HedgehogOverlay'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { CalendarOutlined, ReloadOutlined } from '@ant-design/icons'
+import moment from 'moment'
+import { Button } from 'antd'
+import './Dashboard.scss'
 
 interface Props {
     id: string
@@ -17,38 +20,64 @@ interface Props {
 export function Dashboard({ id, shareToken }: Props): JSX.Element {
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseInt(id), shareToken }}>
-            <DashboardView id={id} shareToken={shareToken} />
+            <DashboardView />
         </BindLogic>
     )
 }
 
-function DashboardView({ id, shareToken }: Props): JSX.Element {
-    const { dashboard, itemsLoading, items } = useValues(dashboardLogic)
-    const { user } = useValues(userLogic)
+function DashboardView(): JSX.Element {
+    const { dashboard, itemsLoading, items, isOnSharedMode, lastRefreshed, filters: dashboardFilters } = useValues(
+        dashboardLogic
+    )
     const { dashboardsLoading } = useValues(dashboardsModel)
+    const { refreshAllDashboardItems, setDates } = useActions(dashboardLogic)
+
+    if (dashboardsLoading || itemsLoading) {
+        return <SceneLoading />
+    }
+
+    if (!dashboard) {
+        return (
+            <>
+                <p>Dashboard not found.</p>
+            </>
+        )
+    }
 
     return (
-        <div style={{ marginTop: 32 }}>
-            {!shareToken && <DashboardHeader />}
+        <div className="dashboard">
+            {!isOnSharedMode && <DashboardHeader />}
 
-            {dashboardsLoading ? (
-                <SceneLoading />
-            ) : !dashboard ? (
-                <>
-                    <p>A dashboard with the ID {id} was not found!</p>
-                    <HedgehogOverlay type="sad" />
-                </>
-            ) : items && items.length > 0 ? (
-                <DashboardItems inSharedMode={!!shareToken} />
-            ) : itemsLoading ? (
-                <SceneLoading />
-            ) : user?.team?.ingested_event ? (
+            {items && items.length ? (
+                <div>
+                    <div className="dashboard-items-actions">
+                        <div className="left-item">
+                            Last updated <b>{lastRefreshed ? moment(lastRefreshed).fromNow() : 'a while ago'}</b>
+                            <Button type="link" icon={<ReloadOutlined />} onClick={refreshAllDashboardItems}>
+                                Refresh
+                            </Button>
+                        </div>
+                        <DateFilter
+                            defaultValue="Custom"
+                            showCustom
+                            dateFrom={dashboardFilters?.date_from}
+                            dateTo={dashboardFilters?.date_to}
+                            onChange={setDates}
+                            makeLabel={(key) => (
+                                <>
+                                    <CalendarOutlined />
+                                    <span className="hide-when-small"> {key}</span>
+                                </>
+                            )}
+                        />
+                    </div>
+                    <DashboardItems inSharedMode={isOnSharedMode} />
+                </div>
+            ) : (
                 <p>
                     There are no panels on this dashboard.{' '}
                     <Link to="/insights?insight=TRENDS">Click here to add some!</Link>
                 </p>
-            ) : (
-                <p />
             )}
         </div>
     )

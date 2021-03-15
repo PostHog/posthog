@@ -11,18 +11,12 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 const ReactGridLayout = WidthProvider(Responsive)
-const noop = (): void => {}
 
 export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX.Element {
-    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, draggingEnabled } = useValues(dashboardLogic)
-    const {
-        loadDashboardItems,
-        refreshDashboardItem,
-        updateLayouts,
-        updateContainerWidth,
-        updateItemColor,
-        enableWobblyDragging,
-    } = useActions(dashboardLogic)
+    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, isOnEditMode } = useValues(dashboardLogic)
+    const { loadDashboardItems, updateLayouts, updateContainerWidth, updateItemColor, setIsOnEditMode } = useActions(
+        dashboardLogic
+    )
     const { duplicateDashboardItem } = useActions(dashboardItemsModel)
 
     // make sure the dashboard takes up the right size
@@ -32,14 +26,13 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
     // can not click links when dragging and 250ms after
     const isDragging = useRef(false)
     const dragEndTimeout = useRef<number | null>(null)
+    const className = 'layout' + (isOnEditMode ? ' dragging-items wobbly' : '')
 
     return (
         <ReactGridLayout
-            className={`layout${draggingEnabled !== 'off' ? ' dragging-items' : ''}${
-                draggingEnabled === 'wobbly' ? ' wobbly' : ''
-            }`}
-            isDraggable={!inSharedMode && draggingEnabled !== 'off'}
-            isResizable={!inSharedMode && draggingEnabled !== 'off'}
+            className={className}
+            isDraggable={isOnEditMode}
+            isResizable={isOnEditMode}
             layouts={layouts}
             rowHeight={50}
             margin={[20, 20]}
@@ -104,9 +97,9 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         inSharedMode={inSharedMode}
-                        enableWobblyDragging={draggingEnabled !== 'off' ? noop : enableWobblyDragging}
+                        isOnEditMode={isOnEditMode}
+                        setEditMode={() => setIsOnEditMode(true, 'long_press')}
                         index={index}
-                        onRefresh={() => refreshDashboardItem(item.id)}
                     />
                 </div>
             ))}
