@@ -6,9 +6,10 @@ import { Responsive, WidthProvider } from 'react-grid-layout'
 
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
-import { DashboardItemType } from '~/types'
+import { DashboardItemType, DashboardMode } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { EventSource } from '../../lib/utils/eventUsageLogic'
 
 const ReactGridLayout = WidthProvider(Responsive)
 
@@ -26,13 +27,13 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
     // can not click links when dragging and 250ms after
     const isDragging = useRef(false)
     const dragEndTimeout = useRef<number | null>(null)
-    const className = 'layout' + (dashboardMode === 'edit' ? ' dragging-items wobbly' : '')
+    const className = 'layout' + (dashboardMode === DashboardMode.Edit ? ' dragging-items wobbly' : '')
 
     return (
         <ReactGridLayout
             className={className}
-            isDraggable={dashboardMode === 'edit'}
-            isResizable={dashboardMode === 'edit'}
+            isDraggable={dashboardMode === DashboardMode.Edit}
+            isResizable={dashboardMode === DashboardMode.Edit}
             layouts={layouts}
             rowHeight={50}
             margin={[20, 20]}
@@ -97,8 +98,8 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         inSharedMode={inSharedMode}
-                        isOnEditMode={dashboardMode === 'edit'}
-                        setEditMode={() => setDashboardMode('edit', 'long_press')}
+                        isOnEditMode={dashboardMode === DashboardMode.Edit}
+                        setEditMode={() => setDashboardMode(DashboardMode.Edit, EventSource.LongPress)}
                         index={index}
                     />
                 </div>
