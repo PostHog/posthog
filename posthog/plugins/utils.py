@@ -47,7 +47,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
             if len(commits) > 0 and commits[0].get("sha", None):
                 parsed["tag"] = commits[0]["sha"]
             else:
-                raise Exception()
+                raise Exception(f"Could not find a commit with a hash in {commits}")
         except Exception as e:
             raise Exception(f"Could not get latest commit for {parsed['root_url']}. Reason: {e}")
     if parsed["tag"]:
