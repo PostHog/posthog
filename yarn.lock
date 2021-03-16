@@ -1421,10 +1421,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/clickhouse/-/clickhouse-1.7.0.tgz#21fa1e8cfa0637b688f91964e0efeedbf4cf7a3c"
   integrity sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==
 
-"@posthog/plugin-scaffold@0.2.15":
-  version "0.2.15"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.2.15.tgz#0b2b8478006a70661c507294c196b60c9a62e76f"
-  integrity sha512-AXSKZm4PlG3mdguBFXgyquox6PZ1ohdD/wIk5rX8rJBh3mIoICXAZ7M9TtYf+0X+2aoxFOQsaVLO1D9XEImBVQ==
+"@posthog/plugin-scaffold@0.3.1":
+  version "0.3.1"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.3.1.tgz#9b18aaba86816ab886eb8f492c32bf0c6b5a75c6"
+  integrity sha512-WHnc1kXwHl2tl/glAPDyVt4He0G8XcOrXkJEw1YqmeQm+bjSE9++pzNKgFzshvJBWtl3D/eGTB87gzkAJlU7yA==
 
 "@protobufjs/aspromise@^1.1.1", "@protobufjs/aspromise@^1.1.2":
   version "1.1.2"
