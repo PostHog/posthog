@@ -4,17 +4,18 @@ import { useActions, useValues } from 'kea'
 import { CopyToClipboardInput } from 'lib/components/CopyToClipboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
-export function ShareModal({ onCancel }: { onCancel: () => void }): JSX.Element {
+export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: () => void }): JSX.Element {
     const { dashboard } = useValues(dashboardLogic)
     const { setIsSharedDashboard } = useActions(dashboardLogic)
     const [isShared, setIsShared] = useState(dashboard.is_shared)
     const url = window.location.origin
     return (
         <Modal
-            visible={true}
+            visible={visible}
             onCancel={onCancel}
             footer={<Button onClick={onCancel}>Close</Button>}
             title="Share your dashboard with people outside of PostHog."
+            destroyOnClose
         >
             <Switch
                 onClick={(_, e) => e.stopPropagation()}

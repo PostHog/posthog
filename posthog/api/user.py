@@ -164,6 +164,7 @@ def user(request):
             "is_debug": getattr(settings, "DEBUG", False),
             "is_staff": user.is_staff,
             "is_impersonated": is_impersonated_session(request),
+            "is_event_property_usage_enabled": getattr(settings, "ASYNC_EVENT_PROPERTY_USAGE", False),
         }
     )
 

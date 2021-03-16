@@ -59,7 +59,6 @@ def stats(request):
 @never_cache
 @login_required
 def system_status(request):
-    team = request.user.team
     is_multitenancy: bool = getattr(settings, "MULTI_TENANCY", False)
 
     if is_multitenancy and not request.user.is_staff:

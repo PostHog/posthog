@@ -105,6 +105,10 @@
                 {
                     "name": "BILLING_NO_PLAN_EVENT_ALLOCATION",
                     "value": "10000"
+                },
+                {
+                    "name": "ASYNC_EVENT_PROPERTY_USAGE",
+                    "value": "1"
                 }
             ],
             "secrets": [

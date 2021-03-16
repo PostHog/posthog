@@ -26,7 +26,9 @@ export function Dashboards(): JSX.Element {
             render: function RenderPin({ id, pinned }: DashboardType) {
                 return (
                     <span
-                        onClick={() => (pinned ? unpinDashboard(id) : pinDashboard(id))}
+                        onClick={() =>
+                            pinned ? unpinDashboard(id, 'dashboards_list') : pinDashboard(id, 'dashboards_list')
+                        }
                         style={{ color: 'rgba(0, 0, 0, 0.85)', cursor: 'pointer' }}
                     >
                         {pinned ? <PushpinFilled /> : <PushpinOutlined />}

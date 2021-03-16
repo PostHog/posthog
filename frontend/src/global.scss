@@ -249,19 +249,33 @@ code.code {
     color: $text_default;
     font-family: inherit;
     background-color: $bg_light;
-}
+    border: 1px solid $border;
+    @extend .text-default;
+    color: $text_default;
 
-.Toastify__toast-body {
-    @extend .l3;
-    color: $success;
-    p {
-        @extend .text-default;
-        color: $text_default;
+    h1 {
+        font-size: 1.14rem;
+        font-weight: bold;
     }
 }
 
 .Toastify__progress-bar--default {
     background: $success;
+}
+
+.Toastify__toast--success {
+    h1 {
+        color: $success;
+    }
+}
+
+.Toastify__toast--info {
+    h1 {
+        color: $primary_alt;
+    }
+    &.accent-border {
+        border-color: $primary_alt;
+    }
 }
 
 .Toastify__toast--error {
@@ -348,6 +362,15 @@ code.code {
     color: $primary !important;
     cursor: pointer;
     margin-left: 5px;
+}
+
+.btn-lg-2x {
+    font-size: 1.5rem !important;
+    line-height: 1 !important;
+    svg {
+        width: 1.5rem !important;
+        height: 1.5rem !important;
+    }
 }
 
 // Badges styles
