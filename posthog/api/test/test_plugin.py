@@ -3,18 +3,21 @@ import json
 from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.utils.timezone import now
 
 from posthog.models import Plugin, PluginAttachment, PluginConfig, organization
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.plugins.access import can_configure_plugins, can_install_plugins
+from posthog.plugins.access import (
+    can_configure_plugins,
+    can_globally_manage_plugins,
+    can_install_plugins,
+    can_view_plugins,
+)
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP,
     HELLO_WORLD_PLUGIN_GITHUB_ZIP,
     HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP,
 )
-from posthog.redis import get_client
 from posthog.test.base import APIBaseTest
 
 
@@ -714,3 +717,95 @@ class TestPluginAPI(APIBaseTest):
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
         self.assertEqual(plugin_config.config, {"bar": "a new very secret value"})
+
+
+class TestPluginsAccessLevelAPI(APIBaseTest):
+    def test_root_check(self):
+        self.organization.plugins_access_level = Organization.PluginsAccessLevel.ROOT
+        self.organization.save()
+
+        result_root = can_globally_manage_plugins(self.organization)
+        result_install = can_install_plugins(self.organization)
+        result_config = can_configure_plugins(self.organization)
+        result_view = can_view_plugins(self.organization)
+
+        self.assertTrue(result_root)
+        self.assertTrue(result_install)
+        self.assertTrue(result_config)
+        self.assertTrue(result_view)
+
+    def test_install_check(self):
+        self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL
+        self.organization.save()
+
+        result_root = can_globally_manage_plugins(self.organization)
+        result_install = can_install_plugins(self.organization)
+        result_config = can_configure_plugins(self.organization)
+        result_view = can_view_plugins(self.organization)
+
+        self.assertFalse(result_root)
+        self.assertTrue(result_install)
+        self.assertTrue(result_config)
+        self.assertTrue(result_view)
+
+    def test_install_check_but_different_specific_id(self):
+        self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL
+        self.organization.save()
+
+        result_install = can_install_plugins(self.organization, "5802AE1C-FA8E-4559-9D7A-3206E371A350")
+
+        self.assertFalse(result_install)
+
+    def test_config_check(self):
+        self.organization.plugins_access_level = Organization.PluginsAccessLevel.CONFIG
+        self.organization.save()
+
+        result_root = can_globally_manage_plugins(self.organization)
+        result_install = can_install_plugins(self.organization)
+        result_config = can_configure_plugins(self.organization)
+        result_view = can_view_plugins(self.organization)
+
+        self.assertFalse(result_root)
+        self.assertFalse(result_install)
+        self.assertTrue(result_config)
+        self.assertTrue(result_view)
+
+    def test_config_check_with_id_str(self):
+        self.organization.plugins_access_level = Organization.PluginsAccessLevel.CONFIG
+        self.organization.save()
+        organization_id = str(self.organization.id)
+
+        result_root = can_globally_manage_plugins(organization_id)
+        result_install = can_install_plugins(organization_id)
+        result_config = can_configure_plugins(organization_id)
+        result_view = can_view_plugins(organization_id)
+
+        self.assertFalse(result_root)
+        self.assertFalse(result_install)
+        self.assertTrue(result_config)
+        self.assertTrue(result_view)
+
+    def test_none_check(self):
+        self.organization.plugins_access_level = Organization.PluginsAccessLevel.NONE
+        self.organization.save()
+
+        result_root = can_globally_manage_plugins(self.organization)
+        result_install = can_install_plugins(self.organization)
+        result_config = can_configure_plugins(self.organization)
+        result_view = can_view_plugins(self.organization)
+
+        self.assertFalse(result_root)
+        self.assertFalse(result_install)
+        self.assertFalse(result_config)
+        self.assertFalse(result_view)
+
+    def test_no_org_check(self):
+        result_root = can_globally_manage_plugins(None)
+        result_install = can_install_plugins(None)
+        result_config = can_configure_plugins(None)
+        result_view = can_view_plugins(None)
+
+        self.assertFalse(result_root)
+        self.assertFalse(result_install)
+        self.assertFalse(result_config)
+        self.assertFalse(result_view)
