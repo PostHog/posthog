@@ -102,6 +102,7 @@ export function DashboardHeader(): JSX.Element {
                 data-attr="dashboard-add-graph-header"
                 icon={<PlusOutlined />}
                 hotkey="n"
+                className="hide-lte-md"
             >
                 Add graph
             </HotkeyButton>

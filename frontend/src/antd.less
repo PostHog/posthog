@@ -32,3 +32,10 @@ with SASS, leading to duplicated config. When changing any variable here, please
         display: inherit !important;
     }
 }
+
+.hide-lte-md {
+    display: none !important;
+    @media (min-width: @screen-md-min) {
+        display: inherit !important;
+    }
+}

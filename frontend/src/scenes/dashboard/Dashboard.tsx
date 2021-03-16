@@ -124,7 +124,7 @@ function DashboardView(): JSX.Element {
                             makeLabel={(key) => (
                                 <>
                                     <CalendarOutlined />
-                                    <span className="hide-when-small"> {key}</span>
+                                    <span className="hide-lte-md"> {key}</span>
                                 </>
                             )}
                         />

@@ -170,8 +170,10 @@ $dashboard-title-size: 32px;
     }
 
     @media (max-width: 768px) {
-        .hide-when-small {
-            display: none;
+        flex-direction: column;
+        .dashboard-meta {
+            padding-top: $default_spacing;
+            justify-content: flex-end;
         }
     }
 }
