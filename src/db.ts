@@ -1,5 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
-import { Properties } from '@posthog/plugin-scaffold'
+import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { StatsD, Tags } from 'hot-shots'
 import Redis from 'ioredis'
@@ -140,7 +140,9 @@ export class DB {
 
     // Redis
 
-    public async redisGet(key: string, defaultValue: unknown, parseJSON = true): Promise<unknown> {
+    public async redisGet(key: string, defaultValue: unknown, options: CacheOptions = {}): Promise<unknown> {
+        const { jsonSerialize = true } = options
+
         return this.instrumentQuery('query.regisGet', undefined, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard(`Getting redis key delayed. Waiting over 30 sec to get key: ${key}`)
@@ -152,10 +154,10 @@ export class DB {
                 if (typeof value === 'undefined') {
                     return defaultValue
                 }
-                return value ? (parseJSON ? JSON.parse(value) : value) : null
+                return value ? (jsonSerialize ? JSON.parse(value) : value) : null
             } catch (error) {
                 if (error instanceof SyntaxError) {
-                    // invalid json
+                    // invalid JSON
                     return null
                 } else {
                     throw error
@@ -167,12 +169,14 @@ export class DB {
         })
     }
 
-    public async redisSet(key: string, value: unknown, ttlSeconds?: number, stringify = true): Promise<void> {
+    public async redisSet(key: string, value: unknown, ttlSeconds?: number, options: CacheOptions = {}): Promise<void> {
+        const { jsonSerialize = true } = options
+
         return this.instrumentQuery('query.redisSet', undefined, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard(`Setting redis key delayed. Waiting over 30 sec to set key: ${key}`)
             try {
-                const serializedValue = stringify ? JSON.stringify(value) : (value as string)
+                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
                 if (ttlSeconds) {
                     await client.set(key, serializedValue, 'EX', ttlSeconds)
                 } else {
@@ -211,12 +215,14 @@ export class DB {
         })
     }
 
-    public async redisLPush(key: string, value: unknown, stringify = true): Promise<number> {
+    public async redisLPush(key: string, value: unknown, options: CacheOptions = {}): Promise<number> {
+        const { jsonSerialize = true } = options
+
         return this.instrumentQuery('query.redisLPush', undefined, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard(`LPushing redis key delayed. Waiting over 30 sec to lpush key: ${key}`)
             try {
-                const serializedValue = stringify ? JSON.stringify(value) : (value as string)
+                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
                 return await client.lpush(key, serializedValue)
             } finally {
                 clearTimeout(timeout)
