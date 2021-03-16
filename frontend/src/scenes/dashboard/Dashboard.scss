@@ -32,11 +32,23 @@ $dashboard-title-size: 32px;
     }
 
     .empty-state {
-        height: calc(100vh - 100px);
-        .graphic {
-            background: url('../../../public/dashboard-empty-state.svg') no-repeat center center;
-            height: 100%;
-            width: 100%;
+        .skeleton-actions {
+            text-align: right;
+            .ant-skeleton-avatar {
+                margin-right: 8px;
+            }
+        }
+
+        .pie-chart {
+            height: 200px;
+            width: 200px;
+            max-width: 100%;
+            margin-top: $default_spacing;
+
+            @media (max-width: 992px) {
+                height: 140px;
+                width: 140px;
+            }
         }
     }
 }

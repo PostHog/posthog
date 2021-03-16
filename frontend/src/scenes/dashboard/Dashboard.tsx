@@ -14,6 +14,7 @@ import { useKeyboardHotkeys } from '../../lib/hooks/useKeyboardHotkeys'
 import { DashboardMode } from '../../types'
 import { EventSource } from '../../lib/utils/eventUsageLogic'
 import { Link } from 'lib/components/Link'
+import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface Props {
     id: string
@@ -131,9 +132,7 @@ function DashboardView(): JSX.Element {
                     <DashboardItems inSharedMode={dashboardMode === DashboardMode.Public} />
                 </div>
             ) : (
-                <div className="empty-state">
-                    <div className="graphic" />
-                </div>
+                <EmptyDashboardComponent />
             )}
         </div>
     )
