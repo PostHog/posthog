@@ -32,6 +32,8 @@ $dashboard-title-size: 32px;
     }
 
     .empty-state {
+        position: relative;
+
         .skeleton-actions {
             text-align: right;
             .ant-skeleton-avatar {
@@ -49,6 +51,50 @@ $dashboard-title-size: 32px;
                 height: 140px;
                 width: 140px;
             }
+        }
+
+        .bar-chart {
+            display: flex;
+            margin-top: $default_spacing;
+            align-items: flex-end;
+            .bar-el {
+                background-color: rgba(190, 190, 190, 0.2);
+                border-radius: $radius;
+                width: 12.5%;
+                margin-left: 4px;
+                height: 100px;
+            }
+        }
+
+        .ant-col {
+            flex-grow: 1;
+            .ant-card {
+                height: 100%;
+            }
+        }
+
+        .fade-out-graphs {
+            margin-top: $default_spacing;
+            height: 150px;
+            overflow: hidden;
+            position: relative;
+
+            &::after {
+                @extend .mixin-gradient-overlay;
+                width: calc(100% - 16px); // .ant-row gutter
+                left: 8px;
+                height: 150px;
+            }
+        }
+
+        .cta {
+            width: 360px;
+            max-width: calc(100% - 32px);
+            position: absolute;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: $z_content_overlay;
         }
     }
 }
