@@ -23,7 +23,6 @@ export enum EventSource {
 export const eventUsageLogic = kea<
     eventUsageLogicType<AnnotationType, FilterType, DashboardType, PersonType, DashboardMode>
 >({
-    connect: [userLogic],
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
