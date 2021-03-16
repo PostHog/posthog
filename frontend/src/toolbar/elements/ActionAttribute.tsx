@@ -30,7 +30,7 @@ export function ActionAttribute({ attribute, value }: { attribute: string; value
         ) : attribute === 'selector' ? (
             value ? (
                 <span style={{ fontFamily: 'monospace' }}>
-                    <SelectorString value={value || ''} />
+                    <SelectorString value={value} />
                 </span>
             ) : (
                 <span>
