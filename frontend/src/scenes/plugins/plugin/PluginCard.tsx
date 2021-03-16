@@ -21,7 +21,7 @@ import { SourcePluginTag } from './SourcePluginTag'
 import { CommunityPluginTag } from './CommunityPluginTag'
 import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
-import { endWithPeriod } from '../../../lib/utils'
+import { endWithPunctation } from '../../../lib/utils'
 import { PluginsAccessLevel } from '../../../lib/constants'
 
 interface PluginCardProps {
@@ -159,7 +159,7 @@ export function PluginCard({
                                 )}
                         </div>
                         <div>
-                            {endWithPeriod(description)}
+                            {endWithPunctation(description)}
                             {url && (
                                 <span>
                                     {description ? ' ' : ''}

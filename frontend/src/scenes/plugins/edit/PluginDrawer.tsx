@@ -15,7 +15,7 @@ import { PluginSource } from './PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginsAccessLevel } from 'lib/constants'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
-import { endWithPeriod } from '../../../lib/utils'
+import { endWithPunctation } from '../../../lib/utils'
 
 function EnabledDisabledSwitch({
     value,
@@ -128,7 +128,7 @@ export function PluginDrawer(): JSX.Element {
                             <div style={{ display: 'flex', marginBottom: 16 }}>
                                 <PluginImage pluginType={editingPlugin.plugin_type} url={editingPlugin.url} />
                                 <div style={{ flexGrow: 1, paddingLeft: 16 }}>
-                                    {endWithPeriod(editingPlugin.description)}
+                                    {endWithPunctation(editingPlugin.description)}
                                     {editingPlugin.url ? (
                                         <>
                                             {editingPlugin.description ? ' ' : ''}
