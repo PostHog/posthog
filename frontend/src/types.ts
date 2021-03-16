@@ -135,7 +135,7 @@ export interface ActionType {
     name: string
     post_to_slack?: boolean
     steps?: ActionStepType[]
-    created_by: Record<string, any>
+    created_by: UserNestedType | null
 }
 
 export interface ActionStepType {
@@ -277,7 +277,7 @@ export interface CohortGroupType {
 
 export interface CohortType {
     count?: number
-    created_by?: Record<string, any>
+    created_by: UserNestedType | null
     created_at?: string
     deleted?: boolean
     id: number | 'new'
@@ -372,7 +372,7 @@ export interface DashboardItemType {
     color: string | null
     last_refresh: string
     refreshing: boolean
-    created_by: Record<string, any>
+    created_by: UserNestedType | null
     is_sample: boolean
     dashboard: number
     result: any | null
@@ -384,7 +384,7 @@ export interface DashboardType {
     pinned: boolean
     items: DashboardItemType[]
     created_at: string
-    created_by: number
+    created_by: UserNestedType | null
     is_shared: boolean
     share_token: string
     deleted: boolean
@@ -545,6 +545,26 @@ export interface ChartParams {
     inSharedMode?: boolean
     cachedResults?: TrendResult
     view: ViewType
+}
+
+export interface FeatureFlagGroupType {
+    properties: PropertyFilter[]
+    rollout_percentage: number | null
+}
+interface FeatureFlagFilters {
+    groups: FeatureFlagGroupType[]
+}
+export interface FeatureFlagType {
+    id: number
+    key: string
+    name: string // Used as description
+    filters: FeatureFlagFilters
+    deleted: boolean
+    active: boolean
+    created_by: UserNestedType | null
+    created_at: string
+    is_simple_flag: boolean
+    rollout_percentage: number | null
 }
 
 export interface PrevalidatedInvite {

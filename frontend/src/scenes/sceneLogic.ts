@@ -147,6 +147,7 @@ export const routes: Record<string, Scene> = {
     '/cohorts/:id': Scene.Cohorts,
     '/cohorts': Scene.Cohorts,
     '/feature_flags': Scene.FeatureFlags,
+    '/feature_flags/:id': Scene.FeatureFlags,
     '/annotations': Scene.Annotations,
     '/project/settings': Scene.ProjectSettings,
     '/project/plugins': Scene.Plugins,
