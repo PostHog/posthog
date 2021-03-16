@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { featureFlagLogic } from './featureFlagLogic'
+import { featureFlagsLogic } from './featureFlagsLogic'
 import { Table, Switch, Drawer, Button } from 'antd'
 //import { EditFeatureFlag } from './EditFeatureFlag'
 import { Link } from 'lib/components/Link'
@@ -12,8 +12,8 @@ import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
 
 export function FeatureFlags(): JSX.Element {
-    const { featureFlags, featureFlagsLoading, openedFeatureFlagId } = useValues(featureFlagLogic)
-    const { updateFeatureFlag, loadFeatureFlags, setOpenedFeatureFlag } = useActions(featureFlagLogic)
+    const { featureFlags, featureFlagsLoading, openedFeatureFlagId } = useValues(featureFlagsLogic)
+    const { updateFeatureFlag, loadFeatureFlags, setOpenedFeatureFlag } = useActions(featureFlagsLogic)
 
     const columns = [
         {
@@ -138,7 +138,7 @@ export function FeatureFlags(): JSX.Element {
     )
 }
 
-function GroupFilters({ group }: { group: FeatureFlagGroupType }): JSX.Element {
+function GroupFilters({ group }: { group: FeatureFlagGroupType }): JSX.Element | string {
     if (group.properties && group.properties.length > 0 && group.rollout_percentage != null) {
         return (
             <div style={{ display: 'flex', alignItems: 'center' }}>
