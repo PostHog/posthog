@@ -1,6 +1,10 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
+import { mocked } from 'ts-jest/utils'
 
-import { runPlugins, setupPlugins } from '../src/plugins'
+import { clearError, processError } from '../src/error'
+import { loadPlugin } from '../src/plugins/loadPlugin'
+import { runPlugins } from '../src/plugins/run'
+import { loadSchedule, setupPlugins } from '../src/plugins/setup'
 import { createServer } from '../src/server'
 import { LogLevel, PluginsServer } from '../src/types'
 import {
@@ -11,12 +15,20 @@ import {
     pluginConfig39,
 } from './helpers/plugins'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setError } from './helpers/sqlMock'
+
 jest.mock('../src/sql')
+jest.mock('../src/status')
+jest.mock('../src/error')
+jest.mock('../src/plugins/loadPlugin', () => {
+    const { loadPlugin } = jest.requireActual('../src/plugins/loadPlugin')
+    return { loadPlugin: jest.fn().mockImplementation(loadPlugin) }
+})
 
 let mockServer: PluginsServer
 let closeServer: () => Promise<void>
 beforeEach(async () => {
     ;[mockServer, closeServer] = await createServer({ LOG_LEVEL: LogLevel.Log })
+    console.warn = jest.fn() as any
 })
 afterEach(async () => {
     await closeServer()
@@ -28,14 +40,12 @@ test('setupPlugins and runPlugins', async () => {
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
 
     await setupPlugins(mockServer)
-    const { plugins, pluginConfigs, pluginConfigsPerTeam, defaultConfigs } = mockServer
+    const { plugins, pluginConfigs } = mockServer
 
     expect(getPluginRows).toHaveBeenCalled()
     expect(getPluginAttachmentRows).toHaveBeenCalled()
     expect(getPluginConfigRows).toHaveBeenCalled()
-    expect(setError).toHaveBeenCalled()
 
-    expect(defaultConfigs).toEqual([]) // this will be used with global plugins
     expect(Array.from(plugins.entries())).toEqual([[60, plugin60]])
     expect(Array.from(pluginConfigs.keys())).toEqual([39])
 
@@ -57,14 +67,12 @@ test('setupPlugins and runPlugins', async () => {
         },
     })
     expect(pluginConfig.vm).toBeDefined()
-    expect(Object.keys(pluginConfig.vm!.methods)).toEqual(['processEvent', 'processEventBatch'])
+    const vm = await pluginConfig.vm!.resolveInternalVm
+    expect(Object.keys(vm!.methods)).toEqual(['processEvent', 'processEventBatch'])
 
-    expect(setError).toHaveBeenCalled()
-    expect(setError.mock.calls[0][0]).toEqual(mockServer)
-    expect(setError.mock.calls[0][1]).toEqual(null)
-    expect(setError.mock.calls[0][2]).toEqual(pluginConfig)
+    expect(clearError).toHaveBeenCalledWith(mockServer, pluginConfig)
 
-    const processEvent = pluginConfig.vm!.methods['processEvent']
+    const processEvent = vm!.methods['processEvent']
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     await processEvent(event)
 
@@ -135,19 +143,16 @@ test('archive plugin with broken index.js does not do much', async () => {
     await setupPlugins(mockServer)
     const { pluginConfigs } = mockServer
 
+    const pluginConfig = pluginConfigs.get(39)!
+    expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
+
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     const returnedEvent = await runPlugins(mockServer, { ...event })
     expect(returnedEvent).toEqual(event)
 
-    expect(setError).toHaveBeenCalled()
-    expect(setError.mock.calls[0][0]).toEqual(mockServer)
-    const error = setError.mock.calls[0][1]!
+    expect(processError).toHaveBeenCalledWith(mockServer, pluginConfig, expect.any(SyntaxError))
+    const error = mocked(processError).mock.calls[0][2]! as Error
     expect(error.message).toContain(': Unexpected token, expected ","')
-    expect(error.name).toEqual('SyntaxError')
-    expect(error.stack).toContain('SyntaxError: ')
-    expect(error.time).toBeDefined()
-    expect(setError.mock.calls[0][2]).toEqual(pluginConfigs.get(39))
-    expect(pluginConfigs.get(39)!.vm).toEqual(null)
 })
 
 test('local plugin with broken index.js does not do much', async () => {
@@ -163,19 +168,16 @@ test('local plugin with broken index.js does not do much', async () => {
     await setupPlugins(mockServer)
     const { pluginConfigs } = mockServer
 
+    const pluginConfig = pluginConfigs.get(39)!
+    expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
+
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     const returnedEvent = await runPlugins(mockServer, { ...event })
     expect(returnedEvent).toEqual(event)
 
-    expect(setError).toHaveBeenCalled()
-    expect(setError.mock.calls[0][0]).toEqual(mockServer)
-    const error = setError.mock.calls[0][1]!
+    expect(processError).toHaveBeenCalledWith(mockServer, pluginConfig, expect.any(SyntaxError))
+    const error = mocked(processError).mock.calls[0][2]! as Error
     expect(error.message).toContain(': Unexpected token, expected ","')
-    expect(error.name).toEqual('SyntaxError')
-    expect(error.stack).toContain('SyntaxError: ')
-    expect(error.time).toBeDefined()
-    expect(setError.mock.calls[0][2]).toEqual(pluginConfigs.get(39))
-    expect(pluginConfigs.get(39)!.vm).toEqual(null)
 
     unlink()
 })
@@ -197,11 +199,13 @@ test('archive plugin with broken plugin.json does not do much', async () => {
     await setupPlugins(mockServer)
     const { pluginConfigs } = mockServer
 
-    expect(setError).toHaveBeenCalled()
-    expect(setError.mock.calls[0][0]).toEqual(mockServer)
-    expect(setError.mock.calls[0][1]!.message).toEqual('Can not load plugin.json for plugin "test-maxmind-plugin"')
-    expect(setError.mock.calls[0][1]!.time).toBeDefined()
-    expect(pluginConfigs.get(39)!.vm).toEqual(null)
+    expect(processError).toHaveBeenCalledWith(
+        mockServer,
+        pluginConfigs.get(39)!,
+        'Can not load plugin.json for plugin "test-maxmind-plugin"'
+    )
+
+    expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
 })
 
 test('local plugin with broken plugin.json does not do much', async () => {
@@ -220,11 +224,12 @@ test('local plugin with broken plugin.json does not do much', async () => {
     await setupPlugins(mockServer)
     const { pluginConfigs } = mockServer
 
-    expect(setError).toHaveBeenCalled()
-    expect(setError.mock.calls[0][0]).toEqual(mockServer)
-    expect(setError.mock.calls[0][1]!.message).toContain('Could not load posthog config at ')
-    expect(setError.mock.calls[0][1]!.time).toBeDefined()
-    expect(pluginConfigs.get(39)!.vm).toEqual(null)
+    expect(processError).toHaveBeenCalledWith(
+        mockServer,
+        pluginConfigs.get(39)!,
+        expect.stringContaining('Could not load posthog config at ')
+    )
+    expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
 
     unlink()
 })
@@ -242,13 +247,12 @@ test('plugin with http urls must have an archive', async () => {
     const { pluginConfigs } = mockServer
 
     expect(pluginConfigs.get(39)!.plugin!.url).toContain('https://')
-    expect(setError).toHaveBeenCalled()
-    expect(setError.mock.calls[0][0]).toEqual(mockServer)
-    expect(setError.mock.calls[0][1]!.message).toEqual(
+    expect(processError).toHaveBeenCalledWith(
+        mockServer,
+        pluginConfigs.get(39)!,
         'Un-downloaded remote plugins not supported! Plugin: "test-maxmind-plugin"'
     )
-    expect(setError.mock.calls[0][1]!.time).toBeDefined()
-    expect(pluginConfigs.get(39)!.vm).toEqual(null)
+    expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
 })
 
 test("plugin with broken archive doesn't load", async () => {
@@ -264,11 +268,12 @@ test("plugin with broken archive doesn't load", async () => {
     const { pluginConfigs } = mockServer
 
     expect(pluginConfigs.get(39)!.plugin!.url).toContain('https://')
-    expect(setError).toHaveBeenCalled()
-    expect(setError.mock.calls[0][0]).toEqual(mockServer)
-    expect(setError.mock.calls[0][1]!.message).toEqual('Could not read archive as .zip or .tgz')
-    expect(setError.mock.calls[0][1]!.time).toBeDefined()
-    expect(pluginConfigs.get(39)!.vm).toEqual(null)
+    expect(processError).toHaveBeenCalledWith(
+        mockServer,
+        pluginConfigs.get(39)!,
+        Error('Could not read archive as .zip or .tgz')
+    )
+    expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
 })
 
 test('plugin config order', async () => {
@@ -295,7 +300,7 @@ test('plugin config order', async () => {
     ])
 
     await setupPlugins(mockServer)
-    const { pluginConfigsPerTeam, defaultConfigs } = mockServer
+    const { pluginConfigsPerTeam } = mockServer
 
     expect(pluginConfigsPerTeam.get(pluginConfig39.team_id)?.map((c) => [c.id, c.order])).toEqual([
         [40, 1],
@@ -310,4 +315,105 @@ test('plugin config order', async () => {
 
     const returnedEvent2 = await runPlugins(mockServer, { ...event, properties: { ...event.properties } })
     expect(returnedEvent2!.properties!.plugins).toEqual([61, 60, 62])
+})
+
+test('reloading plugins after config changes', async () => {
+    const makePlugin = (id: number, updated_at = '2020-11-02'): any => ({
+        ...plugin60,
+        id,
+        plugin_type: 'source',
+        archive: null,
+        source: setOrderCode(60),
+        updated_at,
+    })
+    const makeConfig = (plugin_id: number, id: number, order: number, updated_at = '2020-11-02'): any => ({
+        ...pluginConfig39,
+        plugin_id,
+        id,
+        order,
+        updated_at,
+    })
+
+    const setOrderCode = (id: number) => {
+        return `
+            function processEvent(event) {
+                if (!event.properties.plugins) { event.properties.plugins = [] }
+                event.properties.plugins.push(${id})
+                return event
+            }
+        `
+    }
+
+    getPluginRows.mockReturnValue([makePlugin(60), makePlugin(61), makePlugin(62), makePlugin(63)])
+    getPluginAttachmentRows.mockReturnValue([])
+    getPluginConfigRows.mockReturnValue([
+        makeConfig(60, 39, 0),
+        makeConfig(61, 41, 1),
+        makeConfig(62, 40, 3),
+        makeConfig(63, 42, 2),
+    ])
+
+    await setupPlugins(mockServer)
+    await loadSchedule(mockServer)
+
+    expect(loadPlugin).toHaveBeenCalledTimes(4)
+    expect(Array.from(mockServer.plugins.keys())).toEqual(expect.arrayContaining([60, 61, 62, 63]))
+    expect(Array.from(mockServer.pluginConfigs.keys())).toEqual(expect.arrayContaining([39, 40, 41, 42]))
+
+    expect(mockServer.pluginConfigsPerTeam.get(pluginConfig39.team_id)?.map((c) => [c.id, c.order])).toEqual([
+        [39, 0],
+        [41, 1],
+        [42, 2],
+        [40, 3],
+    ])
+
+    getPluginRows.mockReturnValue([makePlugin(60), makePlugin(61), makePlugin(63, '2021-02-02'), makePlugin(64)])
+    getPluginAttachmentRows.mockReturnValue([])
+    getPluginConfigRows.mockReturnValue([
+        makeConfig(60, 39, 0),
+        makeConfig(61, 41, 3, '2021-02-02'),
+        makeConfig(63, 42, 2),
+        makeConfig(64, 43, 1),
+    ])
+
+    await setupPlugins(mockServer)
+    await loadSchedule(mockServer)
+
+    expect(loadPlugin).toHaveBeenCalledTimes(4 + 3)
+    expect(Array.from(mockServer.plugins.keys())).toEqual(expect.arrayContaining([60, 61, 63, 64]))
+    expect(Array.from(mockServer.pluginConfigs.keys())).toEqual(expect.arrayContaining([39, 41, 42, 43]))
+
+    expect(mockServer.pluginConfigsPerTeam.get(pluginConfig39.team_id)?.map((c) => [c.id, c.order])).toEqual([
+        [39, 0],
+        [43, 1],
+        [42, 2],
+        [41, 3],
+    ])
+})
+
+describe('loadSchedule()', () => {
+    const mockConfig = (tasks: any) => ({ vm: { getTasks: () => Promise.resolve(tasks) } })
+
+    const mockServer = {
+        pluginConfigs: new Map(
+            Object.entries({
+                1: {},
+                2: mockConfig({ runEveryMinute: null, runEveryHour: () => 123 }),
+                3: mockConfig({ runEveryMinute: () => 123, foo: () => 'bar' }),
+            })
+        ),
+    } as any
+
+    it('sets server.pluginSchedule once all plugins are ready', async () => {
+        const promise = loadSchedule(mockServer)
+        expect(mockServer.pluginSchedule).toEqual(null)
+
+        await promise
+
+        expect(mockServer.pluginSchedule).toEqual({
+            runEveryMinute: ['3'],
+            runEveryHour: ['2'],
+            runEveryDay: [],
+        })
+    })
 })

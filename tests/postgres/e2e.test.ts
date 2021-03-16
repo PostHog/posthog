@@ -10,6 +10,7 @@ import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 import { delayUntilEventIngested } from '../shared/process-event'
 
+jest.mock('../../src/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 describe('e2e postgres ingestion', () => {
@@ -19,6 +20,8 @@ describe('e2e postgres ingestion', () => {
     let redis: IORedis.Redis
 
     beforeEach(async () => {
+        console.debug = jest.fn()
+
         await resetTestDatabase(`
             async function processEvent (event) {
                 event.properties.processed = 'hell yes'

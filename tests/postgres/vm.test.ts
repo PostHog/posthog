@@ -35,8 +35,7 @@ afterEach(async () => {
 
 test('empty plugins', async () => {
     const indexJs = ''
-    const libJs = ''
-    const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs, libJs)
+    const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
 
     expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'vm'])
     expect(Object.keys(vm.methods).sort()).toEqual(['processEvent', 'processEventBatch'])
@@ -552,28 +551,6 @@ test('meta.cache incr', async () => {
 
     await vm.methods.processEvent(event)
     expect(event.properties!['counter']).toEqual(3)
-})
-
-test('lib.js (deprecated)', async () => {
-    const indexJs = `
-        async function processEvent (event, meta) {
-            event.event = libraryFunction(event.event)
-            return event
-        }
-    `
-    const libJs = `
-        function libraryFunction (string) {
-            return string.split("").reverse().join("")
-        }
-    `
-    const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs, libJs)
-    const event: PluginEvent = {
-        ...defaultEvent,
-        event: 'original event',
-    }
-    await vm.methods.processEvent(event)
-
-    expect(event.event).toEqual('tneve lanigiro')
 })
 
 test('console.log', async () => {
