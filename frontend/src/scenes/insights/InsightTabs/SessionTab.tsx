@@ -31,6 +31,7 @@ export function SessionTab(): JSX.Element {
                 typeKey={'sessions' + ViewType.SESSIONS}
                 hideMathSelector={true}
                 copy="Add action or event"
+                showOr={true}
             />
             <hr />
             <h4 className="secondary">{'Type'}</h4>

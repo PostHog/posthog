@@ -474,6 +474,11 @@ code.code {
         background-color: $blue_300;
     }
 
+    &.width-locked {
+        width: 40px;
+        text-align: center;
+    }
+
     &.and {
         background-color: $yellow_100;
         color: $primary_alt;
