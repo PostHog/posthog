@@ -106,8 +106,6 @@ class PluginSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         validated_data["url"] = self.initial_data.get("url", None)
-        if not can_install_plugins_via_api(self.context["organization_id"]):
-            raise PermissionDenied("Plugin installation is not available for the current organization!")
         if validated_data.get("is_global") and not can_root_plugins_via_api(self.context["organization_id"]):
             raise PermissionDenied("This organization can't manage global plugins!")
         if validated_data.get("plugin_type", None) != Plugin.PluginType.SOURCE:
@@ -122,12 +120,6 @@ class PluginSerializer(serializers.ModelSerializer):
         context_organization = self.context.get("organization") or Organization.objects.get(
             id=self.context["organization_id"]
         )
-        if plugin.organization != context_organization:
-            raise PermissionDenied(
-                f"This plugin is managed by another organization: {plugin.organization.id}, not {context_organization.id}!"
-            )
-        if not can_configure_plugins_via_api(context_organization):
-            raise PermissionDenied("Plugin configuration is not available for the current organization!")
         if (
             "is_global" in validated_data
             and context_organization.plugins_access_level < Organization.PluginsAccessLevel.ROOT
