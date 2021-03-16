@@ -3,7 +3,6 @@ from uuid import UUID
 
 from django.conf import settings
 
-from posthog.models import organization
 from posthog.models.organization import Organization
 
 

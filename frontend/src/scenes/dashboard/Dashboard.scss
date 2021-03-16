@@ -1,0 +1,111 @@
+@import '~/vars';
+
+$dashboard-title-size: 32px;
+
+.dashboard {
+    margin-top: $default_spacing * 2;
+
+    .dashboard-items-actions {
+        margin-bottom: $default_spacing;
+        display: flex;
+
+        .left-item {
+            flex-grow: 1;
+        }
+
+        .ant-btn {
+            padding-left: 4px !important;
+        }
+    }
+}
+
+.dashboard-header {
+    display: flex;
+    justify-content: space-between;
+
+    margin-top: -1rem;
+    margin-bottom: 2rem;
+
+    width: 100%;
+
+    &.full-screen {
+        margin-top: 1rem;
+    }
+
+    .dashboard-select {
+        flex: 1;
+        @extend .text-ellipsis;
+        padding-right: $default_spacing * 2;
+
+        .ant-select-single {
+            max-width: 100%;
+            line-height: $dashboard-title-size;
+
+            .ant-select-selector {
+                padding-left: 0;
+                padding-right: 8px;
+                line-height: $dashboard-title-size;
+                height: $dashboard-title-size;
+
+                .ant-select-selection-item {
+                    font-size: $dashboard-title-size;
+                    line-height: $dashboard-title-size;
+                    width: 100%;
+                    height: 35px;
+                    display: block;
+
+                    .anticon-share-alt {
+                        font-size: $dashboard-title-size * 0.65;
+                        color: $success;
+                        margin-left: 6px !important;
+                        margin-right: 4px;
+                        margin-top: $default_spacing / 2;
+                    }
+                }
+            }
+            &.ant-select-open {
+                .ant-select-arrow {
+                    color: rgba($text_default, 0.4);
+                }
+            }
+            .ant-select-arrow {
+                color: $text_default;
+                font-size: 0.5 * $dashboard-title-size;
+            }
+        }
+    }
+    .dashboard-meta {
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        .ant-btn {
+            .anticon {
+                vertical-align: baseline;
+            }
+            margin-left: 10px;
+            &.button-box {
+                padding: 4px 8px;
+            }
+            @media (max-width: 750px) {
+                &.button-box-when-small {
+                    padding: 4px 8px;
+                }
+            }
+        }
+    }
+
+    .dashboard-header-created-by {
+        margin-top: $default_spacing / 2;
+        color: $text_muted;
+    }
+
+    @media (max-width: 750px) {
+        .hide-when-small {
+            display: none;
+        }
+
+        .dashboard-header-created-by {
+            display: none; /* header is already too crowded on mobile */
+        }
+    }
+}

@@ -17,7 +17,6 @@ import { triggerResizeAfterADelay } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import lgLogo from 'public/posthog-logo-white.svg'
 import smLogo from 'public/icon-white.svg'
-import { hot } from 'react-hot-loader/root'
 import './Navigation.scss'
 import {
     IconCohorts,
@@ -138,8 +137,7 @@ function PinnedDashboards(): JSX.Element {
     )
 }
 
-export const MainNavigation = hot(_MainNavigation)
-function _MainNavigation(): JSX.Element {
+export function MainNavigation(): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { menuCollapsed, toolbarModalOpen, pinnedDashboardsVisible } = useValues(navigationLogic)

@@ -49,6 +49,7 @@ export function ChangePassword(): JSX.Element {
                     autoComplete="current-password"
                     disabled={!!user && !user.has_password}
                     placeholder={user && !user.has_password ? 'signed up with external login' : undefined}
+                    className="ph-ignore-input"
                 />
             </FormItem>
             <FormItem

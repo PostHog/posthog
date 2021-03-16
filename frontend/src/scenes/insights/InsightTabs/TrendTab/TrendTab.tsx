@@ -14,6 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FilterType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { Formula } from './Formula'
+import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 
 interface TrendTabProps {
     view: string
@@ -113,6 +114,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
             <hr />
             <h4 className="secondary">Filters</h4>
             <PropertyFilters pageKey="trends-filters" />
+            <TestAccountFilter filters={filters} onChange={setFilters} />
             {(!filters.insight || filters.insight === ViewType.TRENDS) &&
                 featureFlags['3275-formulas'] &&
                 user?.ee_enabled && (

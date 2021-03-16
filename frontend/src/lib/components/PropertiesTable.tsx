@@ -97,7 +97,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
 
     const valueComponent = (
         <span
-            className={canEdit ? `editable` : ''}
+            className={canEdit ? 'editable ph-no-capture' : 'ph-no-capture'}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
             {stringWithWBR(String(value))}
@@ -118,7 +118,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
                             {canEdit && boolNullTypes.includes(valueType) ? (
                                 <Dropdown overlay={boolNullSelect}>{valueComponent}</Dropdown>
                             ) : (
-                                <> {valueComponent}</>
+                                <>{valueComponent}</>
                             )}
 
                             {isURL(value) && (

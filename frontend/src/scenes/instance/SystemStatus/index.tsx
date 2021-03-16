@@ -1,7 +1,6 @@
 import './index.scss'
 
 import React from 'react'
-import { hot } from 'react-hot-loader/root'
 import { Alert, Table, Tag, Card } from 'antd'
 import { systemStatusLogic } from './systemStatusLogic'
 import { useValues } from 'kea'
@@ -28,8 +27,7 @@ const columns = [
     },
 ]
 
-export const SystemStatus = hot(_Status)
-function _Status(): JSX.Element {
+export function SystemStatus(): JSX.Element {
     const { systemStatus, systemStatusLoading, error } = useValues(systemStatusLogic)
     return (
         <div className="system-status-scene">

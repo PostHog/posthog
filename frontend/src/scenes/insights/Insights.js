@@ -4,7 +4,7 @@ import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import moment from 'moment'
-import { DateFilter } from 'lib/components/DateFilter'
+import { DateFilter } from './DateFilter/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 
 import { PageHeader } from 'lib/components/PageHeader'
@@ -20,7 +20,6 @@ import {
     LIFECYCLE,
     FUNNEL_VIZ,
 } from 'lib/constants'
-import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -101,8 +100,7 @@ const showComparePrevious = {
     [`${ViewType.PATHS}`]: false,
 }
 
-export const Insights = hot(_Insights)
-function _Insights() {
+export function Insights() {
     useMountedLogic(insightCommandLogic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
@@ -337,16 +335,15 @@ const isFunnelEmpty = (filters) => {
 }
 
 function FunnelInsight() {
-    const { stepsWithCount, resultsLoading } = useValues(funnelLogic({}))
+    const { stepsWithCount, isValidFunnel, stepsWithCountLoading } = useValues(funnelLogic({}))
 
     return (
         <div style={{ height: 300, position: 'relative' }}>
-            {resultsLoading && <Loading />}
-            {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 ? (
+            {stepsWithCountLoading && <Loading />}
+            {isValidFunnel ? (
                 <FunnelViz steps={stepsWithCount} />
             ) : (
-                !resultsLoading &&
-                !stepsWithCount && (
+                !stepsWithCountLoading && (
                     <div
                         style={{
                             textAlign: 'center',

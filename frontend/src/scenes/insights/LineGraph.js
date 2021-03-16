@@ -320,6 +320,11 @@ export function LineGraph({
                         },
                     },
                 ],
+                yAxes: [
+                    {
+                        ticks: { fontColor: axisLabelColor },
+                    },
+                ],
             }
         } else if (type === 'doughnut') {
             options = {

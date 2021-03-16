@@ -1,14 +1,12 @@
 import React from 'react'
 import { SessionsView } from './SessionsView'
-import { hot } from 'react-hot-loader/root'
 import { SavedFiltersMenu } from 'scenes/sessions/filters/SavedFiltersMenu'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Divider } from 'antd'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-export const Sessions = hot(_Sessions)
-function _Sessions(): JSX.Element {
+export function Sessions(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     if (featureFlags['filter_by_session_props']) {
         return (

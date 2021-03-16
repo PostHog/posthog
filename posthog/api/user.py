@@ -77,6 +77,7 @@ def user(request):
             team.completed_snippet_onboarding = data["team"].get(
                 "completed_snippet_onboarding", team.completed_snippet_onboarding,
             )
+            team.test_account_filters = data["team"].get("test_account_filters", team.test_account_filters)
             team.save()
 
         if "user" in data:
@@ -149,6 +150,7 @@ def user(request):
                 "plugins_opt_in": team.plugins_opt_in,
                 "ingested_event": team.ingested_event,
                 "is_demo": team.is_demo,
+                "test_account_filters": team.test_account_filters,
             },
             "teams": teams,
             "has_password": user.has_usable_password(),
@@ -165,6 +167,7 @@ def user(request):
                 "install": can_install_plugins_via_api(user.organization),
                 "configure": can_configure_plugins_via_api(user.organization),
             },
+            "is_event_property_usage_enabled": getattr(settings, "ASYNC_EVENT_PROPERTY_USAGE", False),
         }
     )
 

@@ -20,7 +20,6 @@ export enum Scene {
     Action = 'action',
     FeatureFlags = 'featureFlags',
     OrganizationSettings = 'organizationSettings',
-    OrganizationMembers = 'organizationMembers',
     OrganizationCreateFirst = 'organizationCreateFirst',
     ProjectSettings = 'projectSettings',
     ProjectCreateFirst = 'projectCreateFirst',
@@ -61,8 +60,6 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
     [Scene.OrganizationSettings]: () =>
         import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
-    [Scene.OrganizationMembers]: () =>
-        import(/* webpackChunkName: 'organizationMembers' */ './organization/TeamMembers'),
     [Scene.OrganizationCreateFirst]: () =>
         import(/* webpackChunkName: 'organizationCreateFirst' */ './organization/Create'),
     [Scene.ProjectSettings]: () => import(/* webpackChunkName: 'projectSettings' */ './project/Settings'),
@@ -83,17 +80,14 @@ export const scenes: Record<Scene, () => any> = {
 
 interface SceneConfig {
     onlyUnauthenticated?: boolean // Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too)
-    allowUnauthenticated?: boolean // Route **can** be accessed when logged out (i.e. can be accessed when logged in too)
+    allowUnauthenticated?: boolean // Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too)
     dark?: boolean // Background is $bg_mid
     plain?: boolean // Only keeps the main content and the top navigation bar
     hideTopNav?: boolean // Hides the top navigation bar (regardless of whether `plain` is `true` or not)
-    hideDemoWarnings?: boolean // Hides demo project (DemoWarning.tsx)
+    hideDemoWarnings?: boolean // Hides demo project warnings (DemoWarning.tsx)
 }
 
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
-    [Scene.Dashboard]: {
-        dark: true,
-    },
     [Scene.Insights]: {
         dark: true,
     },
@@ -136,6 +130,7 @@ export const redirects: Record<string, string | ((params: Params) => any)> = {
     '/': '/insights',
     '/plugins': '/project/plugins',
     '/actions': '/events/actions',
+    '/organization/members': '/organization/settings',
 }
 
 export const routes: Record<string, Scene> = {
@@ -157,7 +152,6 @@ export const routes: Record<string, Scene> = {
     '/project/plugins': Scene.Plugins,
     '/project/create': Scene.ProjectCreateFirst,
     '/organization/settings': Scene.OrganizationSettings,
-    '/organization/members': Scene.OrganizationMembers,
     '/organization/billing': Scene.Billing,
     '/organization/create': Scene.OrganizationCreateFirst,
     '/instance/licenses': Scene.InstanceLicenses,

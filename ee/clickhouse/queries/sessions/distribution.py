@@ -11,7 +11,9 @@ class ClickhouseSessionsDist:
 
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter, team.pk)
 
-        filters, params = parse_prop_clauses(filter.properties, team.pk)
+        filters, params = parse_prop_clauses(
+            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+        )
         dist_query = DIST_SQL.format(
             team_id=team.pk,
             date_from=parsed_date_from,
