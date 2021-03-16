@@ -914,10 +914,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/clickhouse/-/clickhouse-1.7.0.tgz#21fa1e8cfa0637b688f91964e0efeedbf4cf7a3c"
   integrity sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==
 
-"@posthog/plugin-server@0.11.9":
-  version "0.11.9"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.11.9.tgz#01dfcaa92baea0e38cd100eee63ddf1638b6ed31"
-  integrity sha512-Tb0nAXVcXnPkH2GEm7iG0UN86gGfa9//p37/wF0JbVh021NMqc/7UQZ4jHeOoo/zalcyY+CEJpE55ppHPh9HZg==
+"@posthog/plugin-server@0.12.0":
+  version "0.12.0"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.12.0.tgz#fe5ead9698bd68bc25754e313d731d5201a5d52e"
+  integrity sha512-gwE57c1iPlWltiSvSNAtOXlbhlSHqs6sHoo3n4Fhl0KuS0Q7Ot0GrKmFImTLOR6rR4mbKdf26cq79qiNF/rKeg==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"
@@ -938,7 +938,7 @@
     node-fetch "^2.6.1"
     node-schedule "^1.3.2"
     pg "^8.4.2"
-    piscina "^2.1.0"
+    piscina "https://github.com/PostHog/piscina.git#broadcast-release"
     posthog-js-lite "^0.0.5"
     protobufjs "^6.10.2"
     redlock "^4.2.0"
@@ -2079,10 +2079,9 @@ pino@^6.2.1:
     quick-format-unescaped "^4.0.1"
     sonic-boom "^1.0.2"
 
-piscina@^2.1.0:
-  version "2.1.0"
-  resolved "https://registry.yarnpkg.com/piscina/-/piscina-2.1.0.tgz#947d937e0efd0de7a0e8bf10363c2e053c619413"
-  integrity sha512-3FgX36QyZcU4prKuNKl7/lWlOF3HAv9n7JpCjw09Zbql2KkzXXQ7E5xUS+RV5wV24Rn0r6Lr8jLdtU/cNZHAnA==
+"piscina@git+https://github.com/PostHog/piscina.git#broadcast-release":
+  version "2.2.0"
+  resolved "git+https://github.com/PostHog/piscina.git#f8584a8e4409057f74b7ae0bf4cf6185e61530b6"
   dependencies:
     eventemitter-asyncresource "^1.0.0"
     hdr-histogram-js "^2.0.1"
