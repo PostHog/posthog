@@ -638,7 +638,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self._test_events_with_dates(
                 dates=["2020-11-01", "2020-11-10", "2020-11-11", "2020-11-18"],
                 interval="week",
-                date_from="2020-11-01",
+                date_from="2020-10-29",  # having date after sunday + no events caused an issue in CH
                 date_to="2020-11-24",
                 result=[
                     {
@@ -653,16 +653,23 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         },
                         "label": "event_name",
                         "count": 4.0,
-                        "data": [1.0, 2.0, 1.0, 0.0],
-                        "labels": ["Sun. 1 November", "Sun. 8 November", "Sun. 15 November", "Sun. 22 November"],
-                        "days": ["2020-11-01", "2020-11-08", "2020-11-15", "2020-11-22"],
+                        "data": [0.0, 1.0, 2.0, 1.0, 0.0],
+                        "labels": [
+                            "Sun. 25 October",
+                            "Sun. 1 November",
+                            "Sun. 8 November",
+                            "Sun. 15 November",
+                            "Sun. 22 November",
+                        ],
+                        "days": ["2020-10-25", "2020-11-01", "2020-11-08", "2020-11-15", "2020-11-22"],
                     }
                 ],
             )
 
         def test_month_interval(self):
+            self.maxDiff = None
             self._test_events_with_dates(
-                dates=["2020-06-01", "2020-07-10", "2020-07-30", "2020-10-18"],
+                dates=["2020-07-10", "2020-07-30", "2020-10-18"],
                 interval="month",
                 date_from="2020-6-01",
                 date_to="2020-11-24",
@@ -678,8 +685,8 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                             "properties": [],
                         },
                         "label": "event_name",
-                        "count": 4.0,
-                        "data": [1.0, 2.0, 0.0, 0.0, 1.0, 0.0],
+                        "count": 3.0,
+                        "data": [0.0, 2.0, 0.0, 0.0, 1.0, 0.0],
                         "labels": [
                             "Mon. 1 June",
                             "Wed. 1 July",
@@ -953,15 +960,16 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         },
                         "label": "event_name",
                         "count": 6.0,
-                        "data": [3.0, 2.0, 0.0, 1.0, 0.0],
+                        "data": [0.0, 3.0, 2.0, 0.0, 1.0, 0.0],
                         "labels": [
+                            "Sun. 25 October",
                             "Sun. 1 November",
                             "Sun. 8 November",
                             "Sun. 15 November",
                             "Sun. 22 November",
                             "Sun. 29 November",
                         ],
-                        "days": ["2020-11-01", "2020-11-08", "2020-11-15", "2020-11-22", "2020-11-29"],
+                        "days": ["2020-10-25", "2020-11-01", "2020-11-08", "2020-11-15", "2020-11-22", "2020-11-29"],
                     }
                 ],
             )
@@ -1252,10 +1260,10 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     Filter(data={"date_from": "2019-11-24", "interval": "week", "events": [{"id": "sign up"}]}),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][4], "Sun. 22 December")
-            self.assertEqual(response[0]["data"][4], 1.0)
-            self.assertEqual(response[0]["labels"][5], "Sun. 29 December")
-            self.assertEqual(response[0]["data"][5], 4.0)
+            self.assertEqual(response[0]["labels"][5], "Sun. 22 December")
+            self.assertEqual(response[0]["data"][5], 1.0)
+            self.assertEqual(response[0]["labels"][6], "Sun. 29 December")
+            self.assertEqual(response[0]["data"][6], 4.0)
 
             # test month
             with freeze_time("2020-01-02"):
@@ -1684,10 +1692,10 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][4], "Sun. 22 December")
-            self.assertEqual(response[0]["data"][4], 1.0)
-            self.assertEqual(response[0]["labels"][5], "Sun. 29 December")
-            self.assertEqual(response[0]["data"][5], 4.0)
+            self.assertEqual(response[0]["labels"][5], "Sun. 22 December")
+            self.assertEqual(response[0]["data"][5], 1.0)
+            self.assertEqual(response[0]["labels"][6], "Sun. 29 December")
+            self.assertEqual(response[0]["data"][6], 4.0)
 
             # test month
             with freeze_time("2020-01-02"):
@@ -2255,7 +2263,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     self.assertEqual(res["data"], [1, 0, 1, 1, 0, 0, 1, 0, 0])
 
         def test_lifecycle_trend_weeks(self):
-            # lifecycle weeks rounds the date to the nearest following week  2/5 -> 2/10
+            # lifecycle weeks rounds the date down to the nearest week 5 feb -> 2 feb
             p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-02-01T12:00:00Z",
@@ -2313,18 +2321,19 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(len(result), 4)
             self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
             self.assertTrue(
-                result[0]["days"] == ["2020-02-09", "2020-02-16", "2020-02-23", "2020-03-01", "2020-03-08"]
+                result[0]["days"]
+                == ["2020-02-02", "2020-02-09", "2020-02-16", "2020-02-23", "2020-03-01", "2020-03-08"]
                 or result[0]["days"] == ["2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
             )
             for res in result:
                 if res["status"] == "dormant":
-                    self.assertEqual(res["data"], [0, -2, -1, -1, -1])
+                    self.assertEqual(res["data"], [0, 0, -2, -1, -1, -1])
                 elif res["status"] == "returning":
-                    self.assertEqual(res["data"], [1, 1, 0, 1, 0])
+                    self.assertEqual(res["data"], [0, 1, 1, 0, 1, 0])
                 elif res["status"] == "resurrecting":
-                    self.assertEqual(res["data"], [0, 0, 1, 0, 0])
+                    self.assertEqual(res["data"], [0, 0, 0, 1, 0, 0])
                 elif res["status"] == "new":
-                    self.assertEqual(res["data"], [2, 0, 1, 0, 0])
+                    self.assertEqual(res["data"], [0, 2, 0, 1, 0, 0])
 
         def test_lifecycle_trend_months(self):
 

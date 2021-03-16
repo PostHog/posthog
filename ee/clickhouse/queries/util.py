@@ -62,7 +62,8 @@ def get_time_diff(
     diff = _end_time - _start_time
     round_interval = diff.total_seconds() >= TIME_IN_SECONDS[interval] * 2
 
-    return int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + 1, TIME_IN_SECONDS[interval], round_interval
+    addition = 2 if interval == "week" else 1
+    return int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + addition, TIME_IN_SECONDS[interval], round_interval
 
 
 PERIOD_TRUNC_MINUTE = "toStartOfMinute"
