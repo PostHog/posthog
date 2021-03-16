@@ -16,6 +16,8 @@ from posthog.utils import generate_cache_key, relative_date_parse
 # parameterize tests to reuse in EE
 def trend_test_factory(trends, event_factory, person_factory, action_factory, cohort_factory):
     class TestTrends(AbstractTimerangeTest, AbstractIntervalTest, APIBaseTest):
+        maxDiff = None
+
         def _create_events(self, use_time=False):
 
             person = person_factory(
@@ -667,7 +669,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             )
 
         def test_month_interval(self):
-            self.maxDiff = None
             self._test_events_with_dates(
                 dates=["2020-07-10", "2020-07-30", "2020-10-18"],
                 interval="month",
@@ -718,10 +719,36 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                             "properties": [],
                         },
                         "label": "event_name",
-                        "count": 3.0,
-                        "data": [2.0, 1.0, 0.0],
-                        "labels": ["Sun. 8 November", "Sun. 15 November", "Sun. 22 November"],
-                        "days": ["2020-11-08", "2020-11-15", "2020-11-22"],
+                        "count": 4.0,
+                        "data": [1.0, 2.0, 1.0, 0.0],
+                        "labels": ["Sun. 1 November", "Sun. 8 November", "Sun. 15 November", "Sun. 22 November"],
+                        "days": ["2020-11-01", "2020-11-08", "2020-11-15", "2020-11-22"],
+                    }
+                ],
+            )
+
+        def test_interval_rounding_monthly(self):
+            self._test_events_with_dates(
+                dates=["2020-06-2", "2020-07-30",],
+                interval="month",
+                date_from="2020-6-7",  #  should round down to 6-1
+                date_to="2020-7-30",
+                result=[
+                    {
+                        "action": {
+                            "id": "event_name",
+                            "type": "events",
+                            "order": None,
+                            "name": "event_name",
+                            "math": None,
+                            "math_property": None,
+                            "properties": [],
+                        },
+                        "label": "event_name",
+                        "count": 2.0,
+                        "data": [1.0, 1.0,],
+                        "labels": ["Mon. 1 June", "Wed. 1 July",],
+                        "days": ["2020-06-01", "2020-07-01",],
                     }
                 ],
             )

@@ -15,6 +15,7 @@ def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple
     date_to = None
     params = {}
     if filter.date_from:
+
         date_from = "and {table}timestamp >= '{}'".format(format_ch_timestamp(filter.date_from, filter), table=table,)
         params.update({"date_from": format_ch_timestamp(filter.date_from, filter)})
     else:
@@ -60,7 +61,10 @@ def get_time_diff(
     _end_time = end_time or timezone.now()
 
     diff = _end_time - _start_time
-    round_interval = diff.total_seconds() >= TIME_IN_SECONDS[interval] * 2
+    if interval == "week" or interval == "month":
+        round_interval = True
+    else:
+        round_interval = diff.total_seconds() >= TIME_IN_SECONDS[interval] * 2
 
     addition = 2 if interval == "week" else 1
     return int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + addition, TIME_IN_SECONDS[interval], round_interval

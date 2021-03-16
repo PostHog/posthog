@@ -80,6 +80,7 @@ class ClickhouseTrendsNormal:
                 date_to=filter.date_to.strftime("%Y-%m-%d %H:%M:%S"),
             )
             final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
+
             return final_query, params, self._parse_normal_result(filter)
 
     def _parse_normal_result(self, filter: Filter) -> Callable:

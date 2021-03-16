@@ -561,14 +561,14 @@ def get_daterange(
         start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
     if frequency == "week":
-        start_date += datetime.timedelta(days=6 - start_date.weekday())
+        start_date -= datetime.timedelta(days=start_date.weekday() + 1)
     if frequency != "month":
         while start_date <= end_date:
             time_range.append(start_date)
             start_date += delta
     else:
         if start_date.day != 1:
-            start_date = (start_date.replace(day=1) + delta).replace(day=1)
+            start_date = (start_date.replace(day=1)).replace(day=1)
         while start_date <= end_date:
             time_range.append(start_date)
             start_date = (start_date.replace(day=1) + delta).replace(day=1)
