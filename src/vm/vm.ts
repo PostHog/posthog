@@ -13,11 +13,9 @@ import { transformCode } from './transforms'
 export async function createPluginConfigVM(
     server: PluginsServer,
     pluginConfig: PluginConfig, // NB! might have team_id = 0
-    indexJs: string,
-    libJs = ''
+    indexJs: string
 ): Promise<PluginConfigVMReponse> {
-    const rawCode = libJs ? `${libJs};${indexJs}` : indexJs
-    const transformedCode = transformCode(rawCode, server)
+    const transformedCode = transformCode(indexJs, server)
 
     // Create virtual machine
     const vm = new VM({

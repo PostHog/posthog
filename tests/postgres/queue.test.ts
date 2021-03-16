@@ -1,5 +1,5 @@
 import Client from '../../src/celery/client'
-import { runPlugins } from '../../src/plugins'
+import { runPlugins } from '../../src/plugins/run'
 import { createServer } from '../../src/server'
 import { LogLevel, PluginsServer } from '../../src/types'
 import { delay } from '../../src/utils'

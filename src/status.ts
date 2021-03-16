@@ -4,6 +4,7 @@ export type StatusMethod = (icon: string, ...message: any[]) => void
 
 export interface StatusBlueprint {
     info: StatusMethod
+    warn: StatusMethod
     error: StatusMethod
 }
 
@@ -17,6 +18,11 @@ export class Status implements StatusBlueprint {
     info(icon: string, ...message: any[]): void {
         console.info(this.getPrefix(), icon, ...message.filter(Boolean))
     }
+
+    warn(icon: string, ...message: any[]): void {
+        console.warn(this.getPrefix(), icon, ...message.filter(Boolean))
+    }
+
     error(icon: string, ...message: any[]): void {
         console.error(this.getPrefix(), icon, ...message.filter(Boolean))
     }

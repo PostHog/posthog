@@ -25,6 +25,9 @@ export function createConfig(serverConfig: PluginsServerConfig, filename: string
     const config: PiscinaOptions = {
         filename,
         workerData: { serverConfig },
+        resourceLimits: {
+            stackSizeMb: 10,
+        },
     }
 
     if (serverConfig.WORKER_CONCURRENCY && serverConfig.WORKER_CONCURRENCY > 0) {
