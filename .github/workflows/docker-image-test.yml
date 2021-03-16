@@ -15,7 +15,7 @@ jobs:
               run: |
                   # Install latest Hadolint binary from GitHub (not available via apt)
                   HADOLINT_LATEST_TAG=$(curl --silent "https://api.github.com/repos/hadolint/hadolint/releases/latest" | jq -r .tag_name)
-                  sudo curl -Lo /usr/bin/hadolint "https://github.com/hadolint/hadolint/releases/download/$HADOLINT_LATEST_TAG/hadolint-Linux-x86_64"
+                  sudo curl -sLo /usr/bin/hadolint "https://github.com/hadolint/hadolint/releases/download/$HADOLINT_LATEST_TAG/hadolint-Linux-x86_64"
                   sudo chmod +x /usr/bin/hadolint
                   hadolint **Dockerfile
 
