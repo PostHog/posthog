@@ -34,8 +34,8 @@ export function ActionAttribute({ attribute, value }: { attribute: string; value
                 </span>
             ) : (
                 <span>
-                    Could not generate a unique selector for this element. Please instrument it with a unique <code>id</code>{' '}
-                    or <code>data-attr</code> attribute.
+                    Could not generate a unique selector for this element. Please instrument it with a unique{' '}
+                    <code>id</code> or <code>data-attr</code> attribute.
                 </span>
             )
         ) : (
