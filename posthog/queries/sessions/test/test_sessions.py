@@ -91,12 +91,12 @@ def sessions_test_factory(sessions, event_factory, person_factory):
                 ),
                 self.team,
             )
-            self.assertEqual(week_response[0]["data"][1], 4.0)
-            self.assertEqual(week_response[0]["data"][3], 2.0)
-            self.assertEqual(week_response[0]["labels"][0], "Sun. 1 January")
-            self.assertEqual(week_response[0]["labels"][1], "Sun. 8 January")
-            self.assertEqual(week_response[0]["days"][0], "2012-01-01")
-            self.assertEqual(week_response[0]["days"][1], "2012-01-08")
+            self.assertEqual(week_response[0]["data"][2], 4.0)
+            self.assertEqual(week_response[0]["data"][4], 2.0)
+            self.assertEqual(week_response[0]["labels"][0], "Sun. 25 December")
+            self.assertEqual(week_response[0]["labels"][2], "Sun. 8 January")
+            self.assertEqual(week_response[0]["days"][1], "2012-01-01")
+            self.assertEqual(week_response[0]["days"][2], "2012-01-08")
 
             # # # hour
             hour_response = sessions().run(

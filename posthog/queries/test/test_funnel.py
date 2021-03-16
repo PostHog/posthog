@@ -494,8 +494,10 @@ def funnel_trends_test_factory(Funnel, event_factory, person_factory):
         def test_month_interval(self):
             with freeze_time("2021-01-02T04:00:00.000Z"):
                 response = self._run("-90d", interval="month")
-            self.assertEqual(response[0]["data"][2], 33)
-            self.assertEqual(response[0]["labels"][2], "Fri. 1 January")
+            self.assertEqual(response[0]["data"], [0, 0, 0, 33])
+            self.assertEqual(
+                response[0]["labels"], ["Thu. 1 October", "Sun. 1 November", "Tue. 1 December", "Fri. 1 January"]
+            )
 
         def test_previous_month_timerange(self):
             with freeze_time("2021-02-10T04:00:00.000Z"):
