@@ -15,7 +15,7 @@ import { PluginLoading } from 'scenes/plugins/plugin/PluginLoading'
 import { InstalledPlugin } from 'scenes/plugins/tabs/installed/InstalledPlugin'
 import { PluginTab, PluginTypeWithConfig } from 'scenes/plugins/types'
 import { SortableContainer, SortableElement, SortableHandle } from 'react-sortable-hoc'
-import { PluginsAccessLevel } from '../../../../lib/constants'
+import { canConfigurePlugins, canGloballyManagePlugins, canInstallPlugins } from '../../accessControl'
 
 type HandleProps = { children?: JSX.Element }
 const DragColumn = SortableHandle<HandleProps>(({ children }: HandleProps) => (
@@ -77,26 +77,24 @@ export function InstalledTab(): JSX.Element {
         makePluginOrderSaveable,
     } = useActions(pluginsLogic)
 
-    const upgradeButton = (user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Install &&
-        hasUpdateablePlugins && (
-            <Button
-                type="default"
-                icon={pluginsNeedingUpdates.length > 0 ? <SyncOutlined /> : <CloudDownloadOutlined />}
-                onClick={() => checkForUpdates(true)}
-                loading={checkingForUpdates}
-            >
-                {checkingForUpdates
-                    ? `Checking plugin ${Object.keys(updateStatus).length + 1} out of ${
-                          Object.keys(installedPluginUrls).length
-                      }`
-                    : pluginsNeedingUpdates.length > 0
-                    ? 'Check again'
-                    : 'Check for updates'}
-            </Button>
-        )
+    const upgradeButton = canInstallPlugins(user?.organization) && hasUpdateablePlugins && (
+        <Button
+            type="default"
+            icon={pluginsNeedingUpdates.length > 0 ? <SyncOutlined /> : <CloudDownloadOutlined />}
+            onClick={() => checkForUpdates(true)}
+            loading={checkingForUpdates}
+        >
+            {checkingForUpdates
+                ? `Checking plugin ${Object.keys(updateStatus).length + 1} out of ${
+                      Object.keys(installedPluginUrls).length
+                  }`
+                : pluginsNeedingUpdates.length > 0
+                ? 'Check again'
+                : 'Check for updates'}
+        </Button>
+    )
 
-    const canRearrange =
-        (user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Config && enabledPlugins.length > 1
+    const canRearrange: boolean = canConfigurePlugins(user?.organization) && enabledPlugins.length > 1
 
     const rearrangingButtons = rearranging ? (
         <>
@@ -234,7 +232,7 @@ export function InstalledTab(): JSX.Element {
                         <Row gutter={16} style={{ marginTop: 16 }}>
                             <Col span={24}>
                                 <Empty description={<span>You haven't installed any plugins yet</span>}>
-                                    {user?.organization?.plugins_access_level === PluginsAccessLevel.Root && (
+                                    {canGloballyManagePlugins(user?.organization) && (
                                         <Button type="default" onClick={() => setPluginTab(PluginTab.Repository)}>
                                             Open the Plugin Repository
                                         </Button>

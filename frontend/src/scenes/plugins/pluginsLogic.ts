@@ -13,8 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 import posthog from 'posthog-js'
 import { FormInstance } from 'antd/lib/form'
-import { PluginsAccessLevel } from '../../lib/constants'
-import { organizationLogic } from '../organizationLogic'
+import { canGloballyManagePlugins, canInstallPlugins } from './accessControl'
 
 type PluginForm = FormInstance
 
@@ -432,19 +431,16 @@ export const pluginsLogic = kea<
             (installedPlugins) => installedPlugins.filter(({ pluginConfig }) => !pluginConfig?.enabled),
         ],
         pluginsNeedingUpdates: [
-            (s) => [s.installedPlugins, organizationLogic.selectors.currentOrganization],
-            (installedPlugins, currentOrganization) => {
+            (s) => [s.installedPlugins, userLogic.selectors.user],
+            (installedPlugins, user) => {
                 // Disable this for orgs who can't install plugins
-                if (
-                    !currentOrganization ||
-                    (currentOrganization.plugins_access_level ?? 0) < PluginsAccessLevel.Install
-                ) {
+                if (!canInstallPlugins(user?.organization)) {
                     return []
                 }
                 // Show either plugins that need to be updated or that were just updated, and only the current org's
                 return installedPlugins.filter(
                     ({ plugin_type, tag, latest_tag, updateStatus, organization_id }) =>
-                        organization_id === currentOrganization.id &&
+                        organization_id === user?.organization?.id &&
                         plugin_type !== PluginInstallationType.Source &&
                         ((latest_tag && tag !== latest_tag) ||
                             (updateStatus && !updateStatus.error && (updateStatus.updated || !updateStatus.upToDate)))
@@ -452,11 +448,11 @@ export const pluginsLogic = kea<
             },
         ],
         installedPluginUrls: [
-            (s) => [s.installedPlugins, organizationLogic.selectors.currentOrganization],
-            (installedPlugins, currentOrganization) => {
+            (s) => [s.installedPlugins, userLogic.selectors.user],
+            (installedPlugins, user) => {
                 const names: Record<string, boolean> = {}
                 installedPlugins.forEach((plugin) => {
-                    if (plugin.url && plugin.organization_id === currentOrganization?.id) {
+                    if (plugin.url && plugin.organization_id === user?.organization?.id) {
                         names[plugin.url.replace(/\/+$/, '')] = true
                     }
                 })
@@ -519,11 +515,11 @@ export const pluginsLogic = kea<
                     initialUpdateStatus[id] = { upToDate: plugin.tag === plugin.latest_tag }
                 }
             }
-            if ((userLogic.values.user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Install) {
+            if (canInstallPlugins(userLogic.values.user?.organization)) {
                 actions.checkForUpdates(false, initialUpdateStatus)
                 if (
                     Object.keys(values.plugins).length === 0 &&
-                    organizationLogic.values.currentOrganization?.plugins_access_level === PluginsAccessLevel.Root
+                    canGloballyManagePlugins(userLogic.values.user?.organization)
                 ) {
                     actions.setPluginTab(PluginTab.Repository)
                 }
@@ -565,7 +561,7 @@ export const pluginsLogic = kea<
             actions.loadPlugins()
             actions.loadPluginConfigs()
 
-            if ((userLogic.values.user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Root) {
+            if (canGloballyManagePlugins(userLogic.values.user?.organization)) {
                 actions.loadRepository()
             }
         },

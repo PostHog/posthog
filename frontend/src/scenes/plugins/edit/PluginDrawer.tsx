@@ -13,9 +13,9 @@ import Markdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from './PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
-import { PluginsAccessLevel } from 'lib/constants'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 import { endWithPunctation } from '../../../lib/utils'
+import { canGloballyManagePlugins, canInstallPlugins } from '../accessControl'
 
 function EnabledDisabledSwitch({
     value,
@@ -93,22 +93,19 @@ export function PluginDrawer(): JSX.Element {
                     <>
                         <div style={{ display: 'flex' }}>
                             <div style={{ flexGrow: 1 }}>
-                                {editingPlugin?.organization_id === user?.organization?.id &&
-                                    (user?.organization?.plugins_access_level ?? 0) >= PluginsAccessLevel.Install && (
-                                        <Popconfirm
-                                            placement="topLeft"
-                                            title="Are you sure you wish to uninstall this plugin?"
-                                            onConfirm={
-                                                editingPlugin ? () => uninstallPlugin(editingPlugin.name) : () => {}
-                                            }
-                                            okText="Uninstall"
-                                            cancelText="Cancel"
-                                        >
-                                            <Button style={{ color: 'var(--red)', float: 'left' }} type="link">
-                                                <DeleteOutlined /> Uninstall
-                                            </Button>
-                                        </Popconfirm>
-                                    )}
+                                {canInstallPlugins(user?.organization, editingPlugin?.organization_id) && (
+                                    <Popconfirm
+                                        placement="topLeft"
+                                        title="Are you sure you wish to uninstall this plugin?"
+                                        onConfirm={editingPlugin ? () => uninstallPlugin(editingPlugin.name) : () => {}}
+                                        okText="Uninstall"
+                                        cancelText="Cancel"
+                                    >
+                                        <Button style={{ color: 'var(--red)', float: 'left' }} type="link">
+                                            <DeleteOutlined /> Uninstall
+                                        </Button>
+                                    </Popconfirm>
+                                )}
                             </div>
                             <div>
                                 <Button onClick={() => editPlugin(null)} style={{ marginRight: 16 }}>
@@ -173,34 +170,33 @@ export function PluginDrawer(): JSX.Element {
                                 </div>
                             ) : null}
 
-                            {user?.organization?.plugins_access_level === PluginsAccessLevel.Root &&
-                                user?.is_multi_tenancy && (
-                                    <>
-                                        <h3 className="l3" style={{ marginTop: 32 }}>
-                                            Installation
-                                        </h3>
-                                        <Tooltip
-                                            title={
-                                                <>
-                                                    Enabling this will mark this plugin as installed for{' '}
-                                                    <b>all organizations</b> in this instance of PostHog.
-                                                </>
+                            {canGloballyManagePlugins(user?.organization) && user?.is_multi_tenancy && (
+                                <>
+                                    <h3 className="l3" style={{ marginTop: 32 }}>
+                                        Installation
+                                    </h3>
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                Enabling this will mark this plugin as installed for{' '}
+                                                <b>all organizations</b> in this instance of PostHog.
+                                            </>
+                                        }
+                                        placement="bottom"
+                                    >
+                                        <Checkbox
+                                            checked={editingPlugin.is_global}
+                                            onChange={(e) =>
+                                                patchPlugin(editingPlugin.id, {
+                                                    is_global: e.target.checked,
+                                                })
                                             }
-                                            placement="bottom"
                                         >
-                                            <Checkbox
-                                                checked={editingPlugin.is_global}
-                                                onChange={(e) =>
-                                                    patchPlugin(editingPlugin.id, {
-                                                        is_global: e.target.checked,
-                                                    })
-                                                }
-                                            >
-                                                <span style={{ paddingLeft: 10 }}>Mark as global</span>
-                                            </Checkbox>
-                                        </Tooltip>
-                                    </>
-                                )}
+                                            <span style={{ paddingLeft: 10 }}>Mark as global</span>
+                                        </Checkbox>
+                                    </Tooltip>
+                                </>
+                            )}
 
                             <h3 className="l3" style={{ marginTop: 32 }}>
                                 Configuration

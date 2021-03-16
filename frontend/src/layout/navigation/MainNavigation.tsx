@@ -33,6 +33,7 @@ import { dashboardsModel } from '~/models'
 import { DashboardType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { canViewPlugins } from '../../scenes/plugins/accessControl'
 
 // to show the right page in the sidebar
 const sceneOverride: Record<string, string> = {
@@ -230,9 +231,9 @@ export function MainNavigation(): JSX.Element {
                         to="/feature_flags"
                     />
                     <div className="divider" />
-                    {user?.organization?.plugins_access_level ? (
+                    {canViewPlugins(user?.organization) && (
                         <MenuItem title="Plugins" icon={<ApiFilled />} identifier="plugins" to="/project/plugins" />
-                    ) : null}
+                    )}
                     <MenuItem
                         title="Annotations"
                         icon={<MessageOutlined />}

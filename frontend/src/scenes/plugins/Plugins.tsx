@@ -11,7 +11,7 @@ import { OptInPlugins } from 'scenes/plugins/optin/OptInPlugins'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
-import { PluginsAccessLevel } from '../../lib/constants'
+import { canGloballyManagePlugins, canInstallPlugins, canViewPlugins } from './accessControl'
 
 export function Plugins(): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -23,7 +23,7 @@ export function Plugins(): JSX.Element | null {
         return <Spin />
     }
 
-    if (!user.organization?.plugins_access_level) {
+    if (!canViewPlugins(user.organization)) {
         useEffect(() => {
             window.location.href = '/'
         }, [])
@@ -48,12 +48,12 @@ export function Plugins(): JSX.Element | null {
 
             {user.team?.plugins_opt_in ? (
                 <>
-                    {user.organization?.plugins_access_level >= PluginsAccessLevel.Install ? (
+                    {canInstallPlugins(user.organization) ? (
                         <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}>
                             <TabPane tab="Installed" key={PluginTab.Installed}>
                                 <InstalledTab />
                             </TabPane>
-                            {user.organization?.plugins_access_level === PluginsAccessLevel.Root && (
+                            {canGloballyManagePlugins(user.organization) && (
                                 <TabPane tab="Repository" key={PluginTab.Repository}>
                                     <RepositoryTab />
                                 </TabPane>
