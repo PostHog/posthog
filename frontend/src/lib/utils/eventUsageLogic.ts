@@ -23,6 +23,7 @@ export enum EventSource {
 export const eventUsageLogic = kea<
     eventUsageLogicType<AnnotationType, FilterType, DashboardType, PersonType, DashboardMode>
 >({
+    connect: [userLogic],
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
@@ -188,7 +189,7 @@ export const eventUsageLogic = kea<
                 sample_items_count: 0,
                 item_count: dashboard.items.length,
                 created_by_system: !dashboard.created_by,
-                has_share_token: hasShareToken,
+                has_share_token: hasShareToken, // if the dashboard is being viewed in `public` mode
             }
 
             for (const item of dashboard.items) {
