@@ -1,18 +1,11 @@
 import { PluginsAccessLevel } from '../../lib/constants'
 import { OrganizationType } from '../../types'
 
-export function canViewPlugins(organization: OrganizationType | null | undefined): boolean {
+export function canGloballyManagePlugins(organization: OrganizationType | null | undefined): boolean {
     if (!organization) {
         return false
     }
-    return organization.plugins_access_level > PluginsAccessLevel.None
-}
-
-export function canConfigurePlugins(organization: OrganizationType | null | undefined): boolean {
-    if (!organization) {
-        return false
-    }
-    return organization.plugins_access_level >= PluginsAccessLevel.Config
+    return organization.plugins_access_level >= PluginsAccessLevel.Root
 }
 
 export function canInstallPlugins(
@@ -28,9 +21,16 @@ export function canInstallPlugins(
     return organization.plugins_access_level >= PluginsAccessLevel.Install
 }
 
-export function canGloballyManagePlugins(organization: OrganizationType | null | undefined): boolean {
+export function canConfigurePlugins(organization: OrganizationType | null | undefined): boolean {
     if (!organization) {
         return false
     }
-    return organization.plugins_access_level >= PluginsAccessLevel.Root
+    return organization.plugins_access_level >= PluginsAccessLevel.Config
+}
+
+export function canViewPlugins(organization: OrganizationType | null | undefined): boolean {
+    if (!organization) {
+        return false
+    }
+    return organization.plugins_access_level > PluginsAccessLevel.None
 }

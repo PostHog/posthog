@@ -15,7 +15,7 @@ import { PluginSource } from './PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 import { endWithPunctation } from '../../../lib/utils'
-import { canGloballyManagePlugins, canInstallPlugins } from '../accessControl'
+import { canGloballyManagePlugins, canInstallPlugins } from '../access'
 
 function EnabledDisabledSwitch({
     value,

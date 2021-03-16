@@ -7,7 +7,7 @@ from django.utils.timezone import now
 
 from posthog.models import Plugin, PluginAttachment, PluginConfig, organization
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.plugins.access import can_configure_plugins_via_api, can_install_plugins_via_api
+from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP,

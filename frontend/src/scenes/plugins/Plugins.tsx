@@ -11,7 +11,7 @@ import { OptInPlugins } from 'scenes/plugins/optin/OptInPlugins'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
-import { canGloballyManagePlugins, canInstallPlugins, canViewPlugins } from './accessControl'
+import { canGloballyManagePlugins, canInstallPlugins, canViewPlugins } from './access'
 
 export function Plugins(): JSX.Element | null {
     const { user } = useValues(userLogic)

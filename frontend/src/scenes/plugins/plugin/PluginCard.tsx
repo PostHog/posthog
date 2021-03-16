@@ -22,7 +22,7 @@ import { CommunityPluginTag } from './CommunityPluginTag'
 import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
 import { endWithPunctation } from '../../../lib/utils'
-import { canInstallPlugins } from '../accessControl'
+import { canInstallPlugins } from '../access'
 
 interface PluginCardProps {
     plugin: Partial<PluginTypeWithConfig>

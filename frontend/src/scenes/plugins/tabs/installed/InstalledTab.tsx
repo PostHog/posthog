@@ -15,7 +15,7 @@ import { PluginLoading } from 'scenes/plugins/plugin/PluginLoading'
 import { InstalledPlugin } from 'scenes/plugins/tabs/installed/InstalledPlugin'
 import { PluginTab, PluginTypeWithConfig } from 'scenes/plugins/types'
 import { SortableContainer, SortableElement, SortableHandle } from 'react-sortable-hoc'
-import { canConfigurePlugins, canGloballyManagePlugins, canInstallPlugins } from '../../accessControl'
+import { canConfigurePlugins, canGloballyManagePlugins, canInstallPlugins } from '../../access'
 
 type HandleProps = { children?: JSX.Element }
 const DragColumn = SortableHandle<HandleProps>(({ children }: HandleProps) => (

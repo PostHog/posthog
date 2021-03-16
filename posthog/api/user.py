@@ -20,7 +20,7 @@ from posthog.ee import is_ee_enabled
 from posthog.email import is_email_available
 from posthog.models import Team, User
 from posthog.models.organization import Organization
-from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api, reload_plugins_on_workers
+from posthog.plugins import can_configure_plugins, can_install_plugins, reload_plugins_on_workers
 from posthog.tasks import user_identify
 from posthog.version import VERSION
 

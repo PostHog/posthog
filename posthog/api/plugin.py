@@ -21,14 +21,14 @@ from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
 from posthog.models.organization import Organization
 from posthog.permissions import OrganizationMemberPermissions, ProjectMembershipNecessaryPermissions
 from posthog.plugins import (
-    can_configure_plugins_via_api,
-    can_install_plugins_via_api,
+    can_configure_plugins,
+    can_install_plugins,
     download_plugin_archive,
     get_json_from_archive,
     parse_url,
     reload_plugins_on_workers,
 )
-from posthog.plugins.access import can_root_plugins_via_api
+from posthog.plugins.access import can_globally_manage_plugins
 from posthog.plugins.utils import load_json_file
 from posthog.utils import is_plugin_server_alive
 
@@ -106,7 +106,7 @@ class PluginSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         validated_data["url"] = self.initial_data.get("url", None)
-        if validated_data.get("is_global") and not can_root_plugins_via_api(self.context["organization_id"]):
+        if validated_data.get("is_global") and not can_globally_manage_plugins(self.context["organization_id"]):
             raise PermissionDenied("This organization can't manage global plugins!")
         if validated_data.get("plugin_type", None) != Plugin.PluginType.SOURCE:
             self._update_validated_data_from_url(validated_data, validated_data["url"])
@@ -186,10 +186,10 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         if self.action == "get" or self.action == "list":
-            if can_install_plugins_via_api(self.organization) or can_configure_plugins_via_api(self.organization):
+            if can_install_plugins(self.organization) or can_configure_plugins(self.organization):
                 return queryset
         else:
-            if can_install_plugins_via_api(self.organization):
+            if can_install_plugins(self.organization):
                 return queryset
         return queryset.none()
 
@@ -208,7 +208,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=True)
     def check_for_updates(self, request: request.Request, **kwargs):
-        if not can_install_plugins_via_api(self.organization):
+        if not can_install_plugins(self.organization):
             raise PermissionDenied("Plugin installation is not available for the current organization!")
         plugin = self.get_object()
         latest_url = parse_url(plugin.url, get_latest_if_none=True)
@@ -224,7 +224,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         organization = self.organization
         if plugin.organization != organization:
             raise NotFound()
-        if not can_install_plugins_via_api(self.organization, plugin.organization_id):
+        if not can_install_plugins(self.organization, plugin.organization_id):
             raise PermissionDenied("Plugin upgrading is not available for the current organization!")
         serializer = PluginSerializer(plugin, context={"organization": organization})
         validated_data = {}
@@ -283,7 +283,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         return new_plugin_config
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
-        if not can_configure_plugins_via_api(Team.objects.get(id=self.context["team_id"]).organization_id):
+        if not can_configure_plugins(Team.objects.get(id=self.context["team_id"]).organization_id):
             raise ValidationError("Plugin configuration is not available for the current organization!")
         request = self.context["request"]
         validated_data["team"] = Team.objects.get(id=self.context["team_id"])
@@ -361,13 +361,13 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
 
     def get_queryset(self):
-        if not can_configure_plugins_via_api(self.team.organization_id):
+        if not can_configure_plugins(self.team.organization_id):
             return self.queryset.none()
         return super().get_queryset().order_by("order", "plugin_id")
 
     # we don't really use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:  # type: ignore
-        if not can_configure_plugins_via_api(self.team.organization_id):
+        if not can_configure_plugins(self.team.organization_id):
             return Response(status=404)
         plugin_config = PluginConfig.objects.get(team_id=self.team_id, pk=pk)
         plugin_config.enabled = False
@@ -376,7 +376,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["PATCH"], detail=False)
     def rearrange(self, request: request.Request, **kwargs):
-        if not can_configure_plugins_via_api(self.team.organization_id):
+        if not can_configure_plugins(self.team.organization_id):
             raise ValidationError("Plugin configuration is not available for the current organization!")
 
         orders = request.data.get("orders", {})

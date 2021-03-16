@@ -13,7 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 import posthog from 'posthog-js'
 import { FormInstance } from 'antd/lib/form'
-import { canGloballyManagePlugins, canInstallPlugins } from './accessControl'
+import { canGloballyManagePlugins, canInstallPlugins } from './access'
 
 type PluginForm = FormInstance
 
