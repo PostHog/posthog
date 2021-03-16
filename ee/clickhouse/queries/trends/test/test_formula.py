@@ -139,7 +139,7 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
 
     def test_week_interval(self):
         data = self._run({"date_from": "-2w", "interval": "week"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
-        self.assertEqual(data, [1350.0])
+        self.assertEqual(data, [0.0, 1350.0])
 
     def test_month_interval(self):
         data = self._run({"date_from": "-2m", "interval": "month"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
