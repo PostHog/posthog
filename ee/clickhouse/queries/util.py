@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional, Tuple
 
+from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
@@ -60,8 +61,12 @@ def get_time_diff(
     _start_time = start_time or get_earliest_timestamp(team_id)
     _end_time = end_time or timezone.now()
 
+    if interval == "month":
+        rel_delta = relativedelta(_end_time.replace(day=1), _start_time.replace(day=1))
+        return (rel_delta.years * 12) + rel_delta.months + 1, TIME_IN_SECONDS["month"], True
+
     diff = _end_time - _start_time
-    if interval == "week" or interval == "month":
+    if interval == "week":
         round_interval = True
     else:
         round_interval = diff.total_seconds() >= TIME_IN_SECONDS[interval] * 2

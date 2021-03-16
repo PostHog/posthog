@@ -1298,10 +1298,12 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     Filter(data={"date_from": "2019-9-24", "interval": "month", "events": [{"id": "sign up"}]}),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][2], "Sun. 1 December")
-            self.assertEqual(response[0]["data"][2], 1.0)
-            self.assertEqual(response[0]["labels"][3], "Wed. 1 January")
-            self.assertEqual(response[0]["data"][3], 4.0)
+            self.assertEqual(response[0]["labels"][0], "Sun. 1 September")
+            self.assertEqual(response[0]["data"][0], 0)
+            self.assertEqual(response[0]["labels"][3], "Sun. 1 December")
+            self.assertEqual(response[0]["data"][3], 1.0)
+            self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
+            self.assertEqual(response[0]["data"][4], 4.0)
 
             with freeze_time("2020-01-02 23:30"):
                 event_factory(team=self.team, event="sign up", distinct_id="blabla")
@@ -1738,10 +1740,10 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][2], "Sun. 1 December")
-            self.assertEqual(response[0]["data"][2], 1.0)
-            self.assertEqual(response[0]["labels"][3], "Wed. 1 January")
-            self.assertEqual(response[0]["data"][3], 4.0)
+            self.assertEqual(response[0]["labels"][3], "Sun. 1 December")
+            self.assertEqual(response[0]["data"][3], 1.0)
+            self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
+            self.assertEqual(response[0]["data"][4], 4.0)
 
             with freeze_time("2020-01-02 23:30"):
                 event_factory(team=self.team, event="sign up", distinct_id="blabla")
@@ -2350,7 +2352,8 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertTrue(
                 result[0]["days"]
                 == ["2020-02-02", "2020-02-09", "2020-02-16", "2020-02-23", "2020-03-01", "2020-03-08"]
-                or result[0]["days"] == ["2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
+                or result[0]["days"]
+                == ["2020-02-03", "2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
             )
             for res in result:
                 if res["status"] == "dormant":

@@ -350,8 +350,9 @@ def get_time_diff(
     interval_diff = get_interval(interval)
 
     diff = _end_time - _start_time
+    addition = 2 if interval == "week" else 1
     return (
-        int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + 1,
+        int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + addition,
         _start_time - interval_diff,
         _start_time,
         _end_time,
