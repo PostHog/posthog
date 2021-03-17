@@ -87,10 +87,6 @@
                     "value": "https://app.posthog.com"
                 },
                 {
-                    "name": "PLUGIN_SERVER_INGESTION",
-                    "value": "false"
-                },
-                {
                     "name": "EMAIL_DEFAULT_FROM",
                     "value": "hey@posthog.com"
                 },
