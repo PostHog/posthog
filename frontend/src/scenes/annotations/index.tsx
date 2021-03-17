@@ -142,17 +142,23 @@ export function Annotations(): JSX.Element {
                     closeModal()
                 }}
                 onSubmit={async (input, selectedDate): Promise<void> => {
-                    ;(await selectedAnnotation)
-                        ? updateAnnotation(selectedAnnotation.id, input)
-                        : createGlobalAnnotation(input, selectedDate, null)
+                    if (selectedAnnotation && (await selectedAnnotation)) {
+                        updateAnnotation(selectedAnnotation.id, input)
+                    } else {
+                        createGlobalAnnotation(input, selectedDate, null)
+                    }
                     closeModal()
                 }}
                 onDelete={(): void => {
-                    deleteAnnotation(selectedAnnotation.id)
+                    if (selectedAnnotation) {
+                        deleteAnnotation(selectedAnnotation.id)
+                    }
                     closeModal()
                 }}
                 onRestore={(): void => {
-                    restoreAnnotation(selectedAnnotation.id)
+                    if (selectedAnnotation) {
+                        restoreAnnotation(selectedAnnotation.id)
+                    }
                     closeModal()
                 }}
                 annotation={selectedAnnotation}
