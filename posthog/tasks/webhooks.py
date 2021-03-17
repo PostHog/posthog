@@ -3,11 +3,14 @@ import re
 from typing import Tuple
 
 import requests
+import urllib3
 from celery import Task
 from django.conf import settings
 
 from posthog.celery import app
 from posthog.models import Action, Event, Team
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def get_user_details(event: Event, site_url: str) -> Tuple[str, str]:
