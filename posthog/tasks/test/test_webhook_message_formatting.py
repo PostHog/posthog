@@ -124,4 +124,4 @@ class TestWebhookMessage(BaseTest):
             slack_message_format="[user.name] did thing from browser [user.bbbrowzer]",
         )
         text, markdown = get_formatted_message(action1, event1, "https://localhost:8000")
-        self.assertIn("Error", text)
+        self.assertIn("undefined", text)
