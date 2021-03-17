@@ -1,4 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
+import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { FastifyInstance } from 'fastify'
@@ -11,7 +12,6 @@ import { DateTime } from 'luxon'
 import * as schedule from 'node-schedule'
 import * as path from 'path'
 import { Pool, types as pgTypes } from 'pg'
-import Piscina from 'piscina'
 import { ConnectionOptions } from 'tls'
 
 import { defaultConfig } from './config'

@@ -1,4 +1,4 @@
-import Piscina from 'piscina'
+import Piscina from '@posthog/piscina'
 
 import { defaultConfig } from '../../src/config'
 import { LogLevel } from '../../src/types'

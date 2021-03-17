@@ -2,7 +2,7 @@ const Sentry = require('@sentry/node')
 const { isMainThread, threadId } = require('worker_threads')
 
 if (isMainThread) {
-    const Piscina = require('piscina')
+    const Piscina = require('@posthog/piscina')
     const { createConfig } = require('./config')
     module.exports = {
         makePiscina: (serverConfig) => {
@@ -20,6 +20,6 @@ if (isMainThread) {
     }
 
     const { createWorker } = require('./worker')
-    const { workerData } = require('piscina')
+    const { workerData } = require('@posthog/piscina')
     module.exports = createWorker(workerData.serverConfig, threadId)
 }
