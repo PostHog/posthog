@@ -129,7 +129,7 @@ export class KafkaQueue implements Queue {
 
         status.info(
             '🧩',
-            `Kafka Batch of ${pluginEvents.length} events completed in ${
+            `Kafka batch of ${pluginEvents.length} events completed in ${
                 new Date().valueOf() - batchStartTimer.valueOf()
             }ms (plugins: ${batchIngestionTimer.valueOf() - batchStartTimer.valueOf()}ms, ingestion: ${
                 new Date().valueOf() - batchIngestionTimer.valueOf()
@@ -157,7 +157,7 @@ export class KafkaQueue implements Queue {
                     try {
                         await this.eachBatch(payload)
                     } catch (error) {
-                        status.info('💀', `Kafka Batch of ${payload.batch.messages.length} events failed!`)
+                        status.info('💀', `Kafka batch of ${payload.batch.messages.length} events failed!`)
                         Sentry.captureException(error)
                         throw error
                     }

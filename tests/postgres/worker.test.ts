@@ -1,16 +1,24 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
+import { mocked } from 'ts-jest/utils'
 
 import Client from '../../src/celery/client'
+import { ingestEvent } from '../../src/ingestion/ingest-event'
+import { runPlugins, runPluginsOnBatch, runPluginTask } from '../../src/plugins/run'
+import { loadSchedule, setupPlugins } from '../../src/plugins/setup'
 import { startPluginsServer } from '../../src/server'
 import { loadPluginSchedule } from '../../src/services/schedule'
 import { LogLevel } from '../../src/types'
 import { delay, UUIDT } from '../../src/utils'
 import { makePiscina } from '../../src/worker/piscina'
+import { createTaskRunner } from '../../src/worker/worker'
 import { resetTestDatabase } from '../helpers/sql'
 import { setupPiscina } from '../helpers/worker'
 
 jest.mock('../../src/sql')
 jest.mock('../../src/status')
+jest.mock('../../src/ingestion/ingest-event')
+jest.mock('../../src/plugins/run')
+jest.mock('../../src/plugins/setup')
 jest.setTimeout(600000) // 600 sec timeout
 
 function createEvent(index = 0): PluginEvent {
@@ -143,6 +151,7 @@ test('pause the queue if too many tasks', async () => {
         uuid: new UUIDT().toString(),
     })
 
+    await delay(1000)
     const baseCompleted = pluginsServer.piscina.completed
 
     expect(pluginsServer.piscina.queueSize).toBe(0)
@@ -198,4 +207,88 @@ test('pause the queue if too many tasks', async () => {
 
     await pluginsServer.server.redisPool.release(redis)
     await pluginsServer.stop()
+})
+
+describe('createTaskRunner()', () => {
+    let taskRunner: any
+    let server: any
+
+    beforeEach(() => {
+        server = { mock: 'server' }
+        taskRunner = createTaskRunner(server)
+    })
+
+    it('handles `hello` task', async () => {
+        expect(await taskRunner({ task: 'hello', args: ['world'] })).toEqual('hello world!')
+    })
+
+    it('handles `processEvent` task', async () => {
+        mocked(runPlugins).mockReturnValue('runPlugins response' as any)
+
+        expect(await taskRunner({ task: 'processEvent', args: { event: 'someEvent' } })).toEqual('runPlugins response')
+
+        expect(runPlugins).toHaveBeenCalledWith(server, 'someEvent')
+    })
+
+    it('handles `processEventBatch` task', async () => {
+        mocked(runPluginsOnBatch).mockReturnValue(['runPluginsOnBatch response'] as any)
+
+        expect(await taskRunner({ task: 'processEventBatch', args: { batch: 'someBatch' } })).toEqual([
+            'runPluginsOnBatch response',
+        ])
+
+        expect(runPluginsOnBatch).toHaveBeenCalledWith(server, 'someBatch')
+    })
+
+    it('handles `getPluginSchedule` task', async () => {
+        server.pluginSchedule = { runEveryDay: [66] }
+
+        expect(await taskRunner({ task: 'getPluginSchedule' })).toEqual(server.pluginSchedule)
+    })
+
+    it('handles `ingestEvent` task', async () => {
+        mocked(ingestEvent).mockReturnValue('ingestEvent response' as any)
+
+        expect(await taskRunner({ task: 'ingestEvent', args: { event: 'someEvent' } })).toEqual('ingestEvent response')
+
+        expect(ingestEvent).toHaveBeenCalledWith(server, 'someEvent')
+    })
+
+    it('handles `ingestEvent` task', async () => {
+        mocked(ingestEvent).mockReturnValue('ingestEvent response' as any)
+
+        expect(await taskRunner({ task: 'ingestEvent', args: { event: 'someEvent' } })).toEqual('ingestEvent response')
+
+        expect(ingestEvent).toHaveBeenCalledWith(server, 'someEvent')
+    })
+
+    it('handles `runEvery` tasks', async () => {
+        mocked(runPluginTask).mockImplementation((server, task, pluginId) => Promise.resolve(`${task} for ${pluginId}`))
+
+        expect(await taskRunner({ task: 'runEveryMinute', args: { pluginConfigId: 1 } })).toEqual(
+            'runEveryMinute for 1'
+        )
+        expect(await taskRunner({ task: 'runEveryHour', args: { pluginConfigId: 1 } })).toEqual('runEveryHour for 1')
+        expect(await taskRunner({ task: 'runEveryDay', args: { pluginConfigId: 1 } })).toEqual('runEveryDay for 1')
+    })
+
+    it('handles `reloadPlugins` task', async () => {
+        await taskRunner({ task: 'reloadPlugins' })
+
+        expect(setupPlugins).toHaveBeenCalled()
+    })
+
+    it('handles `reloadSchedule` task', async () => {
+        await taskRunner({ task: 'reloadSchedule' })
+
+        expect(loadSchedule).toHaveBeenCalled()
+    })
+
+    it('handles `flushKafkaMessages` task', async () => {
+        server.db = { flushKafkaMessages: jest.fn() }
+
+        await taskRunner({ task: 'flushKafkaMessages' })
+
+        expect(server.db.flushKafkaMessages).toHaveBeenCalled()
+    })
 })

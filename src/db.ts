@@ -19,6 +19,7 @@ import {
     Event,
     Person,
     PersonDistinctId,
+    PluginsServerConfig,
     PostgresSessionRecordingEvent,
     RawOrganization,
     RawPerson,
@@ -49,18 +50,32 @@ export class DB {
     /** StatsD instance used to do instrumentation */
     statsd: StatsD | undefined
 
+    /** Queued producer for kafka */
+    lastFlushTime: Date
+    kafkaMessageQueue: Array<ProducerRecord>
+    kafkaFlushInterval: NodeJS.Timeout
+    flushFrequencyMs: number
+    maxQueueSize: number
+
     constructor(
         postgres: Pool,
         redisPool: GenericPool<Redis.Redis>,
-        kafkaProducer?: Producer,
-        clickhouse?: ClickHouse,
-        statsd?: StatsD
+        kafkaProducer: Producer | undefined,
+        clickhouse: ClickHouse | undefined,
+        statsd: StatsD | undefined,
+        serverConfig: PluginsServerConfig
     ) {
         this.postgres = postgres
         this.redisPool = redisPool
         this.kafkaProducer = kafkaProducer
         this.clickhouse = clickhouse
         this.statsd = statsd
+
+        this.lastFlushTime = new Date()
+        this.kafkaMessageQueue = []
+        this.flushFrequencyMs = serverConfig.KAFKA_FLUSH_FREQUENCY_MS
+        this.maxQueueSize = serverConfig.KAFKA_PRODUCER_MAX_QUEUE_SIZE
+        this.kafkaFlushInterval = setInterval(() => this.flushKafkaMessages(), this.flushFrequencyMs)
     }
 
     // Postgres
@@ -121,17 +136,44 @@ export class DB {
     }
 
     // Kafka
+    public async queueKafkaMessage(kafkaMessage: ProducerRecord): Promise<void> {
+        this.kafkaMessageQueue.push(kafkaMessage)
 
-    public async sendKafkaMessage(kafkaMessage: ProducerRecord): Promise<void> {
+        const timeSinceLastFlush = new Date().getTime() - this.lastFlushTime.getTime()
+        if (timeSinceLastFlush > this.flushFrequencyMs || this.kafkaMessageQueue.length >= this.maxQueueSize) {
+            await this.flushKafkaMessages()
+        }
+    }
+
+    public async flushKafkaMessages(): Promise<void> {
+        if (this.kafkaMessageQueue.length === 0) {
+            return
+        }
+
         return this.instrumentQuery('query.kafka_send', undefined, async () => {
             if (!this.kafkaProducer) {
                 throw new Error('Kafka connection has not been provided!')
             }
-            const timeout = timeoutGuard(
-                `Kafka message sending delayed. Waiting over 30 sec to send to topic: ${kafkaMessage.topic}`
-            )
+
+            const batches: Record<string, ProducerRecord> = {}
+            for (const { topic, messages } of this.kafkaMessageQueue) {
+                if (!batches[topic]) {
+                    batches[topic] = {
+                        topic,
+                        messages: [],
+                    }
+                }
+                batches[topic].messages = batches[topic].messages.concat(messages)
+            }
+
+            this.kafkaMessageQueue = []
+            this.lastFlushTime = new Date()
+
+            const timeout = timeoutGuard(`Kafka message sending delayed. Waiting over 30 sec to send messages.`)
             try {
-                await this.kafkaProducer.send(kafkaMessage)
+                await this.kafkaProducer!.sendBatch({
+                    topicMessages: Object.values(batches),
+                })
             } finally {
                 clearTimeout(timeout)
             }
@@ -350,7 +392,7 @@ export class DB {
 
         if (this.kafkaProducer) {
             for (const kafkaMessage of kafkaMessages) {
-                await this.sendKafkaMessage(kafkaMessage)
+                await this.queueKafkaMessage(kafkaMessage)
             }
         }
 
@@ -369,7 +411,7 @@ export class DB {
         )
 
         if (this.kafkaProducer) {
-            await this.sendKafkaMessage({
+            await this.queueKafkaMessage({
                 topic: KAFKA_PERSON,
                 messages: [
                     {
@@ -442,7 +484,7 @@ export class DB {
     public async addDistinctId(person: Person, distinctId: string): Promise<void> {
         const kafkaMessage = await this.addDistinctIdPooled(this.postgres, person, distinctId)
         if (this.kafkaProducer && kafkaMessage) {
-            await this.sendKafkaMessage(kafkaMessage)
+            await this.queueKafkaMessage(kafkaMessage)
         }
     }
 
@@ -478,7 +520,7 @@ export class DB {
         ])
         if (this.kafkaProducer) {
             const clickhouseModel: ClickHousePersonDistinctId = { ...personDistinctId, person_id: moveToPerson.uuid }
-            await this.sendKafkaMessage({
+            await this.queueKafkaMessage({
                 topic: KAFKA_PERSON_UNIQUE_ID,
                 messages: [{ value: Buffer.from(JSON.stringify(clickhouseModel)) }],
             })

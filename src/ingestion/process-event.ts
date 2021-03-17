@@ -514,7 +514,7 @@ export class EventsProcessor {
         }
 
         if (this.kafkaProducer) {
-            await this.db.sendKafkaMessage({
+            await this.db.queueKafkaMessage({
                 topic: KAFKA_EVENTS,
                 messages: [
                     {
@@ -595,7 +595,7 @@ export class EventsProcessor {
         }
 
         if (this.kafkaProducer) {
-            await this.db.sendKafkaMessage({
+            await this.db.queueKafkaMessage({
                 topic: KAFKA_SESSION_RECORDING_EVENTS,
                 messages: [{ key: uuid, value: Buffer.from(JSON.stringify(data)) }],
             })
