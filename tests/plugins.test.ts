@@ -8,6 +8,7 @@ import { loadSchedule, setupPlugins } from '../src/plugins/setup'
 import { createServer } from '../src/server'
 import { LogLevel, PluginsServer } from '../src/types'
 import {
+    commonOrganizationId,
     mockPluginTempFolder,
     mockPluginWithArchive,
     plugin60,
@@ -202,7 +203,7 @@ test('archive plugin with broken plugin.json does not do much', async () => {
     expect(processError).toHaveBeenCalledWith(
         mockServer,
         pluginConfigs.get(39)!,
-        'Can not load plugin.json for plugin "test-maxmind-plugin"'
+        `Can not load plugin.json for plugin "test-maxmind-plugin" (organization ${commonOrganizationId})`
     )
 
     expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
@@ -250,7 +251,7 @@ test('plugin with http urls must have an archive', async () => {
     expect(processError).toHaveBeenCalledWith(
         mockServer,
         pluginConfigs.get(39)!,
-        'Un-downloaded remote plugins not supported! Plugin: "test-maxmind-plugin"'
+        `Tried using undownloaded remote plugin "test-maxmind-plugin" (organization ${commonOrganizationId}), which is not supported!`
     )
     expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
 })

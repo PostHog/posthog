@@ -31,6 +31,7 @@ const mockPlugin: Plugin = {
     tag: 'v1.0.0',
     archive: null,
     error: undefined,
+    is_global: false,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
 }
