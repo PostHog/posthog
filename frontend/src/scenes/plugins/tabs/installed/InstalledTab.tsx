@@ -15,6 +15,7 @@ import { PluginLoading } from 'scenes/plugins/plugin/PluginLoading'
 import { InstalledPlugin } from 'scenes/plugins/tabs/installed/InstalledPlugin'
 import { PluginTab, PluginTypeWithConfig } from 'scenes/plugins/types'
 import { SortableContainer, SortableElement, SortableHandle } from 'react-sortable-hoc'
+import { canConfigurePlugins, canGloballyManagePlugins, canInstallPlugins } from '../../access'
 
 type HandleProps = { children?: JSX.Element }
 const DragColumn = SortableHandle<HandleProps>(({ children }: HandleProps) => (
@@ -58,7 +59,7 @@ export function InstalledTab(): JSX.Element {
         disabledPlugins,
         loading,
         checkingForUpdates,
-        hasNonSourcePlugins,
+        hasUpdateablePlugins,
         pluginsNeedingUpdates,
         installedPluginUrls,
         updateStatus,
@@ -76,7 +77,7 @@ export function InstalledTab(): JSX.Element {
         makePluginOrderSaveable,
     } = useActions(pluginsLogic)
 
-    const upgradeButton = user?.plugin_access.install && hasNonSourcePlugins && (
+    const upgradeButton = canInstallPlugins(user?.organization) && hasUpdateablePlugins && (
         <Button
             type="default"
             icon={pluginsNeedingUpdates.length > 0 ? <SyncOutlined /> : <CloudDownloadOutlined />}
@@ -93,7 +94,7 @@ export function InstalledTab(): JSX.Element {
         </Button>
     )
 
-    const canRearrange = user?.plugin_access.configure && enabledPlugins.length > 1
+    const canRearrange: boolean = canConfigurePlugins(user?.organization) && enabledPlugins.length > 1
 
     const rearrangingButtons = rearranging ? (
         <>
@@ -231,9 +232,11 @@ export function InstalledTab(): JSX.Element {
                         <Row gutter={16} style={{ marginTop: 16 }}>
                             <Col span={24}>
                                 <Empty description={<span>You haven't installed any plugins yet</span>}>
-                                    <Button type="default" onClick={() => setPluginTab(PluginTab.Repository)}>
-                                        Open the Plugin Repository
-                                    </Button>
+                                    {canGloballyManagePlugins(user?.organization) && (
+                                        <Button type="default" onClick={() => setPluginTab(PluginTab.Repository)}>
+                                            Open the Plugin Repository
+                                        </Button>
+                                    )}
                                 </Empty>
                             </Col>
                         </Row>

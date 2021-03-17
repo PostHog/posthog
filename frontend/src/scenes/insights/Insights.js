@@ -17,8 +17,8 @@ import {
     ACTIONS_TABLE,
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART_VALUE,
-    LIFECYCLE,
     FUNNEL_VIZ,
+    ShownAsValue,
 } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -221,7 +221,7 @@ export function Insights() {
                                                     }
                                                 }}
                                                 filters={allFilters}
-                                                disabled={allFilters.shown_as === LIFECYCLE}
+                                                disabled={allFilters.shown_as === ShownAsValue.LIFECYCLE}
                                             />
                                         )}
 

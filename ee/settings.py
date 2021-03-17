@@ -25,9 +25,6 @@ if "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS" in os.environ:
         "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS"
     ].split(",")
 
-# TODO: eliminate this setting for full rollout of Plugins on EE/Cloud
-PLUGINS_CLOUD_WHITELISTED_ORG_IDS: List[str] = os.getenv("PLUGINS_CLOUD_WHITELISTED_ORG_IDS", "").split(",")
-
 # ClickHouse and Kafka
 CLICKHOUSE_DENORMALIZED_PROPERTIES = os.getenv("CLICKHOUSE_DENORMALIZED_PROPERTIES", "").split(",")
 KAFKA_ENABLED = PRIMARY_DB == RDBMS.CLICKHOUSE and not TEST

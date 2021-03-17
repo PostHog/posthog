@@ -4,12 +4,12 @@ import { Select } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
-    STICKINESS,
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
     ACTIONS_TABLE,
     FUNNEL_VIZ,
     ACTIONS_BAR_CHART_VALUE,
+    ShownAsValue,
 } from '~/lib/constants'
 import { chartFilterLogic } from './chartFilterLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
@@ -22,11 +22,12 @@ export function ChartFilter(props) {
 
     const linearDisabled = filters.session && filters.session === 'dist'
     const cumulativeDisabled =
-        filters.session || filters.shown_as === STICKINESS || filters.insight === ViewType.RETENTION
+        filters.session || filters.shown_as === ShownAsValue.STICKINESS || filters.insight === ViewType.RETENTION
     const tableDisabled = false
     const pieDisabled = filters.session || filters.insight === ViewType.RETENTION
     const barDisabled = filters.session || filters.insight === ViewType.RETENTION
-    const barValueDisabled = barDisabled || filters.shown_as === STICKINESS || filters.insight === ViewType.RETENTION
+    const barValueDisabled =
+        barDisabled || filters.shown_as === ShownAsValue.STICKINESS || filters.insight === ViewType.RETENTION
     const defaultDisplay =
         filters.insight === ViewType.RETENTION
             ? ACTIONS_TABLE

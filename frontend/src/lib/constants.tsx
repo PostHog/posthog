@@ -9,14 +9,18 @@ export const ACTIONS_BAR_CHART_VALUE = 'ActionsBarValue'
 export const PATHS_VIZ = 'PathsViz'
 export const FUNNEL_VIZ = 'FunnelViz'
 
-export const VOLUME = 'Volume'
-export const STICKINESS = 'Stickiness'
-export const LIFECYCLE = 'Lifecycle'
-
 export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
     Owner = 15,
+}
+
+/** See posthog/api/organization.py for details. */
+export enum PluginsAccessLevel {
+    None = 0,
+    Config = 3,
+    Install = 6,
+    Root = 9,
 }
 
 export const organizationMembershipLevelToName = new Map<number, string>([
