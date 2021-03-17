@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .property-select {
     cursor: pointer;
     margin-top: 6px;
@@ -37,9 +39,14 @@
     }
 }
 .action-row-letter {
-    max-width: 10;
     line-height: 32px;
-    padding-right: 4;
-    opacity: 0.7;
-    font-weight: 500;
+    padding-right: 1px;
+
+    span {
+        background-color: $hc_light_lilac;
+        color: $hc_navy;
+        border-radius: $radius;
+        font-weight: bold;
+        padding: 2px 6px;
+    }
 }
