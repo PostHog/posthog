@@ -1,4 +1,4 @@
-import { TaskQueue } from 'piscina/src/common'
+import { TaskQueue } from '@posthog/piscina/src/common'
 
 import { PluginsServerConfig } from '../types'
 

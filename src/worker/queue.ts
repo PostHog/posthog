@@ -1,6 +1,6 @@
+import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import Piscina from 'piscina'
 
 import Client from '../celery/client'
 import Worker from '../celery/worker'

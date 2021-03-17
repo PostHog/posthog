@@ -1,6 +1,6 @@
+import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import * as schedule from 'node-schedule'
-import Piscina from 'piscina'
 import Redlock from 'redlock'
 
 import { processError } from '../error'

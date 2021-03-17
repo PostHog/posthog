@@ -1,5 +1,5 @@
+import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import Piscina from 'piscina'
 
 import { defaultConfig } from '../../../src/config'
 import { LogLevel } from '../../../src/types'
