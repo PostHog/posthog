@@ -134,7 +134,7 @@ export async function createServer(
         }
     }
 
-    const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd)
+    const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd, serverConfig)
 
     const server: Omit<PluginsServer, 'eventsProcessor'> = {
         ...serverConfig,
@@ -156,6 +156,8 @@ export async function createServer(
     server.eventsProcessor = new EventsProcessor(server as PluginsServer)
 
     const closeServer = async () => {
+        clearInterval(db.kafkaFlushInterval)
+        await db.flushKafkaMessages()
         await kafkaProducer?.disconnect()
         await redisPool.drain()
         await redisPool.clear()
@@ -294,5 +296,6 @@ export async function stopPiscina(piscina: Piscina): Promise<void> {
     // Wait two seconds for any running workers to stop.
     // TODO: better "wait until everything is done"
     await delay(2000)
+    await Promise.race([piscina.broadcastTask({ task: 'flushKafkaMessages' }), delay(2000)])
     await piscina.destroy()
 }
