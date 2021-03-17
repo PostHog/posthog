@@ -93,11 +93,8 @@ export function FunnelViz({
                 </div>
             )
         }
-        return steps && steps.length > 0 ? (
+        return steps && steps.length > 0 && steps[0].labels ? (
             <>
-                <div style={{ position: 'absolute', right: 24, marginTop: -20 }}>
-                    % of users converted between first and last step
-                </div>
                 <LineGraph
                     pageKey="trends-annotations"
                     data-attr="trend-line-graph-funnel"
