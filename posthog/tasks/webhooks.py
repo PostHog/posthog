@@ -50,8 +50,9 @@ def get_value_of_token(action: Action, event: Event, site_url: str, token_parts:
         else:
             user_property = event.properties.get("$" + token_parts[1])
             if user_property is None:
-                raise ValueError
-            text = markdown = user_property
+                text = markdown = "undefined"
+            else:
+                text = markdown = user_property
     elif token_parts[0] == "action":
         if token_parts[1] == "name":
             text, markdown = get_action_details(action, event, site_url)
