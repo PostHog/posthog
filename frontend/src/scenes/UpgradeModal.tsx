@@ -30,7 +30,7 @@ export function UpgradeModal(): JSX.Element {
 
 export function guardPremiumFeature(
     user: UserType | null,
-    showUpgradeModal: (featureName: string, featurBenefit: string) => void,
+    showUpgradeModal: (featureName: string, featureBenefit: string) => void,
     key: string,
     name: string,
     benefit: string,
