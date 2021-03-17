@@ -2,7 +2,6 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
 import { Table, Switch, Drawer, Button } from 'antd'
-//import { EditFeatureFlag } from './EditFeatureFlag'
 import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
@@ -10,6 +9,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/PropertyFiltersDisplay'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import { FeatureFlag } from './FeatureFlag'
 
 export function FeatureFlags(): JSX.Element {
     const { featureFlags, featureFlagsLoading, openedFeatureFlagId } = useValues(featureFlagsLogic)
@@ -128,11 +128,7 @@ export function FeatureFlags(): JSX.Element {
                 destroyOnClose={true}
                 visible={!!openedFeatureFlagId}
             >
-                {/* <EditFeatureFlag
-                    isNew={openedFeatureFlagId === 'new'}
-                    featureFlag={{ rollout_percentage: null, active: true }}
-                    logic={logic}
-                /> */}
+                <FeatureFlag />
             </Drawer>
         </div>
     )

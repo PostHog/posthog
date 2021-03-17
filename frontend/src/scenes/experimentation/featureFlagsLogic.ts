@@ -5,7 +5,6 @@ import { FeatureFlagType } from '~/types'
 import { router } from 'kea-router'
 
 export const featureFlagsLogic = kea<featureFlagsLogicType<FeatureFlagType>>({
-    key: (props) => props.id || 'new',
     actions: () => ({
         updateFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         setOpenedFeatureFlag: (featureFlagId: number | 'new' | null) => ({ featureFlagId }),
