@@ -1,14 +1,14 @@
 import React from 'react'
-import { Input, Button, Form, Switch, Slider, Card, Row, Col, Collapse } from 'antd'
+import { Input, Button, Form, Switch, Slider, Card, Row, Col, Collapse, Tooltip } from 'antd'
 import { useActions, useValues } from 'kea'
 import { SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DeleteOutlined, SaveOutlined } from '@ant-design/icons'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
-import { CloseButton } from 'lib/components/CloseButton'
 import { featureFlagLogic } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilter } from '~/types'
+import './FeatureFlag.scss'
 
 function Snippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
@@ -19,8 +19,6 @@ function Snippet({ flagKey }: { flagKey: string }): JSX.Element {
         </CodeSnippet>
     )
 }
-
-const noop = (): void => {}
 
 export function FeatureFlag(): JSX.Element {
     const [form] = Form.useForm()
@@ -40,49 +38,12 @@ export function FeatureFlag(): JSX.Element {
     const submitDisabled = !hasRollout && !hasProperties*/
 
     return (
-        <>
-            <PageHeader
-                title="Feature Flag"
-                buttons={
-                    <div>
-                        {featureFlagId !== 'new' && (
-                            <Button
-                                data-attr="delete-flag"
-                                danger
-                                icon={<DeleteOutlined />}
-                                onClick={() => {
-                                    deleteFeatureFlag(featureFlag)
-                                }}
-                                style={{ marginRight: 16 }}
-                            >
-                                Delete
-                            </Button>
-                        )}
-                        <Button
-                            disabled={submitDisabled}
-                            icon={<SaveOutlined />}
-                            type="primary"
-                            data-attr="feature-flag-submit"
-                        >
-                            Save changes
-                        </Button>
-                    </div>
-                }
-            />
+        <div className="feature-flag">
             {featureFlag ? (
                 <Form
                     layout="vertical"
                     form={form}
                     initialValues={{ name: featureFlag.name, key: featureFlag.key, active: featureFlag.active }}
-                    onValuesChange={
-                        !isNew
-                            ? (changedValues) => {
-                                  if (changedValues.key) {
-                                      setHasKeyChanged(changedValues.key !== featureFlag.key)
-                                  }
-                              }
-                            : noop
-                    }
                     onFinish={(values) => {
                         console.log(values)
                         const updatedFlag = { ...featureFlag, ...values, filters: { groups } }
@@ -94,6 +55,57 @@ export function FeatureFlag(): JSX.Element {
                     }}
                     requiredMark={false}
                 >
+                    <PageHeader
+                        title="Feature Flag"
+                        buttons={
+                            <div style={{ display: 'flex' }}>
+                                <Form.Item className="enabled-switch">
+                                    <Form.Item
+                                        shouldUpdate={(prevValues, currentValues) =>
+                                            prevValues.active !== currentValues.active
+                                        }
+                                        style={{ marginBottom: 0, marginRight: 6 }}
+                                    >
+                                        {({ getFieldValue }) => {
+                                            return (
+                                                <span className="ant-form-item-label" style={{ lineHeight: '1.5rem' }}>
+                                                    {getFieldValue('active') ? (
+                                                        <span className="text-success">Enabled</span>
+                                                    ) : (
+                                                        <span className="text-danger">Disabled</span>
+                                                    )}
+                                                </span>
+                                            )
+                                        }}
+                                    </Form.Item>
+                                    <Form.Item name="active" noStyle valuePropName="checked">
+                                        <Switch />
+                                    </Form.Item>
+                                </Form.Item>
+                                {featureFlagId !== 'new' && (
+                                    <Button
+                                        data-attr="delete-flag"
+                                        danger
+                                        icon={<DeleteOutlined />}
+                                        onClick={() => {
+                                            deleteFeatureFlag(featureFlag)
+                                        }}
+                                        style={{ marginRight: 16 }}
+                                    >
+                                        Delete
+                                    </Button>
+                                )}
+                                <Button
+                                    disabled={submitDisabled}
+                                    icon={<SaveOutlined />}
+                                    type="primary"
+                                    data-attr="feature-flag-submit"
+                                >
+                                    Save changes
+                                </Button>
+                            </div>
+                        }
+                    />
                     <Row gutter={16} style={{ marginTop: 32 }}>
                         <Col span={24} md={12}>
                             <h3 className="l3">General configuration</h3>
@@ -126,10 +138,6 @@ export function FeatureFlag(): JSX.Element {
                                 <Input.TextArea className="ph-ignore-input" data-attr="feature-flag-description" />
                             </Form.Item>
 
-                            <Form.Item name="active" label="Feature flag is active" valuePropName="checked">
-                                <Switch />
-                            </Form.Item>
-
                             <Collapse>
                                 <Collapse.Panel header="Integration instructions" key="instructions">
                                     <Form.Item
@@ -137,22 +145,19 @@ export function FeatureFlag(): JSX.Element {
                                             prevValues.key !== currentValues.key
                                         }
                                     >
-                                        <>
-                                            {({ getFieldValue }) => {
-                                                return submitDisabled ? (
-                                                    <small>
-                                                        Select either a person property or rollout percentage to save
-                                                        your feature flag.
-                                                    </small>
-                                                ) : (
-                                                    <span>
-                                                        <br />
-                                                        Example implementation:{' '}
-                                                        <Snippet flagKey={getFieldValue('key')} />
-                                                    </span>
-                                                )
-                                            }}
-                                        </>
+                                        {({ getFieldValue }) => {
+                                            return submitDisabled ? (
+                                                <small>
+                                                    Select either a person property or rollout percentage to save your
+                                                    feature flag.
+                                                </small>
+                                            ) : (
+                                                <span>
+                                                    <br />
+                                                    Example implementation: <Snippet flagKey={getFieldValue('key')} />
+                                                </span>
+                                            )
+                                        }}
                                     </Form.Item>
                                 </Collapse.Panel>
                             </Collapse>
@@ -168,10 +173,30 @@ export function FeatureFlag(): JSX.Element {
                                     key={`${index}-${groups.length}`}
                                 >
                                     {featureFlag.filters.groups.length > 1 && (
-                                        <CloseButton
-                                            style={{ position: 'absolute', top: 0, right: 0, margin: 4 }}
-                                            onClick={() => removeMatchGroup(index)}
-                                        />
+                                        <>
+                                            <span style={{ position: 'absolute', top: 0, right: 0, margin: 4 }}>
+                                                <Tooltip title="Delete this match group" placement="bottomLeft">
+                                                    <Button
+                                                        type="link"
+                                                        icon={<DeleteOutlined />}
+                                                        onClick={() => removeMatchGroup(index)}
+                                                        style={{ color: 'var(--danger)' }}
+                                                    />
+                                                </Tooltip>
+                                            </span>
+
+                                            <div className="mb">
+                                                <b>
+                                                    Match Group
+                                                    <span
+                                                        className="simple-tag tag-light-lilac"
+                                                        style={{ marginLeft: 8 }}
+                                                    >
+                                                        {index + 1}
+                                                    </span>
+                                                </b>
+                                            </div>
+                                        </>
                                     )}
 
                                     <Form.Item label="Filter by user properties" style={{ position: 'relative' }}>
@@ -244,8 +269,9 @@ export function FeatureFlag(): JSX.Element {
                     </Row>
                 </Form>
             ) : (
+                // TODO: This should be skeleton loaders
                 <SceneLoading />
             )}
-        </>
+        </div>
     )
 }
