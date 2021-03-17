@@ -47,8 +47,6 @@ def factory_test_process_event(
             num_queries = 17
             if is_ee_enabled():  # extra queries to check for REST hooks
                 num_queries += 4
-            if settings.MULTI_TENANCY:  # extra query to check for billing plan
-                num_queries += 1
             with self.assertNumQueries(num_queries):
                 process_event(
                     2,
