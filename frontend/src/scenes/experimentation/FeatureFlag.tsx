@@ -8,6 +8,7 @@ import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { CloseButton } from 'lib/components/CloseButton'
 import { featureFlagLogic } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PropertyFilter } from '~/types'
 
 function Snippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
@@ -24,7 +25,7 @@ const noop = (): void => {}
 export function FeatureFlag(): JSX.Element {
     const [form] = Form.useForm()
     const { featureFlag, featureFlagId } = useValues(featureFlagLogic)
-    const { addMatchGroup, removeMatchGroup } = useActions(featureFlagLogic)
+    const { addMatchGroup, updateMatchGroup, removeMatchGroup } = useActions(featureFlagLogic)
     const isNew = true // TODO
     const submitDisabled = false // TODO
     const hasRollout = false
@@ -136,19 +137,22 @@ export function FeatureFlag(): JSX.Element {
                                             prevValues.key !== currentValues.key
                                         }
                                     >
-                                        {({ getFieldValue }) => {
-                                            return submitDisabled ? (
-                                                <small>
-                                                    Select either a person property or rollout percentage to save your
-                                                    feature flag.
-                                                </small>
-                                            ) : (
-                                                <span>
-                                                    <br />
-                                                    Example implementation: <Snippet flagKey={getFieldValue('key')} />
-                                                </span>
-                                            )
-                                        }}
+                                        <>
+                                            {({ getFieldValue }) => {
+                                                return submitDisabled ? (
+                                                    <small>
+                                                        Select either a person property or rollout percentage to save
+                                                        your feature flag.
+                                                    </small>
+                                                ) : (
+                                                    <span>
+                                                        <br />
+                                                        Example implementation:{' '}
+                                                        <Snippet flagKey={getFieldValue('key')} />
+                                                    </span>
+                                                )
+                                            }}
+                                        </>
                                     </Form.Item>
                                 </Collapse.Panel>
                             </Collapse>
@@ -174,39 +178,40 @@ export function FeatureFlag(): JSX.Element {
                                         <PropertyFilters
                                             pageKey={`feature-flag-${featureFlag.id}-${index}-${groups.length}`}
                                             propertyFilters={group?.properties}
-                                            onChange={(properties) => setProperties(index, properties)}
+                                            onChange={(properties: PropertyFilter[]) =>
+                                                updateMatchGroup(index, undefined, properties)
+                                            }
                                             endpoint="person"
                                             showConditionBadge
                                         />
                                     </Form.Item>
 
                                     <Form.Item
-                                        name="rollout"
-                                        label="Roll out feature to percentage of users"
+                                        label="Roll out feature only to percentage of this match group"
                                         style={{ marginBottom: 0 }}
                                     >
-                                        <Switch
-                                            id="rollout"
-                                            checked={!!group.rollout_percentage}
-                                            onChange={(checked) =>
-                                                checked
-                                                    ? setRolloutPercentage(index, 30)
-                                                    : setRolloutPercentage(index, null)
-                                            }
-                                            data-attr="feature-flag-switch"
-                                        />
-                                        {group.rollout_percentage != null && (
-                                            <Slider
-                                                tooltipPlacement="bottom"
-                                                tipFormatter={(value) => value + '%'}
-                                                tooltipVisible={true}
-                                                value={group.rollout_percentage}
-                                                onChange={(value) => {
-                                                    setRolloutPercentage(index, value)
-                                                }}
+                                        <>
+                                            <Switch
+                                                checked={!!group.rollout_percentage}
+                                                onChange={(checked) =>
+                                                    checked
+                                                        ? updateMatchGroup(index, 30)
+                                                        : updateMatchGroup(index, null)
+                                                }
+                                                data-attr="feature-flag-switch"
                                             />
-                                        )}
-                                        <br />
+                                            {group.rollout_percentage != null && (
+                                                <Slider
+                                                    tooltipPlacement="bottom"
+                                                    tipFormatter={(value) => value + '%'}
+                                                    tooltipVisible
+                                                    value={group.rollout_percentage}
+                                                    onChange={(value: number) => {
+                                                        updateMatchGroup(index, value)
+                                                    }}
+                                                />
+                                            )}
+                                        </>
                                     </Form.Item>
 
                                     {index === featureFlag.filters.groups.length - 1 && (

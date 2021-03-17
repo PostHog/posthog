@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { featureFlagLogicType } from './featureFlagLogicType'
-import { FeatureFlagType } from '~/types'
+import { FeatureFlagType, PropertyFilter } from '~/types'
 import api from 'lib/api'
 
 const NEW_FLAG = {
@@ -20,6 +20,11 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagType>>({
         setFeatureFlagId: (id) => ({ id }),
         addMatchGroup: true,
         removeMatchGroup: (index: number) => ({ index }),
+        updateMatchGroup: (index: number, newRolloutPercentage?: number | null, newProperties?: PropertyFilter[]) => ({
+            index,
+            newRolloutPercentage,
+            newProperties,
+        }),
     },
     reducers: {
         featureFlagId: [
@@ -36,6 +41,22 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagType>>({
                         return state
                     }
                     const groups = [...state?.filters.groups, { properties: [], rollout_percentage: null }]
+                    return { ...state, filters: { ...state.filters, groups } }
+                },
+                updateMatchGroup: (state, { index, newRolloutPercentage, newProperties }) => {
+                    if (!state) {
+                        return state
+                    }
+                    const groups = [...state?.filters.groups]
+
+                    if (newRolloutPercentage !== undefined) {
+                        groups[index] = { ...groups[index], rollout_percentage: newRolloutPercentage }
+                    }
+
+                    if (newProperties !== undefined) {
+                        groups[index] = { ...groups[index], properties: newProperties }
+                    }
+
                     return { ...state, filters: { ...state.filters, groups } }
                 },
                 removeMatchGroup: (state, { index }) => {
