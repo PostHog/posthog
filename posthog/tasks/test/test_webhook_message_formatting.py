@@ -85,8 +85,8 @@ class TestWebhookMessage(BaseTest):
         action1 = Action.objects.create(team=self.team, name="action1", id=1)
 
         token_user_noprop = ["user", "notaproperty"]
-        with self.assertRaises(ValueError):
-            text, markdown = get_value_of_token(action1, event1, "http://localhost:8000", token_user_noprop)
+        text, markdown = get_value_of_token(action1, event1, "http://localhost:8000", token_user_noprop)
+        self.assertEqual(text, "undefined")
 
     def test_get_formatted_message(self) -> None:
         self.team.slack_incoming_webhook = "https://hooks.slack.com/services/"
