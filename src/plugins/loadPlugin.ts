@@ -3,7 +3,7 @@ import * as path from 'path'
 
 import { processError } from '../error'
 import { PluginConfig, PluginJsonConfig, PluginsServer } from '../types'
-import { getFileFromArchive } from '../utils'
+import { getFileFromArchive, pluginDigest } from '../utils'
 
 export async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Promise<boolean> {
     const { plugin } = pluginConfig
@@ -28,7 +28,7 @@ export async function loadPlugin(server: PluginsServer, pluginConfig: PluginConf
                     await processError(
                         server,
                         pluginConfig,
-                        `Could not load posthog config at "${configPath}" for plugin "${plugin.name}"`
+                        `Could not load posthog config at "${configPath}" for ${pluginDigest(plugin)}`
                     )
                     return false
                 }
@@ -39,7 +39,7 @@ export async function loadPlugin(server: PluginsServer, pluginConfig: PluginConf
                 await processError(
                     server,
                     pluginConfig,
-                    `No "main" config key or "index.js" file found for plugin "${plugin.name}"`
+                    `No "main" config key or "index.js" file found for ${pluginDigest(plugin)}`
                 )
                 return false
             }
@@ -51,7 +51,7 @@ export async function loadPlugin(server: PluginsServer, pluginConfig: PluginConf
                 server,
                 pluginConfig,
                 indexJs,
-                `local plugin "${plugin.name}" from "${pluginPath}"!`
+                `local ${pluginDigest(plugin)} from "${pluginPath}"!`
             )
             return true
         } else if (plugin.archive) {
@@ -63,7 +63,7 @@ export async function loadPlugin(server: PluginsServer, pluginConfig: PluginConf
                     config = JSON.parse(json)
                 } catch (error) {
                     pluginConfig.vm?.failInitialization!()
-                    await processError(server, pluginConfig, `Can not load plugin.json for plugin "${plugin.name}"`)
+                    await processError(server, pluginConfig, `Can not load plugin.json for ${pluginDigest(plugin)}`)
                     return false
                 }
             }
@@ -71,21 +71,21 @@ export async function loadPlugin(server: PluginsServer, pluginConfig: PluginConf
             const indexJs = await getFileFromArchive(archive, config['main'] || 'index.js')
 
             if (indexJs) {
-                void pluginConfig.vm?.initialize!(server, pluginConfig, indexJs, `plugin "${plugin.name}"!`)
+                void pluginConfig.vm?.initialize!(server, pluginConfig, indexJs, pluginDigest(plugin))
                 return true
             } else {
                 pluginConfig.vm?.failInitialization!()
-                await processError(server, pluginConfig, `Could not load index.js for plugin "${plugin.name}"!`)
+                await processError(server, pluginConfig, `Could not load index.js for ${pluginDigest(plugin)}!`)
             }
         } else if (plugin.plugin_type === 'source' && plugin.source) {
-            void pluginConfig.vm?.initialize!(server, pluginConfig, plugin.source, `plugin "${plugin.name}"!`)
+            void pluginConfig.vm?.initialize!(server, pluginConfig, plugin.source, pluginDigest(plugin))
             return true
         } else {
             pluginConfig.vm?.failInitialization!()
             await processError(
                 server,
                 pluginConfig,
-                `Un-downloaded remote plugins not supported! Plugin: "${plugin.name}"`
+                `Tried using undownloaded remote ${pluginDigest(plugin)}, which is not supported!`
             )
         }
     } catch (error) {

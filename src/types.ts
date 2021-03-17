@@ -99,6 +99,7 @@ export interface Plugin {
     name: string
     plugin_type: 'local' | 'respository' | 'custom' | 'source'
     description?: string
+    is_global: boolean
     url?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag?: string

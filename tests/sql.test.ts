@@ -86,6 +86,7 @@ test('getPluginRows', async () => {
             from_json: false,
             from_web: false,
             id: 60,
+            is_global: false,
             organization_id: commonOrganizationId,
             latest_tag: null,
             latest_tag_checked_at: null,

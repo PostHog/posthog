@@ -43,6 +43,7 @@ export const plugin60: Plugin = {
     error: undefined,
     from_json: false,
     from_web: false,
+    is_global: false,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
 }

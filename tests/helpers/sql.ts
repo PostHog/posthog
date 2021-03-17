@@ -79,6 +79,7 @@ export async function createUserTeamAndOrganization(
     await insertRow(db, 'posthog_organization', {
         id: organizationId,
         name: 'TEST ORG',
+        plugins_access_level: 9,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         personalization: '{}',
