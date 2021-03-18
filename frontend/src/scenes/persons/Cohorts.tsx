@@ -5,27 +5,26 @@ import { Tooltip, Table, Spin, Button, Input } from 'antd'
 import { ExportOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions, kea } from 'kea'
-import { hot } from 'react-hot-loader/root'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
 import { Cohort } from './Cohort'
 import { Drawer } from 'lib/components/Drawer'
 import { CohortType } from '~/types'
 import api from 'lib/api'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './cohorts.scss'
 import Fuse from 'fuse.js'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
+import { cohortsUrlLogicType } from './CohortsType'
 
-const cohortsUrlLogic = kea({
+const cohortsUrlLogic = kea<cohortsUrlLogicType<CohortType>>({
     actions: {
-        setOpenCohort: (cohort: CohortType) => ({ cohort }),
+        setOpenCohort: (cohort: CohortType | null) => ({ cohort }),
     },
     reducers: {
         openCohort: [
-            false,
+            null as null | CohortType,
             {
-                setOpenCohort: (_, { cohort }: { cohort: CohortType }) => cohort,
+                setOpenCohort: (_, { cohort }) => cohort,
             },
         ],
     },
@@ -33,8 +32,8 @@ const cohortsUrlLogic = kea({
         setOpenCohort: () => '/cohorts' + (values.openCohort ? '/' + (values.openCohort.id || 'new') : ''),
     }),
     urlToAction: ({ actions, values }) => ({
-        '/cohorts(/:cohortId)': async ({ cohortId }: Record<string, string>) => {
-            if (cohortId && cohortId !== 'new' && cohortId !== values.openCohort.id) {
+        '/cohorts(/:cohortId)': async ({ cohortId }: { cohortId: number | 'new' }) => {
+            if (cohortId && cohortId !== 'new' && Number(cohortId) !== values.openCohort?.id) {
                 const cohort = await api.get('api/cohort/' + cohortId)
                 actions.setOpenCohort(cohort)
             }
@@ -51,8 +50,7 @@ const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
         .map((result) => result.item)
 }
 
-export const Cohorts = hot(_Cohorts)
-function _Cohorts(): JSX.Element {
+export function Cohorts(): JSX.Element {
     const { cohorts, cohortsLoading } = useValues(cohortsModel)
     const { loadCohorts } = useActions(cohortsModel)
     const { openCohort } = useValues(cohortsUrlLogic)
@@ -64,14 +62,15 @@ function _Cohorts(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            sorter: (a: CohortType, b: CohortType) => ('' + a.name).localeCompare(b.name),
+            className: 'ph-no-capture',
+            sorter: (a: CohortType, b: CohortType) => ('' + a.name).localeCompare(b.name as string),
         },
         {
             title: 'Users in cohort',
-            render: function RenderCount(_, cohort: CohortType) {
+            render: function RenderCount(_: any, cohort: CohortType) {
                 return cohort.count?.toLocaleString()
             },
-            sorter: (a: CohortType, b: CohortType) => a.count - b.count,
+            sorter: (a: CohortType, b: CohortType) => (a.count || 0) - (b.count || 0),
         },
         createdAtColumn(),
         createdByColumn(cohorts),
@@ -84,7 +83,7 @@ function _Cohorts(): JSX.Element {
                     </Tooltip>
                 </span>
             ),
-            render: function RenderCalculation(_, cohort: CohortType) {
+            render: function RenderCalculation(_: any, cohort: CohortType) {
                 if (cohort.is_static) {
                     return <>N/A</>
                 }
@@ -107,15 +106,17 @@ function _Cohorts(): JSX.Element {
                                 <ExportOutlined />
                             </Tooltip>
                         </a>
-                        <DeleteWithUndo
-                            endpoint="cohort"
-                            object={cohort}
-                            className="text-danger"
-                            style={{ marginLeft: 8 }}
-                            callback={loadCohorts}
-                        >
-                            <DeleteOutlined />
-                        </DeleteWithUndo>
+                        {cohort.id !== 'new' && (
+                            <DeleteWithUndo
+                                endpoint="cohort"
+                                object={{ name: cohort.name, id: cohort.id }}
+                                className="text-danger"
+                                style={{ marginLeft: 8 }}
+                                callback={loadCohorts}
+                            >
+                                <DeleteOutlined />
+                            </DeleteWithUndo>
+                        )}
                     </span>
                 )
             },
@@ -154,18 +155,18 @@ function _Cohorts(): JSX.Element {
                     loading={cohortsLoading}
                     rowKey="id"
                     pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                    rowClassName={'cursor-pointer ' + rrwebBlockClass}
+                    rowClassName="cursor-pointer"
                     onRow={(cohort) => ({
                         onClick: () => setOpenCohort(cohort),
                     })}
                     dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
                 />
                 <Drawer
-                    title={openCohort.id === 'new' ? 'New cohort' : openCohort.name}
+                    title={openCohort?.id === 'new' ? 'New cohort' : openCohort?.name}
                     className="cohorts-drawer"
-                    onClose={() => setOpenCohort(false)}
+                    onClose={() => setOpenCohort(null)}
                     destroyOnClose={true}
-                    visible={openCohort}
+                    visible={!!openCohort}
                 >
                     {openCohort && <Cohort cohort={openCohort} />}
                 </Drawer>

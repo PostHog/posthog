@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import { Moment } from 'moment'
-import { dateFilterLogicType } from 'lib/components/DateFilter/dateFilterLogicType'
+import { dateFilterLogicType } from 'scenes/insights/DateFilter/dateFilterLogicType'
 import { objectsEqual } from 'lib/utils'
 
 interface UrlParams {
@@ -9,7 +9,7 @@ interface UrlParams {
     date_to?: string
 }
 
-export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Moment>>({
+export const dateFilterLogic = kea<dateFilterLogicType<Moment>>({
     actions: () => ({
         setDates: (dateFrom: string | Moment | undefined, dateTo: string | Moment | undefined) => ({
             dateFrom,

@@ -17,7 +17,6 @@ import { triggerResizeAfterADelay } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import lgLogo from 'public/posthog-logo-white.svg'
 import smLogo from 'public/icon-white.svg'
-import { hot } from 'react-hot-loader/root'
 import './Navigation.scss'
 import {
     IconCohorts,
@@ -34,6 +33,7 @@ import { dashboardsModel } from '~/models'
 import { DashboardType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { canViewPlugins } from '../../scenes/plugins/access'
 
 // to show the right page in the sidebar
 const sceneOverride: Partial<Record<Scene, string>> = {
@@ -143,8 +143,7 @@ function PinnedDashboards(): JSX.Element {
     )
 }
 
-export const MainNavigation = hot(_MainNavigation)
-function _MainNavigation(): JSX.Element {
+export function MainNavigation(): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { menuCollapsed, toolbarModalOpen, pinnedDashboardsVisible } = useValues(navigationLogic)
@@ -237,15 +236,15 @@ function _MainNavigation(): JSX.Element {
                         to="/feature_flags"
                     />
                     <div className="divider" />
-                    {user?.plugin_access.configure ? (
+                    {canViewPlugins(user?.organization) && (
                         <MenuItem
                             title="Plugins"
                             icon={<ApiFilled />}
                             identifier="plugins"
                             to="/project/plugins"
-                            highlight={!user.flags['has_checked_out_plugins']}
+                            highlight={!user?.flags['has_checked_out_plugins']}
                         />
-                    ) : null}
+                    )}
                     <MenuItem
                         title="Annotations"
                         icon={<MessageOutlined />}

@@ -1,19 +1,18 @@
 import './Plugins.scss'
 import React, { useEffect } from 'react'
-import { hot } from 'react-hot-loader/root'
 import { PluginDrawer } from 'scenes/plugins/edit/PluginDrawer'
 import { RepositoryTab } from 'scenes/plugins/tabs/repository/RepositoryTab'
 import { InstalledTab } from 'scenes/plugins/tabs/installed/InstalledTab'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { pluginsLogic } from './pluginsLogic'
-import { Alert, Tabs } from 'antd'
+import { Alert, Spin, Tabs, Tag } from 'antd'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
+import { canGloballyManagePlugins, canInstallPlugins, canViewPlugins } from './access'
 
-export const Plugins = hot(_Plugins)
-function _Plugins(): JSX.Element | null {
+export function Plugins(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { userUpdateRequest } = useActions(userLogic)
     const { pluginTab } = useValues(pluginsLogic)
@@ -22,16 +21,18 @@ function _Plugins(): JSX.Element | null {
 
     useEffect(() => {
         if (user) {
-            if (!user.plugin_access.configure) {
+            if (!canViewPlugins(user.organization)) {
                 window.location.href = '/'
+                return
             }
             if (!user.flags.has_checked_out_plugins) {
                 userUpdateRequest({ user: { flags: { has_checked_out_plugins: true } } })
+                return
             }
         }
     }, [user])
 
-    if (!user || !user.plugin_access.configure) {
+    if (!user || !canViewPlugins(user.organization)) {
         return null
     }
 
@@ -43,7 +44,7 @@ function _Plugins(): JSX.Element | null {
             />
             {!user.flags['has_closed_plugins_end_of_beta'] && (
                 <Alert
-                    message="Beta Phase Completed"
+                    message="Out of Beta!"
                     description={
                         <>
                             Plugins are now a core feature of PostHog. Read more about this next step in our journey on
@@ -61,16 +62,18 @@ function _Plugins(): JSX.Element | null {
                     style={{ marginBottom: 32 }}
                 />
             )}
-            {user.plugin_access.install ? (
+            {canInstallPlugins(user.organization) ? (
                 <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}>
                     <TabPane tab="Installed" key={PluginTab.Installed}>
                         <InstalledTab />
                     </TabPane>
-                    <TabPane tab="Repository" key={PluginTab.Repository}>
-                        <RepositoryTab />
-                    </TabPane>
+                    {canGloballyManagePlugins(user.organization) && (
+                        <TabPane tab="Repository" key={PluginTab.Repository}>
+                            <RepositoryTab />
+                        </TabPane>
+                    )}
                     <TabPane tab="Advanced" key={PluginTab.Advanced}>
-                        <AdvancedTab />
+                        <AdvancedTab user={user} />
                     </TabPane>
                 </Tabs>
             ) : (

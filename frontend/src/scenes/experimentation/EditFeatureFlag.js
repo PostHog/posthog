@@ -5,7 +5,6 @@ import { slugify } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DeleteOutlined, SaveOutlined } from '@ant-design/icons'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { CloseButton } from 'lib/components/CloseButton'
 
 const editLogic = kea({
@@ -98,12 +97,12 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
             <Form.Item
                 name="name"
                 label="Name"
-                className={rrwebBlockClass}
                 rules={[
                     { required: true, message: 'Please give your feature flag a name, like "experimental feature".' },
                 ]}
             >
                 <Input
+                    className="ph-ignore-input"
                     autoFocus={isNew}
                     onChange={(e) => form.setFieldsValue({ key: slugify(e.target.value) })}
                     data-attr="feature-flag-name"
@@ -129,7 +128,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
                     )
                 }
             >
-                <Input data-attr="feature-flag-key" />
+                <Input data-attr="feature-flag-key" className="ph-ignore-input" />
             </Form.Item>
 
             <Form.Item name="active" label="Feature flag is active" valuePropName="checked">
@@ -145,11 +144,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
                         />
                     )}
 
-                    <Form.Item
-                        className={rrwebBlockClass}
-                        label="Filter by user properties"
-                        style={{ position: 'relative' }}
-                    >
+                    <Form.Item label="Filter by user properties" style={{ position: 'relative' }}>
                         <PropertyFilters
                             pageKey={`feature-flag-${featureFlag.id}-${index}-${groups.length}`}
                             propertyFilters={group?.properties}

@@ -7,9 +7,11 @@ import { CustomPlugin } from 'scenes/plugins/tabs/advanced/CustomPlugin'
 import { LocalPlugin } from 'scenes/plugins/tabs/advanced/LocalPlugin'
 import { useActions } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { UserType } from 'src/types'
 
-export function AdvancedTab(): JSX.Element {
+export function AdvancedTab({ user }: { user: UserType }): JSX.Element {
     const { setPluginTab } = useActions(pluginsLogic)
+
     return (
         <>
             <Alert
@@ -32,12 +34,11 @@ export function AdvancedTab(): JSX.Element {
                 }
                 type="warning"
                 showIcon
-                closable
             />
             <Subtitle subtitle="Advanced Options" />
             <SourcePlugin />
             <CustomPlugin />
-            <LocalPlugin />
+            {user && !user.is_multi_tenancy && <LocalPlugin />}
         </>
     )
 }

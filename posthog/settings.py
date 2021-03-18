@@ -71,11 +71,6 @@ if DEBUG:
 else:
     JS_URL = os.getenv("JS_URL", "")
 
-PLUGINS_INSTALL_VIA_API = get_from_env("PLUGINS_INSTALL_VIA_API", True, type_cast=strtobool)
-PLUGINS_CONFIGURE_VIA_API = PLUGINS_INSTALL_VIA_API or get_from_env(
-    "PLUGINS_CONFIGURE_VIA_API", True, type_cast=strtobool
-)
-
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
@@ -116,7 +111,8 @@ if not TEST:
 if get_from_env("DISABLE_SECURE_SSL_REDIRECT", False, type_cast=strtobool):
     SECURE_SSL_REDIRECT = False
 
-if get_from_env("IS_BEHIND_PROXY", False, type_cast=strtobool):
+IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=strtobool)
+if IS_BEHIND_PROXY:
     USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
@@ -163,7 +159,7 @@ ASYNC_EVENT_ACTION_MAPPING = get_from_env("ASYNC_EVENT_ACTION_MAPPING", False, t
 if PLUGIN_SERVER_INGESTION and PRIMARY_DB == RDBMS.POSTGRES:
     ASYNC_EVENT_ACTION_MAPPING = True
 
-ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", True, type_cast=strtobool)
+ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", False, type_cast=strtobool)
 
 # IP block settings
 ALLOWED_IP_BLOCKS = get_list(os.getenv("ALLOWED_IP_BLOCKS", ""))
@@ -285,6 +281,7 @@ WSGI_APPLICATION = "posthog.wsgi.application"
 
 SOCIAL_AUTH_POSTGRES_JSONFIELD = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
+SOCIAL_AUTH_REDIRECT_IS_HTTPS = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=strtobool)
 
 AUTHENTICATION_BACKENDS = (
     "axes.backends.AxesBackend",
@@ -424,6 +421,7 @@ CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
 CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
 CELERY_IGNORE_RESULT = True  # only applies to delay(), must do @shared_task(ignore_result=True) for apply_async
+CELERY_RESULT_EXPIRES = timedelta(days=4)  # expire tasks after 4 days instead of the default 1
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for

@@ -298,19 +298,6 @@
             color: $text_muted;
         }
     }
-
-    .pp {
-        border-radius: 50%;
-        width: 32px;
-        height: 32px;
-        background-color: $purple_300;
-        color: #5f1903;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: bold;
-        font-size: 18px;
-    }
 }
 
 .navigation-top-dropdown {
@@ -400,4 +387,17 @@
         width: 14px;
         margin-left: $default_spacing;
     }
+}
+
+.profile-picture {
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    background-color: $purple_300;
+    color: #5f1903;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 18px;
 }
