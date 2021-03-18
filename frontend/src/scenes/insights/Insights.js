@@ -213,7 +213,7 @@ export function Insights() {
                             <Card
                                 title={
                                     <div style={{ display: 'flex', alignItems: 'center' }}>
-                                        {<TZIndicator style={{ float: 'left' }} />}
+                                        <TZIndicator style={{ float: 'left' }} />
                                         <div style={{ width: '100%', textAlign: 'right' }}>
                                             {showIntervalFilter(activeView, allFilters) && (
                                                 <IntervalFilter filters={allFilters} view={activeView} />

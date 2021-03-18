@@ -13,6 +13,7 @@ import './Dashboard.scss'
 import { useKeyboardHotkeys } from '../../lib/hooks/useKeyboardHotkeys'
 import { DashboardMode } from '../../types'
 import { EventSource } from '../../lib/utils/eventUsageLogic'
+import { TZIndicator } from 'lib/components/TimezoneAware'
 
 interface Props {
     id: string
@@ -90,6 +91,7 @@ function DashboardView(): JSX.Element {
                 <div>
                     <div className="dashboard-items-actions">
                         <div className="left-item">
+                            <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />
                             Last updated <b>{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</b>
                             {dashboardMode !== DashboardMode.Public && (
                                 <Button type="link" icon={<ReloadOutlined />} onClick={refreshAllDashboardItems}>
