@@ -5,6 +5,7 @@ import { FeatureFlagType, PropertyFilter } from '~/types'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { router } from 'kea-router'
+import { deleteWithUndo } from 'lib/utils'
 
 const NEW_FLAG = {
     id: null,
@@ -28,6 +29,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagType>>({
             newRolloutPercentage,
             newProperties,
         }),
+        deleteFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
     },
     reducers: {
         featureFlagId: [
@@ -113,6 +115,15 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagType>>({
                     closeOnClick: true,
                 }
             )
+        },
+        deleteFeatureFlag: async ({ featureFlag }) => {
+            deleteWithUndo({
+                endpoint: 'feature_flag',
+                object: { name: featureFlag.name, id: featureFlag.id },
+                callback: () => {
+                    router.actions.push('/feature_flags')
+                },
+            })
         },
     },
     urlToAction: ({ actions }) => ({

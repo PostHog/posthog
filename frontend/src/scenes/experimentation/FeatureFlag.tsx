@@ -63,7 +63,9 @@ function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
 export function FeatureFlag(): JSX.Element {
     const [form] = Form.useForm()
     const { featureFlag, featureFlagId } = useValues(featureFlagLogic)
-    const { addMatchGroup, updateMatchGroup, removeMatchGroup, saveFeatureFlag } = useActions(featureFlagLogic)
+    const { addMatchGroup, updateMatchGroup, removeMatchGroup, saveFeatureFlag, deleteFeatureFlag } = useActions(
+        featureFlagLogic
+    )
 
     const [hasKeyChanged, setHasKeyChanged] = useState(false) // whether the key for an existing flag is being changed
 
