@@ -1,4 +1,4 @@
-import { Button, Card, Col, Popconfirm, Row, Switch, Tag } from 'antd'
+import { Button, Card, Col, Popconfirm, Row, Space, Switch, Tag } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -9,10 +9,11 @@ import {
     LoadingOutlined,
     SettingOutlined,
     WarningOutlined,
+    InfoCircleOutlined,
+    MessageOutlined,
     DownOutlined,
     GlobalOutlined,
 } from '@ant-design/icons'
-import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
 import { PluginError } from './PluginError'
 import { LocalPluginTag } from './LocalPluginTag'
@@ -23,6 +24,24 @@ import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
 import { endWithPunctation } from '../../../lib/utils'
 import { canInstallPlugins } from '../access'
+import { LinkButton } from '../../../lib/components/LinkButton'
+
+export function ExtraPluginButtons({ url }: { url: string }): JSX.Element {
+    return (
+        <Space>
+            <LinkButton to={url} target="_blank" rel="noopener noreferrer">
+                <InfoCircleOutlined />
+                <span className="show-over-500">About</span>
+            </LinkButton>
+            {url.includes('github') && (
+                <LinkButton to={`${url}/issues/new`} target="_blank" rel="noopener noreferrer">
+                    <MessageOutlined />
+                    <span className="show-over-500">Feedback</span>
+                </LinkButton>
+            )}
+        </Space>
+    )
+}
 
 interface PluginCardProps {
     plugin: Partial<PluginTypeWithConfig>
@@ -157,67 +176,50 @@ export function PluginCard({
                                 </>
                             )}
                         </div>
-                        <div>
-                            {endWithPunctation(description)}
-                            {url && (
-                                <p style={{ marginTop: 2 }}>
-                                    <Link
-                                        to={url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        style={{ whiteSpace: 'nowrap' }}
-                                    >
-                                        <Button size="small">Learn more</Button>
-                                    </Link>
-                                    {url.includes('github') ? (
-                                        <Link
-                                            to={`${url}/issues/new`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            style={{ whiteSpace: 'nowrap', marginLeft: 5 }}
-                                        >
-                                            <Button size="small">Report Bug</Button>
-                                        </Link>
-                                    ) : null}
-                                </p>
-                            )}
-                        </div>
+                        <div>{endWithPunctation(description)}</div>
                     </Col>
                     <Col>
-                        {showUpdateButton && pluginId ? (
-                            <Button
-                                type={updateStatus?.updated ? 'default' : 'primary'}
-                                className="padding-under-500"
-                                onClick={() => (updateStatus?.updated ? editPlugin(pluginId) : updatePlugin(pluginId))}
-                                loading={!!updatingPlugin}
-                                icon={updateStatus?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
-                            >
-                                <span className="show-over-500">{updateStatus?.updated ? 'Updated' : 'Update'}</span>
-                            </Button>
-                        ) : pluginId ? (
-                            <Button
-                                type="primary"
-                                className="padding-under-500"
-                                disabled={rearranging}
-                                onClick={() => editPlugin(pluginId)}
-                            >
-                                <span className="show-over-500">Configure</span>
-                                <span className="hide-over-500">
+                        <Space>
+                            {url && <ExtraPluginButtons url={url} />}
+                            {showUpdateButton && pluginId ? (
+                                <Button
+                                    type={updateStatus?.updated ? 'default' : 'primary'}
+                                    className="padding-under-500"
+                                    onClick={() =>
+                                        updateStatus?.updated ? editPlugin(pluginId) : updatePlugin(pluginId)
+                                    }
+                                    loading={!!updatingPlugin}
+                                    icon={updateStatus?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
+                                >
+                                    <span className="show-over-500">
+                                        {updateStatus?.updated ? 'Updated' : 'Update'}
+                                    </span>
+                                </Button>
+                            ) : pluginId ? (
+                                <Button
+                                    type="primary"
+                                    className="padding-under-500"
+                                    disabled={rearranging}
+                                    onClick={() => editPlugin(pluginId)}
+                                >
                                     <SettingOutlined />
-                                </span>
-                            </Button>
-                        ) : !pluginId ? (
-                            <Button
-                                type="primary"
-                                className="padding-under-500"
-                                loading={loading && installingPluginUrl === url}
-                                disabled={loading && installingPluginUrl !== url}
-                                onClick={url ? () => installPlugin(url, PluginInstallationType.Repository) : undefined}
-                                icon={<CloudDownloadOutlined />}
-                            >
-                                <span className="show-over-500">Install</span>
-                            </Button>
-                        ) : null}
+                                    <span className="show-over-500">Configure</span>
+                                </Button>
+                            ) : !pluginId ? (
+                                <Button
+                                    type="primary"
+                                    className="padding-under-500"
+                                    loading={loading && installingPluginUrl === url}
+                                    disabled={loading && installingPluginUrl !== url}
+                                    onClick={
+                                        url ? () => installPlugin(url, PluginInstallationType.Repository) : undefined
+                                    }
+                                    icon={<CloudDownloadOutlined />}
+                                >
+                                    <span className="show-over-500">Install</span>
+                                </Button>
+                            ) : null}
+                        </Space>
                     </Col>
                 </Row>
             </Card>
