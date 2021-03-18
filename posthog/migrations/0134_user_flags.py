@@ -7,7 +7,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0130_dashboard_creation_mode"),
+        ("posthog", "0133_plugins_access_control"),
     ]
 
     operations = [
