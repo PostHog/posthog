@@ -155,24 +155,14 @@ export class DB {
                 throw new Error('Kafka connection has not been provided!')
             }
 
-            const batches: Record<string, ProducerRecord> = {}
-            for (const { topic, messages } of this.kafkaMessageQueue) {
-                if (!batches[topic]) {
-                    batches[topic] = {
-                        topic,
-                        messages: [],
-                    }
-                }
-                batches[topic].messages = batches[topic].messages.concat(messages)
-            }
-
+            const messages = this.kafkaMessageQueue
             this.kafkaMessageQueue = []
             this.lastFlushTime = new Date()
 
             const timeout = timeoutGuard('Kafka message sending delayed. Waiting over 30 sec to send messages.')
             try {
                 await this.kafkaProducer!.sendBatch({
-                    topicMessages: Object.values(batches),
+                    topicMessages: messages,
                 })
             } finally {
                 clearTimeout(timeout)

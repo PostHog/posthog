@@ -50,7 +50,7 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | KAFKA_CLIENT_CERT_B64         | Kafka certificate in Base64                                | `null`                                |
 | KAFKA_CLIENT_CERT_KEY_B64     | Kafka certificate key in Base64                            | `null`                                |
 | KAFKA_TRUSTED_CERT_B64        | Kafka trusted CA in Base64                                 | `null`                                |
-| KAFKA_PRODUCER_MAX_QUEUE_SIZE | Kafka producer queue max size before flushing              | `1000`                                |
+| KAFKA_PRODUCER_MAX_QUEUE_SIZE | Kafka producer queue max size before flushing              | `20`                                  |
 | KAFKA_FLUSH_FREQUENCY_MS      | Kafka producer queue max duration before flushing          | `500`                                 |
 | DISABLE_WEB                   | whether to disable web server                              | `true`                                |
 | WEB_PORT                      | port for web server to listen on                           | `3008`                                |
