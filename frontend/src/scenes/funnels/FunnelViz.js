@@ -95,7 +95,7 @@ export function FunnelViz({
         }
         return steps && steps.length > 0 && steps[0].labels ? (
             <>
-                <div style={{ position: 'absolute', left: 45, marginTop: -20 }}>
+                <div style={{ position: 'absolute', marginTop: -20, textAlign: 'center', width: '100%' }}>
                     % of users converted between first and last step
                 </div>
                 <LineGraph
