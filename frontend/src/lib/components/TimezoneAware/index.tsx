@@ -10,8 +10,9 @@ import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { ProjectOutlined, LaptopOutlined, GlobalOutlined, SettingOutlined } from '@ant-design/icons'
 import { Link } from '../Link'
+import { shortTimeZone } from 'lib/utils'
 
-const DATE_OUTPUT_FORMAT = 'llll'
+const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY HH:mm'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
@@ -19,9 +20,12 @@ dayjs.extend(utc)
 dayjs.extend(timezone)
 
 /* TZLabel - Returns a simple label component with the timezone conversion elements */
-export function TZLabel({ time }: { time: string | dayjs.Dayjs }): JSX.Element {
+export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; showSeconds?: boolean }): JSX.Element {
     const parsedTime = dayjs.isDayjs(time) ? time : dayjs(time)
     const { currentTeam } = useValues(teamLogic)
+
+    const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : `${BASE_OUTPUT_FORMAT}:ss`
+    const timeStyle = showSeconds ? { minWidth: 192 } : undefined
 
     const PopoverContent = (
         <div className="tz-label-popover">
@@ -38,25 +42,31 @@ export function TZLabel({ time }: { time: string | dayjs.Dayjs }): JSX.Element {
                 {currentTeam && (
                     <Row className="timezone">
                         <Col className="name">
-                            <ProjectOutlined /> EST
+                            <ProjectOutlined /> {shortTimeZone(currentTeam.timezone, parsedTime.toDate())}
                         </Col>
                         <Col className="scope">| Project</Col>
-                        <Col className="time">{parsedTime.tz(currentTeam.timezone).format(DATE_OUTPUT_FORMAT)}</Col>
+                        <Col className="time" style={timeStyle}>
+                            {parsedTime.tz(currentTeam.timezone).format(DATE_OUTPUT_FORMAT)}
+                        </Col>
                     </Row>
                 )}
                 <Row className="timezone">
                     <Col className="name">
-                        <LaptopOutlined /> EST
+                        <LaptopOutlined /> {shortTimeZone(undefined, parsedTime.toDate())}
                     </Col>
                     <Col className="scope">| Your computer</Col>
-                    <Col className="time">{parsedTime.format(DATE_OUTPUT_FORMAT)}</Col>
+                    <Col className="time" style={timeStyle}>
+                        {parsedTime.format(DATE_OUTPUT_FORMAT)}
+                    </Col>
                 </Row>
                 <Row className="timezone">
                     <Col className="name">
                         <GlobalOutlined /> UTC
                     </Col>
                     <Col className="scope" />
-                    <Col className="time">{parsedTime.tz('UTC').format(DATE_OUTPUT_FORMAT)}</Col>
+                    <Col className="time" style={timeStyle}>
+                        {parsedTime.tz('UTC').format(DATE_OUTPUT_FORMAT)}
+                    </Col>
                 </Row>
             </div>
         </div>

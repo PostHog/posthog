@@ -759,3 +759,10 @@ export function endWithPunctation(text?: string | null): string {
     }
     return trimmedText
 }
+
+export function shortTimeZone(timeZone?: string, at_date: Date = new Date()): string {
+    /* Returns the short timezone identifier for a specific timezone (e.g. BST, EST, PDT)
+        @param timezone: 'America/New_York'
+    */
+    return new Date(at_date).toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone }).split(' ')[2]
+}

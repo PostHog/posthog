@@ -153,7 +153,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
                 }
-                return <TZLabel time={event.timestamp} />
+                return <TZLabel time={event.timestamp} showSeconds />
             },
         },
         {
