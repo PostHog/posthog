@@ -10,14 +10,53 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilter } from '~/types'
 import './FeatureFlag.scss'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
+import { IconExternalLink } from 'lib/components/icons'
+import pythonLogo from 'public/python.svg'
+import jsLogo from 'public/javascript.svg'
 
-function Snippet({ flagKey }: { flagKey: string }): JSX.Element {
+const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
+
+function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
-        <CodeSnippet language={Language.JavaScript} wrap>
-            {`if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
+        <>
+            <CodeSnippet language={Language.JavaScript} wrap>
+                {`if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
     // run your activation code here
 }`}
-        </CodeSnippet>
+            </CodeSnippet>
+            <div className="mt">
+                Need more information?{' '}
+                <a
+                    target="_blank"
+                    rel="noopener"
+                    href={`https://posthog.com/docs/integrations/js-integration#feature-flags${UTM_TAGS}`}
+                >
+                    Check the docs <IconExternalLink />
+                </a>
+            </div>
+        </>
+    )
+}
+
+function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Python} wrap>
+                {`if posthog.feature_enabled("${flagKey}", "user_distinct_id"):
+    runAwesomeFeature()
+`}
+            </CodeSnippet>
+            <div className="mt">
+                Need more information?{' '}
+                <a
+                    target="_blank"
+                    rel="noopener"
+                    href={`https://posthog.com/docs/integrations/python-integration#feature-flags${UTM_TAGS}`}
+                >
+                    Check the docs <IconExternalLink />
+                </a>
+            </div>
+        </>
     )
 }
 
@@ -140,25 +179,38 @@ export function FeatureFlag(): JSX.Element {
                             </Form.Item>
 
                             <Collapse>
-                                <Collapse.Panel header="Integration instructions" key="instructions">
+                                <Collapse.Panel
+                                    header={
+                                        <div style={{ display: 'flex', fontWeight: 'bold' }}>
+                                            <img src={jsLogo} height={16} style={{ marginRight: 6 }} /> Javascript
+                                            integration instructions
+                                        </div>
+                                    }
+                                    key="js"
+                                >
                                     <Form.Item
                                         shouldUpdate={(prevValues, currentValues) =>
                                             prevValues.key !== currentValues.key
                                         }
                                     >
-                                        {({ getFieldValue }) => {
-                                            return submitDisabled ? (
-                                                <small>
-                                                    Select either a person property or rollout percentage to save your
-                                                    feature flag.
-                                                </small>
-                                            ) : (
-                                                <span>
-                                                    <br />
-                                                    Example implementation: <Snippet flagKey={getFieldValue('key')} />
-                                                </span>
-                                            )
-                                        }}
+                                        {({ getFieldValue }) => <JSSnippet flagKey={getFieldValue('key')} />}
+                                    </Form.Item>
+                                </Collapse.Panel>
+                                <Collapse.Panel
+                                    header={
+                                        <div style={{ display: 'flex', fontWeight: 'bold' }}>
+                                            <img src={pythonLogo} height={16} style={{ marginRight: 6 }} /> Python
+                                            integration instructions
+                                        </div>
+                                    }
+                                    key="python"
+                                >
+                                    <Form.Item
+                                        shouldUpdate={(prevValues, currentValues) =>
+                                            prevValues.key !== currentValues.key
+                                        }
+                                    >
+                                        {({ getFieldValue }) => <PythonSnippet flagKey={getFieldValue('key')} />}
                                     </Form.Item>
                                 </Collapse.Panel>
                             </Collapse>
