@@ -4,6 +4,7 @@ import { toast } from 'react-toastify'
 import { Link } from 'lib/components/Link'
 import { kea, useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { userLogic } from 'scenes/userLogic'
 import { Input, Select, Modal, Radio } from 'antd'
 import { prompt } from 'lib/logic/prompt'
 import moment from 'moment'
@@ -72,6 +73,7 @@ export function SaveToDashboardModal({
     const logic = saveToDashboardModalLogic({ fromDashboard })
     const { dashboards, dashboardId } = useValues(logic)
     const { addNewDashboard, setDashboardId } = useActions(logic)
+    const { user } = useValues(userLogic)
     const [name, setName] = useState(fromItemName || initialName || '')
     const [visible, setVisible] = useState(true)
     const [newItem, setNewItem] = useState(!fromItem)
@@ -155,11 +157,17 @@ export function SaveToDashboardModal({
                             onChange={(id) => (id === 'new' ? addNewDashboard() : setDashboardId(id))}
                             style={{ width: '100%' }}
                         >
-                            {dashboards.map((dashboard) => (
-                                <Select.Option key={dashboard.id} value={dashboard.id}>
-                                    {dashboard.name}
-                                </Select.Option>
-                            ))}
+                            {dashboards.map((dashboard) => {
+                                const isCreator = dashboard.created_by
+                                    ? user && dashboard.created_by.distinct_id === user.distinct_id
+                                    : false
+                                const canEditDashboard = isCreator || !dashboard.created_by
+                                return (
+                                    <Select.Option key={dashboard.id} value={dashboard.id} disabled={!canEditDashboard}>
+                                        {dashboard.name}
+                                    </Select.Option>
+                                )
+                            })}
                             <Select.Option value="new">+ New Dashboard</Select.Option>
                         </Select>
                     </>
