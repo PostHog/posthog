@@ -1,10 +1,9 @@
-from json import dumps as jdumps
-
 from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models import Action, ActionStep, Cohort, Event, Organization, Person
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
+from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 
 from .base import TransactionBaseTest
 
@@ -72,7 +71,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                         team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": i},
                     )
 
-        def _compare_entity_response(self, response1, response2, remove=("action", "label")):
+        def assertEntityResponseEqual(self, response1, response2, remove=("action", "label")):
             if len(response1):
                 for attr in remove:
                     response1[0].pop(attr)
@@ -83,7 +82,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     response2[0].pop(attr)
             else:
                 return False
-            return str(response1[0]) == str(response2[0])
+            self.assertDictEqual(response1[0], response2[0])
 
         def test_people_endpoint_paginated(self):
 
@@ -145,7 +144,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             event_factory(
                 team=self.team, event="sign up", distinct_id="person1", timestamp="2019-11-27T16:50:00Z",
             )
-
+            calculate_actions_from_last_calculation()
             return person1, person2, person3, person4, person5, person6, person7
 
         def test_minute_interval(self):
@@ -178,10 +177,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             all_people_ids = [str(person["id"]) for person in min_grouped_action_response["results"][0]["people"]]
             self.assertListEqual(sorted(all_people_ids), sorted([str(person4.pk), str(person5.pk)]))
             self.assertEqual(len(all_people_ids), 2)
-            self.assertTrue(
-                self._compare_entity_response(
-                    min_grouped_action_response["results"], min_grouped_grevent_response["results"], remove=[],
-                )
+            self.assertEntityResponseEqual(
+                min_grouped_action_response["results"], min_grouped_grevent_response["results"], remove=[],
             )
 
         def test_hour_interval(self):
@@ -212,9 +209,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             ).json()
             self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.pk))
             self.assertEqual(len(action_response["results"][0]["people"]), 1)
-            self.assertTrue(
-                self._compare_entity_response(action_response["results"], event_response["results"], remove=[])
-            )
+            self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
 
             # check grouped hour
             hour_grouped_action_response = self.client.get(
@@ -240,10 +235,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             all_people_ids = [str(person["id"]) for person in hour_grouped_action_response["results"][0]["people"]]
             self.assertListEqual(sorted(all_people_ids), sorted([str(person2.pk), str(person3.pk)]))
             self.assertEqual(len(all_people_ids), 2)
-            self.assertTrue(
-                self._compare_entity_response(
-                    hour_grouped_action_response["results"], hour_grouped_grevent_response["results"], remove=[],
-                )
+            self.assertEntityResponseEqual(
+                hour_grouped_action_response["results"], hour_grouped_grevent_response["results"], remove=[],
             )
 
         def test_day_interval(self):
@@ -256,6 +249,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             event_factory(
                 team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-05T12:00:00Z",
             )
+            calculate_actions_from_last_calculation()
             # test people
             action_response = self.client.get(
                 "/api/action/people/",
@@ -279,9 +273,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             ).json()
 
             self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.pk))
-            self.assertTrue(
-                self._compare_entity_response(action_response["results"], event_response["results"], remove=[])
-            )
+            self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
 
         def test_week_interval(self):
             sign_up_action, person = self._create_events()
@@ -314,10 +306,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             self.assertListEqual(sorted(all_people_ids), sorted([str(person6.pk), str(person7.pk)]))
             self.assertEqual(len(all_people_ids), 2)
 
-            self.assertTrue(
-                self._compare_entity_response(
-                    week_grouped_action_response["results"], week_grouped_grevent_response["results"], remove=[],
-                )
+            self.assertEntityResponseEqual(
+                week_grouped_action_response["results"], week_grouped_grevent_response["results"], remove=[],
             )
 
         def test_month_interval(self):
@@ -351,10 +341,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             self.assertListEqual(sorted(all_people_ids), sorted([str(person6.pk), str(person7.pk), str(person1.pk)]))
             self.assertEqual(len(all_people_ids), 3)
 
-            self.assertTrue(
-                self._compare_entity_response(
-                    month_group_action_response["results"], month_group_grevent_response["results"], remove=[],
-                )
+            self.assertEntityResponseEqual(
+                month_group_action_response["results"], month_group_grevent_response["results"], remove=[],
             )
 
         def test_interval_rounding(self):
