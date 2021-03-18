@@ -6,15 +6,6 @@ import { FeatureFlagType } from '~/types'
 export const featureFlagsLogic = kea<featureFlagsLogicType<FeatureFlagType>>({
     actions: () => ({
         updateFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
-        setOpenedFeatureFlag: (featureFlagId: number | 'new' | null) => ({ featureFlagId }),
-    }),
-    reducers: () => ({
-        openedFeatureFlagId: [
-            null as number | 'new' | null,
-            {
-                setOpenedFeatureFlag: (_, { featureFlagId }) => featureFlagId,
-            },
-        ],
     }),
     loaders: {
         featureFlags: {

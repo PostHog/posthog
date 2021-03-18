@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
-import { Table, Switch, Drawer, Button } from 'antd'
+import { Table, Switch } from 'antd'
 import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
@@ -9,24 +9,28 @@ import { PageHeader } from 'lib/components/PageHeader'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/PropertyFiltersDisplay'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
-import { FeatureFlag } from './FeatureFlag'
+import { router } from 'kea-router'
+import { LinkButton } from 'lib/components/LinkButton'
 
 export function FeatureFlags(): JSX.Element {
-    const { featureFlags, featureFlagsLoading, openedFeatureFlagId } = useValues(featureFlagsLogic)
-    const { updateFeatureFlag, loadFeatureFlags, setOpenedFeatureFlag } = useActions(featureFlagsLogic)
+    const { featureFlags, featureFlagsLoading } = useValues(featureFlagsLogic)
+    const { updateFeatureFlag, loadFeatureFlags } = useActions(featureFlagsLogic)
+    const { push } = useActions(router)
+
+    const BackTo = '#backTo=Feature Flags&backToURL=/feature_flags'
 
     const columns = [
-        {
-            title: 'Name',
-            dataIndex: 'name',
-            className: 'ph-no-capture',
-            sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.name).localeCompare(b.name),
-        },
         {
             title: 'Key',
             dataIndex: 'key',
             className: 'ph-no-capture',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.key).localeCompare(b.key),
+        },
+        {
+            title: 'Description',
+            dataIndex: 'name',
+            className: 'ph-no-capture',
+            sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.name).localeCompare(b.name),
         },
         createdAtColumn(),
         createdByColumn(featureFlags),
@@ -62,8 +66,8 @@ export function FeatureFlags(): JSX.Element {
                         to={
                             '/insights?events=[{"id":"$pageview","name":"$pageview","type":"events","math":"dau"}]&properties=[{"key":"$active_feature_flags","operator":"icontains","value":"' +
                             featureFlag.key +
-                            '"}]&breakdown_type=event#backTo=Feature Flags&backToURL=' +
-                            window.location.pathname
+                            '"}]&breakdown_type=event' +
+                            BackTo
                         }
                         data-attr="usage"
                     >
@@ -77,16 +81,20 @@ export function FeatureFlags(): JSX.Element {
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <>
-                        <Button type="link" icon={<EditOutlined />} />
-                        <DeleteWithUndo
-                            endpoint="feature_flag"
-                            object={featureFlag}
-                            className="text-danger"
-                            style={{ marginLeft: 8 }}
-                            callback={loadFeatureFlags}
-                        >
-                            <DeleteOutlined />
-                        </DeleteWithUndo>
+                        <Link to={`/feature_flags/${featureFlag.id}${BackTo}`}>
+                            <EditOutlined />
+                        </Link>
+                        {featureFlag.id && (
+                            <DeleteWithUndo
+                                endpoint="feature_flag"
+                                object={{ name: featureFlag.name, id: featureFlag.id }}
+                                className="text-danger"
+                                style={{ marginLeft: 8 }}
+                                callback={loadFeatureFlags}
+                            >
+                                <DeleteOutlined />
+                            </DeleteWithUndo>
+                        )}
                     </>
                 )
             },
@@ -100,14 +108,14 @@ export function FeatureFlags(): JSX.Element {
                 caption="Feature flags are a way of turning functionality in your app on or off, based on user properties."
             />
             <div className="mb text-right">
-                <Button
+                <LinkButton
                     type="primary"
-                    onClick={() => setOpenedFeatureFlag('new')}
+                    to={`/feature_flags/new${BackTo}`}
                     data-attr="new-feature-flag"
                     icon={<PlusOutlined />}
                 >
                     New Feature Flag
-                </Button>
+                </LinkButton>
             </div>
             <Table
                 dataSource={featureFlags}
@@ -115,21 +123,12 @@ export function FeatureFlags(): JSX.Element {
                 loading={!featureFlags && featureFlagsLoading}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 onRow={(featureFlag) => ({
-                    onClick: () => setOpenedFeatureFlag(featureFlag.id),
+                    onClick: () => push(`/feature_flags/${featureFlag.id}${BackTo}`),
                 })}
                 size="small"
                 rowClassName="cursor-pointer"
                 data-attr="feature-flag-table"
             />
-            <Drawer
-                title={openedFeatureFlagId === 'new' ? 'New feature flag' : 'Feature flag name here'}
-                width={500}
-                onClose={() => setOpenedFeatureFlag(null)}
-                destroyOnClose={true}
-                visible={!!openedFeatureFlagId}
-            >
-                <FeatureFlag />
-            </Drawer>
         </div>
     )
 }
