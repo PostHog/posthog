@@ -1,0 +1,34 @@
+@import '~/vars';
+
+.image-showcase-container {
+    height: 100%;
+    position: relative;
+
+    .image-showcase {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background: $sky;
+
+        .the-mountains {
+            z-index: $z_city_background_image;
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 180px;
+            background: url('./mountains.svg');
+            background-size: cover;
+        }
+
+        .main-logo {
+            padding-top: $default_spacing;
+            padding-left: $default_spacing * 2;
+            img {
+                height: 60px;
+            }
+        }
+    }
+}

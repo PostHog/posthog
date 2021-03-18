@@ -232,7 +232,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
     }
 
     return (
-        <div className="unauthenticated-signup" ref={parentContainerRef}>
+        <div className="unauthenticated-invite" ref={parentContainerRef}>
             <Row>
                 <Col span={24} md={10} className="image-showcase-container">
                     <div className="image-showcase ant-col-24 ant-col-md-10">
