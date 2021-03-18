@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Input, Button, Form, Switch, Slider, Card, Row, Col, Collapse, Tooltip } from 'antd'
 import { useActions, useValues } from 'kea'
 import { SceneLoading } from 'lib/utils'
@@ -29,7 +29,7 @@ function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
                 <a
                     target="_blank"
                     rel="noopener"
-                    href={`https://posthog.com/docs/integrations/js-integration#feature-flags${UTM_TAGS}`}
+                    href={`https://posthog.com/docs/integrations/js-integration${UTM_TAGS}#feature-flags`}
                 >
                     Check the docs <IconExternalLink />
                 </a>
@@ -51,7 +51,7 @@ function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
                 <a
                     target="_blank"
                     rel="noopener"
-                    href={`https://posthog.com/docs/integrations/python-integration#feature-flags${UTM_TAGS}`}
+                    href={`https://posthog.com/docs/integrations/python-integration${UTM_TAGS}#feature-flags`}
                 >
                     Check the docs <IconExternalLink />
                 </a>
@@ -63,19 +63,9 @@ function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
 export function FeatureFlag(): JSX.Element {
     const [form] = Form.useForm()
     const { featureFlag, featureFlagId } = useValues(featureFlagLogic)
-    const { addMatchGroup, updateMatchGroup, removeMatchGroup } = useActions(featureFlagLogic)
-    const isNew = true // TODO
-    const submitDisabled = false // TODO
-    const hasRollout = false
-    const groups = []
+    const { addMatchGroup, updateMatchGroup, removeMatchGroup, saveFeatureFlag } = useActions(featureFlagLogic)
 
-    /*const { updateFeatureFlag, createFeatureFlag, deleteFeatureFlag } = useActions(logic)
-
-    const { groups, hasRollout, hasProperties } = useValues(_editLogic)
-    const { setProperties, setRolloutPercentage, addGroup, removeGroup } = useActions(_editLogic)
-    const [hasKeyChanged, setHasKeyChanged] = useState(false)
-
-    const submitDisabled = !hasRollout && !hasProperties*/
+    const [hasKeyChanged, setHasKeyChanged] = useState(false) // whether the key for an existing flag is being changed
 
     return (
         <div className="feature-flag">
@@ -84,16 +74,20 @@ export function FeatureFlag(): JSX.Element {
                     layout="vertical"
                     form={form}
                     initialValues={{ name: featureFlag.name, key: featureFlag.key, active: featureFlag.active }}
-                    onFinish={(values) => {
-                        console.log(values)
-                        const updatedFlag = { ...featureFlag, ...values, filters: { groups } }
-                        if (isNew) {
-                            createFeatureFlag(updatedFlag)
-                        } else {
-                            updateFeatureFlag(updatedFlag)
+                    onValuesChange={(newValues) => {
+                        if (featureFlagId !== 'new' && newValues.key) {
+                            setHasKeyChanged(newValues.key !== featureFlag.key)
                         }
                     }}
+                    onFinish={(values) =>
+                        saveFeatureFlag({
+                            ...featureFlag,
+                            ...values,
+                            filters: featureFlag.filters,
+                        })
+                    }
                     requiredMark={false}
+                    scrollToFirstError
                 >
                     <PageHeader
                         title="Feature Flag"
@@ -136,10 +130,10 @@ export function FeatureFlag(): JSX.Element {
                                     </Button>
                                 )}
                                 <Button
-                                    disabled={submitDisabled}
                                     icon={<SaveOutlined />}
                                     type="primary"
                                     data-attr="feature-flag-submit"
+                                    htmlType="submit"
                                 >
                                     Save changes
                                 </Button>
@@ -154,28 +148,49 @@ export function FeatureFlag(): JSX.Element {
                             </div>
                             <Form.Item
                                 name="key"
-                                label="Key"
-                                rules={[{ required: true }]}
-                                validateStatus={!!hasRollout && hasKeyChanged ? 'warning' : ''}
+                                label="Key (must be unique)"
+                                rules={[
+                                    { required: true, message: 'You need to set a key.' },
+                                    {
+                                        pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
+                                        message: 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
+                                    },
+                                ]}
+                                validateStatus={hasKeyChanged ? 'warning' : undefined}
                                 help={
-                                    !!hasRollout && hasKeyChanged ? (
+                                    hasKeyChanged ? (
                                         <small>
-                                            Changing this key will
-                                            <a href="https://posthog.com/docs/features/feature-flags#feature-flag-persistence">
+                                            <b>Warning! </b>Changing this key will
+                                            <a
+                                                href={`https://posthog.com/docs/features/feature-flags${UTM_TAGS}#feature-flag-persistence`}
+                                                target="_blank"
+                                                rel="noopener"
+                                            >
                                                 {' '}
-                                                affect the persistence of your flag.
+                                                affect the persistence of your flag <IconExternalLink />
                                             </a>
                                         </small>
-                                    ) : (
-                                        ' '
-                                    )
+                                    ) : undefined
                                 }
                             >
-                                <Input data-attr="feature-flag-key" className="ph-ignore-input" autoFocus />
+                                <Input
+                                    data-attr="feature-flag-key"
+                                    className="ph-ignore-input"
+                                    autoFocus
+                                    placeholder="examples: new-landing-page, betaFeature, ab_test_1"
+                                    autoComplete="off"
+                                    autoCapitalize="off"
+                                    autoCorrect="off"
+                                    spellCheck={false}
+                                />
                             </Form.Item>
 
                             <Form.Item name="name" label="Description">
-                                <Input.TextArea className="ph-ignore-input" data-attr="feature-flag-description" />
+                                <Input.TextArea
+                                    className="ph-ignore-input"
+                                    data-attr="feature-flag-description"
+                                    placeholder="Adding a helpful description can ensure others know what this feature is for."
+                                />
                             </Form.Item>
 
                             <Collapse>
@@ -223,7 +238,7 @@ export function FeatureFlag(): JSX.Element {
                             {featureFlag.filters.groups.map((group, index) => (
                                 <Card
                                     style={{ position: 'relative', marginBottom: 32, paddingBottom: 48 }}
-                                    key={`${index}-${groups.length}`}
+                                    key={`${index}-${featureFlag.filters.groups.length}`}
                                 >
                                     {featureFlag.filters.groups.length > 1 && (
                                         <>
@@ -262,7 +277,7 @@ export function FeatureFlag(): JSX.Element {
                                             </b>
                                         )}
                                         <PropertyFilters
-                                            pageKey={`feature-flag-${featureFlag.id}-${index}-${groups.length}`}
+                                            pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length}`}
                                             propertyFilters={group?.properties}
                                             onChange={(properties: PropertyFilter[]) =>
                                                 updateMatchGroup(index, undefined, properties)
@@ -319,15 +334,6 @@ export function FeatureFlag(): JSX.Element {
                             </Button>
                             <Form.Item className="text-right">
                                 <Button
-                                    disabled={submitDisabled}
-                                    icon={<SaveOutlined />}
-                                    htmlType="submit"
-                                    style={{ marginRight: 16 }}
-                                >
-                                    Save changes and continue editing
-                                </Button>
-                                <Button
-                                    disabled={submitDisabled}
                                     icon={<SaveOutlined />}
                                     htmlType="submit"
                                     type="primary"

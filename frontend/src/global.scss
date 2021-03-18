@@ -259,7 +259,7 @@ code.code {
     }
 }
 
-.Toastify__progress-bar--default {
+.Toastify__progress-bar {
     background: $success;
 }
 
@@ -275,6 +275,9 @@ code.code {
     }
     &.accent-border {
         border-color: $primary_alt;
+    }
+    .Toastify__progress-bar {
+        background: $primary_alt;
     }
 }
 

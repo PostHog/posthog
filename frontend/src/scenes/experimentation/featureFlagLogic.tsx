@@ -1,13 +1,16 @@
 import { kea } from 'kea'
+import React from 'react'
 import { featureFlagLogicType } from './featureFlagLogicType'
 import { FeatureFlagType, PropertyFilter } from '~/types'
 import api from 'lib/api'
+import { toast } from 'react-toastify'
+import { router } from 'kea-router'
 
 const NEW_FLAG = {
     id: null,
     key: '',
     name: '',
-    filters: { groups: [] },
+    filters: { groups: [{ properties: [], rollout_percentage: null }] },
     deleted: false,
     active: true,
     created_by: null,
@@ -80,9 +83,38 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagType>>({
                     }
                     return NEW_FLAG
                 },
+                saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
+                    if (!updatedFlag.id) {
+                        return await api.create('api/feature_flag', {
+                            ...updatedFlag,
+                            id: undefined,
+                        })
+                    } else {
+                        return await api.update(`api/feature_flag/${updatedFlag.id}`, {
+                            ...updatedFlag,
+                            id: undefined,
+                        })
+                    }
+                },
             },
         ],
     }),
+    listeners: {
+        saveFeatureFlagSuccess: () => {
+            toast.success(
+                <div>
+                    <h1>Your feature flag has been saved!</h1>
+                    <p>Click here to back to the feature flag list.</p>
+                </div>,
+                {
+                    onClick: () => {
+                        router.actions.push('/feature_flags')
+                    },
+                    closeOnClick: true,
+                }
+            )
+        },
+    },
     urlToAction: ({ actions }) => ({
         '/feature_flags/*': ({ _: id }: { _: number | 'new' }) => {
             actions.setFeatureFlagId(id)

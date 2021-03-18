@@ -555,7 +555,7 @@ interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
 }
 export interface FeatureFlagType {
-    id: number
+    id: number | null
     key: string
     name: string // Used as description
     filters: FeatureFlagFilters
