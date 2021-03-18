@@ -22,6 +22,7 @@ import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { RestrictedArea } from '../../../lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from '../../../lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
+import { TimezoneConfig } from './TimezoneConfig'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -145,6 +146,12 @@ export function ProjectSettings(): JSX.Element {
                 </CodeSnippet>
                 Write-only means it can only create new events. It can't read events or any of your other data stored
                 with PostHog, so it's safe to use in public apps.
+                <Divider />
+                <h2 className="subtitle" id="timezone">
+                    Timezone
+                </h2>
+                <p>Set the timezone for your project so you see relevant time conversions within PostHog.</p>
+                <TimezoneConfig />
                 <Divider />
                 <h2 className="subtitle" id="testaccounts">
                     Filter out test accounts and team members
