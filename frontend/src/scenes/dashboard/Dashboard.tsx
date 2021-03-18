@@ -91,7 +91,6 @@ function DashboardView(): JSX.Element {
                 <div>
                     <div className="dashboard-items-actions">
                         <div className="left-item">
-                            <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />
                             Last updated <b>{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</b>
                             {dashboardMode !== DashboardMode.Public && (
                                 <Button type="link" icon={<ReloadOutlined />} onClick={refreshAllDashboardItems}>
@@ -100,19 +99,22 @@ function DashboardView(): JSX.Element {
                             )}
                         </div>
                         {dashboardMode !== DashboardMode.Public && (
-                            <DateFilter
-                                defaultValue="Custom"
-                                showCustom
-                                dateFrom={dashboardFilters?.date_from}
-                                dateTo={dashboardFilters?.date_to}
-                                onChange={setDates}
-                                makeLabel={(key) => (
-                                    <>
-                                        <CalendarOutlined />
-                                        <span className="hide-when-small"> {key}</span>
-                                    </>
-                                )}
-                            />
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />
+                                <DateFilter
+                                    defaultValue="Custom"
+                                    showCustom
+                                    dateFrom={dashboardFilters?.date_from}
+                                    dateTo={dashboardFilters?.date_to}
+                                    onChange={setDates}
+                                    makeLabel={(key) => (
+                                        <>
+                                            <CalendarOutlined />
+                                            <span className="hide-when-small"> {key}</span>
+                                        </>
+                                    )}
+                                />
+                            </div>
                         )}
                     </div>
                     <DashboardItems inSharedMode={dashboardMode === DashboardMode.Public} />
