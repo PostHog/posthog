@@ -1,6 +1,6 @@
 import { Button, Col, Input, Row } from 'antd'
 import React, { lazy, Suspense, useRef, useState } from 'react'
-import './LoginSignup.scss'
+import './AuthenticationView.scss'
 import smLogo from 'public/icon-white.svg'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { PrevalidatedInvite } from '~/types'
@@ -17,7 +17,7 @@ interface LoginSignupProps {
     invite?: PrevalidatedInvite | null
 }
 
-export function LoginSignup({ invite }: LoginSignupProps): JSX.Element {
+export function AuthenticationView({ invite }: LoginSignupProps): JSX.Element {
     /*
     UI component for the login & signup pages.
     Currently used for: InviteSignup.
@@ -71,7 +71,7 @@ export function LoginSignup({ invite }: LoginSignupProps): JSX.Element {
     }
 
     return (
-        <div className="login-signup" ref={mainContainerRef}>
+        <div className="authentication-view" ref={mainContainerRef}>
             <Row>
                 <Col span={24} md={10} className="image-showcase-container">
                     <div className="image-showcase ant-col-24 ant-col-md-10">

@@ -11,7 +11,7 @@ import { router } from 'kea-router'
 import { PrevalidatedInvite } from '~/types'
 import { Link } from 'lib/components/Link'
 import { WhoAmI } from '~/layout/navigation/TopNavigation'
-import { LoginSignup } from './LoginSignup'
+import { AuthenticationView } from './AuthenticationView'
 
 const UTM_TAGS = 'utm_medium=in-product&utm_campaign=invite-signup'
 
@@ -188,7 +188,7 @@ export function InviteSignup(): JSX.Element {
     return (
         <div className={`invite-signup${user ? ' authenticated' : ''}`}>
             <ErrorView />
-            {invite && (user ? <AuthenticatedAcceptInvite invite={invite} /> : <LoginSignup invite={invite} />)}
+            {invite && (user ? <AuthenticatedAcceptInvite invite={invite} /> : <AuthenticationView invite={invite} />)}
         </div>
     )
 }

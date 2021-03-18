@@ -8,7 +8,6 @@ import { userLogic } from './userLogic'
 import { sceneLogicType } from './sceneLogicType'
 
 export enum Scene {
-    // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
     Dashboards = 'dashboards',
     Dashboard = 'dashboard',
     Insights = 'insights',
@@ -30,6 +29,7 @@ export enum Scene {
     Billing = 'billing',
     Plugins = 'plugins',
     // Onboarding / setup routes
+    Login = 'login',
     PreflightCheck = 'preflightCheck',
     Signup = 'signup',
     InviteSignup = 'inviteSignup',
@@ -70,12 +70,13 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Annotations]: () => import(/* webpackChunkName: 'annotations' */ './annotations'),
     [Scene.PreflightCheck]: () => import(/* webpackChunkName: 'preflightCheck' */ './PreflightCheck'),
     [Scene.Signup]: () => import(/* webpackChunkName: 'signup' */ './onboarding/Signup'),
-    [Scene.InviteSignup]: () => import(/* webpackChunkName: 'inviteSignup' */ './onboarding/InviteSignup'),
+    [Scene.InviteSignup]: () => import(/* webpackChunkName: 'inviteSignup' */ './authentication/InviteSignup'),
     [Scene.Ingestion]: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
     [Scene.Billing]: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
     [Scene.Plugins]: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
     [Scene.Personalization]: () => import(/* webpackChunkName: 'personalization' */ './onboarding/Personalization'),
     [Scene.OnboardingSetup]: () => import(/* webpackChunkName: 'onboardingSetup' */ './onboarding/OnboardingSetup'),
+    [Scene.Login]: () => import(/* webpackChunkName: 'login' */ './authentication/Login'),
 }
 
 interface SceneConfig {
@@ -101,6 +102,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         hideDemoWarnings: true,
     },
     // Onboarding / setup routes
+    [Scene.Login]: {
+        onlyUnauthenticated: true,
+    },
     [Scene.PreflightCheck]: {
         onlyUnauthenticated: true,
     },
@@ -158,6 +162,7 @@ export const routes: Record<string, Scene> = {
     '/instance/status': Scene.SystemStatus,
     '/me/settings': Scene.MySettings,
     // Onboarding / setup routes
+    '/login': Scene.Login,
     '/preflight': Scene.PreflightCheck,
     '/signup': Scene.Signup,
     '/signup/:id': Scene.InviteSignup,
