@@ -339,7 +339,7 @@ export function FeatureFlag(): JSX.Element {
                                     icon={<SaveOutlined />}
                                     htmlType="submit"
                                     type="primary"
-                                    data-attr="feature-flag-submit"
+                                    data-attr="feature-flag-submit-bottom"
                                 >
                                     Save changes
                                 </Button>
