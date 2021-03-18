@@ -5,7 +5,6 @@ import { Button, Checkbox, Form, Popconfirm, Switch, Tooltip } from 'antd'
 import { DeleteOutlined, CodeOutlined, LockFilled } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
-import { Link } from 'lib/components/Link'
 import { Drawer } from 'lib/components/Drawer'
 import { LocalPluginTag } from 'scenes/plugins/plugin/LocalPluginTag'
 import { defaultConfigForPlugin, getConfigSchemaArray } from 'scenes/plugins/utils'
@@ -14,8 +13,9 @@ import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from './PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
-import { endWithPunctation } from '../../../lib/utils'
+import { endWithPunctation } from 'lib/utils'
 import { canGloballyManagePlugins, canInstallPlugins } from '../access'
+import { ExtraPluginButtons } from '../plugin/PluginCard'
 
 function EnabledDisabledSwitch({
     value,
@@ -123,28 +123,20 @@ export function PluginDrawer(): JSX.Element {
                     {editingPlugin ? (
                         <div>
                             <div style={{ display: 'flex', marginBottom: 16 }}>
-                                <PluginImage pluginType={editingPlugin.plugin_type} url={editingPlugin.url} />
+                                <PluginImage
+                                    pluginType={editingPlugin.plugin_type}
+                                    url={editingPlugin.url}
+                                    size="large"
+                                />
                                 <div style={{ flexGrow: 1, paddingLeft: 16 }}>
                                     {endWithPunctation(editingPlugin.description)}
-                                    {editingPlugin.url ? (
-                                        <>
-                                            {editingPlugin.description ? ' ' : ''}
-                                            <Link
-                                                to={editingPlugin.url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                style={{ whiteSpace: 'nowrap' }}
-                                            >
-                                                Learn more.
-                                            </Link>
-                                        </>
-                                    ) : null}
                                     <div style={{ marginTop: 5 }}>
                                         {editingPlugin?.plugin_type === 'local' && editingPlugin.url ? (
                                             <LocalPluginTag url={editingPlugin.url} title="Installed Locally" />
                                         ) : editingPlugin.plugin_type === 'source' ? (
                                             <SourcePluginTag />
                                         ) : null}
+                                        {editingPlugin.url && <ExtraPluginButtons url={editingPlugin.url} />}
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', marginTop: 5 }}>
                                         <Form.Item
@@ -170,7 +162,7 @@ export function PluginDrawer(): JSX.Element {
                                 </div>
                             ) : null}
 
-                            {canGloballyManagePlugins(user?.organization) && !user?.is_multi_tenancy && (
+                            {canGloballyManagePlugins(user?.organization) && user?.is_multi_tenancy && (
                                 // Currently this is only shown on Cloud, but the feature works on all deployments
                                 <>
                                     <h3 className="l3" style={{ marginTop: 32 }}>
