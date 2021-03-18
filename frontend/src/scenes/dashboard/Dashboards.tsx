@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Card, Col, Drawer, Row, Spin } from 'antd'
 import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
+import { userLogic } from 'scenes/userLogic'
 import { Link } from 'lib/components/Link'
 import { PlusOutlined } from '@ant-design/icons'
 import { Table } from 'antd'
@@ -17,6 +18,7 @@ export function Dashboards(): JSX.Element {
     const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard } = useActions(dashboardsModel)
     const { setNewDashboardDrawer } = useActions(dashboardsLogic)
     const { dashboards, newDashboardDrawer } = useValues(dashboardsLogic)
+    const { user } = useValues(userLogic)
 
     const columns = [
         {
@@ -54,12 +56,15 @@ export function Dashboards(): JSX.Element {
             title: 'Actions',
             align: 'center',
             width: 120,
-            render: function RenderActions({ id }: DashboardType) {
+            render: function RenderActions(dashboard: DashboardType) {
+                const { id, created_by } = dashboard
+                const isCreator = created_by ? user && created_by.distinct_id === user.distinct_id : false
+                const canEditDashboard = isCreator || !dashboard.created_by
                 return (
                     <span
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => deleteDashboard({ id, redirect: false })}
-                        className="text-danger"
+                        style={{ cursor: `${canEditDashboard ? 'pointer' : 'not-allowed'}` }}
+                        onClick={canEditDashboard ? () => deleteDashboard({ id, redirect: false }) : () => {}}
+                        className={canEditDashboard ? 'text-danger' : 'text-disabled'}
                     >
                         <DeleteOutlined />
                     </span>
