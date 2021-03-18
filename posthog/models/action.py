@@ -32,11 +32,10 @@ class Action(models.Model):
 
         try:
             if recalculate_all:
-                event_query, params = Event.objects.query_db_by_action(self).only("pk").query.sql_with_params()
+                event_queryset = Event.objects.query_db_by_action(self).only("pk")
             else:
-                event_query, params = (
-                    Event.objects.query_db_by_action(self, start=start, end=end).only("pk").query.sql_with_params()
-                )
+                event_queryset = Event.objects.query_db_by_action(self, start=start, end=end).only("pk")
+            event_query, params = event_queryset.query.sql_with_params()
         except EmptyResultSet:
             self.events.all().delete()
         else:
