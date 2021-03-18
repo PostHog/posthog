@@ -914,10 +914,21 @@
   resolved "https://registry.yarnpkg.com/@posthog/clickhouse/-/clickhouse-1.7.0.tgz#21fa1e8cfa0637b688f91964e0efeedbf4cf7a3c"
   integrity sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==
 
-"@posthog/plugin-server@0.12.0":
-  version "0.12.0"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.12.0.tgz#fe5ead9698bd68bc25754e313d731d5201a5d52e"
-  integrity sha512-gwE57c1iPlWltiSvSNAtOXlbhlSHqs6sHoo3n4Fhl0KuS0Q7Ot0GrKmFImTLOR6rR4mbKdf26cq79qiNF/rKeg==
+"@posthog/piscina@^2.2.0-posthog":
+  version "2.2.0-posthog"
+  resolved "https://registry.yarnpkg.com/@posthog/piscina/-/piscina-2.2.0-posthog.tgz#de92f7809258ca98e0c6c101c14e808df3a07bcb"
+  integrity sha512-M4yfSogzAplo0ZN/i2B3jHeEjIEUVOo0Mcc0wikvlCSGP5h/AtTaYja+p2FfmrP4jjMeTksEfVAh/Nt2fEcKSg==
+  dependencies:
+    eventemitter-asyncresource "^1.0.0"
+    hdr-histogram-js "^2.0.1"
+    hdr-histogram-percentiles-obj "^3.0.0"
+  optionalDependencies:
+    nice-napi "^1.0.2"
+
+"@posthog/plugin-server@0.14.0":
+  version "0.14.0"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.14.0.tgz#463e5bf54887206678fe07120843620cce02525e"
+  integrity sha512-bumJAY/y3R21qaHolJJ71CKAQZ4h7vnrAOZSxBL7Gdg4qux4hM5SWvAyhAlJtVh91lAHMastGpvABs1c/S/65w==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"
@@ -925,6 +936,7 @@
     "@babel/standalone" "^7.13.7"
     "@google-cloud/bigquery" "^5.5.0"
     "@posthog/clickhouse" "^1.7.0"
+    "@posthog/piscina" "^2.2.0-posthog"
     "@sentry/node" "^5.29.0"
     "@sentry/tracing" "^5.29.0"
     adm-zip "^0.4.16"
@@ -938,7 +950,6 @@
     node-fetch "^2.6.1"
     node-schedule "^1.3.2"
     pg "^8.4.2"
-    piscina "https://github.com/PostHog/piscina.git#broadcast-release"
     posthog-js-lite "^0.0.5"
     protobufjs "^6.10.2"
     redlock "^4.2.0"
@@ -2078,16 +2089,6 @@ pino@^6.2.1:
     pino-std-serializers "^2.4.2"
     quick-format-unescaped "^4.0.1"
     sonic-boom "^1.0.2"
-
-"piscina@git+https://github.com/PostHog/piscina.git#broadcast-release":
-  version "2.2.0"
-  resolved "git+https://github.com/PostHog/piscina.git#f8584a8e4409057f74b7ae0bf4cf6185e61530b6"
-  dependencies:
-    eventemitter-asyncresource "^1.0.0"
-    hdr-histogram-js "^2.0.1"
-    hdr-histogram-percentiles-obj "^3.0.0"
-  optionalDependencies:
-    nice-napi "^1.0.2"
 
 postgres-array@~2.0.0:
   version "2.0.0"
