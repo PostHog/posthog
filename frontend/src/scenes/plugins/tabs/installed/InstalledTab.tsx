@@ -114,9 +114,14 @@ export function InstalledTab(): JSX.Element {
     ) : (
         <Tooltip
             title={
-                enabledPlugins.length <= 1
-                    ? 'At least two plugins need to be enabled for reordering.'
-                    : 'Order matters because event processing with plugins works like a pipe: the event is processed by every enabled plugin in sequence.'
+                enabledPlugins.length <= 1 ? (
+                    'At least two plugins need to be enabled for reordering.'
+                ) : (
+                    <>
+                        Order matters because event processing with plugins works like a pipe: the event is processed by
+                        every enabled plugin <b>in sequence</b>.
+                    </>
+                )
             }
             placement="bottom"
         >
