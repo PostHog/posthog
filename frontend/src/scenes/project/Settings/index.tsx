@@ -25,7 +25,7 @@ import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { renameCurrentTeam } = useActions(teamLogic)
+    const { patchCurrentTeam } = useActions(teamLogic)
 
     const [name, setName] = useState(currentTeam?.name || '')
 
@@ -50,7 +50,7 @@ function DisplayName(): JSX.Element {
                 type="primary"
                 onClick={(e) => {
                     e.preventDefault()
-                    renameCurrentTeam(name)
+                    patchCurrentTeam({ name })
                 }}
                 disabled={!name || !currentTeam || name === currentTeam.name}
                 loading={currentTeamLoading}
