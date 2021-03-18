@@ -20,7 +20,7 @@ from posthog.ee import is_ee_enabled
 from posthog.email import is_email_available
 from posthog.models import Team, User
 from posthog.models.organization import Organization
-from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api, reload_plugins_on_workers
+from posthog.plugins import can_configure_plugins, can_install_plugins, reload_plugins_on_workers
 from posthog.tasks import user_identify
 from posthog.version import VERSION
 
@@ -125,6 +125,7 @@ def user(request):
                 "name": organization.name,
                 "billing_plan": organization.billing_plan,
                 "available_features": organization.available_features,
+                "plugins_access_level": organization.plugins_access_level,
                 "created_at": organization.created_at,
                 "updated_at": organization.updated_at,
                 "teams": [{"id": team.id, "name": team.name} for team in organization.teams.all().only("id", "name")],
@@ -163,10 +164,6 @@ def user(request):
             "is_debug": getattr(settings, "DEBUG", False),
             "is_staff": user.is_staff,
             "is_impersonated": is_impersonated_session(request),
-            "plugin_access": {
-                "install": can_install_plugins_via_api(user.organization),
-                "configure": can_configure_plugins_via_api(user.organization),
-            },
             "is_event_property_usage_enabled": getattr(settings, "ASYNC_EVENT_PROPERTY_USAGE", False),
         }
     )

@@ -42,12 +42,14 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
             headers = {"Authorization": "token {}".format(token)} if token else {}
             commits_url = "https://api.github.com/repos/{}/{}/commits".format(parsed["user"], parsed["repo"])
             commits = requests.get(commits_url, headers=headers).json()
+            if isinstance(commits, dict):
+                raise Exception(commits.get("message"))
             if len(commits) > 0 and commits[0].get("sha", None):
                 parsed["tag"] = commits[0]["sha"]
             else:
-                raise
-        except Exception:
-            raise Exception("Could not get latest commit for: {}".format(parsed["root_url"]))
+                raise Exception(f"Could not find a commit with a hash in {commits}")
+        except Exception as e:
+            raise Exception(f"Could not get latest commit for {parsed['root_url']}. Reason: {e}")
     if parsed["tag"]:
         parsed["tagged_url"] = "https://github.com/{}/{}/tree/{}{}".format(
             parsed["user"],

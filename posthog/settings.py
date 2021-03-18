@@ -71,11 +71,6 @@ if DEBUG:
 else:
     JS_URL = os.getenv("JS_URL", "")
 
-PLUGINS_INSTALL_VIA_API = get_from_env("PLUGINS_INSTALL_VIA_API", True, type_cast=strtobool)
-PLUGINS_CONFIGURE_VIA_API = PLUGINS_INSTALL_VIA_API or get_from_env(
-    "PLUGINS_CONFIGURE_VIA_API", True, type_cast=strtobool
-)
-
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 

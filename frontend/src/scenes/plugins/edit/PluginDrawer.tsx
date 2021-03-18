@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Popconfirm, Switch, Tooltip } from 'antd'
+import { Button, Checkbox, Form, Popconfirm, Switch, Tooltip } from 'antd'
 import { DeleteOutlined, CodeOutlined, LockFilled } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
@@ -14,6 +14,8 @@ import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from './PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
+import { endWithPunctation } from '../../../lib/utils'
+import { canGloballyManagePlugins, canInstallPlugins } from '../access'
 
 function EnabledDisabledSwitch({
     value,
@@ -24,8 +26,8 @@ function EnabledDisabledSwitch({
 }): JSX.Element {
     return (
         <>
-            <Switch checked={value} onChange={onChange} />{' '}
-            <strong style={{ paddingLeft: 8 }}>{value ? 'Enabled' : 'Disabled'}</strong>
+            <Switch checked={value} onChange={onChange} />
+            <strong style={{ paddingLeft: 10 }}>{value ? 'Enabled' : 'Disabled'}</strong>
         </>
     )
 }
@@ -44,12 +46,15 @@ const SecretFieldIcon = (): JSX.Element => (
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
     const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
-    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, generateApiKeysIfNeeded } = useActions(
-        pluginsLogic
-    )
+    const {
+        editPlugin,
+        savePluginConfig,
+        uninstallPlugin,
+        setEditingSource,
+        generateApiKeysIfNeeded,
+        patchPlugin,
+    } = useActions(pluginsLogic)
     const [form] = Form.useForm()
-
-    const canDelete = user?.plugin_access.install
 
     useEffect(() => {
         if (editingPlugin) {
@@ -88,7 +93,7 @@ export function PluginDrawer(): JSX.Element {
                     <>
                         <div style={{ display: 'flex' }}>
                             <div style={{ flexGrow: 1 }}>
-                                {canDelete && (
+                                {canInstallPlugins(user?.organization, editingPlugin?.organization_id) && (
                                     <Popconfirm
                                         placement="topLeft"
                                         title="Are you sure you wish to uninstall this plugin?"
@@ -120,13 +125,9 @@ export function PluginDrawer(): JSX.Element {
                             <div style={{ display: 'flex', marginBottom: 16 }}>
                                 <PluginImage pluginType={editingPlugin.plugin_type} url={editingPlugin.url} />
                                 <div style={{ flexGrow: 1, paddingLeft: 16 }}>
-                                    {editingPlugin.description}
-                                    {(editingPlugin.description?.length || 0) > 0 &&
-                                    editingPlugin.description?.substr(-1) !== '.'
-                                        ? '.'
-                                        : ''}
+                                    {endWithPunctation(editingPlugin.description)}
                                     {editingPlugin.url ? (
-                                        <span>
+                                        <>
                                             {editingPlugin.description ? ' ' : ''}
                                             <Link
                                                 to={editingPlugin.url}
@@ -134,10 +135,9 @@ export function PluginDrawer(): JSX.Element {
                                                 rel="noopener noreferrer"
                                                 style={{ whiteSpace: 'nowrap' }}
                                             >
-                                                Learn More
+                                                Learn more.
                                             </Link>
-                                            .
-                                        </span>
+                                        </>
                                     ) : null}
                                     <div style={{ marginTop: 5 }}>
                                         {editingPlugin?.plugin_type === 'local' && editingPlugin.url ? (
@@ -169,6 +169,34 @@ export function PluginDrawer(): JSX.Element {
                                     </Button>
                                 </div>
                             ) : null}
+
+                            {canGloballyManagePlugins(user?.organization) && user?.is_multi_tenancy && (
+                                <>
+                                    <h3 className="l3" style={{ marginTop: 32 }}>
+                                        Installation
+                                    </h3>
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                Enabling this will mark this plugin as installed for{' '}
+                                                <b>all organizations</b> in this instance of PostHog.
+                                            </>
+                                        }
+                                        placement="bottom"
+                                    >
+                                        <Checkbox
+                                            checked={editingPlugin.is_global}
+                                            onChange={(e) =>
+                                                patchPlugin(editingPlugin.id, {
+                                                    is_global: e.target.checked,
+                                                })
+                                            }
+                                        >
+                                            <span style={{ paddingLeft: 10 }}>Mark as global</span>
+                                        </Checkbox>
+                                    </Tooltip>
+                                </>
+                            )}
 
                             <h3 className="l3" style={{ marginTop: 32 }}>
                                 Configuration
