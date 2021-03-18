@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, Col, Empty, Row, Skeleton, Space, Tag } from 'antd'
+import { Button, Col, Empty, Row, Skeleton, Space, Tag, Tooltip } from 'antd'
 import {
     CloudDownloadOutlined,
     SyncOutlined,
@@ -112,11 +112,18 @@ export function InstalledTab(): JSX.Element {
             </Button>
         </>
     ) : (
-        <>
+        <Tooltip
+            title={
+                enabledPlugins.length <= 1
+                    ? 'At least two plugins need to be enabled for reordering.'
+                    : 'Order matters because event processing with plugins works like a pipe: the event is processed by every enabled plugin in sequence.'
+            }
+            placement="bottom"
+        >
             <Button icon={<OrderedListOutlined />} onClick={() => rearrange()} disabled={enabledPlugins.length <= 1}>
                 Edit order
             </Button>
-        </>
+        </Tooltip>
     )
 
     const onSortEnd = ({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void => {
