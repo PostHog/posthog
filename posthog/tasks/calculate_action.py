@@ -23,7 +23,7 @@ def calculate_actions_from_last_calculation() -> None:
     if is_ee_enabled():  # In EE actions are not precalculated
         return
     start_time_overall = time.time()
-    for action in cast(Sequence[Action], Action.objects.filter(is_calculating=False, deleted=False).only("pk")):
+    for action in cast(Sequence[Action], Action.objects.filter(is_calculating=False, deleted=False)):
         start_time = time.time()
         action.calculate_events(start=action.last_calculated_at)
         total_time = time.time() - start_time
