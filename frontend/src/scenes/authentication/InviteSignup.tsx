@@ -1,19 +1,23 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import React, { lazy, Suspense, useRef, useState } from 'react'
 import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
 import { SceneLoading } from 'lib/utils'
 import './InviteSignup.scss'
 import { StarryBackground } from 'lib/components/StarryBackground'
 import { userLogic } from 'scenes/userLogic'
-import { Button, Row, Col } from 'antd'
-import { ArrowLeftOutlined, ArrowRightOutlined } from '@ant-design/icons'
+import { Button, Row, Col, Input } from 'antd'
+import { ArrowLeftOutlined, ArrowRightOutlined, ArrowDownOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { PrevalidatedInvite } from '~/types'
 import { Link } from 'lib/components/Link'
 import { WhoAmI } from '~/layout/navigation/TopNavigation'
 import { AuthenticationView } from './AuthenticationView'
+import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import Checkbox from 'antd/lib/checkbox/Checkbox'
 
 const UTM_TAGS = 'utm_medium=in-product&utm_campaign=invite-signup'
+const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
 
 interface ErrorMessage {
     title: string
@@ -177,18 +181,186 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
     )
 }
 
+function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): JSX.Element {
+    const [formValues, setFormValues] = useState({
+        firstName: invite?.first_name || '',
+        password: '',
+        emailOptIn: true,
+    })
+    const [formState, setFormState] = useState({ submitted: false, passwordInvalid: false })
+    const passwordInputRef = useRef<Input | null>(null)
+    const { acceptInvite } = useActions(inviteSignupLogic)
+    const { acceptedInviteLoading } = useValues(inviteSignupLogic)
+    const { socialAuthAvailable } = useValues(preflightLogic)
+
+    const handlePasswordChanged = (e: React.ChangeEvent<HTMLInputElement>): void => {
+        const { value } = e.target
+        setFormValues({ ...formValues, password: value })
+        if (value.length >= 8) {
+            setFormState({ ...formState, passwordInvalid: false })
+        } else {
+            setFormState({ ...formState, passwordInvalid: true })
+        }
+    }
+
+    const handleFormSubmit = (e: React.FormEvent<EventTarget>): void => {
+        e.preventDefault()
+        if (formState.passwordInvalid) {
+            setFormState({ ...formState, submitted: true })
+            if (passwordInputRef.current) {
+                passwordInputRef.current.focus()
+            }
+            return
+        }
+
+        const payload = {
+            first_name: formValues.firstName,
+            password: formValues.password,
+            email_opt_in: formValues.emailOptIn,
+        }
+        acceptInvite(payload)
+    }
+
+    return (
+        <>
+            <SocialLoginButtons
+                title="Continue with a provider"
+                caption={`Remember to log in with ${invite?.target_email}`}
+                queryString={invite ? `?invite_id=${invite.id}` : ''}
+            />
+            <div className="password-login">
+                <h3 className="l3 text-center">
+                    {socialAuthAvailable ? 'Or create your own password' : 'Create your PostHog account'}
+                </h3>
+                <form onSubmit={handleFormSubmit}>
+                    <div className="input-set">
+                        <label htmlFor="email">Email</label>
+                        <Input type="email" disabled id="email" value={invite?.target_email} />
+                    </div>
+                    <div
+                        className={`input-set${formState.submitted && formState.passwordInvalid ? ' errored' : ''}`}
+                        style={{ paddingBottom: 8 }}
+                    >
+                        <label htmlFor="password">Password</label>
+                        <Input
+                            placeholder="*******"
+                            type="password"
+                            required
+                            disabled={acceptedInviteLoading}
+                            autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
+                            value={formValues.password}
+                            onChange={handlePasswordChanged}
+                            id="password"
+                            ref={passwordInputRef}
+                        />
+                        <span className="caption">Your password must have at least 8 characters.</span>
+                        <Suspense fallback={<></>}>
+                            <PasswordStrength password={formValues.password} />
+                        </Suspense>
+                    </div>
+                    <div className="input-set">
+                        <label htmlFor="first_name">First Name</label>
+                        <Input
+                            placeholder="Jane"
+                            type="text"
+                            required
+                            disabled={acceptedInviteLoading}
+                            id="first_name"
+                            value={formValues.firstName}
+                            onChange={(e) => setFormValues({ ...formValues, firstName: e.target.value })}
+                        />
+                        {invite?.first_name && (
+                            <span className="caption">
+                                Your name was provided in the invite, feel free to change it.
+                            </span>
+                        )}
+                    </div>
+                    <div className="mb">
+                        <Checkbox
+                            checked={formValues.emailOptIn}
+                            onChange={(e) => setFormValues({ ...formValues, emailOptIn: e.target.checked })}
+                            disabled={acceptedInviteLoading}
+                            style={{ fontSize: 12, color: 'var(--text-muted)' }}
+                        >
+                            Send me product and security updates
+                        </Checkbox>
+                    </div>
+                    <Button
+                        type="primary"
+                        htmlType="submit"
+                        data-attr="password-signup"
+                        disabled={formState.submitted && formState.passwordInvalid}
+                        loading={acceptedInviteLoading}
+                        block
+                    >
+                        Continue
+                    </Button>
+                </form>
+                <div className="mt text-center">
+                    By clicking continue you agree to our{' '}
+                    <a href="https://posthog.com/terms" target="_blank" rel="noopener">
+                        Terms of Service
+                    </a>{' '}
+                    and{' '}
+                    <a href="https://posthog.com/privacy" target="_blank" rel="noopener">
+                        Privacy Policy
+                    </a>
+                    .
+                </div>
+                <div className="mt text-center text-muted" style={{ marginBottom: 60 }}>
+                    Already have an account? <Link to="/login">Log in</Link>
+                </div>
+            </div>
+        </>
+    )
+}
+
 export function InviteSignup(): JSX.Element {
     const { invite, inviteLoading } = useValues(inviteSignupLogic)
     const { user } = useValues(userLogic)
+
+    const parentContainerRef = useRef<HTMLDivElement | null>(null) // Used for scrolling on mobile
+    const mainContainerRef = useRef<HTMLDivElement | null>(null) // Used for scrolling on mobile
 
     if (inviteLoading) {
         return <SceneLoading />
     }
 
+    const goToMainContent = (): void => {
+        const yPos = mainContainerRef.current ? mainContainerRef.current.getBoundingClientRect().top : null
+        if (yPos) {
+            parentContainerRef.current?.scrollTo(0, yPos)
+        }
+    }
+
     return (
         <div className={`invite-signup${user ? ' authenticated' : ''}`}>
             <ErrorView />
-            {invite && (user ? <AuthenticatedAcceptInvite invite={invite} /> : <AuthenticationView invite={invite} />)}
+            {invite &&
+                (user ? (
+                    <AuthenticatedAcceptInvite invite={invite} />
+                ) : (
+                    <AuthenticationView
+                        mainContent={<UnauthenticatedAcceptInvite invite={invite} />}
+                        sideContent={
+                            <>
+                                <h1 className="page-title">
+                                    Hello{invite?.first_name ? ` ${invite.first_name}` : ''}! You've been invited to
+                                    join
+                                </h1>
+                                <div className="company">{invite?.organization_name || 'us'}</div>
+                                <h1 className="page-title">on PostHog</h1>
+                                <div className="mobile-continue">
+                                    <Button icon={<ArrowDownOutlined />} type="default" onClick={goToMainContent}>
+                                        Continue
+                                    </Button>
+                                </div>
+                            </>
+                        }
+                        mainContainerRef={mainContainerRef}
+                        parentContainerRef={parentContainerRef}
+                    />
+                ))}
         </div>
     )
 }
