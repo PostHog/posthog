@@ -119,13 +119,6 @@ export function InstalledTab(): JSX.Element {
         </>
     )
 
-    const buttons = (
-        <Space>
-            {rearrangingButtons}
-            {!rearranging && upgradeButton}
-        </Space>
-    )
-
     const onSortEnd = ({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void => {
         if (oldIndex === newIndex) {
             return
@@ -152,16 +145,19 @@ export function InstalledTab(): JSX.Element {
 
     return (
         <div>
-            {pluginsNeedingUpdates.length > 0 ? (
+            {pluginsNeedingUpdates.length > 0 && (
                 <>
-                    <Subtitle subtitle={`Plugins to update (${pluginsNeedingUpdates.length})`} buttons={buttons} />
+                    <Subtitle
+                        subtitle={`Plugins to update (${pluginsNeedingUpdates.length})`}
+                        buttons={!rearranging && upgradeButton}
+                    />
                     <Row gutter={16} style={{ marginTop: 16 }}>
                         {pluginsNeedingUpdates.map((plugin) => (
                             <InstalledPlugin key={plugin.id} plugin={plugin} showUpdateButton />
                         ))}
                     </Row>
                 </>
-            ) : null}
+            )}
 
             {enabledPlugins.length > 0 ? (
                 <>
@@ -176,7 +172,12 @@ export function InstalledTab(): JSX.Element {
                                 )}
                             </>
                         }
-                        buttons={buttons}
+                        buttons={
+                            <Space>
+                                {rearrangingButtons}
+                                {!rearranging && upgradeButton}
+                            </Space>
+                        }
                     />
                     {canRearrange || rearranging ? (
                         <SortablePlugins useDragHandle onSortEnd={onSortEnd} onSortOver={makePluginOrderSaveable}>
@@ -210,7 +211,7 @@ export function InstalledTab(): JSX.Element {
                 <>
                     <Subtitle
                         subtitle={`Installed plugins (${disabledPlugins.length})`}
-                        buttons={<>{enabledPlugins.length === 0 ? upgradeButton : null}</>}
+                        buttons={enabledPlugins.length === 0 && upgradeButton}
                     />
                     <Row gutter={16} style={{ marginTop: 16 }}>
                         {disabledPlugins.map((plugin) => (
