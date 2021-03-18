@@ -747,3 +747,14 @@ export function sortedKeys(object: Record<string, any>): Record<string, any> {
     }
     return newObject
 }
+
+export function endWithPunctation(text?: string | null): string {
+    let trimmedText = text?.trim()
+    if (!trimmedText) {
+        return ''
+    }
+    if (!/[.!?]$/.test(trimmedText)) {
+        trimmedText += '.'
+    }
+    return trimmedText
+}
