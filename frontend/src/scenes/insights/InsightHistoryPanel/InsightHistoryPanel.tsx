@@ -78,6 +78,7 @@ function InsightPane({
                             footer={<div className="dashboard-item-footer">{footer(insight)}</div>}
                             index={index}
                             isOnEditMode={false}
+                            canEditDashboard={true}
                         />
                     </Col>
                 ))}
