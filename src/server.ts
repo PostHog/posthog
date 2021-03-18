@@ -169,7 +169,7 @@ export async function createServer(
 }
 
 // TODO: refactor this into a class, removing the need for many different Servers
-type ServerInstance = {
+export type ServerInstance = {
     server: PluginsServer
     piscina: Piscina
     queue: Queue
