@@ -1,11 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
+import IORedis from 'ioredis'
 import { mocked } from 'ts-jest/utils'
 
 import Client from '../../src/celery/client'
 import { ingestEvent } from '../../src/ingestion/ingest-event'
 import { runPlugins, runPluginsOnBatch, runPluginTask } from '../../src/plugins/run'
 import { loadSchedule, setupPlugins } from '../../src/plugins/setup'
-import { startPluginsServer } from '../../src/server'
+import { ServerInstance, startPluginsServer } from '../../src/server'
 import { loadPluginSchedule } from '../../src/services/schedule'
 import { LogLevel } from '../../src/types'
 import { delay, UUIDT } from '../../src/utils'
@@ -74,7 +75,9 @@ test('piscina worker test', async () => {
     const ingestResponse2 = await ingestEvent({ ...createEvent(), uuid: new UUIDT().toString() })
     expect(ingestResponse2).toEqual({ success: true })
 
-    await piscina.destroy()
+    try {
+        await piscina.destroy()
+    } catch {}
 })
 
 test('assume that the workerThreads and tasksPerWorker values behave as expected', async () => {
@@ -108,105 +111,119 @@ test('assume that the workerThreads and tasksPerWorker values behave as expected
     expect(piscina.queueSize).toBe(0)
     expect(piscina.completed).toBe(10 + 2)
 
-    await piscina.destroy()
+    try {
+        await piscina.destroy()
+    } catch {}
 })
 
-test('pause the queue if too many tasks', async () => {
-    const testCode = `
-        async function processEvent (event) {
-            await new Promise(resolve => __jestSetTimeout(resolve, 1000))
-            return event
-        }
-    `
-    await resetTestDatabase(testCode)
-    const pluginsServer = await startPluginsServer(
-        {
-            WORKER_CONCURRENCY: 2,
-            TASKS_PER_WORKER: 2,
-            REDIS_POOL_MIN_SIZE: 3,
-            REDIS_POOL_MAX_SIZE: 3,
-            PLUGINS_CELERY_QUEUE: `test-plugins-celery-queue-${new UUIDT()}`,
-            CELERY_DEFAULT_QUEUE: `test-celery-default-queue-${new UUIDT()}`,
-            LOG_LEVEL: LogLevel.Debug,
-        },
-        makePiscina
-    )
+describe('queue logic', () => {
+    let pluginsServer: ServerInstance
+    let redis: IORedis.Redis
 
-    const redis = await pluginsServer.server.redisPool.acquire()
+    beforeEach(async () => {
+        const testCode = `
+            async function processEvent (event) {
+                await new Promise(resolve => __jestSetTimeout(resolve, 1000))
+                return event
+            }
+        `
+        await resetTestDatabase(testCode)
+        pluginsServer = await startPluginsServer(
+            {
+                WORKER_CONCURRENCY: 2,
+                TASKS_PER_WORKER: 2,
+                REDIS_POOL_MIN_SIZE: 3,
+                REDIS_POOL_MAX_SIZE: 3,
+                PLUGINS_CELERY_QUEUE: `test-plugins-celery-queue-${new UUIDT()}`,
+                CELERY_DEFAULT_QUEUE: `test-celery-default-queue-${new UUIDT()}`,
+                LOG_LEVEL: LogLevel.Debug,
+            },
+            makePiscina
+        )
 
-    await redis.del(pluginsServer.server.PLUGINS_CELERY_QUEUE)
-    await redis.del(pluginsServer.server.CELERY_DEFAULT_QUEUE)
+        redis = await pluginsServer.server.redisPool.acquire()
 
-    const args = Object.values({
-        distinct_id: 'my-id',
-        ip: '127.0.0.1',
-        site_url: 'http://localhost',
-        data: {
-            event: '$pageview',
-            properties: {},
-        },
-        team_id: 2,
-        now: new Date().toISOString(),
-        sent_at: new Date().toISOString(),
-        uuid: new UUIDT().toString(),
+        await redis.del(pluginsServer.server.PLUGINS_CELERY_QUEUE)
+        await redis.del(pluginsServer.server.CELERY_DEFAULT_QUEUE)
     })
 
-    await delay(1000)
-    const baseCompleted = pluginsServer.piscina.completed
+    afterEach(async () => {
+        // :TRICKY: Ignore errors when stopping workers.
+        try {
+            await pluginsServer.server.redisPool.release(redis)
+            await pluginsServer.stop()
+        } catch {}
+    })
 
-    expect(pluginsServer.piscina.queueSize).toBe(0)
+    it('pauses the queue if too many tasks', async () => {
+        const args = Object.values({
+            distinct_id: 'my-id',
+            ip: '127.0.0.1',
+            site_url: 'http://localhost',
+            data: {
+                event: '$pageview',
+                properties: {},
+            },
+            team_id: 2,
+            now: new Date().toISOString(),
+            sent_at: new Date().toISOString(),
+            uuid: new UUIDT().toString(),
+        })
 
-    const client = new Client(pluginsServer.server.db, pluginsServer.server.PLUGINS_CELERY_QUEUE)
-    for (let i = 0; i < 2; i++) {
-        client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
-    }
+        await delay(1000)
+        const baseCompleted = pluginsServer.piscina.completed
 
-    await delay(100)
+        expect(pluginsServer.piscina.queueSize).toBe(0)
 
-    expect(pluginsServer.piscina.queueSize).toBe(0)
-    expect(pluginsServer.piscina.completed).toBe(baseCompleted)
-    expect(pluginsServer.queue.isPaused()).toBe(false)
-
-    await delay(5000)
-
-    expect(pluginsServer.piscina.queueSize).toBe(0)
-    expect(pluginsServer.piscina.completed).toBe(baseCompleted + 4)
-    expect(pluginsServer.queue.isPaused()).toBe(false)
-
-    // 2 tasks * 2 threads = 4 active
-    // 2 threads * 2 threads = 4 queue excess
-    for (let i = 0; i < 50; i++) {
-        client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
-    }
-
-    let celerySize = 50,
-        pausedTimes = 0
-    const startTime = pluginsServer.piscina.duration
-    while (celerySize > 0 || pluginsServer.piscina.queueSize > 0) {
-        await delay(50)
-        celerySize = await redis.llen(pluginsServer.server.PLUGINS_CELERY_QUEUE)
-
-        if (pluginsServer.queue.isPaused()) {
-            pausedTimes++
-            expect(pluginsServer.piscina.queueSize).toBeGreaterThan(0)
+        const client = new Client(pluginsServer.server.db, pluginsServer.server.PLUGINS_CELERY_QUEUE)
+        for (let i = 0; i < 2; i++) {
+            client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
         }
-    }
 
-    await delay(3000)
+        await delay(100)
 
-    expect(pausedTimes).toBeGreaterThanOrEqual(10)
-    expect(pluginsServer.queue.isPaused()).toBe(false)
-    expect(pluginsServer.piscina.queueSize).toBe(0)
-    expect(pluginsServer.piscina.completed).toEqual(baseCompleted + 104)
+        expect(pluginsServer.piscina.queueSize).toBe(0)
+        expect(pluginsServer.piscina.completed).toBe(baseCompleted)
+        expect(pluginsServer.queue.isPaused()).toBe(false)
 
-    const duration = pluginsServer.piscina.duration - startTime
-    const expectedTimeMs = (50 / 4) * 1000
+        await delay(5000)
 
-    expect(duration).toBeGreaterThanOrEqual(expectedTimeMs)
-    expect(duration).toBeLessThanOrEqual(expectedTimeMs * 1.4)
+        expect(pluginsServer.piscina.queueSize).toBe(0)
+        expect(pluginsServer.piscina.completed).toBe(baseCompleted + 4)
+        expect(pluginsServer.queue.isPaused()).toBe(false)
 
-    await pluginsServer.server.redisPool.release(redis)
-    await pluginsServer.stop()
+        // 2 tasks * 2 threads = 4 active
+        // 2 threads * 2 threads = 4 queue excess
+        for (let i = 0; i < 50; i++) {
+            client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
+        }
+
+        let celerySize = 50,
+            pausedTimes = 0
+        const startTime = pluginsServer.piscina.duration
+        while (celerySize > 0 || pluginsServer.piscina.queueSize > 0) {
+            await delay(50)
+            celerySize = await redis.llen(pluginsServer.server.PLUGINS_CELERY_QUEUE)
+
+            if (pluginsServer.queue.isPaused()) {
+                pausedTimes++
+                expect(pluginsServer.piscina.queueSize).toBeGreaterThan(0)
+            }
+        }
+
+        await delay(3000)
+
+        expect(pausedTimes).toBeGreaterThanOrEqual(10)
+        expect(pluginsServer.queue.isPaused()).toBe(false)
+        expect(pluginsServer.piscina.queueSize).toBe(0)
+        expect(pluginsServer.piscina.completed).toEqual(baseCompleted + 104)
+
+        const duration = pluginsServer.piscina.duration - startTime
+        const expectedTimeMs = (50 / 4) * 1000
+
+        expect(duration).toBeGreaterThanOrEqual(expectedTimeMs)
+        expect(duration).toBeLessThanOrEqual(expectedTimeMs * 1.4)
+    })
 })
 
 describe('createTaskRunner()', () => {

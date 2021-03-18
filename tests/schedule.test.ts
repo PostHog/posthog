@@ -96,8 +96,10 @@ test('runTasksDebounced exception', async () => {
     // nothing bad should have happened. the error is in SQL via setError, but that ran in another worker (can't mock)
     // and we're not testing it E2E so we can't check the DB either...
 
-    await piscina.destroy()
-    await closeServer()
+    try {
+        await piscina.destroy()
+        await closeServer()
+    } catch {}
 })
 
 describe('startSchedule', () => {
