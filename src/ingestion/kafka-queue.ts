@@ -62,9 +62,9 @@ export class KafkaQueue implements Queue {
             )
         )
 
-        const processingTimeout = timeoutGuard(
-            `Still running plugins on ${pluginEvents.length} events. Timeout warning after 30 sec!`
-        )
+        const processingTimeout = timeoutGuard('Still running plugins on events. Timeout warning after 30 sec!', {
+            eventCount: pluginEvents.length,
+        })
         const processingBatches = groupIntoBatches(pluginEvents, maxBatchSize)
         const processedEvents = (
             await Promise.all(
@@ -88,14 +88,14 @@ export class KafkaQueue implements Queue {
             (a, b) => (uuidOrder.get(a.uuid!) || pluginEvents.length) - (uuidOrder.get(b.uuid!) || pluginEvents.length)
         )
 
-        const ingestionTimeout = timeoutGuard(
-            `Still ingesting ${processedEvents.length} events. Timeout warning after 30 sec!`
-        )
+        const ingestionTimeout = timeoutGuard('Still ingesting events. Timeout warning after 30 sec!', {
+            eventCount: processedEvents.length,
+        })
 
         const ingestOneEvent = async (event: PluginEvent) => {
-            const singleIngestionTimeout = timeoutGuard(
-                `After 30 seconds still ingesting event: ${JSON.stringify(event)}`
-            )
+            const singleIngestionTimeout = timeoutGuard('After 30 seconds still ingesting event', {
+                event: JSON.stringify(event),
+            })
             const singleIngestionTimer = new Date()
             try {
                 await this.saveEvent(event)

@@ -9,9 +9,9 @@ import { timeoutGuard } from './utils'
 export type IngestEventResponse = { success?: boolean; error?: string }
 
 export async function ingestEvent(server: PluginsServer, event: PluginEvent): Promise<IngestEventResponse> {
-    const timeout = timeoutGuard(
-        `Still ingesting event inside worker. Timeout warning after 30 sec! ${JSON.stringify(event)}`
-    )
+    const timeout = timeoutGuard('Still ingesting event inside worker. Timeout warning after 30 sec!', {
+        event: JSON.stringify(event),
+    })
     try {
         const { distinct_id, ip, site_url, team_id, now, sent_at, uuid } = event
         await server.eventsProcessor.processEvent(
