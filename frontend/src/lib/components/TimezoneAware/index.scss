@@ -2,6 +2,7 @@
 
 .tz-label {
     border-bottom: 1px dotted $border_dark;
+    cursor: pointer;
 }
 
 .tz-label-popover {
@@ -31,4 +32,9 @@
             }
         }
     }
+}
+
+.tz-indicator {
+    color: $text_muted;
+    cursor: pointer;
 }

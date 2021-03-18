@@ -766,3 +766,9 @@ export function shortTimeZone(timeZone?: string, at_date: Date = new Date()): st
     */
     return new Date(at_date).toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone }).split(' ')[2]
 }
+
+export function humanTZOffset(timezone?: string): string {
+    const offset = dayjs().tz(timezone).utcOffset() / 60
+    const direction = offset > 0 ? 'ahead' : 'behind'
+    return `${offset > 0 ? '+' : '-'}${Math.abs(offset)} hours ${direction}`
+}
