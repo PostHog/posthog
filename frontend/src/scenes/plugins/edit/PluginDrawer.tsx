@@ -127,17 +127,27 @@ export function PluginDrawer(): JSX.Element {
                                 <div style={{ flexGrow: 1, paddingLeft: 16 }}>
                                     {endWithPunctation(editingPlugin.description)}
                                     {editingPlugin.url ? (
-                                        <>
-                                            {editingPlugin.description ? ' ' : ''}
+                                        <p style={{ marginTop: 2 }}>
                                             <Link
                                                 to={editingPlugin.url}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                                 style={{ whiteSpace: 'nowrap' }}
                                             >
-                                                Learn more.
+                                                <Button size="small">Learn more</Button>
                                             </Link>
-                                        </>
+                                            {'  '}
+                                            {editingPlugin.url.includes('github') ? (
+                                                <Link
+                                                    to={`${editingPlugin.url}/issues/new`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    style={{ whiteSpace: 'nowrap' }}
+                                                >
+                                                    <Button size="small">Report Bug</Button>
+                                                </Link>
+                                            ) : null}
+                                        </p>
                                     ) : null}
                                     <div style={{ marginTop: 5 }}>
                                         {editingPlugin?.plugin_type === 'local' && editingPlugin.url ? (

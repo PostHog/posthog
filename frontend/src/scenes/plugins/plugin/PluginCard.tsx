@@ -160,17 +160,27 @@ export function PluginCard({
                         <div>
                             {endWithPunctation(description)}
                             {url && (
-                                <span>
-                                    {description ? ' ' : ''}
+                                <p style={{ marginTop: 2 }}>
                                     <Link
                                         to={url}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         style={{ whiteSpace: 'nowrap' }}
                                     >
-                                        Learn more.
+                                        <Button size="small">Learn more</Button>
                                     </Link>
-                                </span>
+                                    {'  '}
+                                    {url.includes('github') ? (
+                                        <Link
+                                            to={`${url}/issues/new`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            style={{ whiteSpace: 'nowrap' }}
+                                        >
+                                            <Button size="small">Report Bug</Button>
+                                        </Link>
+                                    ) : null}
+                                </p>
                             )}
                         </div>
                     </Col>
