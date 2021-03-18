@@ -328,24 +328,25 @@ export function humanFriendlyDuration(d: string | number): string {
     return days > 0 ? dayDisplay + hDisplay : hDisplay + mDisplay + sDisplay
 }
 
-export function humanFriendlyDiff(from: dayjs.Dayjs, to: dayjs.Dayjs): string {
+export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string): string {
     const diff = dayjs(to).diff(dayjs(from), 'seconds')
     return humanFriendlyDuration(diff)
 }
 
-export function humanFriendlyDetailedTime(date: dayjs.Dayjs | null, withSeconds: boolean = false): string {
+export function humanFriendlyDetailedTime(date: dayjs.Dayjs | string | null, withSeconds: boolean = false): string {
     if (!date) {
         return 'Never'
     }
+    const parsedDate = dayjs(date)
     let formatString = 'MMMM Do YYYY h:mm'
     const today = dayjs().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')
-    if (dayjs(date).isSame(dayjs(), 'm')) {
+    if (parsedDate.isSame(dayjs(), 'm')) {
         return 'Just now'
     }
-    if (dayjs(date).isSame(today, 'd')) {
+    if (parsedDate.isSame(today, 'd')) {
         formatString = '[Today] h:mm'
-    } else if (dayjs(date).isSame(yesterday, 'd')) {
+    } else if (parsedDate.isSame(yesterday, 'd')) {
         formatString = '[Yesterday] h:mm'
     }
     if (withSeconds) {
@@ -353,7 +354,7 @@ export function humanFriendlyDetailedTime(date: dayjs.Dayjs | null, withSeconds:
     } else {
         formatString += ' a'
     }
-    return dayjs(date).format(formatString)
+    return parsedDate.format(formatString)
 }
 
 export function stripHTTP(url: string): string {
@@ -411,8 +412,8 @@ export function eventToName(event: EventType): string {
 }
 
 export function determineDifferenceType(
-    firstDate: dayjs.DayjsInput,
-    secondDate: dayjs.DayjsInput
+    firstDate: dayjs.Dayjs,
+    secondDate: dayjs.Dayjs
 ): 'year' | 'month' | 'week' | 'day' | 'hour' | 'minute' | 'second' {
     const first = dayjs(firstDate)
     const second = dayjs(secondDate)
