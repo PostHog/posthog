@@ -1,3 +1,4 @@
+import pytz
 from rest_framework import status
 
 from posthog.models import User
@@ -22,6 +23,7 @@ class TestPreflight(BaseTest):
                     "initiated": True,
                     "cloud": False,
                     "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
+                    "available_timezones": pytz.common_timezones,
                 },
             )
 
@@ -45,6 +47,7 @@ class TestPreflight(BaseTest):
                     "initiated": False,
                     "cloud": True,
                     "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
+                    "available_timezones": pytz.common_timezones,
                 },
             )
 
@@ -72,5 +75,6 @@ class TestPreflight(BaseTest):
                     "initiated": False,
                     "cloud": True,
                     "available_social_auth_providers": {"google-oauth2": True, "github": False, "gitlab": False},
+                    "available_timezones": pytz.common_timezones,
                 },
             )
