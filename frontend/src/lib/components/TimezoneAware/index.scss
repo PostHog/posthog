@@ -1,5 +1,30 @@
 @import '~/vars';
 
 .tz-label {
-    text-decoration: dashed;
+    border-bottom: 1px dotted $border_dark;
+}
+
+.tz-label-popover {
+    .divider {
+        margin-right: -4px;
+        margin-left: -4px;
+        border-bottom: 1px solid $border_light;
+    }
+    .timezones {
+        .timezone {
+            display: flex;
+            margin-top: 8px;
+            .name {
+                font-weight: bold;
+                color: $primary_alt;
+                margin-right: 6px;
+            }
+
+            .scope {
+                color: $text_muted;
+                margin-right: 16px;
+                flex-grow: 1;
+            }
+        }
+    }
 }
