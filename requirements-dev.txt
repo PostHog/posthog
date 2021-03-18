@@ -25,7 +25,7 @@ django-stubs==1.7.0
     # via
     #   -r requirements-dev.in
     #   djangorestframework-stubs
-django==3.0.6
+django==3.1.6
     # via
     #   django-debug-toolbar
     #   django-stubs
