@@ -26,7 +26,7 @@ export function PageHeader({ title, caption, buttons }: PageHeaderProps): JSX.El
 
 interface SubtitleProps {
     subtitle: string | JSX.Element
-    buttons?: JSX.Element | false
+    buttons?: JSX.Element | null | false
 }
 
 export function Subtitle({ subtitle, buttons }: SubtitleProps): JSX.Element {

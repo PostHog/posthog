@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { delay, idToKey } from 'lib/utils'
+import { delay, idToKey, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { toast } from 'react-toastify'
@@ -20,9 +20,10 @@ export const dashboardsModel = kea({
         rawDashboards: [
             {},
             {
-                loadDashboards: async () => {
+                loadDashboards: async (shareToken = undefined, breakpoint) => {
+                    await breakpoint(50)
                     try {
-                        const { results } = await api.get('api/dashboard')
+                        const { results } = await api.get(`api/dashboard?${toParams({ share_token: shareToken })}`)
                         return idToKey(results)
                     } catch {
                         return {}
