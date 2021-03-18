@@ -3,8 +3,9 @@ import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 
 import { Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
-import moment from 'moment'
-import { DateFilter } from './DateFilter/DateFilter'
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import { DateFilter } from './DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 
 import { PageHeader } from 'lib/components/PageHeader'
@@ -45,6 +46,7 @@ import { TrendLegend } from './TrendLegend'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
+dayjs.extend(relativeTime)
 const { TabPane } = Tabs
 
 const showIntervalFilter = function (activeView, filter) {
@@ -250,7 +252,7 @@ export function Insights() {
                                 <div>
                                     {lastRefresh && (
                                         <small style={{ position: 'absolute', marginTop: -21, right: 24 }}>
-                                            Computed {moment(lastRefresh).fromNow()}
+                                            Computed {dayjs(lastRefresh).fromNow()}
                                             <Button
                                                 size="small"
                                                 type="link"
