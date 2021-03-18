@@ -14,7 +14,7 @@ export function PluginImage({
     size?: 'medium' | 'large'
 }): JSX.Element {
     const [state, setState] = useState({ image: imgPluginDefault })
-    const pixelSize = size === 'large' ? 120 : 60
+    const pixelSize = size === 'large' ? 100 : 60
 
     useEffect(() => {
         if (url?.includes('github.com')) {
