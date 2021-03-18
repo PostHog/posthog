@@ -8,9 +8,9 @@ import { EventType, PropertyFilter, SessionsPropertyFilter, SessionType } from '
 import { router } from 'kea-router'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 
-type Moment = dayjs.Dayjs
-
 type SessionRecordingId = string
+
+type Dayjs = dayjs.Dayjs
 
 interface Params {
     date?: string
@@ -20,7 +20,7 @@ interface Params {
 }
 
 export const sessionsTableLogic = kea<
-    sessionsTableLogicType<Moment, SessionType, SessionRecordingId, PropertyFilter, SessionsPropertyFilter, EventType>
+    sessionsTableLogicType<Dayjs, SessionType, SessionRecordingId, PropertyFilter, SessionsPropertyFilter, EventType>
 >({
     props: {} as {
         personIds?: string[]
@@ -57,7 +57,10 @@ export const sessionsTableLogic = kea<
         previousDay: true,
         nextDay: true,
         applyFilters: true,
-        setFilters: (properties: Array<PropertyFilter>, selectedDate: Moment | null) => ({ properties, selectedDate }),
+        setFilters: (properties: Array<PropertyFilter>, selectedDate: Dayjs | null) => ({
+            properties,
+            selectedDate,
+        }),
         setSessionRecordingId: (sessionRecordingId: SessionRecordingId) => ({ sessionRecordingId }),
         closeSessionPlayer: true,
         loadSessionEvents: (session: SessionType) => ({ session }),
@@ -77,7 +80,7 @@ export const sessionsTableLogic = kea<
                 loadSessionsFailure: () => null,
             },
         ],
-        selectedDate: [null as null | Moment, { setFilters: (_, { selectedDate }) => selectedDate }],
+        selectedDate: [null as null | dayjs.Dayjs, { setFilters: (_, { selectedDate }) => selectedDate }],
         properties: [
             [] as PropertyFilter[],
             {

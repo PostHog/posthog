@@ -2,7 +2,7 @@ import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
 import { Table, Tag, Button, Modal, Input, Row, Spin, Menu, Dropdown } from 'antd'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { annotationsModel } from '~/models/annotationsModel'
 import { annotationsTableLogic } from './logic'
 import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, DownOutlined } from '@ant-design/icons'
@@ -202,10 +202,10 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
         }
     }, [props.annotation])
 
-    const _onSubmit = (input: string, date: Moment): void => {
+    const _onSubmit = (input: string, date: dayjs.Dayjs): void => {
         props.onSubmit(input, date)
         setTextInput('')
-        setDate(moment())
+        setDate(dayjs())
         setScope(AnnotationScope.Project)
     }
 
@@ -295,7 +295,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                         style={{ marginTop: 16, marginLeft: 8, marginBottom: 16 }}
                         getPopupContainer={(trigger): HTMLElement => trigger.parentElement as HTMLElement}
                         value={selectedDate}
-                        onChange={(date): void => setDate(date as moment.Moment)}
+                        onChange={(date): void => setDate(date as dayjs.Dayjs)}
                         allowClear={false}
                     />
                 </div>

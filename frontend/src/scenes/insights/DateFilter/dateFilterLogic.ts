@@ -4,14 +4,16 @@ import * as dayjs from 'dayjs'
 import { dateFilterLogicType } from 'scenes/insights/DateFilter/dateFilterLogicType'
 import { objectsEqual } from 'lib/utils'
 
+type Dayjs = dayjs.Dayjs
+
 interface UrlParams {
     date_from?: string
     date_to?: string
 }
 
-export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, dayjs.Dayjs>>({
+export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Dayjs>>({
     actions: () => ({
-        setDates: (dateFrom: string | dayjs.Dayjs | undefined, dateTo: string | dayjs.Dayjs | undefined) => ({
+        setDates: (dateFrom: string | Dayjs | undefined, dateTo: string | Dayjs | undefined) => ({
             dateFrom,
             dateTo,
         }),
@@ -19,8 +21,8 @@ export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, dayjs.Dayjs>>(
     reducers: () => ({
         dates: [
             {
-                dateFrom: undefined as string | dayjs.Dayjs | undefined,
-                dateTo: undefined as string | dayjs.Dayjs | undefined,
+                dateFrom: undefined as string | Dayjs | undefined,
+                dateTo: undefined as string | Dayjs | undefined,
             },
             {
                 setDates: (_, dates) => dates,

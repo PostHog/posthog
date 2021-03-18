@@ -7,7 +7,7 @@ import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined, ReloadOutlined } from '@ant-design/icons'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { Button } from 'antd'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from '../../lib/hooks/useKeyboardHotkeys'
@@ -90,7 +90,7 @@ function DashboardView(): JSX.Element {
                 <div>
                     <div className="dashboard-items-actions">
                         <div className="left-item">
-                            Last updated <b>{lastRefreshed ? moment(lastRefreshed).fromNow() : 'a while ago'}</b>
+                            Last updated <b>{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</b>
                             {dashboardMode !== DashboardMode.Public && (
                                 <Button type="link" icon={<ReloadOutlined />} onClick={refreshAllDashboardItems}>
                                     Refresh

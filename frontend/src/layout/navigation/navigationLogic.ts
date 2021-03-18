@@ -5,7 +5,7 @@ import { userLogic } from 'scenes/userLogic'
 import { navigationLogicType } from './navigationLogicType'
 import { OrganizationType, SystemStatus, UserType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
-import moment from 'moment'
+import dayjs from 'dayjs'
 
 type WarningType =
     | 'welcome'
@@ -97,7 +97,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
             (user: UserType, organization: OrganizationType): WarningType => {
                 if (
                     organization.setup.is_active &&
-                    moment(organization.created_at) >= moment().subtract(1, 'days') &&
+                    dayjs(organization.created_at) >= dayjs().subtract(1, 'days') &&
                     user.team?.is_demo
                 ) {
                     return 'welcome'
