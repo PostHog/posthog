@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { dateFilterLogicType } from 'scenes/insights/DateFilter/dateFilterLogicType'
 import { objectsEqual } from 'lib/utils'
 

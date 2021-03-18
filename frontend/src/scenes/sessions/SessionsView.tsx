@@ -5,7 +5,7 @@ import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
 import { SessionDetails } from './SessionDetails'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { SessionType } from '~/types'
 import {
     CaretLeftOutlined,

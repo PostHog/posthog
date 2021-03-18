@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import equal from 'fast-deep-equal'
 import { toParams } from 'lib/utils'
 import { sessionsTableLogicType } from './sessionsTableLogicType'

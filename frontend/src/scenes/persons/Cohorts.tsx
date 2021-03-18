@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { DeleteWithUndo } from 'lib/utils'
 import { Tooltip, Table, Spin, Button, Input } from 'antd'
 import { ExportOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons'

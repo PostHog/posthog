@@ -1,5 +1,5 @@
 import { Button, Popover, Tag } from 'antd'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import React from 'react'
 import { ClearOutlined } from '@ant-design/icons'
 import { PluginErrorType } from '~/types'

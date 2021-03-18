@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Select } from 'antd'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
 import { DateFilterRange } from 'lib/components/DateFilter/DateFilterRange'
 

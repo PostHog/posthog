@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { EventElements } from 'scenes/events/EventElements'
 import { Tabs, Button } from 'antd'
 

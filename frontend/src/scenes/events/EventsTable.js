@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { ExportOutlined, SearchOutlined } from '@ant-design/icons'

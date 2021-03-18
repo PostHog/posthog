@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { objectsEqual, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 
 const POLL_TIMEOUT = 5000
 

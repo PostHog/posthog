@@ -9,7 +9,7 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import './Insights.scss'
 
 //--Chart Style Options--//

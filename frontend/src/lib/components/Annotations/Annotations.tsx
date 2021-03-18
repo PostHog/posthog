@@ -1,5 +1,5 @@
 import React from 'react'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'

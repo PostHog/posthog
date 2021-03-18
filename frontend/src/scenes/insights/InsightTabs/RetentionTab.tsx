@@ -14,7 +14,7 @@ import {
 import { Button, Select, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
 import { CloseButton } from 'lib/components/CloseButton'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/es/date-picker/generatePicker'
 import { FilterType } from '~/types'

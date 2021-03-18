@@ -28,7 +28,7 @@ import {
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { logicFromInsight, ViewType } from 'scenes/insights/insightLogic'
 import { dashboardsModel } from '~/models'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'

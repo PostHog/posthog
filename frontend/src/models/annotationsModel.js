@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams, deleteWithUndo } from 'lib/utils'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { getNextKey } from 'lib/components/Annotations/utils'
 
 export const annotationsModel = kea({

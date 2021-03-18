@@ -6,7 +6,7 @@ import { kea, useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Input, Select, Modal, Radio } from 'antd'
 import { prompt } from 'lib/logic/prompt'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 
 const saveToDashboardModalLogic = kea({
     connect: {

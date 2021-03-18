@@ -11,7 +11,7 @@ import {
 } from 'scenes/retention/types'
 
 import './RetentionTable.scss'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { ColumnsType } from 'antd/lib/table'
 
 export function RetentionTable({

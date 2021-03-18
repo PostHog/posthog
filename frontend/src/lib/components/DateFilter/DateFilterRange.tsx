@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { Button } from 'antd'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'

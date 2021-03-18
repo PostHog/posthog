@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { determineDifferenceType, deleteWithUndo, toParams, groupBy } from '~/lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'

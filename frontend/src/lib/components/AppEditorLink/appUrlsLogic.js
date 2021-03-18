@@ -4,7 +4,7 @@ import { toParams } from 'lib/utils'
 import { appEditorUrl } from 'lib/components/AppEditorLink/utils'
 import { toast } from 'react-toastify'
 import { userLogic } from 'scenes/userLogic'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 
 const defaultValue = 'https://'
 

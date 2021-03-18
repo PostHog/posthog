@@ -3,7 +3,7 @@ import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 
 import { Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { DateFilter } from './DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'

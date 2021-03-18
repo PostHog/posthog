@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'

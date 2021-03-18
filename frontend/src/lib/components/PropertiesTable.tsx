@@ -1,6 +1,6 @@
 import React, { CSSProperties, useMemo, useState } from 'react'
 
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { keyMapping, PropertyKeyInfo } from './PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm, Table, Tooltip } from 'antd'
 import { NumberOutlined, CalendarOutlined, BulbOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons'

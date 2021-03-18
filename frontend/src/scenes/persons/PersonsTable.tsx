@@ -6,7 +6,7 @@ import { CohortType, PersonType } from '~/types'
 import { ArrowRightOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { midEllipsis } from 'lib/utils'
 import { PersonHeader } from './PersonHeader'
 

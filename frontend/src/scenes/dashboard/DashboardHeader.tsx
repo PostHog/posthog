@@ -16,7 +16,7 @@ import {
     PlusOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
-import * as dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardMode, DashboardType } from '~/types'
 import { EventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
