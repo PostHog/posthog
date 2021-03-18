@@ -233,7 +233,9 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def create(self, site_url: Optional[str] = None, *args: Any, **kwargs: Any):
+    def create(self, *args: Any, **kwargs: Any):
+        site_url = kwargs.get("site_url")
+
         with transaction.atomic():
             if kwargs.get("elements"):
                 if kwargs.get("team"):
@@ -246,9 +248,7 @@ class EventManager(models.QuerySet):
                     ).hash
             event = super().create(*args, **kwargs)
 
-            # Matching actions to events can get very expensive to do as events are streaming in
-            # In a few cases we have had it OOM Postgres with the query it is running
-            # Short term solution is to have this be configurable to be run in batch
+            # DEPRECATED: ASYNC_EVENT_ACTION_MAPPING is the main approach now, as it works with the plugin server
             if not settings.ASYNC_EVENT_ACTION_MAPPING:
                 should_post_webhook = False
                 relations = []
@@ -375,6 +375,7 @@ class Event(models.Model):
     properties: JSONField = JSONField(default=dict)
     timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
     elements_hash: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    site_url: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     # DEPRECATED: elements are stored against element groups now
     elements: JSONField = JSONField(default=list, null=True, blank=True)
