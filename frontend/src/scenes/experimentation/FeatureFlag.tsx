@@ -3,12 +3,13 @@ import { Input, Button, Form, Switch, Slider, Card, Row, Col, Collapse, Tooltip 
 import { useActions, useValues } from 'kea'
 import { SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { DeleteOutlined, SaveOutlined } from '@ant-design/icons'
+import { DeleteOutlined, SaveOutlined, PlusOutlined } from '@ant-design/icons'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { featureFlagLogic } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilter } from '~/types'
 import './FeatureFlag.scss'
+import Checkbox from 'antd/lib/checkbox/Checkbox'
 
 function Snippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
@@ -163,13 +164,13 @@ export function FeatureFlag(): JSX.Element {
                             </Collapse>
                         </Col>
                         <Col span={24} md={12}>
-                            <h3 className="l3">Release match groups ({featureFlag.filters.groups.length})</h3>
+                            <h3 className="l3">Release condition groups ({featureFlag.filters.groups.length})</h3>
                             <div className="text-muted mb">
                                 Specify which users or groups of users to which you want to release this flag.
                             </div>
                             {featureFlag.filters.groups.map((group, index) => (
                                 <Card
-                                    style={{ position: 'relative', marginBottom: 32 }}
+                                    style={{ position: 'relative', marginBottom: 32, paddingBottom: 48 }}
                                     key={`${index}-${groups.length}`}
                                 >
                                     {featureFlag.filters.groups.length > 1 && (
@@ -187,7 +188,7 @@ export function FeatureFlag(): JSX.Element {
 
                                             <div className="mb">
                                                 <b>
-                                                    Match Group
+                                                    Group
                                                     <span
                                                         className="simple-tag tag-light-lilac"
                                                         style={{ marginLeft: 8 }}
@@ -199,7 +200,15 @@ export function FeatureFlag(): JSX.Element {
                                         </>
                                     )}
 
-                                    <Form.Item label="Filter by user properties" style={{ position: 'relative' }}>
+                                    <Form.Item style={{ position: 'relative' }}>
+                                        {group.properties?.length ? (
+                                            <b>Matching users with filters</b>
+                                        ) : (
+                                            <b>
+                                                {featureFlag.filters.groups.length > 1 ? 'Group will match ' : 'Match '}
+                                                <span style={{ color: 'var(--warning)' }}>all users</span>
+                                            </b>
+                                        )}
                                         <PropertyFilters
                                             pageKey={`feature-flag-${featureFlag.id}-${index}-${groups.length}`}
                                             propertyFilters={group?.properties}
@@ -211,21 +220,28 @@ export function FeatureFlag(): JSX.Element {
                                         />
                                     </Form.Item>
 
-                                    <Form.Item
-                                        label="Roll out feature only to percentage of this match group"
-                                        style={{ marginBottom: 0 }}
-                                    >
+                                    <Form.Item style={{ marginBottom: 0 }}>
                                         <>
-                                            <Switch
+                                            <Checkbox
                                                 checked={!!group.rollout_percentage}
-                                                onChange={(checked) =>
-                                                    checked
+                                                onChange={(e) =>
+                                                    e.target.checked
                                                         ? updateMatchGroup(index, 30)
                                                         : updateMatchGroup(index, null)
                                                 }
                                                 data-attr="feature-flag-switch"
-                                            />
-                                            {group.rollout_percentage != null && (
+                                            >
+                                                <b>
+                                                    Roll out to only a percentage of users
+                                                    {featureFlag.filters.groups.length > 1 && ' in this group'}
+                                                </b>
+                                            </Checkbox>
+                                            {group.rollout_percentage === null ? (
+                                                <div className="mt">
+                                                    Rolling out to <b>100%</b> of users
+                                                    {featureFlag.filters.groups.length > 1 && ' in this group'}
+                                                </div>
+                                            ) : (
                                                 <Slider
                                                     tooltipPlacement="bottom"
                                                     tipFormatter={(value) => value + '%'}
@@ -238,14 +254,17 @@ export function FeatureFlag(): JSX.Element {
                                             )}
                                         </>
                                     </Form.Item>
-
-                                    {index === featureFlag.filters.groups.length - 1 && (
-                                        <Button style={{ position: 'absolute', marginTop: 8 }} onClick={addMatchGroup}>
-                                            +
-                                        </Button>
-                                    )}
                                 </Card>
                             ))}
+                            <Button
+                                type="dashed"
+                                block
+                                icon={<PlusOutlined />}
+                                onClick={addMatchGroup}
+                                style={{ marginBottom: 32 }}
+                            >
+                                Add Group
+                            </Button>
                             <Form.Item className="text-right">
                                 <Button
                                     disabled={submitDisabled}
