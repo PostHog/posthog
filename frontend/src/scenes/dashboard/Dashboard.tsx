@@ -4,6 +4,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
+import { DashboardWarning } from 'scenes/dashboard/DashboardWarning'
+import { userLogic } from 'scenes/userLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined, ReloadOutlined } from '@ant-design/icons'
@@ -33,6 +35,7 @@ function DashboardView(): JSX.Element {
     )
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { refreshAllDashboardItems, setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
+    const { user } = useValues(userLogic)
 
     useKeyboardHotkeys(
         dashboardMode === DashboardMode.Public
@@ -83,9 +86,13 @@ function DashboardView(): JSX.Element {
         return <p>Dashboard not found.</p>
     }
 
+    const isCreator = dashboard.created_by ? user && dashboard.created_by.distinct_id === user.distinct_id : false
+    const canEditDashboard = isCreator || !dashboard.created_by
+
     return (
         <div className="dashboard">
-            {dashboardMode !== 'public' && <DashboardHeader />}
+            <DashboardWarning canEditDashboard={canEditDashboard} />
+            {dashboardMode !== 'public' && <DashboardHeader canEditDashboard={canEditDashboard} />}
             {items && items.length ? (
                 <div>
                     <div className="dashboard-items-actions">
@@ -107,9 +114,13 @@ function DashboardView(): JSX.Element {
                                     <span className="hide-when-small"> {key}</span>
                                 </>
                             )}
+                            disabled={!canEditDashboard}
                         />
                     </div>
-                    <DashboardItems inSharedMode={dashboardMode === DashboardMode.Public} />
+                    <DashboardItems
+                        inSharedMode={dashboardMode === DashboardMode.Public}
+                        canEditDashboard={canEditDashboard}
+                    />
                 </div>
             ) : (
                 <p>
