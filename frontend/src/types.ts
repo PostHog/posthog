@@ -278,7 +278,7 @@ export interface CohortGroupType {
 
 export interface CohortType {
     count?: number
-    created_by: UserNestedType | null
+    created_by?: UserNestedType | null
     created_at?: string
     deleted?: boolean
     id: number | 'new'
