@@ -385,7 +385,7 @@ export interface DashboardType {
     pinned: boolean
     items: DashboardItemType[]
     created_at: string
-    created_by: number
+    created_by: Record<string, any> | null
     is_shared: boolean
     share_token: string
     deleted: boolean
