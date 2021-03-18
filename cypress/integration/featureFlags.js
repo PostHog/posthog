@@ -12,7 +12,7 @@ describe('Feature Flags', () => {
             .should('have.value', 'This is a new feature.')
 
         // select "add filter" and "property"
-        cy.get('[data-attr=new-prop-filter-feature-flag-undefined-0-1').click()
+        cy.get('[data-attr=new-prop-filter-feature-flag-null-0-1').click()
 
         // select the first property
         cy.get('[data-attr=property-filter-dropdown]').click()
@@ -23,6 +23,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
         cy.get('[data-attr=feature-flag-submit]').click()
+        cy.get('.Toastify__toast-body').click() // clicking the toast gets you back to the list
         cy.get('[data-attr=feature-flag-table]').should('contain', 'beta-feature')
         cy.get('[data-attr=feature-flag-table]').should('contain', '30%')
         cy.get('[data-attr=feature-flag-table]').should('contain', 'is_demo')
@@ -30,6 +31,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-table] tr:first-child td:first-child').click()
         cy.get('[data-attr=feature-flag-key]').type('-updated').should('have.value', 'beta-feature-updated')
         cy.get('[data-attr=feature-flag-submit]').click()
+        cy.get('.Toastify__toast-body').click() // clicking the toast gets you back to the list
         cy.get('[data-attr=feature-flag-table]').should('contain', 'beta-feature-updated')
     })
 
@@ -38,6 +40,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=new-feature-flag]').click()
         cy.get('[data-attr=feature-flag-key]').type('to-be-deleted').should('have.value', 'to-be-deleted')
         cy.get('[data-attr=feature-flag-submit]').click()
+        cy.get('.Toastify__toast-body').click() // clicking the toast gets you back to the list
         cy.get('[data-attr=feature-flag-table]').should('contain', 'to-be-deleted')
         cy.get('[data-row-key="to-be-deleted"]').click()
         cy.get('[data-attr=delete-flag]').click()
