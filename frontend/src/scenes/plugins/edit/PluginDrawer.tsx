@@ -170,7 +170,8 @@ export function PluginDrawer(): JSX.Element {
                                 </div>
                             ) : null}
 
-                            {canGloballyManagePlugins(user?.organization) && user?.is_multi_tenancy && (
+                            {canGloballyManagePlugins(user?.organization) && !user?.is_multi_tenancy && (
+                                // Currently this is only shown on Cloud, but the feature works on all deployments
                                 <>
                                     <h3 className="l3" style={{ marginTop: 32 }}>
                                         Installation
@@ -192,7 +193,7 @@ export function PluginDrawer(): JSX.Element {
                                                 })
                                             }
                                         >
-                                            <span style={{ paddingLeft: 10 }}>Mark as global</span>
+                                            Mark as global
                                         </Checkbox>
                                     </Tooltip>
                                 </>
