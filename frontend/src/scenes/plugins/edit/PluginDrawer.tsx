@@ -136,13 +136,12 @@ export function PluginDrawer(): JSX.Element {
                                             >
                                                 <Button size="small">Learn more</Button>
                                             </Link>
-                                            {'  '}
                                             {editingPlugin.url.includes('github') ? (
                                                 <Link
                                                     to={`${editingPlugin.url}/issues/new`}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
-                                                    style={{ whiteSpace: 'nowrap' }}
+                                                    style={{ whiteSpace: 'nowrap', marginLeft: 5 }}
                                                 >
                                                     <Button size="small">Report Bug</Button>
                                                 </Link>

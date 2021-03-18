@@ -169,13 +169,12 @@ export function PluginCard({
                                     >
                                         <Button size="small">Learn more</Button>
                                     </Link>
-                                    {'  '}
                                     {url.includes('github') ? (
                                         <Link
                                             to={`${url}/issues/new`}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            style={{ whiteSpace: 'nowrap' }}
+                                            style={{ whiteSpace: 'nowrap', marginLeft: 5 }}
                                         >
                                             <Button size="small">Report Bug</Button>
                                         </Link>
