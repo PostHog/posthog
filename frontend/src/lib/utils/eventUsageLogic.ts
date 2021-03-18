@@ -188,7 +188,7 @@ export const eventUsageLogic = kea<
                 sample_items_count: 0,
                 item_count: dashboard.items.length,
                 created_by_system: !dashboard.created_by,
-                has_share_token: hasShareToken,
+                has_share_token: hasShareToken, // if the dashboard is being viewed in `public` mode
             }
 
             for (const item of dashboard.items) {
