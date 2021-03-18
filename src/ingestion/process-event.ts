@@ -60,9 +60,9 @@ export class EventsProcessor {
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
         }
         const singleSaveTimer = new Date()
-        const timeout = timeoutGuard(
-            `Still inside "EventsProcessor.processEvent". Timeout warning after 30 sec! ${JSON.stringify(data)}`
-        )
+        const timeout = timeoutGuard('Still inside "EventsProcessor.processEvent". Timeout warning after 30 sec!', {
+            event: JSON.stringify(data),
+        })
 
         const properties: Properties = data.properties ?? {}
         if (data['$set']) {
@@ -75,9 +75,9 @@ export class EventsProcessor {
         const personUuid = new UUIDT().toString()
 
         const ts = this.handleTimestamp(data, now, sentAt)
-        const timeout1 = timeoutGuard(
-            `Still running "handleIdentifyOrAlias". Timeout warning after 30 sec! ${eventUuid}`
-        )
+        const timeout1 = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!', {
+            eventUuid,
+        })
         await this.handleIdentifyOrAlias(data['event'], properties, distinctId, teamId)
         clearTimeout(timeout1)
 
@@ -85,7 +85,8 @@ export class EventsProcessor {
 
         if (data['event'] === '$snapshot') {
             const timeout2 = timeoutGuard(
-                `Still running "createSessionRecordingEvent". Timeout warning after 30 sec! ${eventUuid}`
+                'Still running "createSessionRecordingEvent". Timeout warning after 30 sec!',
+                { eventUuid }
             )
             result = await this.createSessionRecordingEvent(
                 eventUuid,
@@ -98,7 +99,7 @@ export class EventsProcessor {
             this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer)
             clearTimeout(timeout2)
         } else {
-            const timeout3 = timeoutGuard(`Still running "captureEE". Timeout warning after 30 sec! ${eventUuid}`)
+            const timeout3 = timeoutGuard('Still running "captureEE". Timeout warning after 30 sec!', { eventUuid })
             result = await this.captureEE(
                 eventUuid,
                 personUuid,
@@ -392,9 +393,10 @@ export class EventsProcessor {
     }
 
     private async storeNamesAndProperties(team: Team, event: string, properties: Properties): Promise<void> {
-        const timeout = timeoutGuard(
-            `Still running "storeNamesAndProperties". Timeout warning after 30 sec! Event: ${event}. Ingested: ${team.ingested_event}`
-        )
+        const timeout = timeoutGuard('Still running "storeNamesAndProperties". Timeout warning after 30 sec!', {
+            event: event,
+            ingested: team.ingested_event,
+        })
         // In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
         let save = false
         if (!team.ingested_event) {
@@ -434,7 +436,8 @@ export class EventsProcessor {
         }
         if (save) {
             const timeout2 = timeoutGuard(
-                `Still running "storeNamesAndProperties" save. Timeout warning after 30 sec! Event: ${event}`
+                'Still running "storeNamesAndProperties" save. Timeout warning after 30 sec!',
+                { event }
             )
             await this.db.postgresQuery(
                 `UPDATE posthog_team SET

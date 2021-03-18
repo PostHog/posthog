@@ -86,7 +86,7 @@ export class DB {
         tag?: string
     ): Promise<QueryResult<R>> {
         return this.instrumentQuery('query.postgres', tag, async () => {
-            const timeout = timeoutGuard(`Postgres slow query warning after 30 sec: ${queryTextOrConfig}`)
+            const timeout = timeoutGuard('Postgres slow query warning after 30 sec', { queryTextOrConfig, values })
             try {
                 return await this.postgres.query(queryTextOrConfig, values)
             } finally {
@@ -126,7 +126,7 @@ export class DB {
             if (!this.clickhouse) {
                 throw new Error('ClickHouse connection has not been provided to this DB instance!')
             }
-            const timeout = timeoutGuard(`ClickHouse slow query warning after 30 sec: ${query}`)
+            const timeout = timeoutGuard('ClickHouse slow query warning after 30 sec', { query })
             try {
                 return await this.clickhouse.querying(query, options)
             } finally {
@@ -169,7 +169,7 @@ export class DB {
             this.kafkaMessageQueue = []
             this.lastFlushTime = new Date()
 
-            const timeout = timeoutGuard(`Kafka message sending delayed. Waiting over 30 sec to send messages.`)
+            const timeout = timeoutGuard('Kafka message sending delayed. Waiting over 30 sec to send messages.')
             try {
                 await this.kafkaProducer!.sendBatch({
                     topicMessages: Object.values(batches),
@@ -187,7 +187,7 @@ export class DB {
 
         return this.instrumentQuery('query.regisGet', undefined, async () => {
             const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard(`Getting redis key delayed. Waiting over 30 sec to get key: ${key}`)
+            const timeout = timeoutGuard('Getting redis key delayed. Waiting over 30 sec to get key.', { key })
             try {
                 const value = await tryTwice(
                     async () => await client.get(key),
@@ -216,7 +216,7 @@ export class DB {
 
         return this.instrumentQuery('query.redisSet', undefined, async () => {
             const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard(`Setting redis key delayed. Waiting over 30 sec to set key: ${key}`)
+            const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set key', { key })
             try {
                 const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
                 if (ttlSeconds) {
@@ -234,7 +234,7 @@ export class DB {
     public async redisIncr(key: string): Promise<number> {
         return this.instrumentQuery('query.redisIncr', undefined, async () => {
             const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard(`Incrementing redis key delayed. Waiting over 30 sec to incr key: ${key}`)
+            const timeout = timeoutGuard('Incrementing redis key delayed. Waiting over 30 sec to incr key', { key })
             try {
                 return await client.incr(key)
             } finally {
@@ -247,7 +247,7 @@ export class DB {
     public async redisExpire(key: string, ttlSeconds: number): Promise<boolean> {
         return this.instrumentQuery('query.redisExpire', undefined, async () => {
             const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard(`Expiring redis key delayed. Waiting over 30 sec to expire key: ${key}`)
+            const timeout = timeoutGuard('Expiring redis key delayed. Waiting over 30 sec to expire key', { key })
             try {
                 return (await client.expire(key, ttlSeconds)) === 1
             } finally {
@@ -262,7 +262,7 @@ export class DB {
 
         return this.instrumentQuery('query.redisLPush', undefined, async () => {
             const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard(`LPushing redis key delayed. Waiting over 30 sec to lpush key: ${key}`)
+            const timeout = timeoutGuard('LPushing redis key delayed. Waiting over 30 sec to lpush key', { key })
             try {
                 const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
                 return await client.lpush(key, serializedValue)
@@ -276,9 +276,10 @@ export class DB {
     public async redisBRPop(key1: string, key2: string): Promise<[string, string]> {
         return this.instrumentQuery('query.redisBRPop', undefined, async () => {
             const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard(
-                `BRPoping redis key delayed. Waiting over 30 sec to brpop keys: ${key1}, ${key2}`
-            )
+            const timeout = timeoutGuard('BRPoping redis key delayed. Waiting over 30 sec to brpop keys', {
+                key1,
+                key2,
+            })
             try {
                 return await client.brpop(key1, key2)
             } finally {

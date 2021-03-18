@@ -158,10 +158,14 @@ export function chainToElements(chain: string): Element[] {
     return elements
 }
 
-export function timeoutGuard(message: string, timeout = defaultConfig.TASK_TIMEOUT * 1000): NodeJS.Timeout {
+export function timeoutGuard(
+    message: string,
+    context?: Record<string, any>,
+    timeout = defaultConfig.TASK_TIMEOUT * 1000
+): NodeJS.Timeout {
     return setTimeout(() => {
-        console.log(`⌛⌛⌛ ${message}`)
-        Sentry.captureMessage(message)
+        console.log(`⌛⌛⌛ ${message}`, context)
+        Sentry.captureMessage(message, context ? { extra: context } : undefined)
     }, timeout)
 }
 
