@@ -235,6 +235,20 @@ class TestPluginAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 404)
 
+    def test_cannot_delete_global_plugin(self, mock_get, mock_reload):
+        repo_url = "https://github.com/PostHog/helloworldplugin"
+        response = self.client.post(f"/api/organizations/@current/plugins/", {"url": repo_url, "is_global": True})
+
+        self.assertEqual(response.status_code, 201)
+
+        api_url = f"/api/organizations/@current/plugins/{response.data['id']}"  # type: ignore
+        response = self.client.delete(api_url)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json().get("detail"), "This plugin is marked as global! Make it local before uninstallation"
+        )
+
     def test_create_plugin_repo_url(self, mock_get, mock_reload):
         self.assertEqual(mock_reload.call_count, 0)
         response = self.client.post(
