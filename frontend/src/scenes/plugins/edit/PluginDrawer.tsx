@@ -1,19 +1,21 @@
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Input, Popconfirm, Select, Switch } from 'antd'
-import { DeleteOutlined, CodeOutlined } from '@ant-design/icons'
+import { Button, Checkbox, Form, Popconfirm, Switch, Tooltip } from 'antd'
+import { DeleteOutlined, CodeOutlined, LockFilled } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Link } from 'lib/components/Link'
 import { Drawer } from 'lib/components/Drawer'
 import { LocalPluginTag } from 'scenes/plugins/plugin/LocalPluginTag'
-import { UploadField } from './UploadField'
 import { defaultConfigForPlugin, getConfigSchemaArray } from 'scenes/plugins/utils'
 import Markdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from './PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
+import { PluginField } from 'scenes/plugins/edit/PluginField'
+import { endWithPunctation } from '../../../lib/utils'
+import { canGloballyManagePlugins, canInstallPlugins } from '../access'
 
 function EnabledDisabledSwitch({
     value,
@@ -24,21 +26,35 @@ function EnabledDisabledSwitch({
 }): JSX.Element {
     return (
         <>
-            <Switch checked={value} onChange={onChange} />{' '}
-            <strong style={{ paddingLeft: 8 }}>{value ? 'Enabled' : 'Disabled'}</strong>
+            <Switch checked={value} onChange={onChange} />
+            <strong style={{ paddingLeft: 10 }}>{value ? 'Enabled' : 'Disabled'}</strong>
         </>
     )
 }
 
+const SecretFieldIcon = (): JSX.Element => (
+    <>
+        <Tooltip
+            placement="topLeft"
+            title="This is a secret write-only field. Its value is not available after saving."
+        >
+            <LockFilled style={{ marginRight: 5 }} />
+        </Tooltip>
+    </>
+)
+
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
     const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
-    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, generateApiKeysIfNeeded } = useActions(
-        pluginsLogic
-    )
+    const {
+        editPlugin,
+        savePluginConfig,
+        uninstallPlugin,
+        setEditingSource,
+        generateApiKeysIfNeeded,
+        patchPlugin,
+    } = useActions(pluginsLogic)
     const [form] = Form.useForm()
-
-    const canDelete = user?.plugin_access.install
 
     useEffect(() => {
         if (editingPlugin) {
@@ -57,7 +73,8 @@ export function PluginDrawer(): JSX.Element {
         return (
             Array.isArray(fieldConfig.choices) &&
             !!fieldConfig.choices.length &&
-            !fieldConfig.choices.find((c) => typeof c !== 'string')
+            !fieldConfig.choices.find((c) => typeof c !== 'string') &&
+            !fieldConfig.secret
         )
     }
 
@@ -76,7 +93,7 @@ export function PluginDrawer(): JSX.Element {
                     <>
                         <div style={{ display: 'flex' }}>
                             <div style={{ flexGrow: 1 }}>
-                                {canDelete && (
+                                {canInstallPlugins(user?.organization, editingPlugin?.organization_id) && (
                                     <Popconfirm
                                         placement="topLeft"
                                         title="Are you sure you wish to uninstall this plugin?"
@@ -106,17 +123,11 @@ export function PluginDrawer(): JSX.Element {
                     {editingPlugin ? (
                         <div>
                             <div style={{ display: 'flex', marginBottom: 16 }}>
-                                <div>
-                                    <PluginImage pluginType={editingPlugin.plugin_type} url={editingPlugin.url} />
-                                </div>
+                                <PluginImage pluginType={editingPlugin.plugin_type} url={editingPlugin.url} />
                                 <div style={{ flexGrow: 1, paddingLeft: 16 }}>
-                                    {editingPlugin.description}
-                                    {(editingPlugin.description?.length || 0) > 0 &&
-                                    editingPlugin.description?.substr(-1) !== '.'
-                                        ? '.'
-                                        : ''}
+                                    {endWithPunctation(editingPlugin.description)}
                                     {editingPlugin.url ? (
-                                        <span>
+                                        <>
                                             {editingPlugin.description ? ' ' : ''}
                                             <Link
                                                 to={editingPlugin.url}
@@ -124,10 +135,9 @@ export function PluginDrawer(): JSX.Element {
                                                 rel="noopener noreferrer"
                                                 style={{ whiteSpace: 'nowrap' }}
                                             >
-                                                Learn More
+                                                Learn more.
                                             </Link>
-                                            .
-                                        </span>
+                                        </>
                                     ) : null}
                                     <div style={{ marginTop: 5 }}>
                                         {editingPlugin?.plugin_type === 'local' && editingPlugin.url ? (
@@ -160,6 +170,35 @@ export function PluginDrawer(): JSX.Element {
                                 </div>
                             ) : null}
 
+                            {canGloballyManagePlugins(user?.organization) && !user?.is_multi_tenancy && (
+                                // Currently this is only shown on Cloud, but the feature works on all deployments
+                                <>
+                                    <h3 className="l3" style={{ marginTop: 32 }}>
+                                        Installation
+                                    </h3>
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                Enabling this will mark this plugin as installed for{' '}
+                                                <b>all organizations</b> in this instance of PostHog.
+                                            </>
+                                        }
+                                        placement="bottom"
+                                    >
+                                        <Checkbox
+                                            checked={editingPlugin.is_global}
+                                            onChange={(e) =>
+                                                patchPlugin(editingPlugin.id, {
+                                                    is_global: e.target.checked,
+                                                })
+                                            }
+                                        >
+                                            Mark as global
+                                        </Checkbox>
+                                    </Tooltip>
+                                </>
+                            )}
+
                             <h3 className="l3" style={{ marginTop: 32 }}>
                                 Configuration
                             </h3>
@@ -173,7 +212,12 @@ export function PluginDrawer(): JSX.Element {
                                     )}
                                     {fieldConfig.type && isValidField(fieldConfig) ? (
                                         <Form.Item
-                                            label={fieldConfig.name || fieldConfig.key}
+                                            label={
+                                                <>
+                                                    {fieldConfig.secret && <SecretFieldIcon />}
+                                                    {fieldConfig.name || fieldConfig.key}
+                                                </>
+                                            }
                                             extra={
                                                 fieldConfig.hint && (
                                                     <Markdown source={fieldConfig.hint} linkTarget="_blank" />
@@ -188,30 +232,16 @@ export function PluginDrawer(): JSX.Element {
                                                 },
                                             ]}
                                         >
-                                            {fieldConfig.type === 'attachment' ? (
-                                                <UploadField />
-                                            ) : fieldConfig.type === 'string' ? (
-                                                <Input />
-                                            ) : fieldConfig.type === 'choice' ? (
-                                                <Select dropdownMatchSelectWidth={false}>
-                                                    {fieldConfig.choices.map((choice) => (
-                                                        <Select.Option value={choice} key={choice}>
-                                                            {choice}
-                                                        </Select.Option>
-                                                    ))}
-                                                </Select>
-                                            ) : (
-                                                <strong style={{ color: 'var(--danger)' }}>
-                                                    Unknown field type "<code>{fieldConfig.type}</code>".
-                                                    <br />
-                                                    You may need to upgrade PostHog!
-                                                </strong>
-                                            )}
+                                            <PluginField fieldConfig={fieldConfig} />
                                         </Form.Item>
                                     ) : (
-                                        <p style={{ color: 'var(--danger)' }}>
-                                            Invalid config field <i>{fieldConfig.name || fieldConfig.key}</i>.
-                                        </p>
+                                        <>
+                                            {fieldConfig.type ? (
+                                                <p style={{ color: 'var(--danger)' }}>
+                                                    Invalid config field <i>{fieldConfig.name || fieldConfig.key}</i>.
+                                                </p>
+                                            ) : null}
+                                        </>
                                     )}
                                 </React.Fragment>
                             ))}

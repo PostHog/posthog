@@ -5,6 +5,7 @@ import { Spin } from 'antd'
 import * as dayjs from 'dayjs'
 import { EventType, FilterType } from '~/types'
 import { lightColors } from 'lib/colors'
+import { ActionFilter } from 'scenes/trends/trendsLogic'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
@@ -229,20 +230,11 @@ export function formatProperty(property: Record<string, any>): string {
 }
 
 // Format a label that gets returned from the /insights api
-export function formatLabel(
-    label: string,
-    action: {
-        math: string
-        math_property?: string
-        properties?: { operator: string; value: any }[]
-    }
-): string {
+export function formatLabel(label: string, action: ActionFilter): string {
     if (action.math === 'dau') {
         label += ` (Active Users) `
-    } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math)) {
+    } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math || '')) {
         label += ` (${action.math} of ${action.math_property}) `
-    } else {
-        label += ' (Total) '
     }
     if (action?.properties?.length) {
         label += ` (${action.properties
@@ -250,25 +242,6 @@ export function formatLabel(
             .join(', ')})`
     }
     return label
-}
-
-export function deletePersonData(person: Record<string, any>, callback: () => void): void {
-    // DEPRECATED: Remove after releasing PersonsV2 (persons-2353)
-    if (window.confirm('Are you sure you want to delete this user? This cannot be undone')) {
-        api.delete('api/person/' + person.id).then(() => {
-            toast('Person succesfully deleted.')
-            if (callback) {
-                callback()
-            }
-        })
-    }
-}
-
-export function savePersonData(person: Record<string, any>): void {
-    // DEPRECATED: Remove after releasing PersonsV2 (persons-2353)
-    api.update('api/person/' + person.id, person).then(() => {
-        toast('Person Updated')
-    })
 }
 
 export function objectsEqual(obj1: any, obj2: any): boolean {
@@ -517,6 +490,10 @@ export function humanizeNumber(number: number, digits: number = 1): string {
 }
 
 export function copyToClipboard(value: string, description?: string): boolean {
+    if (!navigator.clipboard) {
+        toast.info('Oops! Clipboard capabilities are only available over HTTPS or localhost.')
+        return false
+    }
     const descriptionAdjusted = description
         ? description.charAt(0).toUpperCase() + description.slice(1).trim() + ' '
         : ''
@@ -761,4 +738,23 @@ export function compactNumber(value: number, maxDecimals: number = 1): string {
         return suffixFormatted(value, 1000000, 'M', maxDecimals)
     }
     return suffixFormatted(value, 1000000000, 'B', maxDecimals)
+}
+
+export function sortedKeys(object: Record<string, any>): Record<string, any> {
+    const newObject: Record<string, any> = {}
+    for (const key of Object.keys(object).sort()) {
+        newObject[key] = object[key]
+    }
+    return newObject
+}
+
+export function endWithPunctation(text?: string | null): string {
+    let trimmedText = text?.trim()
+    if (!trimmedText) {
+        return ''
+    }
+    if (!/[.!?]$/.test(trimmedText)) {
+        trimmedText += '.'
+    }
+    return trimmedText
 }

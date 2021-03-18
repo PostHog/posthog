@@ -4,6 +4,7 @@ from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Element, ElementGroup, Event, Organization, Person
 from posthog.models.event import Selector
+from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 from posthog.test.base import BaseTest
 
 
@@ -553,10 +554,13 @@ class TestSendToSlack(BaseTest):
     @patch("celery.current_app.send_task")
     def test_send_to_slack(self, patch_post_to_slack):
         self.team.slack_incoming_webhook = "http://slack.com/hook"
+        self.team.save()
         action_user_paid = Action.objects.create(team=self.team, name="user paid", post_to_slack=True)
         ActionStep.objects.create(action=action_user_paid, event="user paid")
 
         event = Event.objects.create(team=self.team, event="user paid", site_url="http://testserver")
+        calculate_actions_from_last_calculation()
+        calculate_actions_from_last_calculation()  # intentionally twice to make sure the hook fires once
         self.assertEqual(patch_post_to_slack.call_count, 1)
         patch_post_to_slack.assert_has_calls(
             [call("posthog.tasks.webhooks.post_event_to_webhook", (event.pk, "http://testserver"))]

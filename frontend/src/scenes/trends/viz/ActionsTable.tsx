@@ -3,13 +3,19 @@ import { Loading, formatLabel } from 'lib/utils'
 import { Table } from 'antd'
 import PropTypes from 'prop-types'
 import { useValues } from 'kea'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { ActionFilter, trendsLogic } from 'scenes/trends/trendsLogic'
+import { ChartParams, TrendResultWithAggregate } from '~/types'
 
-export function ActionsTable({ dashboardItemId = null, view, filters: filtersParam, cachedResults = null }) {
+export function ActionsTable({
+    dashboardItemId,
+    view,
+    filters: filtersParam,
+    cachedResults,
+}: ChartParams): JSX.Element {
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
     const { filters, results, resultsLoading } = useValues(logic)
 
-    let data = results
+    let data = results as TrendResultWithAggregate[]
     if (!filters.session) {
         data = data.sort((a, b) => b.aggregated_value - a.aggregated_value)
     }
@@ -21,7 +27,7 @@ export function ActionsTable({ dashboardItemId = null, view, filters: filtersPar
                     {
                         title: filters.session ? 'Session Attribute' : 'Action',
                         dataIndex: 'label',
-                        render: function renderLabel(_, { label, action }) {
+                        render: function renderLabel(_, { label, action }: { label: string; action: ActionFilter }) {
                             return (
                                 <div style={{ wordBreak: 'break-all' }}>
                                     {filters.session ? label : filters.formula ? label : formatLabel(label, action)}

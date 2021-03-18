@@ -7,7 +7,19 @@ import { toast } from 'react-toastify'
 
 export const teamLogic = kea<teamLogicType<TeamType>>({
     actions: {
-        deleteCurrentTeam: true,
+        deleteTeam: (team: TeamType) => ({ team }),
+        deleteTeamSuccess: true,
+        deleteTeamFailure: true,
+    },
+    reducers: {
+        teamBeingDeleted: [
+            null as TeamType | null,
+            {
+                deleteTeam: (_, { team }) => team,
+                deleteTeamSuccess: () => null,
+                deleteTeamFailure: () => null,
+            },
+        ],
     },
     loaders: ({ values }) => ({
         currentTeam: [
@@ -43,13 +55,18 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
             },
         ],
     }),
-    listeners: ({ values }) => ({
-        deleteCurrentTeam: async () => {
-            if (values.currentTeam) {
-                toast('Deleting project…')
-                await api.delete(`api/projects/${values.currentTeam.id}`)
+    listeners: ({ actions }) => ({
+        deleteTeam: async ({ team }) => {
+            try {
+                await api.delete(`api/projects/${team.id}`)
                 location.reload()
+                actions.deleteTeamSuccess()
+            } catch {
+                actions.deleteTeamFailure()
             }
+        },
+        deleteTeamSuccess: () => {
+            toast.success('Project has been deleted')
         },
         renameCurrentTeamSuccess: () => {
             toast.success('Project has been renamed')

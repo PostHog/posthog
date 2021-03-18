@@ -15,9 +15,11 @@ import { Button, Select, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
 import { CloseButton } from 'lib/components/CloseButton'
 import * as dayjs from 'dayjs'
-
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/es/date-picker/generatePicker'
+import { FilterType } from '~/types'
+import { TestAccountFilter } from '../TestAccountFilter'
+
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 export function RetentionTab(): JSX.Element {
@@ -29,10 +31,10 @@ export function RetentionTab(): JSX.Element {
     const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
 
     const entityLogic = entityFilterLogic({
-        setFilters: (filters) => {
-            if (filters.events.length > 0) {
+        setFilters: (filters: FilterType) => {
+            if (filters.events && filters.events.length > 0) {
                 setFilters({ target_entity: filters.events[0] })
-            } else if (filters.actions.length > 0) {
+            } else if (filters.actions && filters.actions.length > 0) {
                 setFilters({ target_entity: filters.actions[0] })
             } else {
                 setFilters({ target_entity: null })
@@ -45,10 +47,10 @@ export function RetentionTab(): JSX.Element {
     })
 
     const entityLogicReturning = entityFilterLogic({
-        setFilters: (filters) => {
-            if (filters.events.length > 0) {
+        setFilters: (filters: FilterType) => {
+            if (filters.events && filters.events.length > 0) {
                 setFilters({ returning_entity: filters.events[0] })
-            } else if (filters.actions.length > 0) {
+            } else if (filters.actions && filters.actions.length > 0) {
                 setFilters({ returning_entity: filters.actions[0] })
             } else {
                 setFilters({ returning_entity: null })
@@ -98,7 +100,12 @@ export function RetentionTab(): JSX.Element {
                     </Select.Option>
                 ))}
             </Select>
-            <ActionFilterDropdown open={open} logic={entityLogic} openButtonRef={node} onClose={() => setOpen(false)} />
+            <ActionFilterDropdown
+                open={open}
+                logic={entityLogic as any}
+                openButtonRef={node}
+                onClose={() => setOpen(false)}
+            />
             <h4 style={{ marginTop: '0.5rem' }} className="secondary">
                 Retaining event
                 <Tooltip
@@ -122,7 +129,7 @@ export function RetentionTab(): JSX.Element {
             </Button>
             <ActionFilterDropdown
                 open={returningOpen}
-                logic={entityLogicReturning}
+                logic={entityLogicReturning as any}
                 openButtonRef={returningNode}
                 onClose={() => setReturningOpen(false)}
             />
@@ -139,6 +146,7 @@ export function RetentionTab(): JSX.Element {
             <hr />
             <h4 className="secondary">Filters</h4>
             <PropertyFilters pageKey="insight-retention" />
+            <TestAccountFilter filters={filters} onChange={setFilters} />
             <>
                 <hr />
                 <h4 className="secondary">Current Date</h4>

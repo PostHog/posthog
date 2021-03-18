@@ -10,6 +10,7 @@ from posthog.settings import (
     CLICKHOUSE_USER,
     CLICKHOUSE_VERIFY,
 )
+from posthog.test.base import TestMixin
 
 
 @pytest.fixture(scope="package")
@@ -83,3 +84,16 @@ def db(db):
         sync_execute(PERSON_STATIC_COHORT_TABLE_SQL)
     except:
         pass
+
+
+@pytest.fixture
+def base_test_mixin_fixture():
+    kls = TestMixin()
+    kls.setUp()
+
+    return kls
+
+
+@pytest.fixture
+def team(base_test_mixin_fixture):
+    return base_test_mixin_fixture.team

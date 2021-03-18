@@ -1,14 +1,14 @@
 import React from 'react'
-import { Table, Modal, Divider } from 'antd'
+import { Table, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { invitesLogic } from './invitesLogic'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { hot } from 'react-hot-loader/root'
 import { OrganizationInviteType, UserNestedType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CreateInviteModalWithButton } from './CreateInviteModal'
 import { ColumnsType } from 'antd/lib/table'
+import { ProfilePicture } from '../../../layout/navigation/TopNavigation'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
@@ -45,12 +45,24 @@ function makeActionsComponent(
         )
     }
 }
-export const Invites = hot(_Invites)
-function _Invites(): JSX.Element {
+export function Invites(): JSX.Element {
     const { invites, invitesLoading } = useValues(invitesLogic)
     const { deleteInvite } = useActions(invitesLogic)
 
     const columns: ColumnsType = [
+        {
+            dataIndex: 'target_email',
+            key: 'target_email',
+            render: function ProfilePictureRender(_, invite) {
+                return (
+                    <ProfilePicture
+                        name={(invite as OrganizationInviteType).first_name}
+                        email={(invite as OrganizationInviteType).target_email}
+                    />
+                )
+            },
+            width: 32,
+        },
         {
             title: 'Target Email',
             dataIndex: 'target_email',
@@ -60,13 +72,13 @@ function _Invites(): JSX.Element {
             },
         },
         {
-            title: 'Created At',
+            title: 'Created At',
             dataIndex: 'created_at',
             key: 'created_at',
             render: (created_at: string) => humanFriendlyDetailedTime(created_at),
         },
         {
-            title: 'Created By',
+            title: 'Created By',
             dataIndex: 'created_by',
             key: 'created_by',
             render: (createdBy?: UserNestedType) => (createdBy ? `${createdBy.first_name} (${createdBy.email})` : '–'),
@@ -85,11 +97,11 @@ function _Invites(): JSX.Element {
         },
     ]
 
-    return invites.length ? (
-        <>
+    return (
+        <div>
             <h2 className="subtitle" style={{ justifyContent: 'space-between' }}>
-                Pending Organization Invites
-                <CreateInviteModalWithButton />
+                Pending Invites
+                {!!invites.length && <CreateInviteModalWithButton />}
             </h2>
             <Table
                 dataSource={invites}
@@ -98,12 +110,12 @@ function _Invites(): JSX.Element {
                 pagination={false}
                 loading={invitesLoading}
                 style={{ marginTop: '1rem' }}
+                locale={{
+                    emptyText: function InvitesTableCTA() {
+                        return <CreateInviteModalWithButton />
+                    },
+                }}
             />
-            <Divider />
-        </>
-    ) : (
-        <div className="text-right">
-            <CreateInviteModalWithButton />
         </div>
     )
 }

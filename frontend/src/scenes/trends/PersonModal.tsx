@@ -68,7 +68,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                 <p>Loading users...</p>
             )}
 
-            <PersonsTable loading={!people?.people} people={people?.people} />
+            {people && <PersonsTable loading={!people?.people} people={people.people} />}
             <div
                 style={{
                     margin: '1rem',

@@ -35,12 +35,11 @@ export function AdvancedTab(): JSX.Element {
                 }
                 type="warning"
                 showIcon
-                closable
             />
             <Subtitle subtitle="Advanced Options" />
             <SourcePlugin />
             <CustomPlugin />
-            <LocalPlugin />
+            {user && !user.is_multi_tenancy && <LocalPlugin />}
             {user?.team?.plugins_opt_in && <DangerZone />}
         </>
     )

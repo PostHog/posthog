@@ -38,7 +38,14 @@ ReactDOM.render(
             </div>
 
             <div style={{ textAlign: 'center', paddingBottom: '4rem', marginTop: '1rem' }}>
-                Made with <a href="https://posthog.com">PostHog - Open Source Product Analytics</a>
+                Made with{' '}
+                <a
+                    href="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
+                    target="_blank"
+                    rel="noopener"
+                >
+                    PostHog - Open Source Product Analytics
+                </a>
             </div>
         </div>
     </Provider>,

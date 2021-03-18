@@ -19,10 +19,9 @@ export function FunnelViz({
 }) {
     const container = useRef(null)
     const [steps, setSteps] = useState(stepsParam)
-    const logic = funnelLogic({ dashboardItemId, cachedResults })
-    const { results: stepsResult, resultsLoading: funnelLoading } = useValues(logic)
+    const logic = funnelLogic({ dashboardItemId, cachedResults, filters: defaultFilters })
+    const { results: stepsResult, resultsLoading: funnelLoading, filters } = useValues(logic)
     const { loadResults: loadFunnel } = useActions(logic)
-    const { filters } = useValues(funnelLogic({ filters: defaultFilters }))
     const [{ fromItem }] = useState(router.values.hashParams)
 
     function buildChart() {
@@ -94,9 +93,9 @@ export function FunnelViz({
                 </div>
             )
         }
-        return steps && steps.length > 0 ? (
+        return steps && steps.length > 0 && steps[0].labels ? (
             <>
-                <div style={{ position: 'absolute', right: 24, marginTop: -20 }}>
+                <div style={{ position: 'absolute', left: 45, marginTop: -20 }}>
                     % of users converted between first and last step
                 </div>
                 <LineGraph

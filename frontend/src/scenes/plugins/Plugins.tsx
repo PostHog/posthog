@@ -1,34 +1,33 @@
 import './Plugins.scss'
 import React, { useEffect } from 'react'
-import { hot } from 'react-hot-loader/root'
 import { PluginDrawer } from 'scenes/plugins/edit/PluginDrawer'
 import { RepositoryTab } from 'scenes/plugins/tabs/repository/RepositoryTab'
 import { InstalledTab } from 'scenes/plugins/tabs/installed/InstalledTab'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { pluginsLogic } from './pluginsLogic'
-import { Tabs, Tag } from 'antd'
+import { Spin, Tabs, Tag } from 'antd'
 import { OptInPlugins } from 'scenes/plugins/optin/OptInPlugins'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
+import { canGloballyManagePlugins, canInstallPlugins, canViewPlugins } from './access'
 
-export const Plugins = hot(_Plugins)
-function _Plugins(): JSX.Element {
+export function Plugins(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { pluginTab } = useValues(pluginsLogic)
     const { setPluginTab } = useActions(pluginsLogic)
     const { TabPane } = Tabs
 
     if (!user) {
-        return <div />
+        return <Spin />
     }
 
-    if (!user.plugin_access.configure) {
+    if (!canViewPlugins(user.organization)) {
         useEffect(() => {
             window.location.href = '/'
         }, [])
-        return <div />
+        return null
     }
 
     return (
@@ -49,14 +48,16 @@ function _Plugins(): JSX.Element {
 
             {user.team?.plugins_opt_in ? (
                 <>
-                    {user.plugin_access.install ? (
+                    {canInstallPlugins(user.organization) ? (
                         <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}>
                             <TabPane tab="Installed" key={PluginTab.Installed}>
                                 <InstalledTab />
                             </TabPane>
-                            <TabPane tab="Repository" key={PluginTab.Repository}>
-                                <RepositoryTab />
-                            </TabPane>
+                            {canGloballyManagePlugins(user.organization) && (
+                                <TabPane tab="Repository" key={PluginTab.Repository}>
+                                    <RepositoryTab />
+                                </TabPane>
+                            )}
                             <TabPane tab="Advanced" key={PluginTab.Advanced}>
                                 <AdvancedTab />
                             </TabPane>

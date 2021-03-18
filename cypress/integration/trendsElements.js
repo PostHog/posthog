@@ -64,7 +64,7 @@ describe('Trends actions & events', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
-    it('Apply chart filter', () => {
+    it('Apply pie filter', () => {
         cy.get('[data-attr=chart-filter]').click()
         cy.contains('Pie').click()
 

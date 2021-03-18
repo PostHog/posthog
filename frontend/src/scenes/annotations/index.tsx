@@ -1,4 +1,3 @@
-import { hot } from 'react-hot-loader/root'
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
 import { Table, Tag, Button, Modal, Input, Row, Spin, Menu, Dropdown } from 'antd'
@@ -12,6 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
 import { createdByColumn } from 'lib/components/Table'
+import { AnnotationType } from '~/types'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/es/date-picker/generatePicker'
@@ -19,23 +19,23 @@ const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 const { TextArea } = Input
 
-export const Annotations = hot(_Annotations)
-function _Annotations(): JSX.Element {
+export function Annotations(): JSX.Element {
     const { annotations, annotationsLoading, next, loadingNext } = useValues(annotationsTableLogic)
-    const { loadAnnotations, updateAnnotation, deleteAnnotation, loadAnnotationsNext, restoreAnnotation } = useActions(
+    const { updateAnnotation, deleteAnnotation, loadAnnotationsNext, restoreAnnotation } = useActions(
         annotationsTableLogic
     )
     const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
-    const [selectedAnnotation, setSelected] = useState(null)
+    const [selectedAnnotation, setSelected] = useState(null as AnnotationType | null)
 
     const columns = [
         {
             title: 'Annotation',
             key: 'annotation',
-            render: function RenderAnnotation(annotation): JSX.Element {
+            render: function RenderAnnotation(annotation: AnnotationType): JSX.Element {
                 return (
                     <span
+                        className="ph-no-capture"
                         style={{
                             whiteSpace: 'nowrap',
                             overflow: 'hidden',
@@ -52,25 +52,25 @@ function _Annotations(): JSX.Element {
         createdByColumn(annotations),
         {
             title: 'Date Marker',
-            render: function RenderDateMarker(annotation): JSX.Element {
+            render: function RenderDateMarker(annotation: AnnotationType): JSX.Element {
                 return <span>{dayjs(annotation.date_marker).format('YYYY-MM-DD')}</span>
             },
         },
         {
             title: 'Last Updated',
-            render: function RenderLastUpdated(annotation): JSX.Element {
+            render: function RenderLastUpdated(annotation: AnnotationType): JSX.Element {
                 return <span>{humanFriendlyDetailedTime(annotation.updated_at)}</span>
             },
         },
         {
             title: 'Status',
-            render: function RenderStatus(annotation): JSX.Element {
+            render: function RenderStatus(annotation: AnnotationType): JSX.Element {
                 return annotation.deleted ? <Tag color="red">Deleted</Tag> : <Tag color="green">Active</Tag>
             },
         },
         {
             title: 'Type',
-            render: function RenderType(annotation): JSX.Element {
+            render: function RenderType(annotation: AnnotationType): JSX.Element {
                 return annotation.scope !== 'dashboard_item' ? (
                     <Tag color="blue">Global</Tag>
                 ) : (
@@ -82,7 +82,7 @@ function _Annotations(): JSX.Element {
 
     function closeModal(): void {
         setOpen(false)
-        setTimeout(() => setSelected(null), 500)
+        setTimeout(() => setSelected(null as AnnotationType | null), 500)
     }
 
     return (
@@ -146,18 +146,23 @@ function _Annotations(): JSX.Element {
                     closeModal()
                 }}
                 onSubmit={async (input, selectedDate): Promise<void> => {
-                    ;(await selectedAnnotation)
-                        ? updateAnnotation(selectedAnnotation.id, input)
-                        : createGlobalAnnotation(input, selectedDate, null)
+                    if (selectedAnnotation && (await selectedAnnotation)) {
+                        updateAnnotation(selectedAnnotation.id, input)
+                    } else {
+                        createGlobalAnnotation(input, selectedDate, null)
+                    }
                     closeModal()
-                    loadAnnotations()
                 }}
                 onDelete={(): void => {
-                    deleteAnnotation(selectedAnnotation.id)
+                    if (selectedAnnotation) {
+                        deleteAnnotation(selectedAnnotation.id)
+                    }
                     closeModal()
                 }}
                 onRestore={(): void => {
-                    restoreAnnotation(selectedAnnotation.id)
+                    if (selectedAnnotation) {
+                        restoreAnnotation(selectedAnnotation.id)
+                    }
                     closeModal()
                 }}
                 annotation={selectedAnnotation}
@@ -197,6 +202,13 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
         }
     }, [props.annotation])
 
+    const _onSubmit = (input: string, date: Moment): void => {
+        props.onSubmit(input, date)
+        setTextInput('')
+        setDate(moment())
+        setScope(AnnotationScope.Project)
+    }
+
     return (
         <Modal
             footer={[
@@ -208,7 +220,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                     key="create-annotation-submit"
                     data-attr="create-annotation-submit"
                     onClick={(): void => {
-                        props.onSubmit(textInput, selectedDate)
+                        _onSubmit(textInput, selectedDate)
                     }}
                 >
                     {modalMode === ModalMode.CREATE ? 'Submit' : 'Update'}
@@ -233,7 +245,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                                         key={AnnotationScope.Project}
                                         icon={<ProjectOutlined />}
                                     >
-                                        Project {user?.team.name}
+                                        Project {user?.team?.name}
                                     </Menu.Item>
                                 ) : (
                                     <Menu.Item
@@ -243,7 +255,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                                         key={AnnotationScope.Organization}
                                         icon={<DeploymentUnitOutlined />}
                                     >
-                                        Organization {user?.organization.name}
+                                        Organization {user?.organization?.name}
                                     </Menu.Item>
                                 )}
                             </Menu>
@@ -281,9 +293,9 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                     Date:
                     <DatePicker
                         style={{ marginTop: 16, marginLeft: 8, marginBottom: 16 }}
-                        getPopupContainer={(trigger): HTMLElement => trigger.parentElement}
+                        getPopupContainer={(trigger): HTMLElement => trigger.parentElement as HTMLElement}
                         value={selectedDate}
-                        onChange={(date): void => setDate(date)}
+                        onChange={(date): void => setDate(date as moment.Moment)}
                         allowClear={false}
                     />
                 </div>

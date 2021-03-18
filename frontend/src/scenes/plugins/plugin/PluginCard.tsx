@@ -10,6 +10,7 @@ import {
     SettingOutlined,
     WarningOutlined,
     DownOutlined,
+    GlobalOutlined,
 } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
@@ -20,6 +21,8 @@ import { SourcePluginTag } from './SourcePluginTag'
 import { CommunityPluginTag } from './CommunityPluginTag'
 import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
+import { endWithPunctation } from '../../../lib/utils'
+import { canInstallPlugins } from '../access'
 
 interface PluginCardProps {
     plugin: Partial<PluginTypeWithConfig>
@@ -54,6 +57,9 @@ export function PluginCard({
         id: pluginId,
         updateStatus,
         hasMoved,
+        is_global,
+        organization_id,
+        organization_name,
     } = plugin
 
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin, rearrange } = useActions(
@@ -61,10 +67,6 @@ export function PluginCard({
     )
     const { loading, installingPluginUrl, checkingForUpdates, updatingPlugin } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
-
-    const canInstall = user?.plugin_access.install
-    const canConfigure = pluginId
-    const switchDisabled = rearranging
 
     return (
         <Col
@@ -76,7 +78,7 @@ export function PluginCard({
                 <Row align="middle" className="plugin-card-row">
                     {typeof order === 'number' && typeof maxOrder === 'number' ? (
                         <DragColumn>
-                            <div className={`arrow${order !== maxOrder ? ' hide' : ''}`}>
+                            <div className={`arrow${order === 1 ? ' hide' : ''}`}>
                                 <DownOutlined />
                             </div>
                             <div>
@@ -103,11 +105,9 @@ export function PluginCard({
                                 }
                                 okText="Yes"
                                 cancelText="No"
-                                disabled={switchDisabled}
+                                disabled={rearranging}
                             >
-                                <div>
-                                    <Switch checked={pluginConfig.enabled} disabled={switchDisabled} />
-                                </div>
+                                <Switch checked={pluginConfig.enabled} disabled={rearranging} />
                             </Popconfirm>
                         </Col>
                     )}
@@ -118,7 +118,6 @@ export function PluginCard({
                         <div>
                             <strong style={{ marginRight: 8 }}>{name}</strong>
                             {maintainer && !pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
-                            {!description && !url ? <br /> : null}
                             {pluginConfig?.error ? (
                                 <PluginError
                                     error={pluginConfig.error}
@@ -127,8 +126,12 @@ export function PluginCard({
                             ) : error ? (
                                 <PluginError error={error} />
                             ) : null}
-
-                            {canInstall ? (
+                            {is_global && (
+                                <Tag color="blue">
+                                    <GlobalOutlined /> Managed by {organization_name}
+                                </Tag>
+                            )}
+                            {canInstallPlugins(user?.organization, organization_id) && (
                                 <>
                                     {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
                                     {updateStatus?.error ? (
@@ -152,10 +155,10 @@ export function PluginCard({
                                     ) : null}
                                     {pluginType === PluginInstallationType.Source ? <SourcePluginTag /> : null}
                                 </>
-                            ) : null}
+                            )}
                         </div>
                         <div>
-                            {description}
+                            {endWithPunctation(description)}
                             {url && (
                                 <span>
                                     {description ? ' ' : ''}
@@ -165,9 +168,8 @@ export function PluginCard({
                                         rel="noopener noreferrer"
                                         style={{ whiteSpace: 'nowrap' }}
                                     >
-                                        Learn more
+                                        Learn more.
                                     </Link>
-                                    .
                                 </span>
                             )}
                         </div>
@@ -183,7 +185,7 @@ export function PluginCard({
                             >
                                 <span className="show-over-500">{updateStatus?.updated ? 'Updated' : 'Update'}</span>
                             </Button>
-                        ) : canConfigure && pluginId ? (
+                        ) : pluginId ? (
                             <Button
                                 type="primary"
                                 className="padding-under-500"

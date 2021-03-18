@@ -4,6 +4,7 @@ import {
     CUSTOM_EVENT,
     EVENT_TYPE,
     OrganizationMembershipLevel,
+    PluginsAccessLevel,
     PAGEVIEW,
     SCREEN,
     ShownAsValue,
@@ -27,7 +28,6 @@ export interface UserType {
     teams: TeamType[]
     current_organization_id: string
     current_team_id: number
-    plugin_access: PluginAccess
     has_password: boolean
     is_multi_tenancy: boolean
     is_staff: boolean
@@ -37,6 +37,7 @@ export interface UserType {
     email_service_available: boolean
     realm: 'cloud' | 'hosted'
     billing?: OrganizationBilling
+    is_event_property_usage_enabled: boolean
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -80,6 +81,7 @@ export interface OrganizationType {
     membership_level: OrganizationMembershipLevel | null
     setup: SetupState
     personalization: PersonalizationData
+    plugins_access_level: PluginsAccessLevel
 }
 
 export interface OrganizationMemberType {
@@ -122,6 +124,7 @@ export interface TeamType {
     plugins_opt_in: boolean
     ingested_event: boolean
     is_demo: boolean
+    test_account_filters: FilterType[]
 }
 
 export interface ActionType {
@@ -278,7 +281,7 @@ export interface CohortType {
     created_by?: Record<string, any>
     created_at?: string
     deleted?: boolean
-    id: number
+    id: number | 'new'
     is_calculating?: boolean
     last_calculation?: string
     is_static?: boolean
@@ -387,6 +390,7 @@ export interface DashboardType {
     share_token: string
     deleted: boolean
     filters: Record<string, any>
+    creation_mode: 'default' | 'template' | 'duplicate'
 }
 
 export interface OrganizationInviteType {
@@ -411,6 +415,9 @@ export interface PluginType {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     maintainer?: string
+    is_global: boolean
+    organization_id: string
+    organization_name: string
 }
 
 export interface PluginConfigType {
@@ -474,8 +481,8 @@ export interface FilterType {
     session?: string
     period?: string
     retentionType?: RetentionType
-    returningEntity?: Record<string, any>
-    startEntity?: Record<string, any>
+    returning_entity?: Record<string, any>
+    target_entity?: Record<string, any>
     path_type?: PathType
     start_point?: string | number
     stickiness_days?: number
@@ -484,6 +491,7 @@ export interface FilterType {
     people_day?: any
     people_action?: any
     formula?: any
+    filter_test_accounts?: boolean
 }
 
 export interface SystemStatus {
@@ -510,6 +518,39 @@ interface DisabledSetupState {
 
 export type SetupState = EnabledSetupState | DisabledSetupState
 
+export interface ActionFilter {
+    id: number | string
+    math?: string
+    math_property?: string
+    name: string
+    order: number
+    properties: PropertyFilter[]
+    type: EntityType
+}
+
+export interface TrendResult {
+    action: ActionFilter
+    count: number
+    data: number[]
+    days: string[]
+    label: string
+    labels: string[]
+    breakdown_value?: string | number
+}
+
+export interface TrendResultWithAggregate extends TrendResult {
+    aggregated_value: number
+}
+
+export interface ChartParams {
+    dashboardItemId?: number
+    color?: string
+    filters?: Partial<FilterType>
+    inSharedMode?: boolean
+    cachedResults?: TrendResult
+    view: ViewType
+}
+
 export interface PrevalidatedInvite {
     id: string
     target_email: string
@@ -533,3 +574,39 @@ export interface PreflightStatus {
     celery: boolean
     available_social_auth_providers: AuthBackends
 }
+
+export enum DashboardMode { // Default mode is null
+    Edit = 'edit', // When the dashboard is being edited
+    Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
+    Sharing = 'sharing', // When the sharing configuration is opened
+    Public = 'public', // When viewing the dashboard publicly via a shareToken
+}
+
+export type Keys =
+    | 'a'
+    | 'b'
+    | 'c'
+    | 'd'
+    | 'e'
+    | 'f'
+    | 'g'
+    | 'h'
+    | 'i'
+    | 'j'
+    | 'k'
+    | 'l'
+    | 'm'
+    | 'n'
+    | 'o'
+    | 'p'
+    | 'q'
+    | 'r'
+    | 's'
+    | 't'
+    | 'u'
+    | 'v'
+    | 'w'
+    | 'x'
+    | 'y'
+    | 'z'
+    | 'escape'

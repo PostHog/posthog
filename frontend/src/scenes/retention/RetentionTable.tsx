@@ -154,7 +154,12 @@ export function RetentionTable({
                                                 people.result.map((personAppearances: RetentionTableAppearanceType) => (
                                                     <tr key={personAppearances.person.id}>
                                                         <td className="text-overflow" style={{ minWidth: 200 }}>
-                                                            <Link to={`/person_by_id/${personAppearances.person.id}`}>
+                                                            <Link
+                                                                to={`/person/${encodeURIComponent(
+                                                                    personAppearances.person.distinct_ids[0]
+                                                                )}`}
+                                                                data-attr="retention-person-link"
+                                                            >
                                                                 {personAppearances.person.name}
                                                             </Link>
                                                         </td>

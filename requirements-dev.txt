@@ -6,7 +6,7 @@
 #
 appdirs==1.4.4
     # via black
-asgiref==3.2.7
+asgiref==3.3.1
     # via django
 attrs==19.3.0
     # via
@@ -33,7 +33,7 @@ djangorestframework-stubs==1.1.0
     # via -r requirements-dev.in
 entrypoints==0.3
     # via flake8
-fakeredis==1.4.4
+fakeredis==1.4.5
     # via -r requirements-dev.in
 flake8-bugbear==20.1.4
     # via -r requirements-dev.in
@@ -103,7 +103,7 @@ pytest==6.2.2
     #   pytest-django
 python-dateutil==2.8.1
     # via freezegun
-pytz==2020.1
+pytz==2021.1
     # via django
 redis==3.5.3
     # via fakeredis

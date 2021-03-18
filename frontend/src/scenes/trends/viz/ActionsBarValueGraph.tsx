@@ -6,6 +6,7 @@ import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LineGraphEmptyState } from '../../insights/EmptyStates'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { TrendResultWithAggregate } from '~/types'
 
 interface Props {
     dashboardItemId?: number | null
@@ -31,7 +32,7 @@ export function ActionsBarValueGraph({
     const { results, resultsLoading } = useValues(logic)
 
     function updateData(): void {
-        const _data = [...results]
+        const _data = [...results] as TrendResultWithAggregate[]
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
 
         const colorList = getChartColors(color)
@@ -66,7 +67,7 @@ export function ActionsBarValueGraph({
                 totalValue={total}
             />
         ) : (
-            <LineGraphEmptyState color={color} />
+            <LineGraphEmptyState color={color} isDashboard={!!dashboardItemId} />
         )
     ) : (
         <Loading />

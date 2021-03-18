@@ -2,10 +2,7 @@ import math
 from itertools import accumulate
 from typing import Any, Dict, List
 
-from clickhouse_driver import Client as SyncClient
-
-from ee.clickhouse.client import substitute_params, sync_execute
-from ee.clickhouse.queries.trends import breakdown
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.trends.util import parse_response
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
 from posthog.models.cohort import Cohort

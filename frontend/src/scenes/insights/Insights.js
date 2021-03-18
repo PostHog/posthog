@@ -1,11 +1,10 @@
 import React, { useState } from 'react'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 
 import { Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import * as dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-dayjs.extend(relativeTime)
 import { DateFilter } from 'lib/components/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 
@@ -15,13 +14,13 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { Tabs, Row, Col, Card, Button } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
+    ACTIONS_LINE_GRAPH_CUMULATIVE,
     ACTIONS_TABLE,
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART_VALUE,
-    LIFECYCLE,
     FUNNEL_VIZ,
+    ShownAsValue,
 } from 'lib/constants'
-import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -43,8 +42,11 @@ import './Insights.scss'
 import { ErrorMessage, TimeOut } from './EmptyStates'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { People } from 'scenes/funnels/People'
+import { TrendLegend } from './TrendLegend'
 import { TrendInsight } from 'scenes/trends/Trends'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
+dayjs.extend(relativeTime)
 const { TabPane } = Tabs
 
 const showIntervalFilter = function (activeView, filter) {
@@ -100,8 +102,7 @@ const showComparePrevious = {
     [`${ViewType.PATHS}`]: false,
 }
 
-export const Insights = hot(_Insights)
-function _Insights() {
+export function Insights() {
     useMountedLogic(insightCommandLogic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
@@ -222,7 +223,7 @@ function _Insights() {
                                                     }
                                                 }}
                                                 filters={allFilters}
-                                                disabled={allFilters.shown_as === LIFECYCLE}
+                                                disabled={allFilters.shown_as === ShownAsValue.LIFECYCLE}
                                             />
                                         )}
 
@@ -246,6 +247,7 @@ function _Insights() {
                                     </div>
                                 }
                                 headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
+                                data-attr="insights-graph"
                             >
                                 <div>
                                     {lastRefresh && (
@@ -308,6 +310,20 @@ function _Insights() {
                                         <FunnelPeople />
                                     </Card>
                                 )}
+                            {featureFlags['trend-legend'] &&
+                                (!allFilters.display ||
+                                    allFilters.display === ACTIONS_LINE_GRAPH_LINEAR ||
+                                    allFilters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) &&
+                                (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) && (
+                                    <Card>
+                                        <BindLogic
+                                            logic={trendsLogic}
+                                            props={{ dashboardItemId: null, view: activeView }}
+                                        >
+                                            <TrendLegend />
+                                        </BindLogic>
+                                    </Card>
+                                )}
                         </Col>
                     </>
                 )}
@@ -321,15 +337,15 @@ const isFunnelEmpty = (filters) => {
 }
 
 function FunnelInsight() {
-    const { stepsWithCount, resultsLoading } = useValues(funnelLogic({}))
+    const { stepsWithCount, isValidFunnel, stepsWithCountLoading } = useValues(funnelLogic({}))
 
     return (
         <div style={{ height: 300, position: 'relative' }}>
-            {resultsLoading && <Loading />}
-            {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 ? (
+            {stepsWithCountLoading && <Loading />}
+            {isValidFunnel ? (
                 <FunnelViz steps={stepsWithCount} />
             ) : (
-                !resultsLoading && (
+                !stepsWithCountLoading && (
                     <div
                         style={{
                             textAlign: 'center',

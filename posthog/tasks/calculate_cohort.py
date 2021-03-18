@@ -23,6 +23,7 @@ def calculate_cohorts() -> None:
     # Every minute, grab a few cohorts off the list and execute them
     for cohort in (
         Cohort.objects.filter(
+            deleted=False,
             is_calculating=False,
             last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES),
             errors_calculating__lte=20,

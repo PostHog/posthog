@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
-import { hot } from 'react-hot-loader/root'
 import { SessionsView } from '../sessions/SessionsView'
 import { EventsTable } from 'scenes/events'
 import { useActions, useValues } from 'kea'
@@ -13,18 +12,18 @@ import { DownOutlined, DeleteOutlined, MergeCellsOutlined, LoadingOutlined } fro
 import * as dayjs from 'dayjs'
 import { MergePerson } from './MergePerson'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { NewPropertyComponent } from './NewPropertyComponent'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
 dayjs.extend(relativeTime)
 
 const { TabPane } = Tabs
 
-export const PersonV2 = hot(_PersonV2)
-function _PersonV2(): JSX.Element {
+export function Person(): JSX.Element {
     const [activeTab, setActiveTab] = useState('events')
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
 
-    const { person, personLoading, deletedPersonLoading } = useValues(personsLogic)
+    const { person, personLoading, deletedPersonLoading, hasNewKeys } = useValues(personsLogic)
     const { deletePerson, setPerson, editProperty } = useActions(personsLogic)
 
     const ids = (
@@ -86,7 +85,7 @@ function _PersonV2(): JSX.Element {
                                             tooltipMessage=""
                                             iconStyle={{ color: 'var(--primary)' }}
                                         >
-                                            {midEllipsis(person.distinct_ids[0], 32)}
+                                            {midEllipsis(person.distinct_ids[0], 20)}
                                         </CopyToClipboardInline>
                                         {person.distinct_ids.length > 1 && (
                                             <Dropdown overlay={ids} trigger={['click']}>
@@ -137,14 +136,17 @@ function _PersonV2(): JSX.Element {
                             />
                         </Tabs>
                         {person && (
-                            <>
+                            <div style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                                <NewPropertyComponent />
+                                <h3 className="l3">Properties list</h3>
                                 <PropertiesTable
                                     properties={person.properties}
                                     onEdit={editProperty}
-                                    sortProperties
+                                    sortProperties={!hasNewKeys}
                                     onDelete={(key) => editProperty(key, undefined)}
+                                    className="persons-page-props-table"
                                 />
-                            </>
+                            </div>
                         )}
                         {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}
                     </Card>

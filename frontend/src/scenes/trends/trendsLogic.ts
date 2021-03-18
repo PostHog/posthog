@@ -15,16 +15,16 @@ import {
     ACTION_TYPE,
     ShownAsValue,
 } from 'lib/constants'
-import { ViewType, insightLogic } from '../insights/insightLogic'
+import { ViewType, insightLogic, defaultFilterTestAccounts } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
+import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
-import { ActionType, EntityType, FilterType, PersonType, PropertyFilter } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
 import { toast, ToastId } from 'react-toastify'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
-interface ActionFilter {
+export interface ActionFilter {
     id: number | string
     math?: string
     math_property?: string
@@ -32,6 +32,10 @@ interface ActionFilter {
     order: number
     properties: PropertyFilter[]
     type: EntityType
+}
+
+export interface IndexedTrendResult extends TrendResult {
+    id: number
 }
 
 interface TrendPeople {
@@ -72,6 +76,7 @@ function cleanFilters(filters: Partial<FilterType>): Record<string, any> {
         actions: Array.isArray(filters.actions) ? filters.actions : undefined,
         events: Array.isArray(filters.events) ? filters.events : undefined,
         properties: filters.properties || [],
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
     }
 }
 
@@ -126,7 +131,9 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
 // props:
 // - dashboardItemId
 // - filters
-export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeople, PropertyFilter, ToastId>>({
+export const trendsLogic = kea<
+    trendsLogicType<TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter, ToastId>
+>({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
     },
@@ -137,7 +144,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
 
     loaders: ({ values, props }) => ({
         results: {
-            __default: [],
+            __default: [] as TrendResult[],
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return props.cachedResults
@@ -189,6 +196,9 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
             breakdown_value,
             next,
         }),
+        setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
+        toggleVisibility: (index: number) => ({ index }),
+        setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
     }),
 
     reducers: ({ props }) => ({
@@ -225,6 +235,25 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
             {
                 loadPeople: () => true,
                 setShowingPeople: ({}, { isShowing }) => isShowing,
+            },
+        ],
+        indexedResults: [
+            [],
+            {
+                setIndexedResults: ({}, { results }) => results,
+            },
+        ],
+        visibilityMap: [
+            {} as Record<number, any>,
+            {
+                setVisibilityById: (state: Record<number, any>, { entry }: { entry: Record<number, any> }) => ({
+                    ...state,
+                    ...entry,
+                }),
+                toggleVisibility: (state: Record<number, any>, { index }: { index: number }) => ({
+                    ...state,
+                    [`${index}`]: !state[index],
+                }),
             },
         ],
     }),
@@ -370,6 +399,12 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                     insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
                 })
             }
+
+            const indexedResults = values.results.map((element, index) => {
+                actions.setVisibilityById({ [`${index}`]: true })
+                return { ...element, id: index }
+            })
+            actions.setIndexedResults(indexedResults)
         },
         [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
             if (props.dashboardItemId) {
@@ -432,6 +467,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                             order: 0,
                         },
                     ]
+                    cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts()
                 }
 
                 if (searchParams.insight === ViewType.STICKINESS) {
