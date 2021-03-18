@@ -64,7 +64,7 @@ class Action(models.Model):
 
             if self.post_to_slack:
                 for event in self.events.filter(
-                    created_at__gt=last_calculated_at, team__slack_incoming_webhook__isnull=False
+                    is_calculating=False, created_at__gt=last_calculated_at, team__slack_incoming_webhook__isnull=False
                 ).only("pk"):
                     celery.current_app.send_task(
                         "posthog.tasks.webhooks.post_event_to_webhook", (event.pk, event.site_url)
