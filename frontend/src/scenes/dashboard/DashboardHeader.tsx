@@ -23,7 +23,11 @@ import { EventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HotkeyButton } from 'lib/components/HotkeyButton'
 import { router } from 'kea-router'
 
-export function DashboardHeader(): JSX.Element {
+interface Props {
+    canEditDashboard: boolean
+}
+
+export function DashboardHeader({ canEditDashboard }: Props): JSX.Element {
     const { dashboard, dashboardMode } = useValues(dashboardLogic)
     const { addNewDashboard, renameDashboard, setDashboardMode, addGraph } = useActions(dashboardLogic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
@@ -52,6 +56,7 @@ export function DashboardHeader(): JSX.Element {
                         <Menu.Item
                             icon={<EditOutlined />}
                             onClick={() => setDashboardMode(DashboardMode.Edit, EventSource.MoreDropdown)}
+                            disabled={!canEditDashboard}
                         >
                             Edit mode (E)
                         </Menu.Item>
@@ -65,6 +70,7 @@ export function DashboardHeader(): JSX.Element {
                             <Menu.Item
                                 icon={<PushpinFilled />}
                                 onClick={() => unpinDashboard(dashboard.id, EventSource.MoreDropdown)}
+                                disabled={!canEditDashboard}
                             >
                                 Unpin dashboard
                             </Menu.Item>
@@ -72,6 +78,7 @@ export function DashboardHeader(): JSX.Element {
                             <Menu.Item
                                 icon={<PushpinOutlined />}
                                 onClick={() => pinDashboard(dashboard.id, EventSource.MoreDropdown)}
+                                disabled={!canEditDashboard}
                             >
                                 Pin dashboard
                             </Menu.Item>
@@ -81,7 +88,8 @@ export function DashboardHeader(): JSX.Element {
                         <Menu.Item
                             icon={<DeleteOutlined />}
                             onClick={() => deleteDashboard({ id: dashboard.id, redirect: true })}
-                            danger
+                            danger={canEditDashboard}
+                            disabled={!canEditDashboard}
                         >
                             Delete dashboard
                         </Menu.Item>
@@ -96,12 +104,14 @@ export function DashboardHeader(): JSX.Element {
                 data-attr="dashboard-edit-mode"
                 icon={<EditOutlined />}
                 onClick={() => setDashboardMode(DashboardMode.Edit, EventSource.DashboardHeader)}
+                disabled={!canEditDashboard}
             />
             <HotkeyButton
                 onClick={() => addGraph()}
                 data-attr="dashboard-add-graph-header"
                 icon={<PlusOutlined />}
                 hotkey="n"
+                disabled={!canEditDashboard}
             >
                 Add graph
             </HotkeyButton>
@@ -111,6 +121,7 @@ export function DashboardHeader(): JSX.Element {
                 data-attr="dashboard-share-button"
                 icon={<ShareAltOutlined />}
                 hotkey="s"
+                disabled={!canEditDashboard}
             >
                 Send or share
             </HotkeyButton>

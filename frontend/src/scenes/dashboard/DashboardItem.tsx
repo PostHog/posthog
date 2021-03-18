@@ -53,6 +53,7 @@ interface Props {
     moveDashboardItem?: (it: DashboardItemType, dashboardId: number) => void
     saveDashboardItem?: (it: DashboardItemType) => void
     duplicateDashboardItem?: (it: DashboardItemType, dashboardId?: number) => void
+    canEditDashboard: boolean
 }
 
 export type DisplayedType = DisplayType | 'RetentionContainer'
@@ -172,6 +173,7 @@ export function DashboardItem({
     moveDashboardItem,
     saveDashboardItem,
     duplicateDashboardItem,
+    canEditDashboard,
 }: Props): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
@@ -292,6 +294,7 @@ export function DashboardItem({
                             <Dropdown
                                 placement="bottomRight"
                                 trigger={['click']}
+                                disabled={!canEditDashboard}
                                 overlay={
                                     <Menu data-attr={'dashboard-item-' + index + '-dropdown-menu'}>
                                         <Menu.Item
