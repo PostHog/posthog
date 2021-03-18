@@ -4,6 +4,7 @@ import {
     CUSTOM_EVENT,
     EVENT_TYPE,
     OrganizationMembershipLevel,
+    PluginsAccessLevel,
     PAGEVIEW,
     SCREEN,
     ShownAsValue,
@@ -27,7 +28,6 @@ export interface UserType {
     teams: TeamType[]
     current_organization_id: string
     current_team_id: number
-    plugin_access: PluginAccess
     has_password: boolean
     is_multi_tenancy: boolean
     is_staff: boolean
@@ -81,6 +81,7 @@ export interface OrganizationType {
     membership_level: OrganizationMembershipLevel | null
     setup: SetupState
     personalization: PersonalizationData
+    plugins_access_level: PluginsAccessLevel
 }
 
 export interface OrganizationMemberType {
@@ -414,6 +415,9 @@ export interface PluginType {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     maintainer?: string
+    is_global: boolean
+    organization_id: string
+    organization_name: string
 }
 
 export interface PluginConfigType {

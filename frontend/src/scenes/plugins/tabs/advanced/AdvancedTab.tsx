@@ -39,7 +39,7 @@ export function AdvancedTab(): JSX.Element {
             <Subtitle subtitle="Advanced Options" />
             <SourcePlugin />
             <CustomPlugin />
-            <LocalPlugin />
+            {user && !user.is_multi_tenancy && <LocalPlugin />}
             {user?.team?.plugins_opt_in && <DangerZone />}
         </>
     )

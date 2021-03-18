@@ -2,7 +2,7 @@ import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
 import { Table, Tag, Button, Modal, Input, DatePicker, Row, Spin, Menu, Dropdown } from 'antd'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import moment from 'moment'
+import moment, { Moment } from 'moment'
 import { annotationsModel } from '~/models/annotationsModel'
 import { annotationsTableLogic } from './logic'
 import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, DownOutlined } from '@ant-design/icons'
@@ -17,12 +17,12 @@ const { TextArea } = Input
 
 export function Annotations(): JSX.Element {
     const { annotations, annotationsLoading, next, loadingNext } = useValues(annotationsTableLogic)
-    const { loadAnnotations, updateAnnotation, deleteAnnotation, loadAnnotationsNext, restoreAnnotation } = useActions(
+    const { updateAnnotation, deleteAnnotation, loadAnnotationsNext, restoreAnnotation } = useActions(
         annotationsTableLogic
     )
     const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
-    const [selectedAnnotation, setSelected] = useState({} as AnnotationType)
+    const [selectedAnnotation, setSelected] = useState(null as AnnotationType | null)
 
     const columns = [
         {
@@ -78,7 +78,7 @@ export function Annotations(): JSX.Element {
 
     function closeModal(): void {
         setOpen(false)
-        setTimeout(() => setSelected({} as AnnotationType), 500)
+        setTimeout(() => setSelected(null as AnnotationType | null), 500)
     }
 
     return (
@@ -142,18 +142,23 @@ export function Annotations(): JSX.Element {
                     closeModal()
                 }}
                 onSubmit={async (input, selectedDate): Promise<void> => {
-                    ;(await selectedAnnotation)
-                        ? updateAnnotation(selectedAnnotation.id, input)
-                        : createGlobalAnnotation(input, selectedDate, null)
+                    if (selectedAnnotation && (await selectedAnnotation)) {
+                        updateAnnotation(selectedAnnotation.id, input)
+                    } else {
+                        createGlobalAnnotation(input, selectedDate, null)
+                    }
                     closeModal()
-                    loadAnnotations()
                 }}
                 onDelete={(): void => {
-                    deleteAnnotation(selectedAnnotation.id)
+                    if (selectedAnnotation) {
+                        deleteAnnotation(selectedAnnotation.id)
+                    }
                     closeModal()
                 }}
                 onRestore={(): void => {
-                    restoreAnnotation(selectedAnnotation.id)
+                    if (selectedAnnotation) {
+                        restoreAnnotation(selectedAnnotation.id)
+                    }
                     closeModal()
                 }}
                 annotation={selectedAnnotation}
@@ -193,6 +198,13 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
         }
     }, [props.annotation])
 
+    const _onSubmit = (input: string, date: Moment): void => {
+        props.onSubmit(input, date)
+        setTextInput('')
+        setDate(moment())
+        setScope(AnnotationScope.Project)
+    }
+
     return (
         <Modal
             footer={[
@@ -204,7 +216,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                     key="create-annotation-submit"
                     data-attr="create-annotation-submit"
                     onClick={(): void => {
-                        props.onSubmit(textInput, selectedDate)
+                        _onSubmit(textInput, selectedDate)
                     }}
                 >
                     {modalMode === ModalMode.CREATE ? 'Submit' : 'Update'}

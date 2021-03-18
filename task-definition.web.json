@@ -87,10 +87,6 @@
                     "value": "https://app.posthog.com"
                 },
                 {
-                    "name": "PLUGINS_CLOUD_WHITELISTED_ORG_IDS",
-                    "value": "4dc8564d-bd82-1065-2f40-97f7c50f67cf,2f3a6d88-4789-027b-6205-7b9a0e12217d"
-                },
-                {
                     "name": "EMAIL_DEFAULT_FROM",
                     "value": "hey@posthog.com"
                 },
@@ -109,6 +105,10 @@
                 {
                     "name": "BILLING_NO_PLAN_EVENT_ALLOCATION",
                     "value": "10000"
+                },
+                {
+                    "name": "ASYNC_EVENT_PROPERTY_USAGE",
+                    "value": "1"
                 }
             ],
             "secrets": [

@@ -111,23 +111,27 @@ function DashboardView(): JSX.Element {
                     <div className="dashboard-items-actions">
                         <div className="left-item">
                             Last updated <b>{lastRefreshed ? moment(lastRefreshed).fromNow() : 'a while ago'}</b>
-                            <Button type="link" icon={<ReloadOutlined />} onClick={refreshAllDashboardItems}>
-                                Refresh
-                            </Button>
-                        </div>
-                        <DateFilter
-                            defaultValue="Custom"
-                            showCustom
-                            dateFrom={dashboardFilters?.date_from}
-                            dateTo={dashboardFilters?.date_to}
-                            onChange={setDates}
-                            makeLabel={(key) => (
-                                <>
-                                    <CalendarOutlined />
-                                    <span className="hide-lte-md"> {key}</span>
-                                </>
+                            {dashboardMode !== DashboardMode.Public && (
+                                <Button type="link" icon={<ReloadOutlined />} onClick={refreshAllDashboardItems}>
+                                    Refresh
+                                </Button>
                             )}
-                        />
+                        </div>
+                        {dashboardMode !== DashboardMode.Public && (
+                            <DateFilter
+                                defaultValue="Custom"
+                                showCustom
+                                dateFrom={dashboardFilters?.date_from}
+                                dateTo={dashboardFilters?.date_to}
+                                onChange={setDates}
+                                makeLabel={(key) => (
+                                    <>
+                                        <CalendarOutlined />
+                                        <span className="hide-when-small"> {key}</span>
+                                    </>
+                                )}
+                            />
+                        )}
                     </div>
                     <DashboardItems inSharedMode={dashboardMode === DashboardMode.Public} />
                 </div>
