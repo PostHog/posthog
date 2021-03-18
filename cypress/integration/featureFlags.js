@@ -25,7 +25,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-submit]').click()
         cy.get('.Toastify__toast-body').click() // clicking the toast gets you back to the list
         cy.get('[data-attr=feature-flag-table]').should('contain', 'beta-feature')
-        cy.get('[data-attr=feature-flag-table]').should('contain', '30%')
+        cy.get('[data-attr=feature-flag-table]').should('not.contain', '%') // By default it's released to everyone, if a % is not specified
         cy.get('[data-attr=feature-flag-table]').should('contain', 'is_demo')
 
         cy.get('[data-attr=feature-flag-table] tr:first-child td:first-child').click()

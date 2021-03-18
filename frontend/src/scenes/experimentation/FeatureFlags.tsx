@@ -1,10 +1,10 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
-import { Table, Switch } from 'antd'
+import { Table, Switch, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
-import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
+import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined, DisconnectOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/PropertyFiltersDisplay'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
@@ -25,6 +25,18 @@ export function FeatureFlags(): JSX.Element {
             dataIndex: 'key',
             className: 'ph-no-capture',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.key).localeCompare(b.key),
+            render: function Render(_: string, featureFlag: FeatureFlagType) {
+                return (
+                    <>
+                        {!featureFlag.active && (
+                            <Tooltip title="This feature flag is disabled.">
+                                <DisconnectOutlined style={{ marginRight: 4 }} />
+                            </Tooltip>
+                        )}
+                        {featureFlag.key}
+                    </>
+                )
+            },
         },
         {
             title: 'Description',
@@ -47,7 +59,7 @@ export function FeatureFlags(): JSX.Element {
             },
         },
         {
-            title: 'Active',
+            title: 'Enabled',
             render: function RenderActive(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <Switch
@@ -124,6 +136,7 @@ export function FeatureFlags(): JSX.Element {
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 onRow={(featureFlag) => ({
                     onClick: () => push(`/feature_flags/${featureFlag.id}${BackTo}`),
+                    style: !featureFlag.active ? { color: 'var(--muted)' } : {},
                 })}
                 size="small"
                 rowClassName="cursor-pointer"
