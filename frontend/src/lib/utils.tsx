@@ -328,12 +328,12 @@ export function humanFriendlyDuration(d: string | number): string {
     return days > 0 ? dayDisplay + hDisplay : hDisplay + mDisplay + sDisplay
 }
 
-export function humanFriendlyDiff(from: dayjs.DayjsInput, to: dayjs.DayjsInput): string {
+export function humanFriendlyDiff(from: dayjs.Dayjs, to: dayjs.Dayjs): string {
     const diff = dayjs(to).diff(dayjs(from), 'seconds')
     return humanFriendlyDuration(diff)
 }
 
-export function humanFriendlyDetailedTime(date: dayjs.DayjsInput | null, withSeconds: boolean = false): string {
+export function humanFriendlyDetailedTime(date: dayjs.Dayjs | null, withSeconds: boolean = false): string {
     if (!date) {
         return 'Never'
     }
