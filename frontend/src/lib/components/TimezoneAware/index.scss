@@ -18,12 +18,17 @@
                 font-weight: bold;
                 color: $primary_alt;
                 margin-right: 6px;
+                width: 50px;
             }
 
             .scope {
                 color: $text_muted;
                 margin-right: 16px;
                 flex-grow: 1;
+            }
+
+            .time {
+                min-width: 192px;
             }
         }
     }
