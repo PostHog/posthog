@@ -26,15 +26,15 @@ import { endWithPunctation } from '../../../lib/utils'
 import { canInstallPlugins } from '../access'
 import { LinkButton } from '../../../lib/components/LinkButton'
 
-export function ExtraPluginButtons({ url }: { url: string }): JSX.Element {
+export function ExtraPluginButtons({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
         <Space>
-            <LinkButton to={url} target="_blank" rel="noopener noreferrer">
+            <LinkButton to={url} target="_blank" rel="noopener noreferrer" disabled={disabled}>
                 <InfoCircleOutlined />
                 <span className="show-over-500">About</span>
             </LinkButton>
             {url.includes('github') && (
-                <LinkButton to={`${url}/issues/new`} target="_blank" rel="noopener noreferrer">
+                <LinkButton to={`${url}/issues/new`} target="_blank" rel="noopener noreferrer" disabled={disabled}>
                     <MessageOutlined />
                     <span className="show-over-500">Feedback</span>
                 </LinkButton>
@@ -126,7 +126,11 @@ export function PluginCard({
                                 cancelText="No"
                                 disabled={rearranging}
                             >
-                                <Switch checked={pluginConfig.enabled} disabled={rearranging} />
+                                <Switch
+                                    checked={pluginConfig.enabled ?? false}
+                                    onClick={() => console.log(pluginConfig.enabled)}
+                                    disabled={rearranging}
+                                />
                             </Popconfirm>
                         </Col>
                     )}
@@ -180,7 +184,7 @@ export function PluginCard({
                     </Col>
                     <Col>
                         <Space>
-                            {url && <ExtraPluginButtons url={url} />}
+                            {url && <ExtraPluginButtons url={url} disabled={rearranging} />}
                             {showUpdateButton && pluginId ? (
                                 <Button
                                     type={updateStatus?.updated ? 'default' : 'primary'}
@@ -190,6 +194,7 @@ export function PluginCard({
                                     }
                                     loading={!!updatingPlugin}
                                     icon={updateStatus?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
+                                    disabled={rearranging}
                                 >
                                     <span className="show-over-500">
                                         {updateStatus?.updated ? 'Updated' : 'Update'}
