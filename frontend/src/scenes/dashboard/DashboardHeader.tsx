@@ -16,7 +16,7 @@ import {
     PlusOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardMode, DashboardType } from '~/types'
 import { EventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -40,8 +40,8 @@ export function DashboardHeader(): JSX.Element {
                             <>
                                 <Menu.Item disabled>
                                     Created by {dashboard.created_by.first_name || dashboard.created_by.email || '-'} on{' '}
-                                    {moment(dashboard.created_at).format(
-                                        moment(dashboard.created_at).year() === moment().year()
+                                    {dayjs(dashboard.created_at).format(
+                                        dayjs(dashboard.created_at).year() === dayjs().year()
                                             ? 'MMMM Do'
                                             : 'MMMM Do YYYY'
                                     )}

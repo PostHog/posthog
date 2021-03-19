@@ -5,6 +5,7 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 const MonacoWebpackPlugin = require('monaco-editor-webpack-plugin')
+const AntdDayjsWebpackPlugin = require('antd-dayjs-webpack-plugin')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 const webpackDevServerFrontendAddr = webpackDevServerHost === '0.0.0.0' ? '127.0.0.1' : webpackDevServerHost
@@ -201,7 +202,7 @@ function createEntry(entry) {
             new MonacoWebpackPlugin({
                 languages: ['json', 'javascript'],
             }),
-
+            new AntdDayjsWebpackPlugin(),
             // common plugins for all entrypoints
         ].concat(
             entry === 'main'

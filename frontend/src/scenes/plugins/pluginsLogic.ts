@@ -428,7 +428,10 @@ export const pluginsLogic = kea<
         ],
         disabledPlugins: [
             (s) => [s.installedPlugins],
-            (installedPlugins) => installedPlugins.filter(({ pluginConfig }) => !pluginConfig?.enabled),
+            (installedPlugins) =>
+                installedPlugins
+                    .filter(({ pluginConfig }) => !pluginConfig?.enabled)
+                    .sort((a, b) => Number(a.is_global) - Number(b.is_global)),
         ],
         pluginsNeedingUpdates: [
             (s) => [s.installedPlugins, userLogic.selectors.user],

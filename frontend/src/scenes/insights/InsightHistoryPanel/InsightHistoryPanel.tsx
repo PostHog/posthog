@@ -6,10 +6,12 @@ import { insightHistoryLogic } from './insightHistoryLogic'
 import { DashboardItemType } from '~/types'
 import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
 import './InsightHistoryPanel.scss'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { router } from 'kea-router'
 import { ViewType } from '../insightLogic'
+import relativeTime from 'dayjs/plugin/relativeTime'
+dayjs.extend(relativeTime)
 
 const InsightHistoryType = {
     SAVED: 'SAVED',
@@ -135,7 +137,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
                         data={insights.map((insight) => ({ ...insight }))}
                         loadMore={insightsNext ? loadNextInsights : undefined}
                         loadingMore={loadingMoreInsights}
-                        footer={(item) => <>Ran query {moment(item.created_at).fromNow()}</>}
+                        footer={(item) => <>Ran query {dayjs(item.created_at).fromNow()}</>}
                         loading={insightsLoading}
                     />
                 </TabPane>
@@ -148,7 +150,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
                         data={savedInsights}
                         loadMore={savedInsightsNext ? loadNextSavedInsights : undefined}
                         loadingMore={loadingMoreSavedInsights}
-                        footer={(item) => <>Saved {moment(item.created_at).fromNow()}</>}
+                        footer={(item) => <>Saved {dayjs(item.created_at).fromNow()}</>}
                         loading={savedInsightsLoading}
                     />
                 </TabPane>
@@ -163,7 +165,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
                         loadingMore={loadingMoreTeamInsights}
                         footer={(item) => (
                             <>
-                                Saved {moment(item.created_at).fromNow()} by{' '}
+                                Saved {dayjs(item.created_at).fromNow()} by{' '}
                                 {item.created_by?.first_name || item.created_by?.email || 'unknown'}
                             </>
                         )}

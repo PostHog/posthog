@@ -250,6 +250,7 @@ export const dashboardLogic = kea({
             actions.loadDashboardItems()
             if (props.shareToken) {
                 actions.setDashboardMode(DashboardMode.Public, EventSource.Browser)
+                dashboardsModel.actions.loadDashboards(props.shareToken)
             }
         },
         beforeUnmount: () => {
@@ -299,8 +300,9 @@ export const dashboardLogic = kea({
             api.update(`api/insight/${id}`, { color })
         },
         refreshAllDashboardItems: async (_, breakpoint) => {
-            await breakpoint(200)
+            await breakpoint(100)
             dashboardItemsModel.actions.refreshAllDashboardItems({})
+
             eventUsageLogic.actions.reportDashboardRefreshed(values.lastRefreshed)
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {

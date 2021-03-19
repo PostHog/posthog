@@ -6,7 +6,7 @@ import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
 import { AnnotationType, FilterType, DashboardType, PersonType, DashboardMode } from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
-import { Moment } from 'moment'
+import dayjs from 'dayjs'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
@@ -61,8 +61,8 @@ export const eventUsageLogic = kea<
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
         reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
         reportDashboardModeToggled: (mode: DashboardMode, source: EventSource | null) => ({ mode, source }),
-        reportDashboardRefreshed: (lastRefreshed?: string | Moment | null) => ({ lastRefreshed }),
-        reportDashboardDateRangeChanged: (dateFrom?: string | Moment, dateTo?: string | Moment | null) => ({
+        reportDashboardRefreshed: (lastRefreshed?: string | dayjs.Dayjs | null) => ({ lastRefreshed }),
+        reportDashboardDateRangeChanged: (dateFrom?: string | dayjs.Dayjs, dateTo?: string | dayjs.Dayjs | null) => ({
             dateFrom,
             dateTo,
         }),
@@ -188,7 +188,7 @@ export const eventUsageLogic = kea<
                 sample_items_count: 0,
                 item_count: dashboard.items.length,
                 created_by_system: !dashboard.created_by,
-                has_share_token: hasShareToken,
+                has_share_token: hasShareToken, // if the dashboard is being viewed in `public` mode
             }
 
             for (const item of dashboard.items) {

@@ -8,6 +8,7 @@ from posthog.models.filters import Filter
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.queries.abstract_test.test_timerange import AbstractTimerangeTest
 from posthog.queries.funnel import Funnel
+from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 from posthog.tasks.update_cache import update_cache_item
 from posthog.test.base import APIBaseTest, BaseTest
 
@@ -139,6 +140,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self._signup_event(distinct_id="a_user_that_got_deleted_or_doesnt_exist")
 
+            calculate_actions_from_last_calculation()
+
             result = funnel.run()
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 4)
@@ -201,6 +204,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="half_property", properties={"$browser": "Safari"})
             self._pay_event(distinct_id="half_property")
 
+            calculate_actions_from_last_calculation()
+
             result = funnel.run()
             self.assertEqual(result[0]["count"], 2)
             self.assertEqual(result[1]["count"], 1)
@@ -260,6 +265,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._pay_event(distinct_id="half_property")
             self._movie_event(distinct_id="half_property")
 
+            calculate_actions_from_last_calculation()
+
             result = funnel.run()
 
             self.assertEqual(result[0]["count"], 1)
@@ -296,6 +303,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="with_property")
             self._pay_event(distinct_id="with_property")
             self._movie_event(distinct_id="with_property")
+
+            calculate_actions_from_last_calculation()
 
             result = funnel.run()
             self.assertEqual(result[0]["count"], 1)

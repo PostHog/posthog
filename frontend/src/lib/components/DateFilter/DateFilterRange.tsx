@@ -1,15 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react'
-import moment from 'moment'
-import { Button, DatePicker } from 'antd'
+import dayjs from 'dayjs'
+import { Button } from 'antd'
+
+import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
+import generatePicker from 'antd/es/date-picker/generatePicker'
+
+const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 export function DateFilterRange(props: {
     onClickOutside: () => void
     onClick: (e: React.MouseEvent) => void
-    onDateFromChange: (date: moment.Moment | undefined) => void
-    onDateToChange: (date: moment.Moment | undefined) => void
+    onDateFromChange: (date?: dayjs.Dayjs) => void
+    onDateToChange: (date?: dayjs.Dayjs) => void
     onApplyClick: () => void
-    rangeDateFrom: string | moment.Moment | undefined
-    rangeDateTo: string | moment.Moment | undefined
+    rangeDateFrom?: string | dayjs.Dayjs
+    rangeDateTo?: string | dayjs.Dayjs
     getPopupContainer?: (props: any) => HTMLElement
 }): JSX.Element {
     const dropdownRef = useRef<HTMLDivElement | null>(null)
@@ -70,14 +75,14 @@ export function DateFilterRange(props: {
                     getPopupContainer={props.getPopupContainer}
                     defaultValue={[
                         props.rangeDateFrom
-                            ? moment.isMoment(props.rangeDateFrom)
+                            ? dayjs.isDayjs(props.rangeDateFrom)
                                 ? props.rangeDateFrom
-                                : moment(props.rangeDateFrom)
+                                : dayjs(props.rangeDateFrom)
                             : null,
                         props.rangeDateTo
-                            ? moment.isMoment(props.rangeDateTo)
+                            ? dayjs.isDayjs(props.rangeDateTo)
                                 ? props.rangeDateTo
-                                : moment(props.rangeDateTo)
+                                : dayjs(props.rangeDateTo)
                             : null,
                     ]}
                     open={calendarOpen}
