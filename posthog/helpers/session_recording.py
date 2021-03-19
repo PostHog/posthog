@@ -88,7 +88,7 @@ def is_snapshot(event: Dict) -> bool:
 
 
 def compress_to_string(json_string: str) -> str:
-    compressed_data = gzip.compress(json_string.encode("utf-16", "surrogatepass"), mtime=0)
+    compressed_data = gzip.compress(json_string.encode("utf-16", "surrogatepass"))
     return base64.b64encode(compressed_data).decode("utf-8")
 
 

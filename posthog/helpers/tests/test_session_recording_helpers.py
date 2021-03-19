@@ -32,6 +32,7 @@ def test_preprocess_recording_event_creates_chunks():
 
 def test_compression_and_chunking(snapshot_events, mocker: MockerFixture):
     mocker.patch("posthog.models.utils.UUIDT", return_value="0178495e-8521-0000-8e1c-2652fa57099b")
+    mocker.patch("time.time", return_value=0)
 
     assert list(compress_and_chunk_snapshots(snapshot_events)) == [
         {
