@@ -21,8 +21,20 @@ while test $# -gt 0; do
   esac
 done
 
+urlencode() {
+    local length="${#1}"
+    for (( i = 0; i < length; i++ )); do
+        local c="${1:i:1}"
+        case $c in
+            [a-zA-Z0-9.~_-]) printf "$c" ;;
+            *) printf '%s' "$c" | xxd -p -c1 |
+                   while read c; do printf '%%%s' "$c"; done ;;
+        esac
+    done
+}
+
 if [[ -n $POSTHOG_DB_NAME ]]; then
-  [[ -n $POSTHOG_DB_PASSWORD ]] && DB_PASSWORD_COMPONENT=":$POSTHOG_DB_PASSWORD"
+  [[ -n $POSTHOG_DB_PASSWORD ]] && DB_PASSWORD_COMPONENT=":$(urlencode "$POSTHOG_DB_PASSWORD")"
   export DATABASE_URL="postgres://${POSTHOG_DB_USER:-"postgres"}${DB_PASSWORD_COMPONENT}@${POSTHOG_POSTGRES_HOST:-"localhost"}:${POSTHOG_POSTGRES_PORT:-"5432"}/${POSTHOG_DB_NAME}"
 fi
 
