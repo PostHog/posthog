@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 from rest_framework import status
 
+from posthog.models import User
 from posthog.test.base import APITransactionBaseTest
 
 
@@ -65,7 +66,47 @@ class TestAuthenticationAPI(APITransactionBaseTest):
         mock_capture.assert_not_called()
 
     def test_cant_login_without_required_attributes(self):
-        pass
+        required_attributes = [
+            "email",
+            "password",
+        ]
+
+        for attribute in required_attributes:
+            body = {
+                "email": self.CONFIG_USER_EMAIL,
+                "password": self.CONFIG_PASSWORD,
+            }
+            body.pop(attribute)
+
+            response = self.client.post("/api/login/", body)
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.data,
+                {
+                    "type": "validation_error",
+                    "code": "required",
+                    "detail": "This field is required.",
+                    "attr": attribute,
+                },
+            )
+
+            # Assert user is not logged in
+            response = self.client.get("/api/user/")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_login_endpoint_is_protected_against_brute_force_attempts(self):
-        pass
+        User.objects.create(email="new_user@posthog.com", password="87654321")
+
+        # Fill the attempt limit
+        with self.settings(AXES_FAILURE_LIMIT=3):
+            for _ in range(0, 2):
+                response = self.client.post("/api/login", {"email": "new_user@posthog.com", "password": "invalid"})
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(response.json(), self.INVALID_CREDENTIALS_RESPONSE)
+
+                # Assert user is not logged in
+                response = self.client.get("/api/user/")
+                self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+            response = self.client.post("/api/login", {"email": "new_user@posthog.com", "password": "invalid"})
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
