@@ -32,3 +32,16 @@
         }
     }
 }
+
+.auth-main-content {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding-top: $default_spacing * 2;
+
+    .inner {
+        width: 100%;
+        max-width: 382px; // 350px + 32px padding
+        padding: 0 $default_spacing;
+    }
+}
