@@ -233,8 +233,17 @@ code.code {
 }
 
 .highlighted {
-    background-color: $yellow_50;
     border-radius: $radius;
+    animation: highlight 2000ms ease-out;
+}
+
+@keyframes highlight {
+    0% {
+        background-color: $yellow_50;
+    }
+    100% {
+        background-color: initial;
+    }
 }
 
 // Toasts
