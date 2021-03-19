@@ -96,7 +96,9 @@ export class EventsProcessor {
                 ts,
                 properties['$snapshot_data']
             )
-            this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer)
+            this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
+                team_id: teamId.toString(),
+            })
             clearTimeout(timeout2)
         } else {
             const timeout3 = timeoutGuard('Still running "captureEE". Timeout warning after 30 sec!', { eventUuid })
@@ -112,7 +114,9 @@ export class EventsProcessor {
                 ts,
                 sentAt
             )
-            this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer)
+            this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
+                team_id: teamId.toString(),
+            })
             clearTimeout(timeout3)
         }
         clearTimeout(timeout)
