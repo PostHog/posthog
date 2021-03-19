@@ -35,7 +35,7 @@ export function PluginField({
     return fieldConfig.type === 'attachment' ? (
         <UploadField value={value} onChange={onChange} />
     ) : fieldConfig.type === 'string' ? (
-        <Input value={value} onChange={onChange} autoFocus={editingSecret} />
+        <Input value={value} onChange={onChange} autoFocus={editingSecret} className="ph-ignore-input" />
     ) : fieldConfig.type === 'choice' ? (
         <Select dropdownMatchSelectWidth={false} value={value} onChange={onChange}>
             {fieldConfig.choices.map((choice) => (

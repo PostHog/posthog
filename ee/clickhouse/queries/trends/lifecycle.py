@@ -47,7 +47,9 @@ class ClickhouseLifecycle(LifecycleTrend):
         event_params: Dict[str, Any] = {}
 
         props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            props_to_filter, team_id, filter_test_accounts=filter.filter_test_accounts
+        )
 
         _, _, date_params = parse_timestamps(filter=filter, team_id=team_id)
 

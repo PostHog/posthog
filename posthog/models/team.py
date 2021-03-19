@@ -1,10 +1,13 @@
-from typing import Dict, Optional
+import re
+from typing import Any, Dict, List, Optional
 
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.core.validators import MinLengthValidator
 from django.db import models
+from django.dispatch.dispatcher import receiver
 
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
+from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
 from .utils import UUIDT, generate_random_token, sane_repr
@@ -13,7 +16,28 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 
 
 class TeamManager(models.Manager):
+    def set_test_account_filters(self, organization: Optional[Any]) -> List:
+        filters = [
+            {
+                "key": "$host",
+                "operator": "is_not",
+                "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000"],
+            },
+        ]
+        if organization:
+            example_emails = organization.members.only("email")
+            generic_emails = GenericEmails()
+            example_emails = [email.email for email in example_emails if not generic_emails.is_generic(email.email)]
+            if len(example_emails) > 0:
+                example_email = re.search("@[\w.]+", example_emails[0])
+                if example_email:
+                    return [
+                        {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},
+                    ] + filters
+        return filters
+
     def create_with_data(self, user=None, default_dashboards: bool = True, **kwargs) -> "Team":
+        kwargs["test_account_filters"] = self.set_test_account_filters(kwargs.get("organization"))
         team = Team.objects.create(**kwargs)
 
         # Create default dashboards (skipped for demo projects)
@@ -47,7 +71,7 @@ class Team(models.Model):
         default=generate_random_token,
         validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
     )
-    app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
+    app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True)
     name: models.CharField = models.CharField(
         max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")],
     )
@@ -64,10 +88,14 @@ class Team(models.Model):
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     uuid: models.UUIDField = models.UUIDField(default=UUIDT, editable=False, unique=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
-    session_recording_retention_period_days: models.IntegerField = models.IntegerField(null=True, default=None)
+    session_recording_retention_period_days: models.IntegerField = models.IntegerField(
+        null=True, default=None, blank=True
+    )
     plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
+
+    test_account_filters: JSONField = JSONField(default=list)
 
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
@@ -86,3 +114,9 @@ class Team(models.Model):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
+
+
+@receiver(models.signals.pre_delete, sender=Team)
+def team_deleted(sender, instance, **kwargs):
+    instance.event_set.all().delete()
+    instance.elementgroup_set.all().delete()

@@ -86,12 +86,17 @@ export function PropertyValue({
                 allowClear={value}
             >
                 {input && (
-                    <Select.Option key={input} value={input}>
+                    <Select.Option key={input} value={input} className="ph-no-capture">
                         Specify: {input}
                     </Select.Option>
                 )}
                 {displayOptions.map(({ name, id }, index) => (
-                    <Select.Option key={id || name} value={id || name} data-attr={'prop-val-' + index}>
+                    <Select.Option
+                        key={id || name}
+                        value={id || name}
+                        data-attr={'prop-val-' + index}
+                        className="ph-no-capture"
+                    >
                         {name === true && 'true'}
                         {name === false && 'false'}
                         {name}

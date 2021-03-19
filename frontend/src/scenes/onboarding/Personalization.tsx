@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
-import { hot } from 'react-hot-loader/root'
 import { personalizationLogic } from './personalizationLogic'
 import { Row, Col, Button } from 'antd'
 import { RadioSelect } from 'lib/components/RadioSelect'
@@ -8,8 +7,7 @@ import { ROLES, PRODUCTS, IS_TECHNICAL } from './personalizationOptions'
 import { Link } from 'lib/components/Link'
 import './Personalization.scss'
 
-export const Personalization = hot(_Personalization)
-function _Personalization(): JSX.Element {
+export function Personalization(): JSX.Element {
     const { personalizationData } = useValues(personalizationLogic)
     const { appendPersonalizationData, reportPersonalizationSkipped, reportPersonalization } = useActions(
         personalizationLogic

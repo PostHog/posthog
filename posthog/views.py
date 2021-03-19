@@ -12,7 +12,6 @@ from rest_framework.exceptions import AuthenticationFailed
 
 from posthog.ee import is_ee_enabled
 from posthog.models import User
-from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api
 from posthog.settings import AUTO_LOGIN, TEST
 from posthog.utils import (
     get_redis_info,
@@ -60,7 +59,6 @@ def stats(request):
 @never_cache
 @login_required
 def system_status(request):
-    team = request.user.team
     is_multitenancy: bool = getattr(settings, "MULTI_TENANCY", False)
 
     if is_multitenancy and not request.user.is_staff:
@@ -156,20 +154,6 @@ def system_status(request):
             "key": "plugin_sever_version",
             "metric": "Plugin server version",
             "value": get_plugin_server_version() or "unknown",
-        }
-    )
-    metrics.append(
-        {
-            "key": "plugins_install",
-            "metric": "Plugins can be installed",
-            "value": can_install_plugins_via_api(team.organization),
-        }
-    )
-    metrics.append(
-        {
-            "key": "plugins_configure",
-            "metric": "Plugins can be configured",
-            "value": can_configure_plugins_via_api(team.organization),
         }
     )
 

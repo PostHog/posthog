@@ -1,8 +1,10 @@
 import logging
 import time
+from typing import Sequence, cast
 
 from celery import shared_task
 
+from posthog.ee import is_ee_enabled
 from posthog.models import Action
 
 logger = logging.getLogger(__name__)
@@ -13,13 +15,18 @@ def calculate_action(action_id: int) -> None:
     start_time = time.time()
     action = Action.objects.get(pk=action_id)
     action.calculate_events()
-    logger.info("Calculating action {} took {:.2f} seconds".format(action.pk, (time.time() - start_time)))
+    total_time = time.time() - start_time
+    logger.info(f"Calculating action {action.pk} took {total_time:.2f} seconds")
 
 
 def calculate_actions_from_last_calculation() -> None:
-    actions = Action.objects.filter(deleted=False).only("pk")
-    for action in actions:
+    if is_ee_enabled():  # In EE actions are not precalculated
+        return
+    start_time_overall = time.time()
+    for action in cast(Sequence[Action], Action.objects.filter(is_calculating=False, deleted=False)):
         start_time = time.time()
         action.calculate_events(start=action.last_calculated_at)
-
-        logger.info("Calculating action {} took {:.2f} seconds".format(action.pk, (time.time() - start_time)))
+        total_time = time.time() - start_time
+        logger.info(f"Calculating action {action.pk} took {total_time:.2f} seconds")
+    total_time_overall = time.time() - start_time_overall
+    logger.info(f"Calculated new event-action pairs in {total_time_overall:.2f} s")

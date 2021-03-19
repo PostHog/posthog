@@ -30,7 +30,7 @@ app.autodiscover_tasks()
 app.conf.broker_pool_limit = 0
 
 # How frequently do we want to calculate action -> event relationships if async is enabled
-ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 5
+ACTION_EVENT_MAPPING_INTERVAL_SECONDS = 30
 
 if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
@@ -76,14 +76,14 @@ def setup_periodic_tasks(sender, **kwargs):
 
     if settings.ASYNC_EVENT_ACTION_MAPPING:
         sender.add_periodic_task(
-            (60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
+            ACTION_EVENT_MAPPING_INTERVAL_SECONDS,
             calculate_event_action_mappings.s(),
             name="calculate event action mappings",
-            expires=(60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
+            expires=ACTION_EVENT_MAPPING_INTERVAL_SECONDS,
         )
 
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
-        sender.add_periodic_task(60, calculate_event_property_usage.s(), name="calculate event property usage")
+        sender.add_periodic_task(60 * 60, calculate_event_property_usage.s(), name="calculate event property usage")
 
 
 @app.task(ignore_result=True)

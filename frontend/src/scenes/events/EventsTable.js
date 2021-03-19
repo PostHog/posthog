@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { ExportOutlined, ClearOutlined } from '@ant-design/icons'
@@ -10,13 +10,15 @@ import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
 import { eventToName, toParams } from 'lib/utils'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
-import { hot } from 'react-hot-loader/root'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 
-export const EventsTable = hot(_EventsTable)
-function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
+dayjs.extend(LocalizedFormat)
+dayjs.extend(relativeTime)
+
+export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
     const logic = eventsTableLogic({ fixedFilters, key: pageKey })
     const {
         properties,
@@ -65,10 +67,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                     return { props: { colSpan: 0 } }
                 }
                 return showLinkToPerson ? (
-                    <Link
-                        to={`/person/${encodeURIComponent(event.distinct_id)}`}
-                        className={'ph-no-capture ' + rrwebBlockClass}
-                    >
+                    <Link to={`/person/${encodeURIComponent(event.distinct_id)}`} className="ph-no-capture">
                         {event.person}
                     </Link>
                 ) : (
@@ -87,7 +86,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                 if (filtersEnabled) {
                     return (
                         <FilterPropertyLink
-                            className={'ph-no-capture ' + rrwebBlockClass}
+                            className="ph-no-capture"
                             property={param}
                             value={event.properties[param]}
                             filters={{ properties }}
@@ -121,7 +120,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                     return { props: { colSpan: 0 } }
                 }
                 return (
-                    <Tooltip title={moment(event.timestamp).format('LLL')}>{moment(event.timestamp).fromNow()}</Tooltip>
+                    <Tooltip title={dayjs(event.timestamp).format('LLL')}>{dayjs(event.timestamp).fromNow()}</Tooltip>
                 )
             },
         },
@@ -202,7 +201,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                     loading={isLoading}
                     columns={columns}
                     size="small"
-                    className={rrwebBlockClass + ' ph-no-capture'}
+                    className="ph-no-capture"
                     locale={{
                         emptyText: (
                             <span>

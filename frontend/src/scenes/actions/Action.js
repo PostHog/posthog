@@ -7,7 +7,6 @@ import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import api from 'lib/api'
 import { kea } from 'kea'
 import { Spin } from 'antd'
-import { hot } from 'react-hot-loader/root'
 import { EventsTable } from 'scenes/events'
 
 let actionLogic = kea({
@@ -64,8 +63,7 @@ let actionLogic = kea({
     }),
 })
 
-export const Action = hot(_Action)
-function _Action({ id }) {
+export function Action({ id }) {
     const fixedFilters = { action_id: id }
 
     const { push } = useActions(router)
