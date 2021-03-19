@@ -109,6 +109,10 @@ class APITestMixin(ErrorResponsesMixin):
 
 
 class APIBaseTest(APITestMixin, APITestCase):
+    """
+    DEPRECATED in favor of APITransactionBaseTest.
+    """
+
     pass
 
 
