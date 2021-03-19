@@ -6,6 +6,7 @@ SESSIONS_DISTINCT_ID_SQL = """
     {date_from}
     {date_to}
     {person_filters}
+    {action_filters}
     ORDER BY timestamp DESC
     LIMIT %(distinct_id_limit)s
 """
