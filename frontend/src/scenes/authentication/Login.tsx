@@ -4,11 +4,15 @@ import smLogo from 'public/icon-white.svg'
 import './Login.scss'
 import { useActions, useValues } from 'kea'
 import { loginLogic } from './loginLogic'
+import { Link } from 'lib/components/Link'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export function Login(): JSX.Element {
     const [form] = Form.useForm()
     const { authenticate } = useActions(loginLogic)
     const { authenticateResponseLoading, authenticateResponse } = useValues(loginLogic)
+    const { preflight } = useValues(preflightLogic)
+
     return (
         <div className="login">
             <Row>
@@ -90,6 +94,16 @@ export function Login(): JSX.Element {
                                 </Button>
                             </Form.Item>
                         </Form>
+                        <div className="text-center">
+                            <a href="https://app.posthog.com/accounts/password_reset/" data-attr="forgot-password">
+                                Forgot your password?
+                            </a>
+                        </div>
+                        {preflight?.cloud && (
+                            <div className="text-center mt">
+                                Don't have an account? <Link to="/signup">Sign up now</Link>
+                            </div>
+                        )}
                     </div>
                 </Col>
             </Row>
