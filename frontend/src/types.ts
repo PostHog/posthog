@@ -492,6 +492,7 @@ export interface FilterType {
     people_action?: any
     formula?: any
     filter_test_accounts?: boolean
+    date_auto_changed?: boolean // Used to highlight a change to the user in the UI
 }
 
 export interface SystemStatus {
