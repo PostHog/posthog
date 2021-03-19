@@ -1,12 +1,27 @@
 from typing import Any, Dict, Optional, cast
 
+from django.conf import settings
 from django.contrib.auth import authenticate, login
+from django.http import JsonResponse
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.event_usage import report_user_logged_in
 from posthog.models import User
+
+
+def axess_logout(*args, **kwargs):
+    return JsonResponse(
+        {
+            "type": "authentication_error",
+            "code": "too_many_failed_attempts",
+            "detail": "Too many failed login attempts. Please try again in"
+            f" {int(settings.AXES_COOLOFF_TIME.seconds / 60)} minutes.",
+            "attr": None,
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
 
 
 class LoginSerializer(serializers.Serializer):

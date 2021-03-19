@@ -110,3 +110,12 @@ class TestAuthenticationAPI(APITransactionBaseTest):
 
             response = self.client.post("/api/login", {"email": "new_user@posthog.com", "password": "invalid"})
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "authentication_error",
+                    "code": "too_many_failed_attempts",
+                    "detail": "Too many failed login attempts. Please try again in 15 minutes.",
+                    "attr": None,
+                },
+            )
