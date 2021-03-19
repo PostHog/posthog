@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Select } from 'antd'
+import { Select, Tag } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -52,7 +52,12 @@ export function ChartFilter(props) {
             {filters.insight === ViewType.FUNNELS ? (
                 <>
                     <Select.Option value={FUNNEL_VIZ}>Steps</Select.Option>
-                    <Select.Option value={ACTIONS_LINE_GRAPH_LINEAR}>Trends</Select.Option>
+                    <Select.Option value={ACTIONS_LINE_GRAPH_LINEAR}>
+                        Trends
+                        <Tag color="orange" style={{ marginLeft: 8, fontSize: 10 }}>
+                            BETA
+                        </Tag>
+                    </Select.Option>
                 </>
             ) : (
                 <>
