@@ -71,11 +71,6 @@ if DEBUG:
 else:
     JS_URL = os.getenv("JS_URL", "")
 
-PLUGINS_INSTALL_VIA_API = get_from_env("PLUGINS_INSTALL_VIA_API", True, type_cast=strtobool)
-PLUGINS_CONFIGURE_VIA_API = PLUGINS_INSTALL_VIA_API or get_from_env(
-    "PLUGINS_CONFIGURE_VIA_API", True, type_cast=strtobool
-)
-
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
@@ -158,11 +153,10 @@ EE_AVAILABLE = False
 
 PLUGIN_SERVER_INGESTION = get_from_env("PLUGIN_SERVER_INGESTION", not TEST, type_cast=strtobool)
 
-ASYNC_EVENT_ACTION_MAPPING = get_from_env("ASYNC_EVENT_ACTION_MAPPING", False, type_cast=strtobool)
-
-# Enable if ingesting with the plugin server into postgres, as it's not able to calculate the mapping on the fly
-if PLUGIN_SERVER_INGESTION and PRIMARY_DB == RDBMS.POSTGRES:
-    ASYNC_EVENT_ACTION_MAPPING = True
+# True if ingesting with the plugin server into Postgres, as it's then not possible to calculate the mapping on the fly
+ASYNC_EVENT_ACTION_MAPPING = PRIMARY_DB == RDBMS.POSTGRES and get_from_env(
+    "ASYNC_EVENT_ACTION_MAPPING", True, type_cast=strtobool
+)
 
 ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", False, type_cast=strtobool)
 

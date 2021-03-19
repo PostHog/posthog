@@ -1,5 +1,6 @@
 import React, { CSSProperties, useMemo, useState } from 'react'
-import moment from 'moment'
+
+import dayjs from 'dayjs'
 import { keyMapping, PropertyKeyInfo } from './PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm, Table, Tooltip } from 'antd'
 import { NumberOutlined, CalendarOutlined, BulbOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons'
@@ -64,7 +65,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
     if (value === null) {
         // typeof null returns 'object' ¯\_(ツ)_/¯
         valueType = 'null'
-    } else if (valueType === 'string' && moment(value).isValid()) {
+    } else if (valueType === 'string' && dayjs(value).isValid()) {
         valueType = 'string, parsable as datetime'
     }
 

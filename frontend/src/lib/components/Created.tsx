@@ -1,7 +1,11 @@
 import { Tooltip } from 'antd'
-import moment from 'moment'
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+dayjs.extend(relativeTime)
+import LocalizedFormat from 'dayjs/plugin/localizedFormat'
+dayjs.extend(LocalizedFormat)
 import React from 'react'
 
 export function Created({ timestamp }: { timestamp: string }): JSX.Element {
-    return <Tooltip title={moment(timestamp).format('LLL')}>{moment(timestamp).fromNow()}</Tooltip>
+    return <Tooltip title={dayjs(timestamp).format('LLL')}>{dayjs(timestamp).fromNow()}</Tooltip>
 }

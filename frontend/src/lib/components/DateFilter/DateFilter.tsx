@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Select } from 'antd'
-import moment, { Moment } from 'moment'
+import dayjs from 'dayjs'
 import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
 import { DateFilterRange } from 'lib/components/DateFilter/DateFilterRange'
 
@@ -16,8 +16,8 @@ export interface DateFilterProps {
 }
 
 interface RawDateFilterProps extends DateFilterProps {
-    dateFrom?: string | Moment
-    dateTo?: string | Moment
+    dateFrom?: string | dayjs.Dayjs
+    dateTo?: string | dayjs.Dayjs
 }
 
 export function DateFilter({
@@ -33,9 +33,9 @@ export function DateFilter({
     dateTo,
 }: RawDateFilterProps): JSX.Element {
     const [rangeDateFrom, setRangeDateFrom] = useState(
-        dateFrom && isDate.test(dateFrom as string) ? moment(dateFrom) : undefined
+        dateFrom && isDate.test(dateFrom as string) ? dayjs(dateFrom) : undefined
     )
-    const [rangeDateTo, setRangeDateTo] = useState(dateTo && isDate.test(dateTo as string) ? moment(dateTo) : undefined)
+    const [rangeDateTo, setRangeDateTo] = useState(dateTo && isDate.test(dateTo as string) ? dayjs(dateTo) : undefined)
     const [dateRangeOpen, setDateRangeOpen] = useState(false)
     const [open, setOpen] = useState(false)
 
@@ -82,7 +82,7 @@ export function DateFilter({
 
     function onApplyClick(): void {
         onClickOutside()
-        setDate(moment(rangeDateFrom).format('YYYY-MM-DD'), moment(rangeDateTo).format('YYYY-MM-DD'))
+        setDate(dayjs(rangeDateFrom).format('YYYY-MM-DD'), dayjs(rangeDateTo).format('YYYY-MM-DD'))
     }
 
     return (
