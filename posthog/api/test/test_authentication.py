@@ -35,7 +35,7 @@ class TestAuthenticationAPI(APITransactionBaseTest):
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_password(self, mock_capture):
 
-        invalid_passwords = ["1234", "abcdefgh", self.CONFIG_PASSWORD[:-1], "😈😈😈"]
+        invalid_passwords = ["1234", "abcdefgh", "testpassword1234", "😈😈😈"]
 
         for password in invalid_passwords:
             response = self.client.post("/api/login", {"email": self.CONFIG_USER_EMAIL, "password": password})
