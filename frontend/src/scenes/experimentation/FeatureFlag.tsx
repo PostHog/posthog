@@ -142,12 +142,12 @@ export function FeatureFlag(): JSX.Element {
                             </div>
                         }
                     />
-                    <Row gutter={16} style={{ marginTop: 32 }}>
-                        <Col span={24} md={12}>
-                            <h3 className="l3">General configuration</h3>
-                            <div className="text-muted mb">
-                                General settings for your feature flag and integration instructions.
-                            </div>
+                    <h3 className="l3">General configuration</h3>
+                    <div className="text-muted mb">
+                        General settings for your feature flag and integration instructions.
+                    </div>
+                    <Row gutter={16} style={{ marginBottom: 32 }}>
+                        <Col span={12}>
                             <Form.Item
                                 name="key"
                                 label="Key (must be unique)"
@@ -194,7 +194,8 @@ export function FeatureFlag(): JSX.Element {
                                     placeholder="Adding a helpful description can ensure others know what this feature is for."
                                 />
                             </Form.Item>
-
+                        </Col>
+                        <Col span={12} style={{ paddingTop: 32 }}>
                             <Collapse>
                                 <Collapse.Panel
                                     header={
@@ -232,16 +233,25 @@ export function FeatureFlag(): JSX.Element {
                                 </Collapse.Panel>
                             </Collapse>
                         </Col>
-                        <Col span={24} md={12}>
-                            <h3 className="l3">Release condition groups ({featureFlag.filters.groups.length})</h3>
-                            <div className="text-muted mb">
-                                Specify which users or groups of users to which you want to release this flag.
-                            </div>
-                            {featureFlag.filters.groups.map((group, index) => (
-                                <Card
-                                    style={{ position: 'relative', marginBottom: 32, paddingBottom: 48 }}
-                                    key={`${index}-${featureFlag.filters.groups.length}`}
-                                >
+                    </Row>
+
+                    <h3 className="l3">Release condition groups ({featureFlag.filters.groups.length})</h3>
+                    <div className="text-muted mb">
+                        Specify which users or groups of users to which you want to release this flag.
+                    </div>
+                    <Button
+                        type="dashed"
+                        block
+                        icon={<PlusOutlined />}
+                        onClick={addMatchGroup}
+                        style={{ marginBottom: 16 }}
+                    >
+                        Add Group
+                    </Button>
+                    <Row gutter={16}>
+                        {featureFlag.filters.groups.map((group, index) => (
+                            <Col span={24} md={12} key={`${index}-${featureFlag.filters.groups.length}`}>
+                                <Card style={{ position: 'relative', marginBottom: 32, paddingBottom: 32 }}>
                                     {featureFlag.filters.groups.length > 1 && (
                                         <>
                                             <span style={{ position: 'absolute', top: 0, right: 0, margin: 4 }}>
@@ -324,28 +334,19 @@ export function FeatureFlag(): JSX.Element {
                                         </>
                                     </Form.Item>
                                 </Card>
-                            ))}
-                            <Button
-                                type="dashed"
-                                block
-                                icon={<PlusOutlined />}
-                                onClick={addMatchGroup}
-                                style={{ marginBottom: 32 }}
-                            >
-                                Add Group
-                            </Button>
-                            <Form.Item className="text-right">
-                                <Button
-                                    icon={<SaveOutlined />}
-                                    htmlType="submit"
-                                    type="primary"
-                                    data-attr="feature-flag-submit-bottom"
-                                >
-                                    Save changes
-                                </Button>
-                            </Form.Item>
-                        </Col>
+                            </Col>
+                        ))}
                     </Row>
+                    <Form.Item className="text-right">
+                        <Button
+                            icon={<SaveOutlined />}
+                            htmlType="submit"
+                            type="primary"
+                            data-attr="feature-flag-submit-bottom"
+                        >
+                            Save changes
+                        </Button>
+                    </Form.Item>
                 </Form>
             ) : (
                 // TODO: This should be skeleton loaders
