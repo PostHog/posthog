@@ -3,7 +3,6 @@ import { Input, Button, Form, Select } from 'antd'
 import { useActions } from 'kea'
 import { slugify } from 'lib/utils'
 import { SaveOutlined } from '@ant-design/icons'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { dashboardsModel } from '~/models/dashboardsModel'
 
 export function NewDashboard(): JSX.Element {
@@ -21,17 +20,17 @@ export function NewDashboard(): JSX.Element {
             <Form.Item
                 name="name"
                 label="Dashboard name"
-                className={rrwebBlockClass}
                 rules={[{ required: true, message: 'Please give your dashboard a name.' }]}
             >
                 <Input
                     autoFocus={true}
                     onChange={(e) => form.setFieldsValue({ key: slugify(e.target.value) })}
                     data-attr="dashboard-name-input"
+                    className="ph-ignore-input"
                 />
             </Form.Item>
 
-            <Form.Item name="useTemplate" label="Start from" className={rrwebBlockClass}>
+            <Form.Item name="useTemplate" label="Start from">
                 <Select data-attr="copy-from-template" style={{ width: '100%' }}>
                     <Select.Option data-attr="dashboard-select-empty" value="">
                         Empty Dashboard

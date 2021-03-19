@@ -5,8 +5,7 @@ import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
 import { SessionDetails } from './SessionDetails'
-import { DatePicker } from 'antd'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { SessionType } from '~/types'
 import {
     CaretLeftOutlined,
@@ -18,7 +17,6 @@ import {
 } from '@ant-design/icons'
 import { SessionsPlayerButton, sessionPlayerUrl } from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { SessionsPlay } from './SessionsPlay'
 import { userLogic } from 'scenes/userLogic'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
@@ -28,6 +26,10 @@ import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
 import { EditFiltersPanel } from 'scenes/sessions/filters/EditFiltersPanel'
 import { SearchAllBox } from 'scenes/sessions/filters/SearchAllBox'
 import { Drawer } from 'lib/components/Drawer'
+
+import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
+import generatePicker from 'antd/es/date-picker/generatePicker'
+const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -85,10 +87,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             key: 'person',
             render: function RenderSession(session: SessionType) {
                 return (
-                    <Link
-                        to={`/person/${encodeURIComponent(session.distinct_id)}`}
-                        className={rrwebBlockClass + ' ph-no-capture'}
-                    >
+                    <Link to={`/person/${encodeURIComponent(session.distinct_id)}`} className="ph-no-capture">
                         {session?.email || session.distinct_id}
                     </Link>
                 )
@@ -213,7 +212,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             </div>
 
             <Table
-                locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
+                locale={{ emptyText: 'No Sessions on ' + dayjs(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
                 size="small"
                 rowKey="global_session_id"

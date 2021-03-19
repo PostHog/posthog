@@ -8,7 +8,7 @@ on:
 
 jobs:
     build-push:
-        name: Build Docker image and push it
+        name: Build Docker images and push them
         runs-on: ubuntu-20.04
         steps:
             - name: Checkout default branch
@@ -26,12 +26,22 @@ jobs:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            - name: Build and push
-              id: docker_build
+            - name: Build and push latest
+              id: docker-latest
               uses: docker/build-push-action@v2
               with:
                   push: true
                   tags: posthog/posthog:latest
 
-            - name: Image digest
-              run: echo ${{ steps.docker_build.outputs.digest }}
+            - name: Build and push dev
+              id: docker-dev
+              uses: docker/build-push-action@v2
+              with:
+                  file: dev.Dockerfile
+                  push: true
+                  tags: posthog/posthog:dev
+
+            - name: Image digests
+              run: |
+                  echo "Pushed latest: ${{ steps.docker-latest.outputs.digest }}"
+                  echo "Pushed dev: ${{ steps.docker-dev.outputs.digest }}"

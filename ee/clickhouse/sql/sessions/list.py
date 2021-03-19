@@ -6,6 +6,7 @@ SESSIONS_DISTINCT_ID_SQL = """
     {date_from}
     {date_to}
     {person_filters}
+    {action_filters}
     ORDER BY timestamp DESC
     LIMIT %(distinct_id_limit)s
 """
@@ -32,7 +33,7 @@ SESSION_SQL = """
             properties,
             elements_chain,
             arraySum(arraySlice(gids, 1, idx)) AS gid
-            {filters_timestamps_clause}
+            {matches_action_clauses}
         FROM (
             SELECT
                 groupArray(timestamp) as timestamps,
@@ -69,6 +70,13 @@ SESSION_SQL = """
                         {date_from}
                         {date_to}
                         AND distinct_id IN %(distinct_ids)s
+                    GROUP BY
+                        uuid,
+                        event,
+                        properties,
+                        timestamp,
+                        distinct_id,
+                        elements_chain
                     ORDER BY
                         distinct_id,
                         timestamp

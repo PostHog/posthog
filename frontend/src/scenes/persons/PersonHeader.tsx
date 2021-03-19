@@ -1,7 +1,6 @@
 import { PersonType } from '~/types'
 import React from 'react'
 import { IconPerson } from 'lib/components/icons'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './PersonHeader.scss'
 
 export function PersonHeader({ person }: { person: Partial<PersonType> }): JSX.Element {
@@ -16,7 +15,7 @@ export function PersonHeader({ person }: { person: Partial<PersonType> }): JSX.E
                         <IconPerson />
                     </span>
                     {customIdentifier ? (
-                        <span className={`text-ellipsis ${rrwebBlockClass}`}>{customIdentifier}</span>
+                        <span className="ph-no-capture text-ellipsis">{customIdentifier}</span>
                     ) : (
                         <i>No email or name set</i>
                     )}

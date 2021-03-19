@@ -1,6 +1,5 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import React from 'react'
-import { hot } from 'react-hot-loader/root'
 import { Button, Col, Collapse, Progress, Row, Switch } from 'antd'
 import {
     ProjectOutlined,
@@ -20,7 +19,7 @@ import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { Link } from 'lib/components/Link'
 import { IconExternalLink } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
-import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
+import { BulkInviteModal } from 'scenes/organization/Settings/BulkInviteModal'
 import { LinkButton } from 'lib/components/LinkButton'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -111,8 +110,7 @@ function OnboardingStep({
     )
 }
 
-export const OnboardingSetup = hot(_OnboardingSetup)
-function _OnboardingSetup(): JSX.Element {
+export function OnboardingSetup(): JSX.Element {
     const {
         stepProjectSetup,
         stepInstallation,
