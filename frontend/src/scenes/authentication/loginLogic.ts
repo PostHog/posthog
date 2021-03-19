@@ -9,6 +9,17 @@ interface AuthenticateResponseType {
 }
 
 export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
+    actions: {
+        setNext: (next: string) => ({ next }),
+    },
+    reducers: {
+        nextUrl: [
+            null as string | null,
+            {
+                setNext: (_, { next }) => next,
+            },
+        ],
+    },
     loaders: {
         authenticateResponse: [
             null as AuthenticateResponseType | null,
@@ -27,7 +38,14 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
     listeners: ({ values }) => ({
         authenticateSuccess: () => {
             if (values.authenticateResponse?.success) {
-                window.location.href = '/'
+                window.location.href = values.nextUrl ? values.nextUrl : '/'
+            }
+        },
+    }),
+    urlToAction: ({ actions }) => ({
+        '/login': (_: any, { next }: { next: string }) => {
+            if (next) {
+                actions.setNext(next)
             }
         },
     }),
