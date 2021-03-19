@@ -27,6 +27,7 @@ interface SocialLoginButtonProps extends SharedProps {
 interface SocialLoginButtonsProps extends SharedProps {
     title?: string
     caption?: string
+    displayStyle?: 'button' | 'link'
 }
 
 export function SocialLoginButton({ provider, queryString }: SocialLoginButtonProps): JSX.Element | null {
@@ -37,16 +38,38 @@ export function SocialLoginButton({ provider, queryString }: SocialLoginButtonPr
     }
 
     return (
-        <Button className={`btn-social-login ${provider}`} href={`/login/${provider}/${queryString}`}>
-            <div className="btn-social-icon">
-                <div className="img" />
-            </div>
-            Continue with {ProviderNames[provider]}
-        </Button>
+        <div>
+            <Button className={`btn-social-login ${provider}`} href={`/login/${provider}/${queryString || ''}`}>
+                <div className="btn-social-icon">
+                    <div className="img" />
+                </div>
+                Continue with {ProviderNames[provider]}
+            </Button>
+        </div>
     )
 }
 
-export function SocialLoginButtons({ title, caption, ...props }: SocialLoginButtonsProps): JSX.Element | null {
+export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProps): JSX.Element | null {
+    const { preflight } = useValues(preflightLogic)
+
+    if (!preflight?.available_social_auth_providers[provider]) {
+        return null
+    }
+
+    return (
+        <a className={`link-social-login ${provider}`} href={`/login/${provider}/${queryString || ''}`}>
+            <span className="social-icon" />
+            <span>{ProviderNames[provider]}</span>
+        </a>
+    )
+}
+
+export function SocialLoginButtons({
+    title,
+    caption,
+    displayStyle = 'button',
+    ...props
+}: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
 
     if (
@@ -61,9 +84,13 @@ export function SocialLoginButtons({ title, caption, ...props }: SocialLoginButt
             {title && <h3 className="l3">{title}</h3>}
             {caption && <div className="caption">{caption}</div>}
             {Object.values(SocialAuthProviders).map((provider) => (
-                <div key={provider}>
-                    <SocialLoginButton provider={provider} {...props} />
-                </div>
+                <React.Fragment key={provider}>
+                    {displayStyle === 'button' ? (
+                        <SocialLoginButton provider={provider} {...props} />
+                    ) : (
+                        <SocialLoginLink provider={provider} {...props} />
+                    )}
+                </React.Fragment>
             ))}
         </div>
     )

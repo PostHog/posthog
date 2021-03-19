@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { loginLogic } from './loginLogic'
 import { Link } from 'lib/components/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 
 export function Login(): JSX.Element {
     const [form] = Form.useForm()
@@ -104,6 +105,9 @@ export function Login(): JSX.Element {
                                 Don't have an account? <Link to="/signup">Sign up now</Link>
                             </div>
                         )}
+                        <div className="mt">
+                            <SocialLoginButtons displayStyle="link" />
+                        </div>
                     </div>
                 </Col>
             </Row>
