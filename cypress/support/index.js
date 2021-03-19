@@ -31,11 +31,11 @@ afterEach(() => {
 })
 
 const logIn = () => {
-    cy.get('#inputEmail').type('test@posthog.com').should('have.value', 'test@posthog.com')
+    cy.get('[data-attr=login-email]').type('test@posthog.com').should('have.value', 'test@posthog.com')
 
-    cy.get('#inputPassword').type('12345678').should('have.value', '12345678')
+    cy.get('[data-attr=login-password]').type('12345678').should('have.value', '12345678')
 
-    cy.get('.btn').click()
+    cy.get('[type=submit]').click()
 }
 
 Cypress.on('uncaught:exception', () => {
