@@ -24,7 +24,7 @@ class ClickhouseSessionsList(SessionsList):
         offset = self.filter.pagination.get("offset", 0)
         distinct_id_offset = self.filter.pagination.get("distinct_id_offset", 0)
 
-        filters_select_clause, filters_timestamps_clause, filters_having, action_filter_params = format_action_filters(
+        filters_select_clause, matches_action_clauses, filters_having, action_filter_params = format_action_filters(
             self.filter
         )
 
@@ -35,7 +35,7 @@ class ClickhouseSessionsList(SessionsList):
             date_from=date_from,
             date_to=date_to,
             filters_select_clause=filters_select_clause,
-            filters_timestamps_clause=filters_timestamps_clause,
+            matches_action_clauses=matches_action_clauses,
             filters_having=filters_having,
             sessions_limit="LIMIT %(offset)s, %(limit)s",
         )
@@ -131,20 +131,20 @@ def format_action_filters(filter: SessionsFilter) -> Tuple[str, str, str, Dict]:
     if len(filter.action_filters) == 0:
         return "", "", "", {}
 
-    timestamps_clause = select_clause = ""
+    matches_action_clauses = select_clause = ""
     having_clause = []
     params: Dict = {}
 
     for index, entity in enumerate(filter.action_filters):
-        timestamp, filter_params = format_action_filter_aggregate(entity, prepend=f"event_matcher_{index}")
+        condition_sql, filter_params = format_action_filter_aggregate(entity, prepend=f"event_matcher_{index}")
 
-        timestamps_clause += f", {timestamp} as event_match_{index}"
+        matches_action_clauses += f", ({condition_sql}) ? uuid : NULL as event_match_{index}"
         select_clause += f", groupArray(event_match_{index}) as event_match_{index}"
         having_clause.append(f"notEmpty(event_match_{index})")
 
         params = {**params, **filter_params}
 
-    return select_clause, timestamps_clause, f"HAVING {' AND '.join(having_clause)}", params
+    return select_clause, matches_action_clauses, f"HAVING {' AND '.join(having_clause)}", params
 
 
 def format_action_filter_aggregate(entity: Entity, prepend: str):
@@ -154,4 +154,4 @@ def format_action_filter_aggregate(entity: Entity, prepend: str):
         filter_sql += f" {filters}"
         params = {**params, **filter_params}
 
-    return f"({filter_sql}) ? uuid : NULL", params
+    return filter_sql, params

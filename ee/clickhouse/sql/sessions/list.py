@@ -32,7 +32,7 @@ SESSION_SQL = """
             properties,
             elements_chain,
             arraySum(arraySlice(gids, 1, idx)) AS gid
-            {filters_timestamps_clause}
+            {matches_action_clauses}
         FROM (
             SELECT
                 groupArray(timestamp) as timestamps,
