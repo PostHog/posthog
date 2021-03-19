@@ -9,7 +9,6 @@ type Dayjs = dayjs.Dayjs
 interface UrlParams {
     date_from?: string
     date_to?: string
-    date_auto_changed?: boolean
 }
 
 export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Dayjs>>({
@@ -18,7 +17,6 @@ export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Dayjs>>({
             dateFrom,
             dateTo,
         }),
-        setDateAutoChanged: (dateAutoChanged: boolean) => ({ dateAutoChanged }),
     }),
     reducers: () => ({
         dates: [
@@ -30,14 +28,8 @@ export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Dayjs>>({
                 setDates: (_, dates) => dates,
             },
         ],
-        dateAutoChanged: [
-            false,
-            {
-                setDateAutoChanged: (_, { dateAutoChanged }) => dateAutoChanged,
-            },
-        ],
     }),
-    listeners: ({ values, actions }) => ({
+    listeners: ({ values }) => ({
         setDates: () => {
             const { date_from, date_to, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
@@ -52,20 +44,10 @@ export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Dayjs>>({
                 router.actions.push(pathname, searchParams)
             }
         },
-        setDateAutoChanged: async ({ dateAutoChanged }, breakpoint) => {
-            if (dateAutoChanged) {
-                await breakpoint(2000)
-                const { searchParams, location } = router.values
-                router.actions.push(location.pathname, { ...searchParams, date_auto_changed: undefined }) // remove it immediately from query string
-                actions.setDateAutoChanged(false)
-            }
-        },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_: any, { date_from, date_to, date_auto_changed }: UrlParams) => {
+        '/insights': (_: any, { date_from, date_to }: UrlParams) => {
             actions.setDates(date_from, date_to)
-            console.log(date_auto_changed)
-            actions.setDateAutoChanged(!!date_auto_changed)
         },
     }),
 })

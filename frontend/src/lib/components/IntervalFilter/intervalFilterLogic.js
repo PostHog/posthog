@@ -39,7 +39,7 @@ export const intervalFilterLogic = kea({
             searchParams.date_from = values.dateFrom
 
             if (!objectsEqual(date_from, values.dateFrom)) {
-                router.actions.push(pathname, { ...searchParams, date_auto_changed: true }) // Used to highlight a change to the user in the UI
+                router.actions.push(pathname, searchParams)
             }
         },
     }),
