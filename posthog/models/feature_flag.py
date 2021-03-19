@@ -23,7 +23,7 @@ class FeatureFlag(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
 
-    key: models.CharField = models.CharField(max_length=64)
+    key: models.CharField = models.CharField(max_length=400)
     name: models.TextField = models.TextField(
         blank=True,
     )  # contains description for the FF (field name `name` is kept for backwards-compatibility)
