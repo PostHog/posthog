@@ -62,7 +62,7 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
 
     def get_person(self, event: Event) -> Any:
         if hasattr(event, "person_properties"):
-            return event.person_properties
+            return event.person_properties  # type: ignore
         return None
 
     def get_elements(self, event: Event):
@@ -151,10 +151,14 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             try:
                 for person in people:
                     if event.distinct_id in person.distinct_ids:
-                        event.person_properties = {
+                        event.person_properties = {  # type: ignore
                             "is_identified": person.is_identified,
                             "distinct_id": person.distinct_ids[0],
-                            "properties": {key: person.properties.get(key) for key in ["email", "name", "username"]},
+                            "properties": {
+                                key: person.properties[key]
+                                for key in ["email", "name", "username"]
+                                if key in person.properties
+                            },
                         }
                         break
             except IndexError:

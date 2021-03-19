@@ -17,7 +17,10 @@ def factory_test_event_api(event_factory, person_factory, action_factory):
 
         def test_filter_events(self):
             person_factory(
-                properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
+                properties={"email": "tim@posthog.com"},
+                team=self.team,
+                distinct_ids=["2", "some-random-uid"],
+                is_identified=True,
             )
 
             event_factory(
@@ -36,7 +39,10 @@ def factory_test_event_api(event_factory, person_factory, action_factory):
 
             with self.assertNumQueries(11):
                 response = self.client.get("/api/event/?distinct_id=2").json()
-            self.assertEqual(response["results"][0]["person"], "tim@posthog.com")
+            self.assertEqual(
+                response["results"][0]["person"],
+                {"distinct_id": "2", "is_identified": True, "properties": {"email": "tim@posthog.com"}},
+            )
             self.assertEqual(response["results"][0]["elements"][0]["tag_name"], "button")
             self.assertEqual(response["results"][0]["elements"][0]["order"], 0)
             self.assertEqual(response["results"][0]["elements"][1]["order"], 1)
