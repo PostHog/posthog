@@ -1,8 +1,9 @@
 import { Button } from 'antd'
 import { useValues } from 'kea'
-import React from 'react'
+import React, { useMemo } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './index.scss'
+import { GoogleOutlined, GithubOutlined, GitlabOutlined } from '@ant-design/icons'
 
 enum SocialAuthProviders {
     Google = 'google-oauth2',
@@ -52,15 +53,29 @@ export function SocialLoginButton({ provider, queryString }: SocialLoginButtonPr
 export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
 
+    const icon = useMemo(() => {
+        if (provider === SocialAuthProviders.Google) {
+            return <GoogleOutlined />
+        } else if (provider === SocialAuthProviders.GitHub) {
+            return <GithubOutlined />
+        } else if (provider === SocialAuthProviders.GitLab) {
+            return <GitlabOutlined />
+        }
+    }, [provider])
+
     if (!preflight?.available_social_auth_providers[provider]) {
         return null
     }
 
     return (
-        <a className={`link-social-login ${provider}`} href={`/login/${provider}/${queryString || ''}`}>
-            <span className="social-icon" />
+        <Button
+            className={`link-social-login ${provider}`}
+            href={`/login/${provider}/${queryString || ''}`}
+            icon={icon}
+            type="link"
+        >
             <span>{ProviderNames[provider]}</span>
-        </a>
+        </Button>
     )
 }
 

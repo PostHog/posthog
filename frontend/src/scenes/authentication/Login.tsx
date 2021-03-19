@@ -105,8 +105,8 @@ export function Login(): JSX.Element {
                                 Don't have an account? <Link to="/signup">Sign up now</Link>
                             </div>
                         )}
-                        <div className="mt">
-                            <SocialLoginButtons displayStyle="link" />
+                        <div style={{ marginTop: 48 }}>
+                            <SocialLoginButtons displayStyle="link" caption="Or login with" />
                         </div>
                     </div>
                 </Col>

@@ -84,38 +84,7 @@ $gitlab: #e65328;
 }
 
 .link-social-login {
-    color: $text_muted;
-    margin-right: $default_spacing;
+    color: rgba($text_default, 0.8);
     display: inline-flex;
     align-items: center;
-
-    &:last-of-type {
-        margin-right: 0;
-    }
-
-    .social-icon {
-        display: inline-flex;
-        background-repeat: no-repeat;
-        margin-right: 4px;
-        width: 18px;
-        height: 18px;
-    }
-
-    &.google-oauth2 {
-        .social-icon {
-            background-image: url('./google-mono.svg');
-        }
-    }
-
-    &.github {
-        .social-icon {
-            background-image: url('./github-mono.svg');
-        }
-    }
-
-    &.gitlab {
-        .social-icon {
-            background-image: url('./gitlab-mono.svg');
-        }
-    }
 }
