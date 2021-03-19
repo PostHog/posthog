@@ -126,7 +126,11 @@ export function PluginCard({
                                 cancelText="No"
                                 disabled={rearranging}
                             >
-                                <Switch checked={pluginConfig.enabled} disabled={rearranging} />
+                                <Switch
+                                    checked={pluginConfig.enabled ?? false}
+                                    onClick={() => console.log(pluginConfig.enabled)}
+                                    disabled={rearranging}
+                                />
                             </Popconfirm>
                         </Col>
                     )}
