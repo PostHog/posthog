@@ -59,6 +59,10 @@ export async function runPluginsOnBatch(server: PluginsServer, batch: PluginEven
                     server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.process_event_batch.ERROR`)
                 }
                 server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.process_event_batch`, timer)
+                server.statsd?.timing('plugin.process_event_batch', timer, 0.2, {
+                    plugin: pluginConfig.plugin?.name ?? '?',
+                    teamId: teamId.toString(),
+                })
             }
         }
 
