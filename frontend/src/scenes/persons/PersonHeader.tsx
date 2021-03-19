@@ -3,11 +3,13 @@ import React from 'react'
 import { IconPerson } from 'lib/components/icons'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
-export function PersonHeader({ person }: { person: PersonType }): JSX.Element {
-    const customIdentifier = person.properties.email || person.properties.name || person.properties.username
+export function PersonHeader({ person }: { person: Partial<PersonType> }): JSX.Element {
+    const customIdentifier = person?.properties
+        ? person.properties.email || person.properties.name || person.properties.username
+        : null
     return (
         <>
-            {person.is_identified ? (
+            {person?.is_identified ? (
                 <div className="person-header identified">
                     <span>
                         <IconPerson />

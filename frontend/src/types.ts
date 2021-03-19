@@ -307,6 +307,7 @@ export interface EventType {
     id: number | string
     properties: Record<string, any>
     timestamp: string
+    person?: Partial<PersonType> | null
 }
 
 export interface SessionType {

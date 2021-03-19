@@ -45,8 +45,8 @@ class ElementSerializer(serializers.ModelSerializer):
 
 
 class EventSerializer(serializers.HyperlinkedModelSerializer):
-    person = serializers.SerializerMethodField()
     elements = serializers.SerializerMethodField()
+    person = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
@@ -62,14 +62,8 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
 
     def get_person(self, event: Event) -> Any:
         if hasattr(event, "person_properties"):
-            if event.person_properties:  # type: ignore
-                return event.person_properties.get("email", event.distinct_id)  # type: ignore
-            else:
-                return event.distinct_id
-        try:
-            return event.person.properties.get("email", event.distinct_id)
-        except:
-            return event.distinct_id
+            return event.person_properties
+        return None
 
     def get_elements(self, event: Event):
         if not event.elements_hash:
@@ -155,7 +149,14 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             groups = ElementGroup.objects.none()
         for event in events:
             try:
-                event.person_properties = [person.properties for person in people if event.distinct_id in person.distinct_ids][0]  # type: ignore
+                for person in people:
+                    if event.distinct_id in person.distinct_ids:
+                        event.person_properties = {
+                            "is_identified": person.is_identified,
+                            "distinct_id": person.distinct_ids[0],
+                            "properties": {key: person.properties.get(key) for key in ["email", "name", "username"]},
+                        }
+                        break
             except IndexError:
                 event.person_properties = None  # type: ignore
             try:

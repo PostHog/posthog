@@ -14,6 +14,7 @@ import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { hot } from 'react-hot-loader/root'
+import { PersonHeader } from 'scenes/persons/PersonHeader'
 
 export const EventsTable = hot(_EventsTable)
 function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
@@ -97,15 +98,12 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
                 }
-                return showLinkToPerson ? (
-                    <Link
-                        to={`/person/${encodeURIComponent(event.distinct_id)}`}
-                        className={'ph-no-capture ' + rrwebBlockClass}
-                    >
-                        {event.person}
+                return showLinkToPerson && event.person.distinct_id ? (
+                    <Link to={`/person/${encodeURIComponent(event.person.distinct_id)}`}>
+                        <PersonHeader person={event.person} />
                     </Link>
                 ) : (
-                    event.person
+                    <PersonHeader person={event.person} />
                 )
             },
         },
