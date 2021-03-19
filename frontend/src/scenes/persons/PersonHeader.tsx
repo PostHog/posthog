@@ -2,6 +2,7 @@ import { PersonType } from '~/types'
 import React from 'react'
 import { IconPerson } from 'lib/components/icons'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import './PersonHeader.scss'
 
 export function PersonHeader({ person }: { person: Partial<PersonType> }): JSX.Element {
     const customIdentifier = person?.properties
