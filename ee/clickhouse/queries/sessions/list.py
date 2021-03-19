@@ -1,3 +1,4 @@
+from collections import namedtuple
 from typing import Dict, List, Optional, Tuple
 
 from ee.clickhouse.client import sync_execute
@@ -15,6 +16,9 @@ from posthog.queries.sessions.sessions_list import SessionsList
 from posthog.utils import flatten
 
 Session = Dict
+ActionFiltersSQL = namedtuple(
+    "ActionFiltersSQL", ["select_clause", "matches_action_clauses", "filters_having", "params"]
+)
 
 
 class ClickhouseSessionsList(SessionsList):
@@ -24,9 +28,7 @@ class ClickhouseSessionsList(SessionsList):
         offset = self.filter.pagination.get("offset", 0)
         distinct_id_offset = self.filter.pagination.get("distinct_id_offset", 0)
 
-        filters_select_clause, matches_action_clauses, filters_having, action_filter_params = format_action_filters(
-            self.filter
-        )
+        action_filters = format_action_filters(self.filter)
 
         date_from, date_to, _ = parse_timestamps(self.filter, self.team.pk)
         distinct_ids = self.fetch_distinct_ids(date_from, date_to, limit, distinct_id_offset)
@@ -34,15 +36,15 @@ class ClickhouseSessionsList(SessionsList):
         query = SESSION_SQL.format(
             date_from=date_from,
             date_to=date_to,
-            filters_select_clause=filters_select_clause,
-            matches_action_clauses=matches_action_clauses,
-            filters_having=filters_having,
+            filters_select_clause=action_filters.select_clause,
+            matches_action_clauses=action_filters.matches_action_clauses,
+            filters_having=action_filters.filters_having,
             sessions_limit="LIMIT %(offset)s, %(limit)s",
         )
         query_result = sync_execute(
             query,
             {
-                **action_filter_params,
+                **action_filters.params,
                 "team_id": self.team.pk,
                 "limit": limit,
                 "offset": offset,
@@ -127,9 +129,9 @@ class ClickhouseSessionsList(SessionsList):
         return final
 
 
-def format_action_filters(filter: SessionsFilter) -> Tuple[str, str, str, Dict]:
+def format_action_filters(filter: SessionsFilter) -> ActionFiltersSQL:
     if len(filter.action_filters) == 0:
-        return "", "", "", {}
+        return ActionFiltersSQL("", "", "", {})
 
     matches_action_clauses = select_clause = ""
     having_clause = []
@@ -144,7 +146,7 @@ def format_action_filters(filter: SessionsFilter) -> Tuple[str, str, str, Dict]:
 
         params = {**params, **filter_params}
 
-    return select_clause, matches_action_clauses, f"HAVING {' AND '.join(having_clause)}", params
+    return ActionFiltersSQL(select_clause, matches_action_clauses, f"HAVING {' AND '.join(having_clause)}", params)
 
 
 def format_action_filter_aggregate(entity: Entity, prepend: str):
