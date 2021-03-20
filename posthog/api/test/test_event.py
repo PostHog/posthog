@@ -12,7 +12,7 @@ from posthog.test.base import TransactionBaseTest
 from posthog.utils import relative_date_parse
 
 
-def factory_test_event_api(event_factory, person_factory):
+def factory_test_event_api(event_factory, person_factory, _):
     class TestEvents(TransactionBaseTest):
         TESTS_API = True
         ENDPOINT = "event"
