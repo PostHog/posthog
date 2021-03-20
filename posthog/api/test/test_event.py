@@ -2,15 +2,17 @@ import json
 from unittest.mock import patch
 
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.utils import timezone
 from freezegun import freeze_time
 
+from posthog.constants import RDBMS
 from posthog.models import Action, ActionStep, Element, Event, Organization, Person, Team
 from posthog.test.base import TransactionBaseTest
 from posthog.utils import relative_date_parse
 
 
-def factory_test_event_api(event_factory, person_factory, action_factory):
+def factory_test_event_api(event_factory, person_factory):
     class TestEvents(TransactionBaseTest):
         TESTS_API = True
         ENDPOINT = "event"
@@ -37,7 +39,9 @@ def factory_test_event_api(event_factory, person_factory, action_factory):
                 event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"}
             )
 
-            with self.assertNumQueries(11):
+            expected_queries = 4 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 11
+
+            with self.assertNumQueries(expected_queries):
                 response = self.client.get("/api/event/?distinct_id=2").json()
             self.assertEqual(
                 response["results"][0]["person"],
@@ -57,7 +61,10 @@ def factory_test_event_api(event_factory, person_factory, action_factory):
             event_factory(
                 event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
             )
-            with self.assertNumQueries(8):
+
+            expected_queries = 4 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 8
+
+            with self.assertNumQueries(expected_queries):
                 response = self.client.get("/api/event/?event=event_name").json()
             self.assertEqual(response["results"][0]["event"], "event_name")
 
@@ -72,7 +79,9 @@ def factory_test_event_api(event_factory, person_factory, action_factory):
                 event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
             )
 
-            with self.assertNumQueries(8):
+            expected_queries = 4 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 8
+
+            with self.assertNumQueries(expected_queries):
                 response = self.client.get(
                     "/api/event/?properties=%s" % (json.dumps([{"key": "$browser", "value": "Safari"}]))
                 ).json()

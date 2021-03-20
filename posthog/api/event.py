@@ -117,7 +117,6 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             elif key == "before":
                 queryset = queryset.filter(timestamp__lt=request.GET["before"])
             elif key == "person_id":
-                person = Person.objects.get(pk=request.GET["person_id"], team_id=self.team_id)
                 queryset = queryset.filter(
                     distinct_id__in=PersonDistinctId.objects.filter(
                         team_id=self.team_id, person_id=request.GET["person_id"]
