@@ -286,7 +286,6 @@ export function AnnotationMarker({
                     zIndex: dynamic || hovered || elementId === currentDateMarker ? 999 : index,
                     boxShadow: dynamic ? '0 0 5px 4px rgba(0, 0, 0, 0.2)' : undefined,
                 }}
-                type="primary"
                 onClick={() => {
                     onClick?.()
                     setFocused(true)
