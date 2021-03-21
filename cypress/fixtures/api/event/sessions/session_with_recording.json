@@ -14,7 +14,11 @@
                     "properties": {},
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:33.831566+00:00",
-                    "person": "01777279-ff1b-0051-1fbd-b89614430f72",
+                    "person": {
+                        "distinct_id": "01777279-ff1b-0051-1fbd-b89614430f72",
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -24,7 +28,11 @@
                     "properties": {},
                     "event": "installed_app",
                     "timestamp": "2021-02-04T13:55:33.831583+00:00",
-                    "person": "01777279-ff1b-0051-1fbd-b89614430f72",
+                    "person": {
+                        "distinct_id": "01777279-ff1b-0051-1fbd-b89614430f72",
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -36,7 +44,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:48.831631+00:00",
-                    "person": "01777279-ff1b-0051-1fbd-b89614430f72",
+                    "person": {
+                        "distinct_id": "01777279-ff1b-0051-1fbd-b89614430f72",
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -48,7 +60,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:56:03.831663+00:00",
-                    "person": "01777279-ff1b-0051-1fbd-b89614430f72",
+                    "person": {
+                        "distinct_id": "01777279-ff1b-0051-1fbd-b89614430f72",
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -60,7 +76,11 @@
                     },
                     "event": "rated_app",
                     "timestamp": "2021-02-04T13:56:18.831693+00:00",
-                    "person": "01777279-ff1b-0051-1fbd-b89614430f72",
+                    "person": {
+                        "distinct_id": "01777279-ff1b-0051-1fbd-b89614430f72",
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -72,7 +92,11 @@
                     },
                     "event": "watched_movie",
                     "timestamp": "2021-02-04T13:57:13.831602+00:00",
-                    "person": "01777279-ff1b-0051-1fbd-b89614430f72",
+                    "person": {
+                        "distinct_id": "01777279-ff1b-0051-1fbd-b89614430f72",
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }
