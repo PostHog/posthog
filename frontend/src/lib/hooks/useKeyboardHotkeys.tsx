@@ -9,6 +9,8 @@ export interface HotkeyInterface {
 
 export type Hotkeys = Partial<Record<Keys, HotkeyInterface>>
 
+const IGNORE_INPUTS = ['input', 'textarea'] // Inputs in which hotkey events will be ignored
+
 export function useKeyboardHotkeys(hotkeys: Hotkeys, deps?: DependencyList): void {
     useEventListener(
         'keydown',
@@ -16,7 +18,7 @@ export function useKeyboardHotkeys(hotkeys: Hotkeys, deps?: DependencyList): voi
             const key = (event as KeyboardEvent).key
 
             // Ignore typing on inputs (default behavior); except Esc key
-            if (key !== 'Escape' && (event.target as HTMLElement).tagName === 'INPUT') {
+            if (key !== 'Escape' && IGNORE_INPUTS.includes((event.target as HTMLElement).tagName.toLowerCase())) {
                 return
             }
 
