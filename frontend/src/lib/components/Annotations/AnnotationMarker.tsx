@@ -123,6 +123,7 @@ export function AnnotationMarker({
                             rows={4}
                             value={textInput}
                             onChange={(e) => setTextInput(e.target.value)}
+                            autoFocus
                         />
                         <Checkbox
                             checked={applyAll}
