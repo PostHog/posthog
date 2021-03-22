@@ -1,5 +1,11 @@
 # Changelog
 
+### 1.23.1 - Monday 22 March 2021
+
+- [Increase the delay between action calculation to 5 minutes](https://github.com/PostHog/posthog/pull/3717). 
+
+The previous delay of 30 seconds caused some self-hosted users to suddenly experience large spikes of usage in their database.
+
 ### 1.23.0 - Thursday 18 March 2021
 
 
