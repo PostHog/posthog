@@ -1,4 +1,4 @@
-import { getDefaultConfig, overrideWithEnv } from '../src/config'
+import { getDefaultConfig, overrideWithEnv } from '../src/shared/config'
 
 test('overrideWithEnv 1', () => {
     const defaultConfig = getDefaultConfig()

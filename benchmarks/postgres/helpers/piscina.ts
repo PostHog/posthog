@@ -1,9 +1,9 @@
 import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { defaultConfig } from '../../../src/config'
+import { defaultConfig } from '../../../src/shared/config'
+import { UUIDT } from '../../../src/shared/utils'
 import { LogLevel } from '../../../src/types'
-import { UUIDT } from '../../../src/utils'
 import { makePiscina } from '../../../src/worker/piscina'
 
 export function setupPiscina(workers: number, tasksPerWorker: number): Piscina {

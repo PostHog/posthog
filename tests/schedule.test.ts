@@ -1,21 +1,21 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { createServer } from '../src/server'
 import {
     loadPluginSchedule,
     LOCKED_RESOURCE,
     runTasksDebounced,
     startSchedule,
     waitForTasksToFinish,
-} from '../src/services/schedule'
+} from '../src/main/services/schedule'
+import { createServer } from '../src/shared/server'
+import { delay } from '../src/shared/utils'
 import { LogLevel, ScheduleControl } from '../src/types'
-import { delay } from '../src/utils'
 import { createPromise } from './helpers/promises'
 import { resetTestDatabase } from './helpers/sql'
 import { setupPiscina } from './helpers/worker'
 
-jest.mock('../src/sql')
-jest.mock('../src/status')
+jest.mock('../src/shared/sql')
+jest.mock('../src/shared/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 function createEvent(index = 0): PluginEvent {

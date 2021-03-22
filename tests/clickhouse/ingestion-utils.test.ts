@@ -1,4 +1,4 @@
-import { chainToElements, elementsToString } from '../../src/ingestion/utils'
+import { chainToElements, elementsToString } from '../../src/shared/ingestion/utils'
 
 test('elementsToString and chainToElements', () => {
     const elementsString = elementsToString([

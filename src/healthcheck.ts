@@ -1,7 +1,7 @@
 import Redis from 'ioredis'
 
-import { defaultConfig } from './config'
-import { Status } from './status'
+import { defaultConfig } from './shared/config'
+import { Status } from './shared/status'
 
 const healthStatus = new Status('HLTH')
 
