@@ -22,8 +22,9 @@ $good_sans: 'Good Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 
                 left: 0;
                 bottom: 0;
                 top: 0;
-                width: 492px;
-                background: url('../../../public/planet.svg');
+                min-width: 492px;
+                width: 70%;
+                background: url('../../../public/planet.png');
                 background-size: cover;
             }
 
