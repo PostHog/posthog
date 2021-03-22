@@ -165,6 +165,7 @@ def user(request):
             "is_staff": user.is_staff,
             "is_impersonated": is_impersonated_session(request),
             "is_event_property_usage_enabled": getattr(settings, "ASYNC_EVENT_PROPERTY_USAGE", False),
+            "is_async_event_action_mapping_enabled": getattr(settings, "ASYNC_EVENT_ACTION_MAPPING", False),
         }
     )
 
