@@ -17,6 +17,7 @@ import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { BackTo } from 'lib/components/BackTo'
 import { Papercups } from 'lib/components/Papercups'
+import { AsyncActionWarning } from '~/layout/navigation/AsyncActionWarning'
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
@@ -117,6 +118,7 @@ export function App(): JSX.Element | null {
                     {!sceneConfig.hideTopNav && <TopNavigation />}
                     {scene ? (
                         <Layout.Content className="main-app-content" data-attr="layout-content">
+                            {user.is_async_event_action_mapping_enabled && <AsyncActionWarning />}
                             {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
 
                             <BillingAlerts />
