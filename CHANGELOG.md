@@ -4,7 +4,7 @@
 
 - [Optimized Background Action Calculation](https://github.com/PostHog/posthog/pull/3717).
 
-We've made the interval between background action calculation configurable, with a default of 5 minutes. Previously the interval was set in stone at 30 seconds, which could cause unmanageable database load in some conditions.
+We've made the interval between background action calculations configurable, with a default of 5 minutes. Previously the interval was set in stone at 30 seconds, which could cause unmanageable database load in some conditions.
 
 ### 1.23.0 - Thursday 18 March 2021
 
