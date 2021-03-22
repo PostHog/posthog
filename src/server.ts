@@ -125,6 +125,12 @@ export async function createServer(
             host: serverConfig.STATSD_HOST,
             prefix: serverConfig.STATSD_PREFIX,
             telegraf: true,
+            errorHandler: (error) => {
+                status.warn('⚠️', 'StatsD error', error)
+                Sentry.captureException(error, {
+                    extra: { threadId },
+                })
+            },
         })
         // don't repeat the same info in each thread
         if (threadId === null) {
