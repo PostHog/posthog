@@ -2,9 +2,9 @@
 
 ### 1.23.1 - Monday 22 March 2021
 
-- [Increase the delay between action calculation to 5 minutes](https://github.com/PostHog/posthog/pull/3717). 
+- [Optimized Background Action Calculation](https://github.com/PostHog/posthog/pull/3717).
 
-The previous delay of 30 seconds caused some self-hosted users to suddenly experience large spikes of usage in their database.
+We've made the interval between background action calculation configurable, with a default of 5 minutes. Previously the interval was set in stone at 30 seconds, which could cause unmanageable database load in some conditions.
 
 ### 1.23.0 - Thursday 18 March 2021
 
