@@ -19,7 +19,7 @@
             right: 0;
             bottom: 0;
             height: 180px;
-            background: url('./mountains.svg');
+            background: url('../../../public/mountains.svg');
             background-size: cover;
         }
 
@@ -43,5 +43,12 @@
         width: 100%;
         max-width: 382px; // 350px + 32px padding
         padding: 0 $default_spacing;
+    }
+}
+
+.ant-alert-error {
+    .ant-alert-message {
+        font-weight: bold;
+        color: $danger;
     }
 }

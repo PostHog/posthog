@@ -1,0 +1,77 @@
+@import '~/vars';
+@import './authenticationShared';
+
+/* Good Sans */
+@font-face {
+    font-family: 'Good Sans';
+    src: url('../../../public/GoodSans-Medium.woff') format('woff');
+    src: url('../../../public/GoodSans-Medium.woff2') format('woff2');
+    font-weight: normal;
+}
+
+$good_sans: 'Good Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue';
+
+.signup {
+    .image-showcase-container {
+        .image-showcase {
+            background: $space;
+
+            .planet {
+                z-index: $z_city_background_image;
+                position: absolute;
+                left: 0;
+                bottom: 0;
+                top: 0;
+                width: 492px;
+                background: url('../../../public/planet.svg');
+                background-size: cover;
+            }
+
+            .main-logo {
+                padding-top: $default_spacing * 2;
+                padding-left: $default_spacing * 2;
+                z-index: $z_city_background_content;
+                position: relative;
+                img {
+                    height: 28px;
+                }
+            }
+        }
+    }
+    .showcase-content {
+        z-index: $z_city_background_content;
+        height: calc(100% - 100px);
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        max-width: 600px;
+        padding: 0 $default_spacing * 2;
+        position: relative;
+        font-family: $good_sans;
+        color: rgba(255, 255, 255, 0.8);
+        margin: 0 auto;
+
+        h1 {
+            color: $text_light;
+        }
+
+        .signup-list {
+            margin-top: $default_spacing * 2;
+            div {
+                margin-bottom: $default_spacing;
+            }
+        }
+    }
+
+    .auth-main-content {
+        align-items: center;
+        padding-bottom: 64px;
+        min-height: 100vh;
+
+        .subtitle {
+            color: $website_orange;
+            font-family: $gosha_sans;
+        }
+    }
+}

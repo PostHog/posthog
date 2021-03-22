@@ -21,13 +21,7 @@
 
     .auth-main-content {
         align-items: center;
-        height: 100vh;
-    }
-
-    .ant-alert-error {
-        .ant-alert-message {
-            font-weight: bold;
-            color: $danger;
-        }
+        min-height: 100vh;
+        padding-bottom: 64px;
     }
 }
