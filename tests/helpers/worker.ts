@@ -1,6 +1,6 @@
 import Piscina from '@posthog/piscina'
 
-import { defaultConfig } from '../../src/config'
+import { defaultConfig } from '../../src/shared/config'
 import { LogLevel } from '../../src/types'
 import { makePiscina } from '../../src/worker/piscina'
 

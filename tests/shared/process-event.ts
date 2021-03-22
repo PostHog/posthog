@@ -4,9 +4,9 @@ import { DateTime } from 'luxon'
 import { performance } from 'perf_hooks'
 
 import { IEvent } from '../../src/idl/protos'
-import { EventsProcessor } from '../../src/ingestion/process-event'
-import { hashElements } from '../../src/ingestion/utils'
-import { createServer } from '../../src/server'
+import { hashElements } from '../../src/shared/ingestion/utils'
+import { createServer } from '../../src/shared/server'
+import { delay, UUIDT } from '../../src/shared/utils'
 import {
     Database,
     Event,
@@ -17,7 +17,7 @@ import {
     SessionRecordingEvent,
     Team,
 } from '../../src/types'
-import { delay, UUIDT } from '../../src/utils'
+import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, onQuery, resetTestDatabase } from '../helpers/sql'
 
 jest.setTimeout(600000) // 600 sec timeout.

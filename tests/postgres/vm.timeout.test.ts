@@ -1,6 +1,6 @@
-import { createServer } from '../../src/server'
+import { createServer } from '../../src/shared/server'
 import { PluginsServer } from '../../src/types'
-import { createPluginConfigVM } from '../../src/vm/vm'
+import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 

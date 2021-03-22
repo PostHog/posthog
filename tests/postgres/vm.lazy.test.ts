@@ -1,13 +1,13 @@
 import { mocked } from 'ts-jest/utils'
 
-import { clearError, processError } from '../../src/error'
-import { status } from '../../src/status'
-import { LazyPluginVM } from '../../src/vm/lazy'
-import { createPluginConfigVM } from '../../src/vm/vm'
+import { clearError, processError } from '../../src/shared/error'
+import { status } from '../../src/shared/status'
+import { LazyPluginVM } from '../../src/worker/vm/lazy'
+import { createPluginConfigVM } from '../../src/worker/vm/vm'
 
-jest.mock('../../src/vm/vm')
-jest.mock('../../src/error')
-jest.mock('../../src/status')
+jest.mock('../../src/worker/vm/vm')
+jest.mock('../../src/shared/error')
+jest.mock('../../src/shared/status')
 
 describe('LazyPluginVM', () => {
     const createVM = () => new LazyPluginVM()

@@ -2,15 +2,15 @@ import ClickHouse from '@posthog/clickhouse'
 import { PluginAttachment, PluginConfigSchema, PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
-import { EventsProcessor } from 'ingestion/process-event'
 import { Redis } from 'ioredis'
 import { Kafka, Producer } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
-import { DB } from './db'
-import { LazyPluginVM } from './vm/lazy'
+import { DB } from './shared/db'
+import { EventsProcessor } from './worker/ingestion/process-event'
+import { LazyPluginVM } from './worker/vm/lazy'
 
 export enum LogLevel {
     Debug = 'debug',
@@ -361,3 +361,5 @@ export interface ScheduleControl {
     stopSchedule: () => Promise<void>
     reloadSchedule: () => Promise<void>
 }
+
+export type IngestEventResponse = { success?: boolean; error?: string }

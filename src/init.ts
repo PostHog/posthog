@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/node'
 
+import { setLogLevel } from './shared/utils'
 import { PluginsServerConfig } from './types'
-import { setLogLevel } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')

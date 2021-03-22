@@ -1,4 +1,4 @@
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/ingestion/topics'
+import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/shared/ingestion/topics'
 import { Event, PluginsServerConfig } from '../../src/types'
 import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'

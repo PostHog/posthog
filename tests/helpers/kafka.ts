@@ -1,6 +1,6 @@
 import { Kafka, logLevel } from 'kafkajs'
 
-import { defaultConfig, overrideWithEnv } from '../../src/config'
+import { defaultConfig, overrideWithEnv } from '../../src/shared/config'
 import {
     KAFKA_EVENTS,
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -8,9 +8,9 @@ import {
     KAFKA_PERSON,
     KAFKA_PERSON_UNIQUE_ID,
     KAFKA_SESSION_RECORDING_EVENTS,
-} from '../../src/ingestion/topics'
+} from '../../src/shared/ingestion/topics'
+import { delay, UUIDT } from '../../src/shared/utils'
 import { PluginsServerConfig } from '../../src/types'
-import { delay, UUIDT } from '../../src/utils'
 
 /** Clear the kafka queue */
 export async function resetKafka(extraServerConfig: Partial<PluginsServerConfig>, delayMs = 2000): Promise<true> {

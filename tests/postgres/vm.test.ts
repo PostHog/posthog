@@ -1,15 +1,15 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as fetch from 'node-fetch'
 
-import Client from '../../src/celery/client'
-import { createServer } from '../../src/server'
+import Client from '../../src/shared/celery/client'
+import { createServer } from '../../src/shared/server'
+import { delay } from '../../src/shared/utils'
 import { PluginsServer } from '../../src/types'
-import { delay } from '../../src/utils'
-import { createPluginConfigVM } from '../../src/vm/vm'
+import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/celery/client')
+jest.mock('../../src/shared/celery/client')
 
 const defaultEvent = {
     distinct_id: 'my_id',

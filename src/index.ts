@@ -1,8 +1,8 @@
 import * as yargs from 'yargs'
 
-import { configHelp, defaultConfig } from './config'
 import { initApp } from './init'
-import { startPluginsServer } from './server'
+import { startPluginsServer } from './main/pluginsServer'
+import { configHelp, defaultConfig } from './shared/config'
 import { PluginsServerConfig } from './types'
 import { makePiscina } from './worker/piscina'
 

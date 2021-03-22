@@ -1,5 +1,5 @@
-import { createServer } from '../src/server'
-import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setError } from '../src/sql'
+import { createServer } from '../src/shared/server'
+import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setError } from '../src/shared/sql'
 import { PluginConfig, PluginError, PluginsServer } from '../src/types'
 import { commonOrganizationId } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'

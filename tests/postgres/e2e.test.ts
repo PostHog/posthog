@@ -1,16 +1,16 @@
 import * as IORedis from 'ioredis'
 
-import { startPluginsServer } from '../../src/server'
+import { startPluginsServer } from '../../src/main/pluginsServer'
+import { UUIDT } from '../../src/shared/utils'
 import { LogLevel } from '../../src/types'
 import { PluginsServer } from '../../src/types'
-import { UUIDT } from '../../src/utils'
-import { createPosthog, DummyPostHog } from '../../src/vm/extensions/posthog'
 import { makePiscina } from '../../src/worker/piscina'
+import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 import { delayUntilEventIngested } from '../shared/process-event'
 
-jest.mock('../../src/status')
+jest.mock('../../src/shared/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 describe('e2e postgres ingestion', () => {
