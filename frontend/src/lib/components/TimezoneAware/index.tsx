@@ -39,6 +39,15 @@ export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; sho
             </h3>
             <div className="divider" />
             <div className="timezones">
+                <Row className="timezone">
+                    <Col className="name">
+                        <LaptopOutlined /> {shortTimeZone(undefined, parsedTime.toDate())}
+                    </Col>
+                    <Col className="scope">| Your computer</Col>
+                    <Col className="time" style={timeStyle}>
+                        {parsedTime.format(DATE_OUTPUT_FORMAT)}
+                    </Col>
+                </Row>
                 {currentTeam && (
                     <Row className="timezone">
                         <Col className="name">
@@ -50,24 +59,17 @@ export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; sho
                         </Col>
                     </Row>
                 )}
-                <Row className="timezone">
-                    <Col className="name">
-                        <LaptopOutlined /> {shortTimeZone(undefined, parsedTime.toDate())}
-                    </Col>
-                    <Col className="scope">| Your computer</Col>
-                    <Col className="time" style={timeStyle}>
-                        {parsedTime.format(DATE_OUTPUT_FORMAT)}
-                    </Col>
-                </Row>
-                <Row className="timezone">
-                    <Col className="name">
-                        <GlobalOutlined /> UTC
-                    </Col>
-                    <Col className="scope" />
-                    <Col className="time" style={timeStyle}>
-                        {parsedTime.tz('UTC').format(DATE_OUTPUT_FORMAT)}
-                    </Col>
-                </Row>
+                {currentTeam?.timezone !== 'UTC' && (
+                    <Row className="timezone">
+                        <Col className="name">
+                            <GlobalOutlined /> UTC
+                        </Col>
+                        <Col className="scope" />
+                        <Col className="time" style={timeStyle}>
+                            {parsedTime.tz('UTC').format(DATE_OUTPUT_FORMAT)}
+                        </Col>
+                    </Row>
+                )}
             </div>
         </div>
     )
@@ -89,6 +91,15 @@ export function TZIndicator({ style }: { style?: React.CSSProperties }): JSX.Ele
             </p>
             <div className="divider" />
             <div className="timezones">
+                <Row className="timezone">
+                    <Col className="name">
+                        <LaptopOutlined /> {shortTimeZone(undefined)}
+                    </Col>
+                    <Col className="scope">| Your computer</Col>
+                    <Col className="time" style={{ minWidth: 100, fontWeight: 'bold' }}>
+                        {humanTZOffset()}
+                    </Col>
+                </Row>
                 {currentTeam && (
                     <Row className="timezone">
                         <Col className="name">
@@ -100,15 +111,6 @@ export function TZIndicator({ style }: { style?: React.CSSProperties }): JSX.Ele
                         </Col>
                     </Row>
                 )}
-                <Row className="timezone">
-                    <Col className="name">
-                        <LaptopOutlined /> {shortTimeZone(undefined)}
-                    </Col>
-                    <Col className="scope">| Your computer</Col>
-                    <Col className="time" style={{ minWidth: 100, fontWeight: 'bold' }}>
-                        {humanTZOffset()}
-                    </Col>
-                </Row>
             </div>
         </div>
     )
