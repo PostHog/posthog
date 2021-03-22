@@ -32,11 +32,11 @@ describe('Dashboards', () => {
 
     it('Create an empty dashboard', () => {
         cy.get('[data-attr="new-dashboard"]').click()
-        cy.get('[data-attr=dashboard-name-input]').clear().type('YDefault')
+        cy.get('[data-attr=dashboard-name-input]').clear().type('New Dashboard')
         cy.get('button').contains('Create').click()
 
-        cy.contains('YDefault').should('exist')
-        cy.contains('There are no panels').should('exist')
+        cy.contains('New Dashboard').should('exist')
+        cy.get('.empty-state').should('exist')
     })
 
     it('Create dashboard from a template', () => {
