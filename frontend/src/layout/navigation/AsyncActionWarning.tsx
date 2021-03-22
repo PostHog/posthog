@@ -1,7 +1,7 @@
 import React from 'react'
 import { kea, useActions, useValues } from 'kea'
-import { Alert, Button } from 'antd'
-import { StarOutlined, SettingOutlined } from '@ant-design/icons'
+import { Alert } from 'antd'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 
 const asyncWarningLogic = kea({
@@ -11,7 +11,7 @@ const asyncWarningLogic = kea({
     reducers: {
         warningDismissed: [
             false,
-            { persist: true },
+            { persist: true }, // dismiss forever if dismissed
             {
                 dismissWarning: () => true,
             },
@@ -31,16 +31,13 @@ export function AsyncActionWarning(): JSX.Element | null {
         <>
             <Alert
                 type={'warning'}
-                message={'Slow actions warning'}
+                message={'Webhooks and actions delayed up to 5 minutes'}
                 className="demo-warning"
-                description={<>Async events might be delayed by up to 5 minutes</>}
-                icon={<StarOutlined />}
-                showIcon
-                action={
-                    <Button onClick={dismissWarning} data-attr="async-warning-cta">
-                        <SettingOutlined /> Dismiss
-                    </Button>
+                description={
+                    <>Due to temporary limitations, webhooks and actions might be delayed by up to 5 minutes.</>
                 }
+                icon={<InfoCircleOutlined />}
+                showIcon
                 closable
                 style={{ marginTop: 32 }}
                 onClose={dismissWarning}
