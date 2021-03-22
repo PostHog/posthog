@@ -114,6 +114,15 @@ const logic = kea<logicType<UserType>>({
     }),
 })
 
+export function AsyncActionMappingNotice(): JSX.Element {
+    return (
+        <p>
+            Please note that webhooks and actions may be delayed up to 5 minutes due to open-source PostHog
+            configuration.
+        </p>
+    )
+}
+
 export function WebhookIntegration(): JSX.Element {
     const { isSaving, editedWebhook } = useValues(logic)
     const { testThenSaveWebhook, setEditedWebhook } = useActions(logic)
@@ -122,16 +131,14 @@ export function WebhookIntegration(): JSX.Element {
     return (
         <div>
             <p>
-                Send notifications when selected Actions are performed by users.
+                Send notifications when selected actions are performed by users.
                 <br />
                 Guidance on integrating with webhooks available in our docs,{' '}
                 <a href="https://posthog.com/docs/integrations/slack">for Slack</a> and{' '}
                 <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>. Discord is also
                 supported.
             </p>
-            {user?.is_async_event_action_mapping_enabled && (
-                <p>Please note, webhooks and actions might be delayed by up to 5 minutes.</p>
-            )}
+            {user?.is_async_event_action_mapping_enabled && <AsyncActionMappingNotice />}
 
             <Input
                 value={editedWebhook}
