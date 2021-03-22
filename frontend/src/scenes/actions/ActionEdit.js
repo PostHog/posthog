@@ -163,6 +163,9 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, use
                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                             </Link>
                         </p>
+                        {user?.is_async_event_action_mapping_enabled && (
+                            <p>Please note, webhooks and actions might be delayed by up to 5 minutes.</p>
+                        )}
                         {action.post_to_slack && (
                             <>
                                 <Input
