@@ -117,6 +117,7 @@ const logic = kea<logicType<UserType>>({
 export function WebhookIntegration(): JSX.Element {
     const { isSaving, editedWebhook } = useValues(logic)
     const { testThenSaveWebhook, setEditedWebhook } = useActions(logic)
+    const { user } = useValues(userLogic)
 
     return (
         <div>
@@ -128,6 +129,10 @@ export function WebhookIntegration(): JSX.Element {
                 <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>. Discord is also
                 supported.
             </p>
+            {user?.is_async_event_action_mapping_enabled && (
+                <p>Please note, webhooks and actions might be delayed by up to 5 minutes.</p>
+            )}
+
             <Input
                 value={editedWebhook}
                 addonBefore="Webhook URL"
