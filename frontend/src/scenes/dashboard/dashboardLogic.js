@@ -300,8 +300,9 @@ export const dashboardLogic = kea({
             api.update(`api/insight/${id}`, { color })
         },
         refreshAllDashboardItems: async (_, breakpoint) => {
-            await breakpoint(200)
+            await breakpoint(100)
             dashboardItemsModel.actions.refreshAllDashboardItems({})
+
             eventUsageLogic.actions.reportDashboardRefreshed(values.lastRefreshed)
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {

@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0134_event_site_url"),
+        ("posthog", "0135_plugins_on_cloud"),
     ]
 
     operations = [
