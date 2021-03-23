@@ -45,6 +45,7 @@ import { People } from 'scenes/funnels/People'
 import { TrendLegend } from './TrendLegend'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { TZIndicator } from 'lib/components/TimezoneAware'
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
@@ -211,39 +212,45 @@ export function Insights() {
                         */}
                             <Card
                                 title={
-                                    <div className="float-right">
-                                        {showIntervalFilter(activeView, allFilters) && (
-                                            <IntervalFilter filters={allFilters} view={activeView} />
-                                        )}
-                                        {showChartFilter(activeView, featureFlags) && (
-                                            <ChartFilter
-                                                onChange={(display) => {
-                                                    if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
-                                                        clearAnnotationsToCreate()
-                                                    }
+                                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                                        <TZIndicator style={{ float: 'left' }} />
+                                        <div style={{ width: '100%', textAlign: 'right' }}>
+                                            {showIntervalFilter(activeView, allFilters) && (
+                                                <IntervalFilter filters={allFilters} view={activeView} />
+                                            )}
+                                            {showChartFilter(activeView, featureFlags) && (
+                                                <ChartFilter
+                                                    onChange={(display) => {
+                                                        if (
+                                                            display === ACTIONS_TABLE ||
+                                                            display === ACTIONS_PIE_CHART
+                                                        ) {
+                                                            clearAnnotationsToCreate()
+                                                        }
+                                                    }}
+                                                    filters={allFilters}
+                                                    disabled={allFilters.shown_as === ShownAsValue.LIFECYCLE}
+                                                />
+                                            )}
+
+                                            {showDateFilter[activeView] && (
+                                                <DateFilter
+                                                    defaultValue="Last 7 days"
+                                                    disabled={dateFilterDisabled}
+                                                    bordered={false}
+                                                />
+                                            )}
+
+                                            {showComparePrevious[activeView] && <CompareFilter />}
+                                            <SaveToDashboard
+                                                item={{
+                                                    entity: {
+                                                        filters: allFilters,
+                                                        annotations: annotationsToCreate,
+                                                    },
                                                 }}
-                                                filters={allFilters}
-                                                disabled={allFilters.shown_as === ShownAsValue.LIFECYCLE}
                                             />
-                                        )}
-
-                                        {showDateFilter[activeView] && (
-                                            <DateFilter
-                                                defaultValue="Last 7 days"
-                                                disabled={dateFilterDisabled}
-                                                bordered={false}
-                                            />
-                                        )}
-
-                                        {showComparePrevious[activeView] && <CompareFilter />}
-                                        <SaveToDashboard
-                                            item={{
-                                                entity: {
-                                                    filters: allFilters,
-                                                    annotations: annotationsToCreate,
-                                                },
-                                            }}
-                                        />
+                                        </div>
                                     </div>
                                 }
                                 headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
