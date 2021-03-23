@@ -157,8 +157,8 @@ export function ProjectSettings(): JSX.Element {
                     Filtering out internal and test users
                 </h2>
                 <p>
-                    Increase the quality of your analytics results by filtering out internal test users and team members
-                    from queries. This way only <b>real user data</b> will be taken into account.
+                    Increase the quality of your analytics results by filtering out internal users such as test accounts
+                    and team members from queries. This way only <b>real user data</b> will be taken into account.
                 </p>
                 <p>
                     <i>For best effectiveness, make sure to properly define internal users with the filters below.</i>
