@@ -36,6 +36,8 @@ const logIn = () => {
     cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
 
     cy.get('[type=submit]').click()
+
+    cy.location('pathname').should('not.eq', '/login') // Wait until login request fully completes
 }
 
 Cypress.on('uncaught:exception', () => {
