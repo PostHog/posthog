@@ -152,7 +152,9 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     if event.distinct_id in person.distinct_ids:
                         event.serialized_person = {  # type: ignore
                             "is_identified": person.is_identified,
-                            "distinct_id": person.distinct_ids[0],
+                            "distinct_ids": [
+                                person.distinct_ids[0],
+                            ],  # only send the first one to avoid a payload bloat
                             "properties": {
                                 key: person.properties[key]
                                 for key in ["email", "name", "username"]

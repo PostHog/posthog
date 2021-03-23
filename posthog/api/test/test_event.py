@@ -45,7 +45,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                 response = self.client.get("/api/event/?distinct_id=2").json()
             self.assertEqual(
                 response["results"][0]["person"],
-                {"distinct_id": "2", "is_identified": True, "properties": {"email": "tim@posthog.com"}},
+                {"distinct_ids": ["2"], "is_identified": True, "properties": {"email": "tim@posthog.com"}},
             )
             self.assertEqual(response["results"][0]["elements"][0]["tag_name"], "button")
             self.assertEqual(response["results"][0]["elements"][0]["order"], 0)

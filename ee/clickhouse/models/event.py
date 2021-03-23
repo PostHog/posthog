@@ -160,7 +160,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
         person = self.context["people"][event[5]]
         return {
             "is_identified": person.is_identified,
-            "distinct_id": person.distinct_ids[0],
+            "distinct_ids": [person.distinct_ids[0]],  # only send the first one to avoid a payload bloat
             "properties": {
                 key: person.properties[key] for key in ["email", "name", "username"] if key in person.properties
             },
