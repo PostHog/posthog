@@ -14,7 +14,7 @@
                     "generator": "secret"
                 },
                 "DEPLOYMENT": "Heroku Review App",
-                "AUTO_LOGIN": true
+                "E2E_TESTING": true
             },
             "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],
             "formation": {

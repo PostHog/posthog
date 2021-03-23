@@ -61,6 +61,9 @@ DEBUG = get_from_env("DEBUG", False, type_cast=strtobool)
 TEST = (
     "test" in sys.argv or sys.argv[0].endswith("pytest") or get_from_env("TEST", False, type_cast=strtobool)
 )  # type: bool
+E2E_TESTING = get_from_env(
+    "E2E_TESTING", False, type_cast=strtobool,
+)  # whether the app is currently running for E2E tests
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=strtobool)
 SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=strtobool)
 
@@ -463,7 +466,6 @@ AUTH_USER_MODEL = "posthog.User"
 LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
-AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=strtobool)
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^/api/.*$"
 
