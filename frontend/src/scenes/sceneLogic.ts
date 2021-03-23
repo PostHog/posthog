@@ -255,7 +255,8 @@ export const sceneLogic = kea<sceneLogicType>({
             if (userLogic.values.user?.is_multi_tenancy) {
                 return router.actions.push('/organization/billing')
             }
-            window.open(`https://posthog.com/pricing?o=enterprise`)
+            const pricingTab = userLogic.values.user?.is_multi_tenancy ? 'cloud' : 'vpc'
+            window.open(`https://posthog.com/pricing?o=${pricingTab}`)
         },
         setScene: () => {
             posthog.capture('$pageview')
