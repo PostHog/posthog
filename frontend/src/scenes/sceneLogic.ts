@@ -6,6 +6,7 @@ import { ErrorNetwork } from '~/layout/ErrorNetwork'
 import posthog from 'posthog-js'
 import { userLogic } from './userLogic'
 import { sceneLogicType } from './sceneLogicType'
+import { eventUsageLogic } from '../lib/utils/eventUsageLogic'
 
 export enum Scene {
     // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
@@ -172,9 +173,7 @@ export const sceneLogic = kea<sceneLogicType>({
         loadScene: (scene: Scene, params: Params) => ({ scene, params }),
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
         setLoadedScene: (scene: Scene, loadedScene: LoadedScene) => ({ scene, loadedScene }),
-        showUpgradeModal: (featureName: string, featureBenefit: string) => ({
-            featureNameBenefit: [featureName, featureBenefit] as [string, string],
-        }),
+        showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
         hideUpgradeModal: true,
         takeToPricing: true,
     },
@@ -211,10 +210,10 @@ export const sceneLogic = kea<sceneLogicType>({
                 setScene: () => null,
             },
         ],
-        upgradeModalFeatureNameBenefit: [
+        upgradeModalFeatureNameAndCaption: [
             null as [string, string] | null,
             {
-                showUpgradeModal: (_, { featureNameBenefit }) => featureNameBenefit as [string, string],
+                showUpgradeModal: (_, { featureName, featureCaption }) => [featureName, featureCaption],
                 hideUpgradeModal: () => null,
                 takeToPricing: () => null,
             },
@@ -248,11 +247,8 @@ export const sceneLogic = kea<sceneLogicType>({
         return mapping
     },
     listeners: ({ values, actions }) => ({
-        showUpgradeModal: ({ featureNameBenefit }) => {
-            posthog.capture('upgrade modal shown', { featureNameBenefit })
-        },
-        hideUpgradeModal: () => {
-            posthog.capture('upgrade modal cancellation')
+        showUpgradeModal: ({ featureName }) => {
+            eventUsageLogic.actions.reportUpgradeModalShown(featureName)
         },
         takeToPricing: () => {
             posthog.capture('upgrade modal pricing interaction')

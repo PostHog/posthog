@@ -73,6 +73,7 @@ export const eventUsageLogic = kea<
         reportDashboardDropdownNavigation: true,
         reportDashboardRenamed: (originalLength: number, newLength: number) => ({ originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
+        reportUpgradeModalShown: (featureName: string) => ({ featureName }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -289,6 +290,9 @@ export const eventUsageLogic = kea<
         },
         reportDashboardShareToggled: async ({ isShared }) => {
             posthog.capture(`dashboard share toggled`, { is_shared: isShared })
+        },
+        reportUpgradeModalShown: async ({ featureName }) => {
+            posthog.capture('upgrade modal shown', { featureName })
         },
     },
 })

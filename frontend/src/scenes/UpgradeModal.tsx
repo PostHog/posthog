@@ -6,8 +6,10 @@ import { UserType } from '~/types'
 import { sceneLogic } from './sceneLogic'
 
 export function UpgradeModal(): JSX.Element {
-    const { upgradeModalFeatureNameBenefit } = useValues(sceneLogic)
+    const { upgradeModalFeatureNameAndCaption } = useValues(sceneLogic)
     const { hideUpgradeModal, takeToPricing } = useActions(sceneLogic)
+
+    const [featureName, featureCaption] = upgradeModalFeatureNameAndCaption ?? []
 
     return (
         <Modal
@@ -16,13 +18,12 @@ export function UpgradeModal(): JSX.Element {
             cancelText="Maybe Later"
             onOk={takeToPricing}
             onCancel={hideUpgradeModal}
-            visible={!!upgradeModalFeatureNameBenefit}
+            visible={!!featureName}
         >
             <p>
-                <b>{upgradeModalFeatureNameBenefit && capitalizeFirstLetter(upgradeModalFeatureNameBenefit[0])}</b> is
-                an advanced PostHog feature.
+                <b>{featureName && capitalizeFirstLetter(featureName)}</b> is an advanced PostHog feature.
             </p>
-            <p>{upgradeModalFeatureNameBenefit && upgradeModalFeatureNameBenefit[1]}</p>
+            {featureCaption && <p>{featureCaption}</p>}
             <p>Upgrade now and get access to this, as well as to other powerful enhancements.</p>
         </Modal>
     )
@@ -30,10 +31,10 @@ export function UpgradeModal(): JSX.Element {
 
 export function guardPremiumFeature(
     user: UserType | null,
-    showUpgradeModal: (featureName: string, featureBenefit: string) => void,
+    showUpgradeModal: (featureName: string, featureCaption: string) => void,
     key: string,
     name: string,
-    benefit: string,
+    caption: string,
     featureAvailableCallback?: () => void,
     guardOn: {
         cloud: boolean
@@ -57,7 +58,7 @@ export function guardPremiumFeature(
     if (featureAvailable) {
         featureAvailableCallback?.()
     } else {
-        showUpgradeModal(name, benefit)
+        showUpgradeModal(name, caption)
     }
 
     return !featureAvailable
