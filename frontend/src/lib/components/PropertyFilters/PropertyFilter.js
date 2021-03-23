@@ -3,11 +3,11 @@ import { Col, Row, Select, Tabs } from 'antd'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { cohortsModel } from '../../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { Link } from '../Link'
 import { PropertySelect } from './PropertySelect'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
+import { isOperatorMulti } from 'lib/utils'
 
 const { TabPane } = Tabs
 
@@ -45,8 +45,8 @@ function PropertyPaneContents({
 
     return (
         <>
-            <Row gutter={8} className="full-width">
-                <Col flex={1}>
+            <Row gutter={8} className="full-width" wrap={false}>
+                <Col flex={'1'}>
                     <PropertySelect
                         value={
                             type === 'cohort'
@@ -80,11 +80,11 @@ function PropertyPaneContents({
                         value={value}
                         onChange={(newOperator, newValue) => {
                             setThisFilter(propkey, newValue, newOperator, type)
-                            if (newOperator && newValue) {
+                            if (newOperator && newValue && !isOperatorMulti(newOperator)) {
                                 onComplete()
                             }
                         }}
-                        columnOptions={{ flex: 1 }}
+                        columnOptions={{ flex: '1' }}
                     />
                 )}
             </Row>
@@ -98,7 +98,6 @@ function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorA
     return (
         <>
             <SelectGradientOverflow
-                className={rrwebBlockClass}
                 style={{ width: '100%' }}
                 showSearch
                 optionFilterProp="children"
@@ -120,6 +119,7 @@ function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorA
             >
                 {cohorts.map((item, index) => (
                     <Select.Option
+                        className="ph-no-capture"
                         key={'cohort-filter-' + index}
                         value={item.id}
                         type="cohort"

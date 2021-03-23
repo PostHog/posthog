@@ -94,6 +94,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                                             justifyContent: 'space-between',
                                             alignItems: 'center',
                                         }}
+                                        data-attr="edit-session-filter"
                                     >
                                         <strong>{item.label}</strong>
                                         <DownOutlined style={{ fontSize: 12, color: '#bfbfbf' }} />
@@ -132,7 +133,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                         <SaveOutlined /> Save filter
                     </span>
                 </Button>
-                <Button type="primary" onClick={onSubmit}>
+                <Button type="primary" onClick={onSubmit} data-attr="sessions-apply-filters">
                     <span>
                         <SearchOutlined /> Apply filters
                     </span>

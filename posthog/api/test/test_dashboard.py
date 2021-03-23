@@ -3,21 +3,40 @@ import json
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
+from rest_framework import status
 
 from posthog.models import Dashboard, DashboardItem, Filter, User
-from posthog.test.base import TransactionBaseTest
+from posthog.test.base import APIBaseTest
 from posthog.utils import generate_cache_key
 
 
-class TestDashboard(TransactionBaseTest):
-    TESTS_API = True
-
-    def test_get_dashboard(self):
+class TestDashboard(APIBaseTest):
+    def test_retrieve_dashboard(self):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
-        response = self.client.get(f"/api/dashboard/{dashboard.id}", content_type="application/json",)
-        self.assertEqual(response.json()["name"], "private dashboard")
-        self.assertEqual(response.json()["created_by"]["distinct_id"], self.user.distinct_id)
-        self.assertEqual(response.json()["created_by"]["first_name"], self.user.first_name)
+        response = self.client.get(f"/api/dashboard/{dashboard.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["name"], "private dashboard")
+        self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
+        self.assertEqual(response_data["created_by"]["first_name"], self.user.first_name)
+        self.assertEqual(response_data["creation_mode"], "default")
+
+    def test_update_dashboard(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team, name="private dashboard", created_by=self.user, creation_mode="template",
+        )
+        response = self.client.patch(
+            f"/api/dashboard/{dashboard.id}", {"name": "dashboard new name", "creation_mode": "duplicate"},
+        )
+
+        response_data = response.json()
+        self.assertEqual(response_data["name"], "dashboard new name")
+        self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
+        self.assertEqual(response_data["creation_mode"], "template")
+
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.name, "dashboard new name")
 
     def test_create_dashboard_item(self):
         dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")
@@ -28,8 +47,8 @@ class TestDashboard(TransactionBaseTest):
                 "name": "dashboard item",
                 "last_refresh": now(),  # This happens when you duplicate a dashboard item, caused error
             },
-            content_type="application/json",
         )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         dashboard_item = DashboardItem.objects.get()
         self.assertEqual(dashboard_item.name, "dashboard item")
 
@@ -37,14 +56,14 @@ class TestDashboard(TransactionBaseTest):
         self.client.logout()
         dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")
         test_no_token = self.client.get(f"/api/dashboard/{dashboard.pk}/")
-        self.assertEqual(test_no_token.status_code, 403)
+        self.assertEqual(test_no_token.status_code, status.HTTP_403_FORBIDDEN)
         response = self.client.get(f"/api/dashboard/{dashboard.pk}/?share_token=testtoken")
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "public dashboard")
 
     def test_shared_dashboard(self):
         self.client.logout()
-        dashboard = Dashboard.objects.create(
+        Dashboard.objects.create(
             team=self.team, share_token="testtoken", name="public dashboard", is_shared=True,
         )
         response = self.client.get("/shared_dashboard/testtoken")
@@ -52,11 +71,8 @@ class TestDashboard(TransactionBaseTest):
 
     def test_share_dashboard(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
-        response = self.client.patch(
-            "/api/dashboard/%s/" % dashboard.pk,
-            {"name": "dashboard 2", "is_shared": True},
-            content_type="application/json",
-        )
+        response = self.client.patch("/api/dashboard/%s/" % dashboard.pk, {"name": "dashboard 2", "is_shared": True},)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         dashboard = Dashboard.objects.get(pk=dashboard.pk)
         self.assertIsNotNone(dashboard.share_token)
 
@@ -67,7 +83,7 @@ class TestDashboard(TransactionBaseTest):
         self.assertDictEqual(
             response.json(), {"attr": None, "code": "not_found", "detail": "Not found.", "type": "invalid_request",},
         )
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_return_cached_results(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
@@ -85,15 +101,16 @@ class TestDashboard(TransactionBaseTest):
         self.assertEqual(response["items"][0]["result"], None)
 
         # cache results
-        self.client.get(
-            "/api/action/trends/?events=%s&properties=%s"
+        response = self.client.get(
+            "/api/insight/trend/?events=%s&properties=%s"
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
+        self.assertEqual(response.status_code, 200)
         item = DashboardItem.objects.get(pk=item.pk)
         self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(item.filters_hash, generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)))
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(12):
             response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
 
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
@@ -118,71 +135,63 @@ class TestDashboard(TransactionBaseTest):
         self.assertEqual(response["items"][0]["result"], None)
         self.assertEqual(response["items"][0]["last_refresh"], None)
 
-    def test_dashboard(self):
+    def test_dashboard_endpoints(self):
         # create
-        self.client.post(
-            "/api/dashboard/", data={"name": "Default", "pinned": "true"}, content_type="application/json",
-        )
+        response = self.client.post("/api/dashboard/", {"name": "Default", "pinned": "true"},)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Default")
+        self.assertEqual(response.json()["creation_mode"], "default")
+        self.assertEqual(response.json()["pinned"], True)
 
         # retrieve
         response = self.client.get("/api/dashboard/").json()
-        pk = Dashboard.objects.all()[0].pk
+        pk = Dashboard.objects.first().pk  # type: ignore
+        self.assertEqual(response["results"][0]["id"], pk)  # type: ignore
+        self.assertEqual(response["results"][0]["name"], "Default")  # type: ignore
 
-        self.assertEqual(response["results"][0]["id"], pk)
-        self.assertEqual(response["results"][0]["name"], "Default")
-
-        # delete
+        # delete (soft)
         self.client.patch(
-            "/api/dashboard/{}/".format(pk), data={"deleted": "true"}, content_type="application/json",
+            f"/api/dashboard/{pk}/", {"deleted": "true"},
         )
         response = self.client.get("/api/dashboard/").json()
         self.assertEqual(len(response["results"]), 0)
 
     def test_dashboard_items(self):
-        dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team)
-        dashboard_item = self.client.post(
+        dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team, filters={"date_from": "-14d"})
+        self.client.post(
             "/api/dashboard_item/",
-            data={"filters": {"hello": "test"}, "dashboard": dashboard.pk, "name": "some_item",},
-            content_type="application/json",
+            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboard": dashboard.pk, "name": "some_item"},
+            format="json",
         )
         response = self.client.get("/api/dashboard/{}/".format(dashboard.pk)).json()
         self.assertEqual(len(response["items"]), 1)
         self.assertEqual(response["items"][0]["name"], "some_item")
+        self.assertEqual(response["items"][0]["filters"]["date_from"], "-14d")
 
         item_response = self.client.get("/api/dashboard_item/").json()
         self.assertEqual(item_response["results"][0]["name"], "some_item")
 
         # delete
-        self.client.patch(
-            "/api/dashboard_item/{}/".format(item_response["results"][0]["id"]),
-            data={"deleted": "true"},
-            content_type="application/json",
-        )
+        self.client.patch("/api/dashboard_item/{}/".format(item_response["results"][0]["id"]), {"deleted": "true"})
         items_response = self.client.get("/api/dashboard_item/").json()
         self.assertEqual(len(items_response["results"]), 0)
 
     def test_dashboard_items_history_per_user(self):
         test_user = User.objects.create_and_join(self.organization, "test@test.com", None)
 
-        item = DashboardItem.objects.create(filters={"hello": "test"}, team=self.team, created_by=test_user)
+        DashboardItem.objects.create(filters={"hello": "test"}, team=self.team, created_by=test_user)
 
         # Make sure the endpoint works with and without the trailing slash
-        self.client.post(
-            "/api/dashboard_item", data={"filters": {"hello": "test"}}, content_type="application/json",
-        ).json()
+        self.client.post("/api/dashboard_item", {"filters": {"hello": "test"}}, format="json").json()
 
         response = self.client.get("/api/dashboard_item/?user=true").json()
         self.assertEqual(response["count"], 1)
 
     def test_dashboard_items_history_saved(self):
 
-        self.client.post(
-            "/api/dashboard_item/", data={"filters": {"hello": "test"}, "saved": True}, content_type="application/json",
-        ).json()
+        self.client.post("/api/dashboard_item/", {"filters": {"hello": "test"}, "saved": True}, format="json").json()
 
-        self.client.post(
-            "/api/dashboard_item/", data={"filters": {"hello": "test"}}, content_type="application/json",
-        ).json()
+        self.client.post("/api/dashboard_item/", {"filters": {"hello": "test"}}, format="json").json()
 
         response = self.client.get("/api/dashboard_item/?user=true&saved=true").json()
         self.assertEqual(response["count"], 1)
@@ -191,13 +200,13 @@ class TestDashboard(TransactionBaseTest):
         dashboard = Dashboard.objects.create(name="asdasd", pinned=True, team=self.team)
         response = self.client.post(
             "/api/dashboard_item/",
-            data={"filters": {"hello": "test"}, "dashboard": dashboard.pk, "name": "another",},
-            content_type="application/json",
+            {"filters": {"hello": "test"}, "dashboard": dashboard.pk, "name": "another"},
+            format="json",
         ).json()
 
         self.client.patch(
             "/api/dashboard_item/layouts/",
-            data={
+            {
                 "items": [
                     {
                         "id": response["id"],
@@ -210,14 +219,47 @@ class TestDashboard(TransactionBaseTest):
                     }
                 ]
             },
-            content_type="application/json",
+            format="json",
         )
         items_response = self.client.get("/api/dashboard_item/{}/".format(response["id"])).json()
         self.assertTrue("lg" in items_response["layouts"])
 
     def test_dashboard_from_template(self):
-        response = self.client.post(
-            "/api/dashboard/", data={"name": "another", "use_template": "DEFAULT_APP"}, content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 201)
+        response = self.client.post("/api/dashboard/", {"name": "another", "use_template": "DEFAULT_APP"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertGreater(DashboardItem.objects.count(), 1)
+        self.assertEqual(response.json()["creation_mode"], "template")
+
+    def test_return_cached_results_dashboard_has_filters(self):
+        # Regression test, we were
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "date_from": "-7d",
+        }
+        filter = Filter(data=filter_dict)
+
+        item = DashboardItem.objects.create(dashboard=dashboard, filters=filter_dict, team=self.team,)
+        DashboardItem.objects.create(
+            dashboard=dashboard, filters=filter.to_dict(), team=self.team,
+        )
+        self.client.get(
+            "/api/insight/trend/?events=%s&properties=%s&date_from=-7d"
+            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
+        )
+        patch_response = self.client.patch(
+            "/api/dashboard/%s/" % dashboard.pk, {"filters": {"date_from": "-24h"}}, format="json",
+        ).json()
+        self.assertEqual(patch_response["items"][0]["result"], None)
+
+        # cache results
+        response = self.client.get(
+            "/api/insight/trend/?events=%s&properties=%s&date_from=-24h"
+            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
+        )
+        self.assertEqual(response.status_code, 200)
+        item = DashboardItem.objects.get(pk=item.pk)
+        # Expecting this to only have one day as per the dashboard filter
+        response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+        self.assertEqual(len(response["items"][0]["result"][0]["days"]), 2)  # type: ignore

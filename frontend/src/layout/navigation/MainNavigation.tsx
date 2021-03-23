@@ -17,7 +17,6 @@ import { triggerResizeAfterADelay } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import lgLogo from 'public/posthog-logo-white.svg'
 import smLogo from 'public/icon-white.svg'
-import { hot } from 'react-hot-loader/root'
 import './Navigation.scss'
 import {
     IconCohorts,
@@ -33,7 +32,8 @@ import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import { dashboardsModel } from '~/models'
 import { DashboardType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { canViewPlugins } from '../../scenes/plugins/access'
 
 // to show the right page in the sidebar
 const sceneOverride: Record<string, string> = {
@@ -78,38 +78,11 @@ const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.
     )
 }
 
-export const MainNavigation = hot(_MainNavigation)
-function _MainNavigation(): JSX.Element {
-    const { user } = useValues(userLogic)
-    const { menuCollapsed, toolbarModalOpen, pinnedDashboardsVisible } = useValues(navigationLogic)
-    const { setMenuCollapsed, collapseMenu, setToolbarModalOpen, setPinnedDashboardsVisible } = useActions(
-        navigationLogic
-    )
-    const navRef = useRef<HTMLDivElement | null>(null)
-    const [canScroll, setCanScroll] = useState(false)
+function PinnedDashboards(): JSX.Element {
     const { pinnedDashboards, dashboards } = useValues(dashboardsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { setPinnedDashboardsVisible } = useActions(navigationLogic)
 
-    useEscapeKey(collapseMenu, [menuCollapsed])
-
-    const calcCanScroll = (target: HTMLDivElement | null): boolean => {
-        return !!target && target.scrollHeight > target.offsetHeight + target.scrollTop + 60 // 60px of offset tolerance
-    }
-
-    const handleNavScroll = (e: React.UIEvent<HTMLDivElement>): void => {
-        const target = e.target as HTMLDivElement
-        setCanScroll(calcCanScroll(target))
-    }
-
-    const scrollToBottom = (): void => {
-        navRef.current?.scrollTo(0, navRef.current?.scrollHeight)
-    }
-
-    useEffect(() => {
-        setCanScroll(calcCanScroll(navRef.current))
-    }, [navRef])
-
-    const PinnedDashboards = (
+    return (
         <Menu className="pinned-dashboards">
             {dashboards.length ? (
                 <>
@@ -163,6 +136,36 @@ function _MainNavigation(): JSX.Element {
             )}
         </Menu>
     )
+}
+
+export function MainNavigation(): JSX.Element {
+    const { user } = useValues(userLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { menuCollapsed, toolbarModalOpen, pinnedDashboardsVisible } = useValues(navigationLogic)
+    const { setMenuCollapsed, collapseMenu, setToolbarModalOpen, setPinnedDashboardsVisible } = useActions(
+        navigationLogic
+    )
+    const navRef = useRef<HTMLDivElement | null>(null)
+    const [canScroll, setCanScroll] = useState(false)
+
+    useEscapeKey(collapseMenu, [menuCollapsed])
+
+    const calcCanScroll = (target: HTMLDivElement | null): boolean => {
+        return !!target && target.scrollHeight > target.offsetHeight + target.scrollTop + 60 // 60px of offset tolerance
+    }
+
+    const handleNavScroll = (e: React.UIEvent<HTMLDivElement>): void => {
+        const target = e.target as HTMLDivElement
+        setCanScroll(calcCanScroll(target))
+    }
+
+    const scrollToBottom = (): void => {
+        navRef.current?.scrollTo(0, navRef.current?.scrollHeight)
+    }
+
+    useEffect(() => {
+        setCanScroll(calcCanScroll(navRef.current))
+    }, [navRef])
 
     return (
         <>
@@ -186,8 +189,7 @@ function _MainNavigation(): JSX.Element {
                             <img src={lgLogo} className="logo-lg" alt="" />
                         </Link>
                     </div>
-                    {/* TODO: Only if setup hasn't been completed  */}
-                    {featureFlags['onboarding-2822'] && (
+                    {currentOrganization?.setup.is_active && (
                         <MenuItem title="Setup" icon={<SettingOutlined />} identifier="onboardingSetup" to="/setup" />
                     )}
                     <Popover
@@ -229,9 +231,9 @@ function _MainNavigation(): JSX.Element {
                         to="/feature_flags"
                     />
                     <div className="divider" />
-                    {user?.plugin_access.configure ? (
+                    {canViewPlugins(user?.organization) && (
                         <MenuItem title="Plugins" icon={<ApiFilled />} identifier="plugins" to="/project/plugins" />
-                    ) : null}
+                    )}
                     <MenuItem
                         title="Annotations"
                         icon={<MessageOutlined />}

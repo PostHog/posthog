@@ -14,19 +14,17 @@ class TestUser(BaseTest):
     def test_user_team_update(self):
         response = self.client.patch(
             "/api/user/",
-            data={"team": {"opt_out_capture": True, "anonymize_ips": False, "session_recording_opt_in": True}},
+            data={"team": {"anonymize_ips": False, "session_recording_opt_in": True}},
             content_type="application/json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
-        self.assertEqual(response_data["team"]["opt_out_capture"], True)
         self.assertEqual(response_data["team"]["anonymize_ips"], False)
         self.assertEqual(response_data["team"]["session_recording_opt_in"], True)
 
         team = Team.objects.get(id=self.team.id)
-        self.assertEqual(team.opt_out_capture, True)
         self.assertEqual(team.anonymize_ips, False)
         self.assertEqual(team.session_recording_opt_in, True)
 
@@ -153,5 +151,9 @@ class TestUserAPI(APITransactionBaseTest):
                 "organization_id": str(self.organization.id),
                 "project_id": str(self.team.uuid),
                 "project_setup_complete": False,
+                "joined_at": self.user.date_joined,
+                "has_password_set": True,
+                "has_social_auth": False,
+                "social_providers": [],
             },
         )

@@ -42,15 +42,19 @@ class DashboardSerializer(serializers.ModelSerializer):
             "is_shared",
             "share_token",
             "deleted",
+            "creation_mode",
             "use_template",
+            "filters",
         ]
+        read_only_fields = ("creation_mode",)
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         team = Team.objects.get(id=self.context["team_id"])
         use_template: str = validated_data.pop("use_template", None)
-        dashboard = Dashboard.objects.create(team=team, **validated_data)
+        creation_mode = "template" if use_template else "default"
+        dashboard = Dashboard.objects.create(team=team, creation_mode=creation_mode, **validated_data)
 
         if use_template:
             try:
@@ -94,7 +98,8 @@ class DashboardSerializer(serializers.ModelSerializer):
         if self.context["view"].action == "list":
             return None
         items = dashboard.items.filter(deleted=False).order_by("order").all()
-        return DashboardItemSerializer(items, many=True).data
+        self.context.update({"dashboard": dashboard})
+        return DashboardItemSerializer(items, many=True, context=self.context).data
 
 
 class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -170,7 +175,6 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
-
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
@@ -188,7 +192,6 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Dashboard not found")
 
     def update(self, instance: Model, validated_data: Dict, **kwargs) -> DashboardItem:
-
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data.setdefault("is_sample", False)
         return super().update(instance, validated_data)
@@ -204,7 +207,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         result = get_safe_cache(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
-        return result["result"]
+        return result.get("result")
 
     def get_last_refresh(self, dashboard_item: DashboardItem):
         if self.get_result(dashboard_item):
@@ -212,6 +215,11 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         dashboard_item.last_refresh = None
         dashboard_item.save()
         return None
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
+        return representation
 
 
 class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

@@ -7,6 +7,7 @@ from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth,
 from django.db.models.query import Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from rest_framework.utils.serializer_helpers import ReturnDict
+from sentry_sdk.api import capture_exception
 
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models import Event, Filter, Team
@@ -84,7 +85,9 @@ class Retention(BaseQuery):
         trunc, fields = self._get_trunc_func("timestamp", period)
 
         if is_first_time_retention:
-            filtered_events = events.filter(properties_to_Q(filter.properties, team_id=team.pk))
+            filtered_events = events.filter(
+                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
+            )
             first_date = (
                 filtered_events.filter(entity_condition)
                 .values("person_id", "event", "action")
@@ -100,7 +103,7 @@ class Retention(BaseQuery):
             )
         else:
             filtered_events = events.filter(filter.date_filter_Q).filter(
-                properties_to_Q(filter.properties, team_id=team.pk)
+                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
             )
             first_date = (
                 filtered_events.filter(entity_condition)
@@ -188,12 +191,14 @@ class Retention(BaseQuery):
         events = Event.objects.filter(team_id=team.pk).add_person_id(team.pk)
 
         filtered_events = events.filter(filter.recurring_date_filter_Q()).filter(
-            properties_to_Q(filter.properties, team_id=team.pk)
+            properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
         )
 
         inner_events = (
             Event.objects.filter(team_id=team.pk)
-            .filter(properties_to_Q(filter.properties, team_id=team.pk))
+            .filter(
+                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
+            )
             .add_person_id(team.pk)
             .filter(**{"person_id": OuterRef("id")})
             .filter(entity_condition)
@@ -204,7 +209,9 @@ class Retention(BaseQuery):
             if is_first_time_retention
             else Event.objects.filter(team_id=team.pk)
             .filter(filter.reference_date_filter_Q())
-            .filter(properties_to_Q(filter.properties, team_id=team.pk))
+            .filter(
+                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
+            )
             .add_person_id(team.pk)
             .filter(**{"person_id": OuterRef("id")})
             .filter(entity_condition)
@@ -258,7 +265,7 @@ class Retention(BaseQuery):
             **format_fields
         )
 
-        result = {}
+        result = []
 
         from posthog.api.person import PersonSerializer
 
@@ -277,17 +284,20 @@ class Retention(BaseQuery):
 
     def process_people_in_period(
         self, filter: RetentionFilter, vals, people_dict: Dict[str, ReturnDict]
-    ) -> Dict[str, Any]:
+    ) -> List[Dict[str, Any]]:
         marker_length = filter.total_intervals
         result = []
-        appearance_totals = [0 for _ in range(marker_length)]
+        for val in vals:
+            # NOTE: This try/except shouldn't be necessary but there do seem to be a handful of missing persons that can't be looked up
+            try:
+                result.append(
+                    {"person": people_dict[val[0]], "appearances": appearance_to_markers(sorted(val[2]), marker_length)}
+                )
+            except Exception as e:
+                capture_exception(e)
+                continue
 
-        for person_id, _, appearances_array in vals:
-            appearances = appearance_to_markers(sorted(appearances_array), marker_length)
-            result.append({"person": people_dict[person_id], "appearances": appearances})
-            appearance_totals = [sum(x) for x in zip(*[appearance_totals, appearances])]
-
-        return {"detail": result, "totals": appearance_totals}
+        return result
 
     def get_entity_condition(self, entity: Entity, table: str) -> Tuple[Q, str]:
         if entity.type == TREND_FILTER_TYPE_EVENTS:

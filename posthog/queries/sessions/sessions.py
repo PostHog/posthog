@@ -74,7 +74,9 @@ class Sessions(BaseQuery):
         return (
             Event.objects.filter(team=team)
             .add_person_id(team.pk)
-            .filter(properties_to_Q(filter.properties, team_id=team.pk))
+            .filter(
+                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
+            )
             .order_by("-timestamp")
         )
 
@@ -148,6 +150,10 @@ class Sessions(BaseQuery):
         elif interval == "month":
             for df in data_array:
                 df["date"] = (df["date"].replace(day=1) + datetime.timedelta(days=32)).replace(
+                    day=1
+                ) - datetime.timedelta(days=1)
+            for idx in range(len(date_range)):
+                date_range[idx] = (date_range[idx].replace(day=1) + datetime.timedelta(days=32)).replace(
                     day=1
                 ) - datetime.timedelta(days=1)
 

@@ -1,3 +1,5 @@
+from typing import Optional
+
 from django.contrib.postgres.fields import JSONField
 from django.db import models
 from django.db.models.signals import pre_save
@@ -5,6 +7,7 @@ from django.dispatch import receiver
 from django_deprecate_fields import deprecate_field
 
 from posthog.constants import INSIGHT_RETENTION, INSIGHT_SESSIONS, INSIGHT_TRENDS
+from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
 from posthog.utils import generate_cache_key
 
@@ -37,11 +40,26 @@ class DashboardItem(models.Model):
     # Deprecated as we don't store funnels as a separate model any more
     funnel: models.ForeignKey = deprecate_field(models.IntegerField(null=True, blank=True))
 
+    def dashboard_filters(self, dashboard: Optional[Dashboard] = None):
+        if dashboard is None:
+            dashboard = self.dashboard
+        if dashboard:
+            return {**self.filters, **dashboard.filters}
+        else:
+            return self.filters
+
+
+@receiver(pre_save, sender=Dashboard)
+def dashboard_saved(sender, instance: Dashboard, **kwargs):
+    for item in instance.items.all():
+        dashboard_item_saved(sender, item, dashboard=instance, **kwargs)
+        item.save()
+
 
 @receiver(pre_save, sender=DashboardItem)
-def dashboard_item_saved(sender, instance: DashboardItem, **kwargs):
+def dashboard_item_saved(sender, instance: DashboardItem, dashboard=None, **kwargs):
     if instance.filters and instance.filters != {}:
-        filter = get_filter(data=instance.filters, team=instance.team)
+        filter = get_filter(data=instance.dashboard_filters(dashboard=dashboard), team=instance.team)
 
         instance.filters = filter.to_dict()
         instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))

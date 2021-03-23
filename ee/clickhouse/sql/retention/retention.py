@@ -40,7 +40,7 @@ pdi.person_id as person_id,
 argMin(e.uuid, {trunc_func}(e.timestamp)) as min_uuid,
 argMin(e.event, {trunc_func}(e.timestamp)) as min_event
 from events e JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
-WHERE e.team_id = %(team_id)s AND toDateTime(e.timestamp) <= toDateTime(%(reference_end_date)s) {target_query} {filters} 
+WHERE e.team_id = %(team_id)s {target_query} {filters} 
 GROUP BY person_id HAVING
 event_date >= toDateTime(%(reference_start_date)s) AND event_date <= toDateTime(%(reference_end_date)s)
 """
@@ -57,7 +57,7 @@ LIMIT 100 OFFSET %(offset)s
 """
 
 INITIAL_INTERVAL_SQL = """
-SELECT datediff(%(period)s, toStartOfDay(toDateTime(%(start_date)s)), event_date) event_date,
+SELECT datediff(%(period)s, {trunc_func}(toDateTime(%(start_date)s)), event_date) event_date,
        count(DISTINCT person_id) FROM (
     {reference_event_sql}
 ) GROUP BY event_date ORDER BY event_date

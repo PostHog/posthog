@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from random import random
 from typing import Any, Dict, Optional
 
 import statsd
@@ -11,6 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
+from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
@@ -173,6 +175,8 @@ def get_event(request):
     else:
         events = [data]
 
+    events = preprocess_session_recording_events(events)
+
     for event in events:
         try:
             distinct_id = _get_distinct_id(event)
@@ -203,29 +207,18 @@ def get_event(request):
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
         event_uuid = UUIDT()
+        ip = None if team.anonymize_ips else get_ip_address(request)
 
         if is_ee_enabled():
             log_topics = [KAFKA_EVENTS_WAL]
-            # TODO: remove team.organization_id in ... for full rollout of Plugins on EE/Cloud
-            if settings.PLUGIN_SERVER_INGESTION and str(team.organization_id) in getattr(
-                settings, "PLUGINS_CLOUD_WHITELISTED_ORG_IDS", []
-            ):
+
+            if settings.PLUGIN_SERVER_INGESTION:
                 log_topics.append(KAFKA_EVENTS_PLUGIN_INGESTION)
                 statsd.Counter("%s_posthog_cloud_plugin_server_ingestion" % (settings.STATSD_PREFIX,)).increment()
-            else:
-                process_event_ee(
-                    distinct_id=distinct_id,
-                    ip=get_ip_address(request),
-                    site_url=request.build_absolute_uri("/")[:-1],
-                    data=event,
-                    team_id=team.id,
-                    now=now,
-                    sent_at=sent_at,
-                    event_uuid=event_uuid,
-                )
+
             log_event(
                 distinct_id=distinct_id,
-                ip=get_ip_address(request),
+                ip=ip,
                 site_url=request.build_absolute_uri("/")[:-1],
                 data=event,
                 team_id=team.id,
@@ -234,6 +227,19 @@ def get_event(request):
                 event_uuid=event_uuid,
                 topics=log_topics,
             )
+
+            # must done after logging because process_event_ee modifies the event, e.g. by removing $elements
+            if not settings.PLUGIN_SERVER_INGESTION:
+                process_event_ee(
+                    distinct_id=distinct_id,
+                    ip=ip,
+                    site_url=request.build_absolute_uri("/")[:-1],
+                    data=event,
+                    team_id=team.id,
+                    now=now,
+                    sent_at=sent_at,
+                    event_uuid=event_uuid,
+                )
         else:
             task_name = "posthog.tasks.process_event.process_event"
             if settings.PLUGIN_SERVER_INGESTION or team.plugins_opt_in:
@@ -245,15 +251,7 @@ def get_event(request):
             celery_app.send_task(
                 name=task_name,
                 queue=celery_queue,
-                args=[
-                    distinct_id,
-                    get_ip_address(request),
-                    request.build_absolute_uri("/")[:-1],
-                    event,
-                    team.id,
-                    now.isoformat(),
-                    sent_at,
-                ],
+                args=[distinct_id, ip, request.build_absolute_uri("/")[:-1], event, team.id, now.isoformat(), sent_at,],
             )
     timer.stop("event_endpoint")
     return cors_response(request, JsonResponse({"status": 1}))

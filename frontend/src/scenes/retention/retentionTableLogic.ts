@@ -14,6 +14,7 @@ import {
     RetentionTablePeoplePayload,
     RetentionTrendPeoplePayload,
 } from 'scenes/retention/types'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -43,6 +44,9 @@ function defaultFilters(filters: Record<string, any>): Record<string, any> {
         period: filters.period || 'Day',
         retention_type: filters.retention_type || RETENTION_FIRST_TIME,
         display: filters.display || ACTIONS_TABLE,
+        properties: filters.properties || [],
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        insight: ViewType.RETENTION,
     }
 }
 
@@ -62,7 +66,7 @@ export const retentionTableLogic = kea<
         results: {
             __default: [] as RetentionTablePayload[] | RetentionTrendPayload[],
             loadResults: async (refresh = false, breakpoint) => {
-                if (!refresh && (props.cachedResults || props.preventLoading)) {
+                if (!refresh && (props.cachedResults || props.preventLoading) && values.filters === props.filters) {
                     return props.cachedResults
                 }
                 insightLogic.actions.startQuery()
@@ -71,12 +75,12 @@ export const retentionTableLogic = kea<
                 try {
                     res = await api.get(`api/insight/retention/?${urlParams}`)
                 } catch (e) {
-                    insightLogic.actions.endQuery(ViewType.RETENTION, e)
+                    insightLogic.actions.endQuery(ViewType.RETENTION, false, e)
                     return []
                 }
                 breakpoint()
-                insightLogic.actions.endQuery(ViewType.RETENTION)
-                return res.data
+                insightLogic.actions.endQuery(ViewType.RETENTION, res.last_refresh)
+                return res.result
             },
         },
         people: {
@@ -95,7 +99,7 @@ export const retentionTableLogic = kea<
         },
     }),
     connect: {
-        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
+        actions: [insightHistoryLogic, ['createInsight']],
         values: [actionsModel, ['actions']],
     },
     actions: () => ({
@@ -110,7 +114,7 @@ export const retentionTableLogic = kea<
         filters: [
             props.filters
                 ? defaultFilters(props.filters as Record<string, any>)
-                : (state) => defaultFilters(router.selectors.searchParams(state)) as Record<string, any>,
+                : (state: Record<string, any>) => defaultFilters(router.selectors.searchParams(state)),
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
@@ -176,14 +180,14 @@ export const retentionTableLogic = kea<
     }),
     listeners: ({ actions, values, props }) => ({
         setProperties: () => {
-            actions.loadResults(true)
+            actions.loadResults()
         },
         setFilters: () => {
-            actions.loadResults(true)
+            actions.loadResults()
         },
         loadResults: () => {
             actions.clearPeople()
-            actions.setAllFilters(values.filters)
+            insightLogic.actions.setAllFilters(values.filters)
             if (!props.dashboardItemId) {
                 actions.createInsight(values.filters)
             }
@@ -196,6 +200,11 @@ export const retentionTableLogic = kea<
                     next: peopleResult['next'],
                 }
                 actions.updatePeople(newPeople)
+            }
+        },
+        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
+            if (props.dashboardItemId) {
+                actions.setFilters(filters)
             }
         },
     }),

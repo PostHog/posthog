@@ -15,8 +15,8 @@ export function OptInPlugins(): JSX.Element {
     useEffect(() => {
         async function setStatus(): Promise<void> {
             try {
-                const response = await api.get('api/organizations/@current/plugins/status')
-                setServerStatus(response.status)
+                const response = await api.get('_preflight')
+                setServerStatus(response.plugins ? 'online' : 'offline')
             } catch (e) {
                 setServerStatus('offline')
             }
@@ -37,7 +37,7 @@ export function OptInPlugins(): JSX.Element {
                     <div style={{ marginBottom: 20 }}>
                         Plugin support requires the cooperation of the main PostHog application and the{' '}
                         <a href="https://github.com/PostHog/plugin-server" target="_blank" rel="noreferrer noopener">
-                            <code>PostHog plugin server</code>
+                            PostHog Plugin Server
                         </a>
                         , which must be properly set up.
                     </div>

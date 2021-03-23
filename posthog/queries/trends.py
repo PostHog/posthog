@@ -24,7 +24,7 @@ from django.db.models.expressions import ExpressionWrapper, F, RawSQL, Subquery
 from django.db.models.fields import DateTimeField
 from django.db.models.functions import Cast
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE, TRENDS_PIE, TRENDS_TABLE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE, TRENDS_LIFECYCLE
 from posthog.models import (
     Action,
     ActionStep,
@@ -332,11 +332,12 @@ class Trends(LifecycleTrend, BaseQuery):
 
     def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
+
         items, filtered_events = aggregate_by_interval(events=events, team_id=team_id, entity=entity, filter=filter,)
         formatted_entities: List[Dict[str, Any]] = []
         for _, item in items.items():
             formatted_data = append_data(dates_filled=list(item.items()), interval=filter.interval)
-            if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
+            if filter.display in TRENDS_DISPLAY_BY_VALUE:
                 formatted_data.update({"aggregated_value": get_aggregate_total(filtered_events, entity)})
             formatted_entities.append(formatted_data)
         return formatted_entities
@@ -355,7 +356,7 @@ class Trends(LifecycleTrend, BaseQuery):
             new_dict = append_data(dates_filled=list(item.items()), interval=filter.interval)
             if value != "Total":
                 new_dict.update(breakdown_label(entity, value))
-            if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
+            if filter.display in TRENDS_DISPLAY_BY_VALUE:
                 new_dict.update(
                     {
                         "aggregated_value": get_aggregate_breakdown_total(
@@ -392,6 +393,7 @@ class Trends(LifecycleTrend, BaseQuery):
         return entity_metrics
 
     def calculate_trends(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+
         actions = Action.objects.filter(team_id=team.pk).order_by("-id")
         if len(filter.actions) > 0:
             actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)

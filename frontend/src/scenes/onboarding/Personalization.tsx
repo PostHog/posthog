@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
-import { hot } from 'react-hot-loader/root'
 import { personalizationLogic } from './personalizationLogic'
 import { Row, Col, Button } from 'antd'
 import { RadioSelect } from 'lib/components/RadioSelect'
@@ -8,8 +7,7 @@ import { ROLES, PRODUCTS, IS_TECHNICAL } from './personalizationOptions'
 import { Link } from 'lib/components/Link'
 import './Personalization.scss'
 
-export const Personalization = hot(_Personalization)
-function _Personalization(): JSX.Element {
+export function Personalization(): JSX.Element {
     const { personalizationData } = useValues(personalizationLogic)
     const { appendPersonalizationData, reportPersonalizationSkipped, reportPersonalization } = useActions(
         personalizationLogic
@@ -43,6 +41,7 @@ function _Personalization(): JSX.Element {
                             1. <b>Your role</b> at company is (or closest to)
                         </div>
                         <RadioSelect
+                            identifier="personalization-role"
                             options={ROLES}
                             selectedOption={personalizationData.role}
                             onOptionChanged={(value) => {
@@ -61,6 +60,7 @@ function _Personalization(): JSX.Element {
                             2. Are you <b>technical</b>? (i.e. coding/developer expertise)
                         </div>
                         <RadioSelect
+                            identifier="personalization-technical"
                             options={IS_TECHNICAL}
                             selectedOption={personalizationData.technical}
                             onOptionChanged={(value) => appendPersonalizationData('technical', value)}
@@ -74,6 +74,7 @@ function _Personalization(): JSX.Element {
                         </div>
 
                         <RadioSelect
+                            identifier="personalization-products"
                             options={PRODUCTS}
                             selectedOption={personalizationData.products}
                             onOptionChanged={(value) => appendPersonalizationData('products', value)}

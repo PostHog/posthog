@@ -6,8 +6,14 @@ style files without adding already imported styles. */
 @import 'node_modules/react-toastify/dist/ReactToastify';
 @import './vars';
 
+@font-face {
+    font-family: 'GoshaSans-Bold';
+    src: url('../public/GoshaSans-Bold.woff2') format('woff2'), url('../public/GoshaSans-Bold.woff') format('woff');
+}
+
 :root {
     --primary: #{$primary};
+    --primary-alt: #{$primary_alt};
     --success: #{$success};
     --danger: #{$danger};
     --warning: #{$warning};
@@ -55,6 +61,7 @@ style files without adding already imported styles. */
     margin-top: 0.5em;
     font-weight: 700;
     color: $text_default;
+    font-family: $gosha_sans;
 }
 
 .page-caption {
@@ -74,6 +81,10 @@ style files without adding already imported styles. */
     font-size: 22px;
     line-height: 26px;
     font-weight: 700;
+
+    &.highlighted {
+        padding: $default_spacing $default_spacing $default_spacing $default_spacing / 2;
+    }
 }
 
 .l3 {
@@ -221,6 +232,11 @@ code.code {
     cursor: pointer;
 }
 
+.highlighted {
+    background-color: $yellow_50;
+    border-radius: $radius;
+}
+
 // Toasts
 .Toastify__toast-container {
     opacity: 1;
@@ -233,19 +249,36 @@ code.code {
     color: $text_default;
     font-family: inherit;
     background-color: $bg_light;
-}
+    border: 1px solid $border;
+    @extend .text-default;
+    color: $text_default;
 
-.Toastify__toast-body {
-    @extend .l3;
-    color: $success;
-    p {
-        @extend .text-default;
-        color: $text_default;
+    h1 {
+        font-size: 1.14rem;
+        font-weight: bold;
     }
 }
 
-.Toastify__progress-bar--default {
+.Toastify__progress-bar {
     background: $success;
+}
+
+.Toastify__toast--success {
+    h1 {
+        color: $success;
+    }
+}
+
+.Toastify__toast--info {
+    h1 {
+        color: $primary_alt;
+    }
+    &.accent-border {
+        border-color: $primary_alt;
+    }
+    .Toastify__progress-bar {
+        background: $primary_alt;
+    }
 }
 
 .Toastify__toast--error {
@@ -289,11 +322,17 @@ code.code {
         @extend .text-small;
     }
 
+    .ant-radio-button-wrapper {
+        // To properly handle label styles above
+        font-weight: normal !important;
+        line-height: 30px !important;
+    }
+
     &.errored {
         .caption {
             color: $danger;
         }
-        .ant-input-password,
+        input[type='password'],
         input[type='text'] {
             border-color: $danger !important;
         }
@@ -304,6 +343,10 @@ code.code {
     &.errored:not(:focus) {
         border-color: $danger !important;
     }
+}
+
+.ant-form-item-label {
+    font-weight: bold;
 }
 
 // Button styles
@@ -328,9 +371,13 @@ code.code {
     margin-left: 5px;
 }
 
-.btn-add {
-    color: $text_muted !important;
-    border: 1px dashed $border !important;
+.btn-lg-2x {
+    font-size: 1.5rem !important;
+    line-height: 1 !important;
+    svg {
+        width: 1.5rem !important;
+        height: 1.5rem !important;
+    }
 }
 
 // Badges styles
@@ -460,5 +507,18 @@ code.code {
     &.and {
         background-color: $yellow_100;
         color: $primary_alt;
+    }
+}
+
+// Simple tags
+
+.simple-tag {
+    border-radius: $radius;
+    font-weight: bold;
+    padding: 2px 6px;
+
+    &.tag-light-lilac {
+        background-color: $hc_light_lilac;
+        color: $hc_navy;
     }
 }

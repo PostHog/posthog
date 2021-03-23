@@ -4,7 +4,7 @@ import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
-import { Card, Checkbox, Col, Input, Radio } from 'antd'
+import { Card, Col, Input, Radio } from 'antd'
 import { ExportOutlined } from '@ant-design/icons'
 
 let getSafeText = (el) => {
@@ -30,7 +30,6 @@ export class ActionStep extends Component {
         super(props)
         this.state = {
             step: props.step,
-            selection: Object.keys(props.step).filter((key) => key !== 'id' && key !== 'isNew' && props.step[key]),
             inspecting: false,
         }
         this.AutocaptureFields = this.AutocaptureFields.bind(this)
@@ -58,14 +57,6 @@ export class ActionStep extends Component {
         query = query.replace(/(^[A-Z]+| [A-Z]+)/g, (d) => d.toLowerCase())
         let tagName = el.tagName.toLowerCase()
 
-        let selection = ['selector']
-        if (tagName === 'a') {
-            selection = ['href', 'selector']
-        } else if (tagName === 'button') {
-            selection = ['text', 'selector']
-        } else if (el.getAttribute('name')) {
-            selection = ['name', 'selector']
-        }
         let step = {
             ...this.props.step,
             event: '$autocapture',
@@ -79,7 +70,6 @@ export class ActionStep extends Component {
         this.setState(
             {
                 element: el,
-                selection,
             },
             () => this.sendStep(step)
         )
@@ -115,52 +105,24 @@ export class ActionStep extends Component {
         document.removeEventListener('keydown', this.onKeyDown)
     }
     sendStep = (step) => {
-        step.selection = this.state.selection
         this.props.onChange(step)
     }
     Option = (props) => {
         let onChange = (e) => {
-            this.props.step[props.item] = e.target.value
-
-            if (e.target.value && this.state.selection.indexOf(props.item) === -1) {
-                this.setState({ selection: this.state.selection.concat([props.item]) }, () =>
-                    this.sendStep(this.props.step)
-                )
-            } else if (!e.target.value && this.state.selection.indexOf(props.item) > -1) {
-                this.setState(
-                    {
-                        selection: this.state.selection.filter((i) => i !== props.item),
-                    },
-                    () => this.sendStep(this.props.step)
-                )
-            } else {
-                this.sendStep(this.props.step)
-            }
+            this.sendStep({ ...this.props.step, [props.item]: e.target.value })
         }
 
         return (
-            <div className={'mb ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
+            <div className="mb">
                 <label>
-                    <Checkbox
-                        checked={this.state.selection.indexOf(props.item) > -1}
-                        value={props.item}
-                        onChange={(e) => {
-                            let { selection } = this.state
-                            if (e.target.checked) {
-                                selection.push(props.item)
-                            } else {
-                                selection = selection.filter((i) => i !== props.item)
-                            }
-                            this.setState({ selection }, () => this.sendStep(this.props.step))
-                        }}
-                    />{' '}
                     {props.label} {props.extra_options}
                 </label>
                 {props.item === 'selector' ? (
-                    <Input.TextArea onChange={onChange} value={this.props.step[props.item] || ''} />
+                    <Input.TextArea allowClear onChange={onChange} value={this.props.step[props.item] || ''} />
                 ) : (
                     <Input
                         data-attr="edit-action-url-input"
+                        allowClear
                         onChange={onChange}
                         value={this.props.step[props.item] || ''}
                     />
@@ -173,22 +135,15 @@ export class ActionStep extends Component {
         const handleChange = (e) => {
             const type = e.target.value
             if (type === '$autocapture') {
-                this.setState(
-                    {
-                        selection: Object.keys(step).filter((key) => key !== 'id' && key !== 'isNew' && step[key]),
-                    },
-                    () => this.sendStep({ ...step, event: '$autocapture' })
-                )
+                this.sendStep({ ...step, event: '$autocapture' })
             } else if (type === 'event') {
-                this.setState({ selection: [] }, () => this.sendStep({ ...step, event: '' }))
+                this.sendStep({ ...step, event: '' })
             } else if (type === '$pageview') {
-                this.setState({ selection: ['url'] }, () =>
-                    this.sendStep({
-                        ...step,
-                        event: '$pageview',
-                        url: step.url,
-                    })
-                )
+                this.sendStep({
+                    ...step,
+                    event: '$pageview',
+                    url: step.url,
+                })
             }
         }
 

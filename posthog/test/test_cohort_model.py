@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+import pytest
 from django.test import tag
 from freezegun import freeze_time
 
@@ -73,7 +74,7 @@ class TestCohort(BaseTest):
         self.assertEqual(cohort.people.count(), 2)
         self.assertEqual(cohort.is_calculating, False)
 
-    @tag("ee")
+    @pytest.mark.ee
     @patch("ee.clickhouse.models.cohort.get_person_ids_by_cohort_id")
     def test_calculating_cohort_clickhouse(self, get_person_ids_by_cohort_id):
         person1 = Person.objects.create(
@@ -93,7 +94,7 @@ class TestCohort(BaseTest):
 
         self.assertCountEqual(list(cohort.people.all()), [person1, person2])
 
-    @tag("ee")
+    @pytest.mark.ee
     def test_clickhouse_empty_query(self):
         cohort2 = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",

@@ -4,6 +4,7 @@ import {
     CUSTOM_EVENT,
     EVENT_TYPE,
     OrganizationMembershipLevel,
+    PluginsAccessLevel,
     PAGEVIEW,
     SCREEN,
     ShownAsValue,
@@ -19,16 +20,14 @@ export interface UserType {
     email_opt_in: boolean
     id: number
     name: string
-    opt_out_capture: null
     posthog_version: string
     organization: OrganizationType | null
     team: TeamType | null
     toolbar_mode: 'disabled' | 'toolbar'
     organizations: OrganizationType[]
-    teams: TeamType[]
+    teams: Partial<TeamType>[]
     current_organization_id: string
     current_team_id: number
-    plugin_access: PluginAccess
     has_password: boolean
     is_multi_tenancy: boolean
     is_staff: boolean
@@ -38,6 +37,8 @@ export interface UserType {
     email_service_available: boolean
     realm: 'cloud' | 'hosted'
     billing?: OrganizationBilling
+    is_event_property_usage_enabled: boolean
+    is_async_event_action_mapping_enabled: boolean
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -80,6 +81,8 @@ export interface OrganizationType {
     teams?: TeamType[]
     membership_level: OrganizationMembershipLevel | null
     setup: SetupState
+    personalization: PersonalizationData
+    plugins_access_level: PluginsAccessLevel
 }
 
 export interface OrganizationMemberType {
@@ -116,13 +119,14 @@ export interface TeamType {
     event_properties_numerical: string[]
     event_names_with_usage: EventUsageType[]
     event_properties_with_usage: PropertyUsageType[]
-    opt_out_capture: boolean
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     session_recording_retention_period_days: number | null
     plugins_opt_in: boolean
     ingested_event: boolean
     is_demo: boolean
+    test_account_filters: FilterType[]
+    timezone: string
 }
 
 export interface ActionType {
@@ -134,7 +138,7 @@ export interface ActionType {
     name: string
     post_to_slack?: boolean
     steps?: ActionStepType[]
-    created_by: Record<string, any>
+    created_by: UserNestedType | null
 }
 
 export interface ActionStepType {
@@ -184,7 +188,7 @@ export interface PropertyFilter {
 
 interface BasePropertyFilter {
     key: string
-    value: string | number | null
+    value: string | number | Array<string | number> | null
     label?: string
 }
 
@@ -268,17 +272,24 @@ export interface PersonType {
     created_at?: string
 }
 
+export interface CohortGroupType {
+    days?: string
+    action_id?: number
+    properties?: Record<string, any>
+}
+
 export interface CohortType {
     count?: number
-    created_by?: Record<string, any>
+    created_by?: UserNestedType | null
     created_at?: string
     deleted?: boolean
-    id: number
+    id: number | 'new'
     is_calculating?: boolean
     last_calculation?: string
+    is_static?: boolean
     name?: string
     csv?: File
-    groups: Record<string, any>[]
+    groups: CohortGroupType[]
 }
 
 export interface InsightHistory {
@@ -318,12 +329,19 @@ export interface SessionType {
     matching_events: Array<number | string>
 }
 
+export interface FormattedNumber {
+    // :TODO: DEPRECATED, formatting will now happen client-side
+    value: number
+    formatted: string
+}
+
 export interface OrganizationBilling {
-    plan: PlanInterface
-    current_usage: { value: number; formatted: string } | null
-    should_setup_billing: boolean
-    stripe_checkout_session: string
-    subscription_url: string
+    plan: PlanInterface | null
+    current_usage: FormattedNumber | number | null
+    should_setup_billing?: boolean
+    stripe_checkout_session?: string
+    subscription_url?: string
+    event_allocation: FormattedNumber | number | null
 }
 
 export interface PlanInterface {
@@ -332,7 +350,10 @@ export interface PlanInterface {
     custom_setup_billing_message: string
     image_url: string
     self_serve: boolean
-    allowance: { value: number; formatted: string } | null
+    is_metered_billing: boolean
+    allowance: FormattedNumber | number | null // :TODO: DEPRECATED
+    event_allowance: number
+    price_string: string
 }
 
 export interface BillingSubscription {
@@ -343,6 +364,7 @@ export interface BillingSubscription {
 export interface DashboardItemType {
     id: number
     name: string
+    description?: string
     filters: Record<string, any>
     filters_hash: string
     order: number
@@ -350,28 +372,33 @@ export interface DashboardItemType {
     saved: boolean
     created_at: string
     layouts: Record<string, any>
-    color: string
+    color: string | null
     last_refresh: string
     refreshing: boolean
-    created_by: Record<string, any>
+    created_by: UserNestedType | null
     is_sample: boolean
+    dashboard: number
+    result: any | null
 }
 
 export interface DashboardType {
     id: number
     name: string
-    pinned: string
+    pinned: boolean
     items: DashboardItemType[]
     created_at: string
-    created_by: number
+    created_by: UserNestedType | null
     is_shared: boolean
     share_token: string
     deleted: boolean
+    filters: Record<string, any>
+    creation_mode: 'default' | 'template' | 'duplicate'
 }
 
 export interface OrganizationInviteType {
     id: string
     target_email: string
+    first_name: string
     is_expired: boolean
     emailing_attempt_made: boolean
     created_by: UserNestedType | null
@@ -389,8 +416,10 @@ export interface PluginType {
     latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
-    error?: PluginErrorType
     maintainer?: string
+    is_global: boolean
+    organization_id: string
+    organization_name: string
 }
 
 export interface PluginConfigType {
@@ -399,7 +428,6 @@ export interface PluginConfigType {
     enabled: boolean
     order: number
     config: Record<string, any>
-    global?: boolean
     error?: PluginErrorType
 }
 
@@ -430,6 +458,7 @@ export type DisplayType =
     | 'ActionsTable'
     | 'ActionsPie'
     | 'ActionsBar'
+    | 'ActionsBarValue'
     | 'PathsViz'
     | 'FunnelViz'
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
@@ -454,15 +483,17 @@ export interface FilterType {
     session?: string
     period?: string
     retentionType?: RetentionType
-    returningEntity?: Record<string, any>
-    startEntity?: Record<string, any>
+    returning_entity?: Record<string, any>
+    target_entity?: Record<string, any>
     path_type?: PathType
     start_point?: string | number
     stickiness_days?: number
-    entityId?: string | number
-    type?: EntityType
+    entity_id?: string | number
+    entity_type?: EntityType
     people_day?: any
     people_action?: any
+    formula?: any
+    filter_test_accounts?: boolean
 }
 
 export interface SystemStatus {
@@ -476,9 +507,10 @@ export type PersonalizationData = Record<string, string | string[] | null>
 interface EnabledSetupState {
     is_active: true // Whether the onbarding setup is currently active
     current_section: number
-    any_project_ingested_events?: boolean
-    any_project_completed_snippet_onboarding?: boolean
-    non_demo_team_id?: number | null
+    any_project_ingested_events: boolean
+    any_project_completed_snippet_onboarding: boolean
+    non_demo_team_id: number | null
+    has_invited_team_members: boolean
 }
 
 interface DisabledSetupState {
@@ -487,3 +519,117 @@ interface DisabledSetupState {
 }
 
 export type SetupState = EnabledSetupState | DisabledSetupState
+
+export interface ActionFilter {
+    id: number | string
+    math?: string
+    math_property?: string
+    name: string
+    order: number
+    properties: PropertyFilter[]
+    type: EntityType
+}
+
+export interface TrendResult {
+    action: ActionFilter
+    count: number
+    data: number[]
+    days: string[]
+    label: string
+    labels: string[]
+    breakdown_value?: string | number
+}
+
+export interface TrendResultWithAggregate extends TrendResult {
+    aggregated_value: number
+}
+
+export interface ChartParams {
+    dashboardItemId?: number
+    color?: string
+    filters?: Partial<FilterType>
+    inSharedMode?: boolean
+    cachedResults?: TrendResult
+    view: ViewType
+}
+
+export interface FeatureFlagGroupType {
+    properties: PropertyFilter[]
+    rollout_percentage: number | null
+}
+interface FeatureFlagFilters {
+    groups: FeatureFlagGroupType[]
+}
+export interface FeatureFlagType {
+    id: number | null
+    key: string
+    name: string // Used as description
+    filters: FeatureFlagFilters
+    deleted: boolean
+    active: boolean
+    created_by: UserNestedType | null
+    created_at: string
+    is_simple_flag: boolean
+    rollout_percentage: number | null
+}
+
+export interface PrevalidatedInvite {
+    id: string
+    target_email: string
+    first_name: string
+    organization_name: string
+}
+
+interface AuthBackends {
+    'google-oauth2'?: boolean
+    gitlab?: boolean
+    github?: boolean
+}
+
+export interface PreflightStatus {
+    django: boolean
+    plugins: boolean
+    redis: boolean
+    db: boolean
+    initiated: boolean
+    cloud: boolean
+    celery: boolean
+    available_social_auth_providers: AuthBackends
+    available_timezones: Record<string, number>
+}
+
+export enum DashboardMode { // Default mode is null
+    Edit = 'edit', // When the dashboard is being edited
+    Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
+    Sharing = 'sharing', // When the sharing configuration is opened
+    Public = 'public', // When viewing the dashboard publicly via a shareToken
+}
+
+export type Keys =
+    | 'a'
+    | 'b'
+    | 'c'
+    | 'd'
+    | 'e'
+    | 'f'
+    | 'g'
+    | 'h'
+    | 'i'
+    | 'j'
+    | 'k'
+    | 'l'
+    | 'm'
+    | 'n'
+    | 'o'
+    | 'p'
+    | 'q'
+    | 'r'
+    | 's'
+    | 't'
+    | 'u'
+    | 'v'
+    | 'w'
+    | 'x'
+    | 'y'
+    | 'z'
+    | 'escape'

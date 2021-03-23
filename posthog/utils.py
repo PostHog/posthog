@@ -1,5 +1,6 @@
 import base64
 import datetime
+import datetime as dt
 import gzip
 import hashlib
 import json
@@ -45,6 +46,10 @@ DATERANGE_MAP = {
     "week": datetime.timedelta(weeks=1),
     "month": datetime.timedelta(days=31),
 }
+ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
+
+# https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
+__location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
 
 def format_label_date(date: datetime.datetime, interval: str) -> str:
@@ -195,12 +200,12 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     except (Team.DoesNotExist, AttributeError):
         team = Team.objects.first()
 
-    if os.environ.get("OPT_OUT_CAPTURE"):
-        # Prioritise instance-level config
-        context["opt_out_capture"] = True
-    else:
-        context["opt_out_capture"] = team.opt_out_capture if team else False
+    context["self_capture"] = False
+    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
 
+    # TODO: BEGINS DEPRECATED CODE
+    # Code deprecated in favor of posthog.api.authentication.AuthenticationSerializer
+    # Remove after migrating login to React
     if settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET:
         context["github_auth"] = True
     if settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET:
@@ -224,6 +229,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
                 context["google_auth"] = True
             else:
                 print_warning(["You have Google login set up, but not the required premium PostHog plan!"])
+    # ENDS DEPRECATED CODE
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
@@ -234,6 +240,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["git_branch"] = get_git_branch()
 
     if settings.SELF_CAPTURE:
+        context["self_capture"] = True
         if team:
             context["js_posthog_api_key"] = f"'{team.api_token}'"
             context["js_posthog_host"] = "window.location.origin"
@@ -463,9 +470,16 @@ def is_celery_alive() -> bool:
 def is_plugin_server_alive() -> bool:
     try:
         ping = get_client().get("@posthog-plugin-server/ping")
-        return ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30)
+        return bool(ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30))
     except BaseException:
         return False
+
+
+def get_plugin_server_version() -> Optional[str]:
+    cache_key_value = get_client().get("@posthog-plugin-server/version")
+    if cache_key_value:
+        return cache_key_value.decode("utf-8")
+    return None
 
 
 def get_redis_info() -> Mapping[str, Any]:
@@ -485,6 +499,39 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
     for idx, param in enumerate(params):
         named_params.update({f"{prepend}_arg_{idx}": param})
     return new_string, named_params
+
+
+def get_instance_realm() -> str:
+    """
+    Returns the realm for the current instance. `cloud` or `hosted`.
+    """
+    return "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
+
+
+def get_available_social_auth_providers() -> Dict[str, bool]:
+    github: bool = bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET)
+    gitlab: bool = bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET)
+    google: bool = False
+
+    if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
+        settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", None,
+    ):
+        if settings.MULTI_TENANCY:
+            google = True
+        else:
+
+            try:
+                from ee.models.license import License
+            except ImportError:
+                pass
+            else:
+                license = License.objects.first_valid()
+                if license is not None and "google_login" in license.available_features:
+                    google = True
+                else:
+                    print_warning(["You have Google login set up, but not the required premium PostHog plan!"])
+
+    return {"google-oauth2": google, "github": github, "gitlab": gitlab}
 
 
 def flatten(l: Union[List, Tuple]) -> Generator:
@@ -541,3 +588,68 @@ def get_safe_cache(cache_key: str):
         except:
             pass
     return None
+
+
+def is_anonymous_id(distinct_id: str) -> bool:
+    # Our anonymous ids are _not_ uuids, but a random collection of strings
+    return bool(re.match(ANONYMOUS_REGEX, distinct_id))
+
+
+def mask_email_address(email_address: str) -> str:
+    """
+    Grabs an email address and returns it masked in a human-friendly way to protect PII.
+        Example: testemail@posthog.com -> t********l@posthog.com
+    """
+    index = email_address.find("@")
+
+    if index == -1:
+        raise ValueError("Please provide a valid email address.")
+
+    if index == 1:
+        # Username is one letter, mask it differently
+        return f"*{email_address[index:]}"
+
+    return f"{email_address[0]}{'*' * (index - 2)}{email_address[index-1:]}"
+
+
+def is_valid_regex(value: Any) -> bool:
+    try:
+        re.compile(value)
+        return True
+    except re.error:
+        return False
+
+
+def get_absolute_path(to: str) -> str:
+    """
+    Returns an absolute path in the FS based on posthog/posthog (back-end root folder)
+    """
+    return os.path.join(__location__, to)
+
+
+class GenericEmails:
+    """
+    List of generic emails that we don't want to use to filter out test accounts.
+    """
+
+    def __init__(self):
+        with open(get_absolute_path("helpers/generic_emails.txt"), "r") as f:
+            self.emails = {x.rstrip(): True for x in f}
+
+    def is_generic(self, email: str) -> bool:
+        at_location = email.find("@")
+        if at_location == -1:
+            return False
+        return self.emails.get(email[at_location + 1 :], False)
+
+
+def get_available_timezones_with_offsets() -> Dict[str, float]:
+    now = dt.datetime.now()
+    result = {}
+    for tz in pytz.common_timezones:
+        offset = pytz.timezone(tz).utcoffset(now)
+        if offset is None:
+            continue
+        offset_hours = int(offset.total_seconds()) / 3600
+        result[tz] = offset_hours
+    return result

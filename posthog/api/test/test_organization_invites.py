@@ -1,4 +1,5 @@
 import random
+from unittest.mock import patch
 
 from django.core import mail
 from rest_framework import status
@@ -27,7 +28,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     # Creating invites
 
-    def test_add_organization_invite_email_required(self):
+    @patch("posthoganalytics.capture")
+    def test_add_organization_invite_email_required(self, mock_capture):
         response = self.client.post("/api/organizations/@current/invites/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
@@ -41,9 +43,15 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-    def test_add_organization_invite_with_email(self):
+        mock_capture.assert_not_called()
+
+    @patch("posthoganalytics.capture")
+    def test_add_organization_invite_with_email(self, mock_capture):
         email = "x@x.com"
-        response = self.client.post("/api/organizations/@current/invites/", {"target_email": email})
+
+        with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
+            response = self.client.post("/api/organizations/@current/invites/", {"target_email": email})
+
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(OrganizationInvite.objects.exists())
         response_data = response.json()
@@ -62,7 +70,19 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                     "first_name": self.user.first_name,
                 },
                 "is_expired": False,
-                "emailing_attempt_made": False,
+                "emailing_attempt_made": True,
+            },
+        )
+
+        # Assert capture was called
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "team invite executed",
+            properties={
+                "name_provided": False,
+                "current_invite_count": 1,
+                "current_member_count": 1,
+                "email_available": True,
             },
         )
 
@@ -92,19 +112,17 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     # Bulk create invites
 
-    def test_allow_bulk_creating_invites(self):
+    @patch("posthoganalytics.capture")
+    def test_allow_bulk_creating_invites(self, mock_capture):
         count = OrganizationInvite.objects.count()
         payload = self.helper_generate_bulk_invite_payload(7)
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
-            response = self.client.post(
-                "/api/organizations/@current/invites/bulk/", {"invites": payload}, format="json",
-            )
+            response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json",)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_data = response.json()
 
         self.assertEqual(OrganizationInvite.objects.count(), count + 7)
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        response_data = response.json()["invites"]
 
         self.assertEqual(len(response_data), 7)
 
@@ -119,14 +137,25 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # Emails should be sent
         self.assertEqual(len(mail.outbox), 7)
 
+        # Assert capture was called
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "bulk invite executed",
+            properties={
+                "invitee_count": 7,
+                "name_count": sum(1 for user in payload if user["first_name"]),
+                "current_invite_count": 7,
+                "current_member_count": 1,
+                "email_available": True,
+            },
+        )
+
     def test_maximum_20_invites_per_request(self):
         count = OrganizationInvite.objects.count()
         payload = self.helper_generate_bulk_invite_payload(21)
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
-            response = self.client.post(
-                "/api/organizations/@current/invites/bulk/", {"invites": payload}, format="json",
-            )
+            response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json",)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -135,7 +164,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "type": "validation_error",
                 "code": "max_length",
                 "detail": "A maximum of 20 invites can be sent in a single request.",
-                "attr": "invites",
+                "attr": None,
             },
         )
 
@@ -151,9 +180,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         payload[4]["target_email"] = None
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
-            response = self.client.post(
-                "/api/organizations/@current/invites/bulk/", {"invites": payload}, format="json",
-            )
+            response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json",)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -170,9 +197,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         payload = self.helper_generate_bulk_invite_payload(3)
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
-            response = self.client.post(
-                f"/api/organizations/{another_org.id}/invites/bulk/", {"invites": payload}, format="json",
-            )
+            response = self.client.post(f"/api/organizations/{another_org.id}/invites/bulk/", payload, format="json",)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json(), self.permission_denied_response())
@@ -185,23 +210,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     # Deleting invites
 
-    def test_delete_organization_invite_only_if_admin(self):
+    def test_delete_organization_invite_if_plain_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         invite = OrganizationInvite.objects.create(organization=self.organization)
-        response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
-        self.assertEqual(
-            response.data,
-            {
-                "type": "authentication_error",
-                "code": "permission_denied",
-                "detail": "Your organization access level is insufficient.",
-                "attr": None,
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
         response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
         self.assertIsNone(response.data)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)

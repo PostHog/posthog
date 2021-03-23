@@ -15,6 +15,7 @@ class Plugin(models.Model):
     plugin_type: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=PluginType.choices, default=None
     )
+    is_global: models.BooleanField = models.BooleanField(default=False)  # Whether plugin is installed for all orgs
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)
     url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
@@ -26,13 +27,14 @@ class Plugin(models.Model):
     source: models.TextField = models.TextField(blank=True, null=True)
     latest_tag: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     latest_tag_checked_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-    # Error installing or configuring this plugin (frontend: PluginErrorType)
-    # - e.g: "could not find plugin.json" / "syntax error in index.js")
-    # - error = { message: "Could not find plugin.json", time: "iso-string", ...meta }
+    # DEPRECATED: not used for anything, all install and config errors are in PluginConfig.error
     error: JSONField = JSONField(default=None, null=True)
     # DEPRECATED: these were used when syncing posthog.json with the db on app start
     from_json: models.BooleanField = models.BooleanField(default=False)
     from_web: models.BooleanField = models.BooleanField(default=False)
+
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
 
 class PluginConfig(models.Model):
@@ -46,10 +48,13 @@ class PluginConfig(models.Model):
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
     error: JSONField = JSONField(default=None, null=True)
 
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+
 
 class PluginAttachment(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
-    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
+    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE, null=True)
     key: models.CharField = models.CharField(max_length=200)
     content_type: models.CharField = models.CharField(max_length=200)
     file_name: models.CharField = models.CharField(max_length=200)

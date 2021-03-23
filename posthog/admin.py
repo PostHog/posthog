@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.utils.safestring import mark_safe
 from django.utils.translation import ugettext_lazy as _
 
 from posthog.models import (
@@ -45,19 +46,93 @@ class UserAdmin(DjangoUserAdmin):
     change_form_template = "loginas/change_form.html"
 
     fieldsets = (
-        (None, {"fields": ("email", "password")}),
+        (None, {"fields": ("email", "password", "organization_name", "org_count")}),
         (_("Personal info"), {"fields": ("first_name", "last_name")}),
-        (_("Permissions"), {"fields": ("is_active", "is_staff", "groups", "user_permissions",)},),
+        (_("Permissions"), {"fields": ("is_active", "is_staff",)},),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
         (_("PostHog"), {"fields": ("temporary_token",)}),
     )
     add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email", "password1", "password2"),}),)
-    list_display = ("email", "first_name", "last_name", "is_staff")
+    list_display = (
+        "email",
+        "first_name",
+        "last_name",
+        "organization_name",
+        "org_count",
+        "is_staff",
+    )
     list_filter = ("is_staff", "is_active", "groups")
     search_fields = ("email", "first_name", "last_name")
+    readonly_fields = ["organization_name", "org_count"]
     ordering = ("email",)
+
+    def organization_name(self, user: User):
+        if not user.organization:
+            return "No Organization"
+
+        return mark_safe(
+            f'<a href="/admin/posthog/organization/{user.organization.pk}/change/">{user.organization.name}</a>',
+        )
+
+    def org_count(self, user: User) -> int:
+        return user.organization_memberships.count()
+
+
+class OrganizationMemberInline(admin.TabularInline):
+    extra = 0
+    model = Organization.members.through
+
+
+class OrganizationTeamInline(admin.TabularInline):
+    extra = 0
+    model = Team
 
 
 @admin.register(Organization)
+class OrganizationAdmin(admin.ModelAdmin):
+    fields = [
+        "name",
+        "personalization",
+        "setup_section_2_completed",
+        "created_at",
+        "updated_at",
+        "plugins_access_level",
+        "billing_plan",
+        "organization_billing_link",
+        "usage",
+    ]
+    inlines = [
+        OrganizationTeamInline,
+        OrganizationMemberInline,
+    ]
+    readonly_fields = ["created_at", "updated_at", "billing_plan", "organization_billing_link", "usage"]
+    search_fields = ("name", "members__email")
+    list_display = (
+        "name",
+        "created_at",
+        "plugins_access_level",
+        "members_count",
+        "first_member",
+        "organization_billing_link",
+    )
+
+    def members_count(self, organization: Organization):
+        return organization.members.count()
+
+    def first_member(self, organization: Organization):
+        user = organization.members.order_by("id").first()
+        return mark_safe('<a href="/admin/posthog/user/%s/change/">%s</a>' % (user.pk, user.email))
+
+    def organization_billing_link(self, organization: Organization) -> str:
+        return mark_safe(f'<a href="/admin/multi_tenancy/organizationbilling/{organization.pk}/change/">Billing →</a>')
+
+    def usage(self, organization: Organization):
+        return mark_safe(
+            '<a target="_blank" href="/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%2C%22math%22%3A%22dau%22%7D%5D&properties=%5B%7B%22key%22%3A%22organization_id%22%2C%22value%22%3A%22{}%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22person%22%7D%5D&actions=%5B%5D&new_entity=%5B%5D">See usage on PostHog →</a>'.format(
+                organization.id
+            )
+        )
+
+
 class OrganizationBillingAdmin(admin.ModelAdmin):
     search_fields = ("name", "members__email")

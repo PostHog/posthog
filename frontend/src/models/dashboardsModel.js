@@ -1,7 +1,8 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { delay, idToKey } from 'lib/utils'
+import { delay, idToKey, toParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { toast } from 'react-toastify'
 
@@ -12,14 +13,17 @@ export const dashboardsModel = kea({
         // this is moved out of dashboardLogic, so that you can click "undo" on a item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
         updateDashboardItem: (item) => ({ item }),
+        pinDashboard: (id, source = null) => ({ id, source }),
+        unpinDashboard: (id, source = null) => ({ id, source }),
     }),
-    loaders: () => ({
+    loaders: ({ values }) => ({
         rawDashboards: [
             {},
             {
-                loadDashboards: async () => {
+                loadDashboards: async (shareToken = undefined, breakpoint) => {
+                    await breakpoint(50)
                     try {
-                        const { results } = await api.get('api/dashboard')
+                        const { results } = await api.get(`api/dashboard?${toParams({ share_token: shareToken })}`)
                         return idToKey(results)
                     } catch {
                         return {}
@@ -41,13 +45,26 @@ export const dashboardsModel = kea({
                 }
                 return result
             },
-            renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),
+            renameDashboard: async ({ id, name }, breakpoint) => {
+                await breakpoint(700)
+                const response = await api.update(`api/dashboard/${id}`, { name })
+                eventUsageLogic.actions.reportDashboardRenamed(values.rawDashboards[id].name.length, name.length)
+                return response
+            },
             setIsSharedDashboard: async ({ id, isShared }) =>
                 await api.update(`api/dashboard/${id}`, { is_shared: isShared }),
             deleteDashboard: async ({ id }) => await api.update(`api/dashboard/${id}`, { deleted: true }),
             restoreDashboard: async ({ id }) => await api.update(`api/dashboard/${id}`, { deleted: false }),
-            pinDashboard: async (id) => await api.update(`api/dashboard/${id}`, { pinned: true }),
-            unpinDashboard: async (id) => await api.update(`api/dashboard/${id}`, { pinned: false }),
+            pinDashboard: async ({ id, source }) => {
+                const response = await api.update(`api/dashboard/${id}`, { pinned: true })
+                eventUsageLogic.actions.reportDashboardPinToggled(true, source)
+                return response
+            },
+            unpinDashboard: async ({ id, source }) => {
+                const response = await api.update(`api/dashboard/${id}`, { pinned: false })
+                eventUsageLogic.actions.reportDashboardPinToggled(false, source)
+                return response
+            },
         },
     }),
 

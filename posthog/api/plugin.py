@@ -1,38 +1,63 @@
 import json
 import os
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 import requests
-from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
-from django.db.models import Q
+from django.db.models import Model, Q
+from django.http.response import Http404
 from django.utils.timezone import now
-from rest_framework import request, serializers, viewsets
+from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
+from posthog.models.organization import Organization
 from posthog.permissions import OrganizationMemberPermissions, ProjectMembershipNecessaryPermissions
 from posthog.plugins import (
-    can_configure_plugins_via_api,
-    can_install_plugins_via_api,
+    can_configure_plugins,
+    can_install_plugins,
     download_plugin_archive,
     get_json_from_archive,
     parse_url,
     reload_plugins_on_workers,
 )
+from posthog.plugins.access import can_globally_manage_plugins
 from posthog.plugins.utils import load_json_file
-from posthog.redis import get_client
+from posthog.utils import is_plugin_server_alive
+
+# Keep this in sync with: frontend/scenes/plugins/utils.ts
+SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
+
+
+class PluginsAccessLevelPermission(BasePermission):
+    message = "Your organization's plugin access level is insufficient."
+
+    def has_permission(self, request, view) -> bool:
+        min_level = (
+            Organization.PluginsAccessLevel.CONFIG
+            if request.method in SAFE_METHODS
+            else Organization.PluginsAccessLevel.INSTALL
+        )
+        return view.organization.plugins_access_level >= min_level
+
+
+class PluginOwnershipPermission(BasePermission):
+    message = "This plugin installation is managed by another organization."
+
+    def has_object_permission(self, request, view, object) -> bool:
+        return view.organization == object.organization
 
 
 class PluginSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
+    organization_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Plugin
@@ -46,6 +71,9 @@ class PluginSerializer(serializers.ModelSerializer):
             "tag",
             "source",
             "latest_tag",
+            "is_global",
+            "organization_id",
+            "organization_name",
         ]
         read_only_fields = ["id", "latest_tag"]
 
@@ -62,36 +90,48 @@ class PluginSerializer(serializers.ModelSerializer):
 
         return None
 
-    def _raise_if_plugin_installed(self, url: str):
+    def get_organization_name(self, plugin: Plugin) -> str:
+        return plugin.organization.name
+
+    def _raise_if_plugin_installed(self, url: str, organization_id: str):
         url_without_private_key = url.split("?")[0]
-        if Plugin.objects.filter(
-            Q(url=url_without_private_key) | Q(url__startswith="{}?".format(url_without_private_key))
-        ).exists():
+        if (
+            Plugin.objects.filter(
+                Q(url=url_without_private_key) | Q(url__startswith="{}?".format(url_without_private_key))
+            )
+            .filter(organization_id=organization_id)
+            .exists()
+        ):
             raise ValidationError('Plugin from URL "{}" already installed!'.format(url_without_private_key))
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         validated_data["url"] = self.initial_data.get("url", None)
-        if not can_install_plugins_via_api(self.context["organization_id"]):
-            raise ValidationError("Plugin installation via the web is disabled!")
+        if validated_data.get("is_global") and not can_globally_manage_plugins(self.context["organization_id"]):
+            raise PermissionDenied("This organization can't manage global plugins!")
         if validated_data.get("plugin_type", None) != Plugin.PluginType.SOURCE:
             self._update_validated_data_from_url(validated_data, validated_data["url"])
-            self._raise_if_plugin_installed(validated_data["url"])
+            self._raise_if_plugin_installed(validated_data["url"], self.context["organization_id"])
         validated_data["organization_id"] = self.context["organization_id"]
         plugin = super().create(validated_data)
         reload_plugins_on_workers()
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
-        if not can_install_plugins_via_api(self.context["organization_id"]):
-            raise ValidationError("Plugin upgrades via the web are disabled!")
-        if plugin.plugin_type != Plugin.PluginType.SOURCE:
-            validated_data = self._update_validated_data_from_url({}, plugin.url)
+        context_organization = self.context.get("organization") or Organization.objects.get(
+            id=self.context["organization_id"]
+        )
+        if (
+            "is_global" in validated_data
+            and context_organization.plugins_access_level < Organization.PluginsAccessLevel.ROOT
+        ):
+            raise PermissionDenied("This organization can't manage global plugins!")
         response = super().update(plugin, validated_data)
         reload_plugins_on_workers()
         return response
 
     # If remote plugin, download the archive and get up-to-date validated_data from there.
-    def _update_validated_data_from_url(self, validated_data: Dict[str, Any], url: str) -> Dict:
+    @staticmethod
+    def _update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> Dict:
         if url.startswith("file:"):
             plugin_path = url[5:]
             json_path = os.path.join(plugin_path, "plugin.json")
@@ -135,43 +175,41 @@ class PluginSerializer(serializers.ModelSerializer):
 class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        OrganizationMemberPermissions,
+        PluginsAccessLevelPermission,
+        PluginOwnershipPermission,
+    ]
 
     def get_queryset(self):
         queryset = super().get_queryset()
         if self.action == "get" or self.action == "list":
-            if can_install_plugins_via_api(self.organization) or can_configure_plugins_via_api(self.organization):
+            if can_install_plugins(self.organization) or can_configure_plugins(self.organization):
                 return queryset
         else:
-            if can_install_plugins_via_api(self.organization):
+            if can_install_plugins(self.organization):
                 return queryset
         return queryset.none()
 
+    def filter_queryset_by_parents_lookups(self, queryset):
+        parents_query_dict = self.get_parents_query_dict()
+        try:
+            return queryset.filter(Q(**parents_query_dict) | Q(is_global=True))
+        except ValueError:
+            raise NotFound()
+
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request, **kwargs):
-        if not can_install_plugins_via_api(self.organization):
-            raise ValidationError("Plugin installation via the web is disabled!")
         url = "https://raw.githubusercontent.com/PostHog/plugin-repository/main/repository.json"
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
 
-    @action(methods=["GET"], detail=False)
-    def status(self, request: request.Request, **kwargs):
-        if not can_install_plugins_via_api(self.organization):
-            raise ValidationError("Plugin installation via the web is disabled!")
-
-        ping = get_client().get("@posthog-plugin-server/ping")
-        if ping:
-            ping_datetime = parser.isoparse(ping)
-            if ping_datetime > now() - relativedelta(seconds=30):
-                return Response({"status": "online"})
-
-        return Response({"status": "offline"})
-
     @action(methods=["GET"], detail=True)
     def check_for_updates(self, request: request.Request, **kwargs):
-        if not can_install_plugins_via_api(self.organization):
-            raise ValidationError("Plugin installation via the web is disabled!")
-
+        if not can_install_plugins(self.organization):
+            raise PermissionDenied("Plugin installation is not available for the current organization!")
         plugin = self.get_object()
         latest_url = parse_url(plugin.url, get_latest_if_none=True)
         plugin.latest_tag = latest_url.get("tag", latest_url.get("version", None))
@@ -180,15 +218,33 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return Response({"plugin": PluginSerializer(plugin).data})
 
-    def destroy(self, request: request.Request, *args, **kwargs) -> Response:
-        response = super().destroy(request, *args, **kwargs)
+    @action(methods=["POST"], detail=True)
+    def upgrade(self, request: request.Request, **kwargs):
+        plugin: Plugin = self.get_object()
+        organization = self.organization
+        if plugin.organization != organization:
+            raise NotFound()
+        if not can_install_plugins(self.organization, plugin.organization_id):
+            raise PermissionDenied("Plugin upgrading is not available for the current organization!")
+        serializer = PluginSerializer(plugin, context={"organization": organization})
+        validated_data = {}
+        if plugin.plugin_type != Plugin.PluginType.SOURCE:
+            validated_data = PluginSerializer._update_validated_data_from_url({}, plugin.url)
+        serializer.update(plugin, validated_data)
         reload_plugins_on_workers()
-        return response
+        return Response(serializer.data)
+
+    def destroy(self, request: request.Request, *args, **kwargs) -> Response:
+        instance = self.get_object()
+        if instance.is_global:
+            raise ValidationError("This plugin is marked as global! Make it local before uninstallation")
+        self.perform_destroy(instance)
+        reload_plugins_on_workers()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
 
     class Meta:
         model = PluginConfig
@@ -199,20 +255,39 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).only(
             "id", "file_size", "file_name", "content_type"
         )
+
         new_plugin_config = plugin_config.config.copy()
+
+        secret_fields = _get_secret_fields_for_plugin(plugin_config.plugin)
+
+        # do not send the real value to the client
+        for key in secret_fields:
+            if new_plugin_config.get(key):
+                new_plugin_config[key] = SECRET_FIELD_VALUE
+
         for attachment in attachments:
-            new_plugin_config[attachment.key] = {
-                "uid": attachment.id,
-                "saved": True,
-                "size": attachment.file_size,
-                "name": attachment.file_name,
-                "type": attachment.content_type,
-            }
+            if attachment.key not in secret_fields:
+                new_plugin_config[attachment.key] = {
+                    "uid": attachment.id,
+                    "saved": True,
+                    "size": attachment.file_size,
+                    "name": attachment.file_name,
+                    "type": attachment.content_type,
+                }
+            else:
+                new_plugin_config[attachment.key] = {
+                    "uid": -1,
+                    "saved": True,
+                    "size": -1,
+                    "name": SECRET_FIELD_VALUE,
+                    "type": "application/octet-stream",
+                }
+
         return new_plugin_config
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
-        if not can_configure_plugins_via_api(Team.objects.get(id=self.context["team_id"]).organization_id):
-            raise ValidationError("Plugin configuration via the web is disabled!")
+        if not can_configure_plugins(Team.objects.get(id=self.context["team_id"]).organization_id):
+            raise ValidationError("Plugin configuration is not available for the current organization!")
         request = self.context["request"]
         validated_data["team"] = Team.objects.get(id=self.context["team_id"])
         self._fix_formdata_config_json(validated_data)
@@ -224,6 +299,15 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
         self._fix_formdata_config_json(validated_data)
         validated_data.pop("plugin", None)
+
+        # Keep old value for secret fields if no new value in the request
+        secret_fields = _get_secret_fields_for_plugin(plugin_config.plugin)
+
+        if "config" in validated_data:
+            for key in secret_fields:
+                if validated_data["config"].get(key) is None:  # explicitly checking None to allow ""
+                    validated_data["config"][key] = plugin_config.config.get(key)
+
         response = super().update(plugin_config, validated_data)
         self._update_plugin_attachments(plugin_config)
         reload_plugins_on_workers()
@@ -277,40 +361,26 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
 
     def get_queryset(self):
-        if not can_configure_plugins_via_api(self.team.organization_id):
+        if not can_configure_plugins(self.team.organization_id):
             return self.queryset.none()
         return super().get_queryset().order_by("order", "plugin_id")
 
     # we don't really use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:  # type: ignore
-        if not can_configure_plugins_via_api(self.team.organization_id):
+        if not can_configure_plugins(self.team.organization_id):
             return Response(status=404)
         plugin_config = PluginConfig.objects.get(team_id=self.team_id, pk=pk)
         plugin_config.enabled = False
         plugin_config.save()
         return Response(status=204)
 
-    @action(methods=["GET"], detail=False)
-    def global_plugins(self, request: request.Request, **kwargs):
-        if not can_configure_plugins_via_api(self.team.organization_id):
-            return Response([])
-
-        response = []
-        plugin_configs = PluginConfig.objects.filter(team_id=None, enabled=True)  # type: ignore
-        for plugin_config in plugin_configs:
-            plugin = PluginConfigSerializer(plugin_config).data
-            plugin["config"] = None
-            plugin["error"] = None
-            response.append(plugin)
-
-        return Response(response)
-
     @action(methods=["PATCH"], detail=False)
     def rearrange(self, request: request.Request, **kwargs):
-        if not can_configure_plugins_via_api(self.team.organization_id):
-            raise ValidationError("Plugin configuration via the web is disabled!")
+        if not can_configure_plugins(self.team.organization_id):
+            raise ValidationError("Plugin configuration is not available for the current organization!")
 
         orders = request.data.get("orders", {})
 
@@ -328,3 +398,9 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             reload_plugins_on_workers()
 
         return Response(PluginConfigSerializer(plugin_configs, many=True).data)
+
+
+def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
+    # A set of keys for config fields that have secret = true
+    secret_fields = set([field["key"] for field in plugin.config_schema if "secret" in field and field["secret"]])
+    return secret_fields

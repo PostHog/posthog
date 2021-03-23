@@ -5,7 +5,7 @@ on:
 
 jobs:
     cypress:
-        name: Cypress tests
+        name: Cypress E2E tests
         runs-on: ubuntu-18.04
         strategy:
             # when one test fails, DO NOT cancel the other
@@ -76,7 +76,7 @@ jobs:
             - name: Yarn install deps
               run: |
                   yarn install --frozen-lockfile
-                  yarn add cypress@5.3.0 cypress-terminal-report@2.1.0
+                  yarn add cypress@6.4.0 cypress-terminal-report@2.1.0
             - uses: actions/cache@v1
               name: Setup Yarn build cache
               id: yarn-build-cache
@@ -98,6 +98,7 @@ jobs:
                   SECURE_COOKIES: 0
                   OPT_OUT_CAPTURE: 1
                   SELF_CAPTURE: 1
+                  AUTO_LOGIN: 1
               run: |
                   python manage.py collectstatic --noinput
                   ./bin/docker-migrate
@@ -108,7 +109,7 @@ jobs:
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:
-                  config-file: cypress.json
+                  config-file: cypress.e2e.json
                   record: true
                   parallel: true
                   group: 'PostHog Frontend'

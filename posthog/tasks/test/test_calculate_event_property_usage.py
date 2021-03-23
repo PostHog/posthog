@@ -7,7 +7,7 @@ from posthog.tasks.calculate_event_property_usage import calculate_event_propert
 from posthog.test.base import BaseTest
 
 
-def test_calculate_event_property_usage(create_event: Callable) -> Callable:
+def calculate_event_property_usage_test_factory(create_event: Callable) -> Callable:
     class Test(BaseTest):
         def test_calculate_usage(self) -> None:
             self.team.event_names = ["$pageview", "custom event"]
@@ -101,5 +101,5 @@ def test_calculate_event_property_usage(create_event: Callable) -> Callable:
     return Test
 
 
-class Test(test_calculate_event_property_usage(Event.objects.create)):  # type: ignore
+class Test(calculate_event_property_usage_test_factory(Event.objects.create)):  # type: ignore
     pass

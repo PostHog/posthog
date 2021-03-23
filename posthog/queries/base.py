@@ -1,5 +1,5 @@
 import copy
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, cast
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Exists, OuterRef, Q, QuerySet
@@ -110,19 +110,25 @@ def filter_events(
         relativity = relativedelta(months=1) - relativity  # go to last day of month instead of first of next
     if include_dates:
         filters &= Q(timestamp__lte=filter.date_to + relativity)
-    if filter.properties:
-        filters &= properties_to_Q(filter.properties, team_id=team_id)
+    if filter.properties or filter.filter_test_accounts:
+        filters &= properties_to_Q(filter.properties, team_id=team_id, filter_test_accounts=filter.filter_test_accounts)
     if entity and entity.properties:
         filters &= properties_to_Q(entity.properties, team_id=team_id)
     return filters
 
 
-def properties_to_Q(properties: List[Property], team_id: int, is_person_query: bool = False) -> Q:
+def properties_to_Q(
+    properties: List[Property], team_id: int, is_person_query: bool = False, filter_test_accounts: bool = False
+) -> Q:
     """
     Converts a filter to Q, for use in Django ORM .filter()
     If you're filtering a Person QuerySet, use is_person_query to avoid doing an unnecessary nested loop
     """
     filters = Q()
+
+    if filter_test_accounts:
+        test_account_filters = Team.objects.only("test_account_filters").get(id=team_id).test_account_filters
+        properties.extend([Property(**prop) for prop in test_account_filters])
 
     if len(properties) == 0:
         return filters
@@ -166,13 +172,13 @@ def properties_to_Q(properties: List[Property], team_id: int, is_person_query: b
 
         for item in cohort_properties:
             if item.key == "id":
+                cohort_id = int(cast(Union[str, int], item.value))
                 filters &= Q(
                     Exists(
-                        CohortPeople.objects.filter(cohort_id=int(item.value), person_id=OuterRef("person_id"),).only(
-                            "id"
-                        )
+                        CohortPeople.objects.filter(cohort_id=cohort_id, person_id=OuterRef("person_id"),).only("id")
                     )
                 )
+
     return filters
 
 

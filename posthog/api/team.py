@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
+from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team
 from posthog.models.utils import generate_random_token
 from posthog.permissions import (
@@ -50,9 +51,10 @@ class TeamSerializer(serializers.ModelSerializer):
             "anonymize_ips",
             "completed_snippet_onboarding",
             "ingested_event",
+            "test_account_filters",
             "uuid",
-            "opt_out_capture",
             "is_demo",
+            "timezone",
         )
         read_only_fields = (
             "id",
@@ -65,7 +67,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "ingested_event",
-            "opt_out_capture",
         )
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
@@ -79,7 +80,7 @@ class TeamSerializer(serializers.ModelSerializer):
         return team
 
 
-class TeamViewSet(viewsets.ModelViewSet):
+class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     serializer_class = TeamSerializer
     queryset = Team.objects.all()
     permission_classes = [

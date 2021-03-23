@@ -7,6 +7,7 @@ from django.conf import settings
 from django.utils.timezone import now
 from freezegun import freeze_time
 
+from posthog.ee import is_ee_enabled
 from posthog.models import (
     Action,
     ActionStep,
@@ -29,7 +30,7 @@ def get_elements(event_id: Union[int, UUID]) -> List[Element]:
     return [e for e in ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by("order")]
 
 
-def test_process_event_factory(
+def factory_test_process_event(
     process_event: Callable, get_events: Callable, get_session_recording_events: Callable, get_elements: Callable
 ) -> Callable:
     class TestProcessEvent(BaseTest):
@@ -43,15 +44,13 @@ def test_process_event_factory(
             self.team.ingested_event = True  # avoid sending `first team event ingested` to PostHog
             self.team.save()
 
-            num_queries = 28
-            if settings.EE_AVAILABLE:  # extra queries to check for hooks
+            num_queries = 17
+            if is_ee_enabled():  # extra queries to check for REST hooks
                 num_queries += 4
-            if settings.MULTI_TENANCY:  # extra query to check for billing plan
-                num_queries += 1
             with self.assertNumQueries(num_queries):
                 process_event(
                     2,
-                    "",
+                    "127.0.0.1",
                     "",
                     {
                         "event": "$autocapture",
@@ -204,6 +203,22 @@ def test_process_event_factory(
             difference = abs((tomorrow - event.timestamp).seconds)
 
             self.assertLess(difference, 1)
+
+        def test_ip_none(self) -> None:
+            Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
+
+            process_event(
+                "asdfasdfasdf",
+                None,
+                "",
+                {"event": "$pageview", "properties": {"distinct_id": "asdfasdfasdf", "token": self.team.api_token,},},
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+
+            event = get_events()[0]
+            self.assertEqual(event.properties.get("$ip", None), None)
 
         def test_ip_capture(self) -> None:
             user = self._create_user("tim")
@@ -836,7 +851,7 @@ def test_process_event_factory(
             self.assertListEqual(self.team.event_properties_numerical, [])
             process_event(
                 "xxx",
-                "",
+                "127.0.0.1",
                 "",
                 {"event": "purchase", "properties": {"price": 299.99, "name": "AirPods Pro"},},
                 self.team.pk,
@@ -886,8 +901,109 @@ def test_process_event_factory(
             event = get_events()[0]
             self.assertEqual(len(event.event), 200)
 
+        def test_any_event_set(self) -> None:
+            Person.objects.create(team=self.team, distinct_ids=["distinct_id"])
+
+            process_event(
+                "distinct_id",
+                "",
+                "",
+                {
+                    "event": "some_event",
+                    "properties": {
+                        "token": self.team.api_token,
+                        "distinct_id": "distinct_id",
+                        "$set": {"a_prop": "test-1", "c_prop": "test-1"},
+                    },
+                },
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+
+            self.assertEqual(len(get_events()), 1)
+            self.assertEqual(get_events()[0].properties["$set"], {"a_prop": "test-1", "c_prop": "test-1"})
+            person = Person.objects.get()
+            self.assertEqual(person.distinct_ids, ["distinct_id"])
+            self.assertEqual(person.properties, {"a_prop": "test-1", "c_prop": "test-1"})
+
+        def test_set_with_invalid_props(self) -> None:
+            Person.objects.create(team=self.team, distinct_ids=["distinct_id"])
+
+            # invalid props should not be set and no errors should be thrown
+            process_event(
+                "distinct_id",
+                "",
+                "",
+                {
+                    "event": "some_event",
+                    "properties": {
+                        "token": self.team.api_token,
+                        "distinct_id": "distinct_id",
+                        "$set": [{"a_prop": "test-1"}],
+                    },
+                },
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+
+            self.assertEqual(len(get_events()), 1)
+            person = Person.objects.get()
+            self.assertEqual(person.distinct_ids, ["distinct_id"])
+            self.assertEqual(person.properties, {})
+
+        def test_any_event_set_once(self) -> None:
+            Person.objects.create(team=self.team, distinct_ids=["distinct_id"])
+
+            process_event(
+                "distinct_id",
+                "",
+                "",
+                {
+                    "event": "some_event",
+                    "properties": {
+                        "token": self.team.api_token,
+                        "distinct_id": "distinct_id",
+                        "$set_once": {"a_prop": "test-1", "c_prop": "test-1"},
+                    },
+                },
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+
+            self.assertEqual(len(get_events()), 1)
+            self.assertEqual(get_events()[0].properties["$set_once"], {"a_prop": "test-1", "c_prop": "test-1"})
+            person = Person.objects.get()
+            self.assertEqual(person.distinct_ids, ["distinct_id"])
+            self.assertEqual(person.properties, {"a_prop": "test-1", "c_prop": "test-1"})
+
+            # check no errors as this call can happen multiple times
+            process_event(
+                "distinct_id",
+                "",
+                "",
+                {
+                    "event": "some_other_event",
+                    "properties": {
+                        "token": self.team.api_token,
+                        "distinct_id": "distinct_id",
+                        "$set_once": {"a_prop": "test-2", "b_prop": "test-2"},
+                    },
+                },
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+
+            self.assertEqual(len(get_events()), 2)
+            self.assertEqual(
+                Person.objects.get().properties, {"a_prop": "test-1", "b_prop": "test-2", "c_prop": "test-1"}
+            )
+
     return TestProcessEvent
 
 
-class TestProcessEvent(test_process_event_factory(_process_event, Event.objects.all, SessionRecordingEvent.objects.all, get_elements)):  # type: ignore
+class TestProcessEvent(factory_test_process_event(_process_event, Event.objects.all, SessionRecordingEvent.objects.all, get_elements)):  # type: ignore
     pass

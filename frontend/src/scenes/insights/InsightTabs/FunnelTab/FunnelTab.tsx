@@ -4,20 +4,19 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { actionsModel } from '~/models/actionsModel'
-import { userLogic } from 'scenes/userLogic'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
 import { Link } from 'lib/components/Link'
 import { Button, Row } from 'antd'
 import { useState } from 'react'
 import SaveModal from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
+import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
-    const { isStepsEmpty, filters, stepsWithCount } = useValues(funnelLogic)
-    const { loadFunnel, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic)
+    const { isStepsEmpty, filters, stepsWithCount } = useValues(funnelLogic())
+    const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
     const { actions, actionsLoading } = useValues(actionsModel)
-    const { eventProperties } = useValues(userLogic)
     const [savingModal, setSavingModal] = useState<boolean>(false)
 
     const showModal = (): void => setSavingModal(true)
@@ -32,7 +31,7 @@ export function FunnelTab(): JSX.Element {
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
-                    loadFunnel()
+                    loadResults()
                 }}
             >
                 {!actionsLoading && actions.length === 0 && (
@@ -43,7 +42,7 @@ export function FunnelTab(): JSX.Element {
                 <h4 className="secondary">Steps</h4>
                 <ActionFilter
                     filters={filters}
-                    setFilters={(filters): void => setFilters(filters, false)}
+                    setFilters={(filters: Record<string, any>): void => setFilters(filters, false)}
                     typeKey={`EditFunnel-action`}
                     hideMathSelector={true}
                     copy="Add funnel step"
@@ -53,15 +52,14 @@ export function FunnelTab(): JSX.Element {
                 <h4 className="secondary">Filters</h4>
                 <PropertyFilters
                     pageKey={`EditFunnel-property`}
-                    properties={eventProperties}
                     propertyFilters={filters.properties || []}
-                    onChange={(properties): void =>
+                    onChange={(properties: Record<string, any>): void =>
                         setFilters({
                             properties,
                         })
                     }
-                    style={{ marginBottom: 20 }}
                 />
+                <TestAccountFilter filters={filters} onChange={setFilters} />
                 <hr />
                 <Row justify="space-between">
                     <Row justify="start">

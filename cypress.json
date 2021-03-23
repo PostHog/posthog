@@ -1,9 +1,17 @@
 {
     "video": false,
-    "baseUrl": "http://localhost:8000",
-    "defaultCommandTimeout": 20000,
-    "requestTimeout": 8000,
-    "pageLoadTimeout": 80000,
+    "experimentalComponentTesting": true,
+    "testFiles": "**/*cy-spec.js",
+    "componentFolder": "frontend/src",
     "projectId": "twojfp",
-    "retries": 2
+    "ignoreTestFiles": ["**/__snapshots__/*", "**/__image_snapshots__/*"],
+    "viewportWidth": 1280,
+    "viewportHeight": 720,
+    "env": {
+        "cypress-plugin-snapshots": {
+            "imageConfig": {
+                "threshold": 0.01
+            }
+        }
+    }
 }

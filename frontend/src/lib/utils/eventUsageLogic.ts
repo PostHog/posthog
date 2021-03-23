@@ -4,23 +4,79 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
-import { AnnotationType, FilterType, DashboardType, PersonType } from '~/types'
+import { AnnotationType, FilterType, DashboardType, PersonType, DashboardMode } from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
+import dayjs from 'dayjs'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
-export const eventUsageLogic = kea<eventUsageLogicType<PersonType>>({
+export enum EventSource {
+    LongPress = 'long_press',
+    MoreDropdown = 'more_dropdown',
+    DashboardHeader = 'dashboard_header',
+    Hotkey = 'hotkey',
+    InputEnter = 'input_enter',
+    Toast = 'toast',
+    Browser = 'browser',
+}
+
+export const eventUsageLogic = kea<
+    eventUsageLogicType<AnnotationType, FilterType, DashboardType, PersonType, DashboardMode>
+>({
     actions: {
-        reportAnnotationViewed: (annotations) => ({ annotations }),
+        reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
-        reportInsightViewed: (filters, isFirstLoad) => ({ filters, isFirstLoad }),
-        reportDashboardViewed: (dashboard, hasShareToken) => ({ dashboard, hasShareToken }),
-        reportBookmarkletDragged: () => true,
-        reportIngestionBookmarkletCollapsible: (activePanels) => ({ activePanels }),
-        reportProjectCreationSubmitted: (projectCount, nameLength) => ({ projectCount, nameLength }),
+        reportInsightViewed: (filters: Partial<FilterType>, isFirstLoad: boolean) => ({ filters, isFirstLoad }),
+        reportBookmarkletDragged: true,
+        reportIngestionBookmarkletCollapsible: (activePanels: string[]) => ({ activePanels }),
+        reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
+        reportDemoWarningDismissed: (key: string) => ({ key }),
+        reportOnboardingStepTriggered: (stepKey: string, extraArgs: Record<string, string | number | boolean>) => ({
+            stepKey,
+            extraArgs,
+        }),
+        reportBulkInviteAttempted: (inviteesCount: number, namesCount: number) => ({ inviteesCount, namesCount }),
+        reportInviteAttempted: (nameProvided: boolean, instanceEmailAvailable: boolean) => ({
+            nameProvided,
+            instanceEmailAvailable,
+        }),
+        reportFunnelCalculated: (
+            eventCount: number,
+            actionCount: number,
+            interval: string,
+            success: boolean,
+            error?: string
+        ) => ({
+            eventCount,
+            actionCount,
+            interval,
+            success,
+            error,
+        }),
+        reportPersonPropertyUpdated: (
+            action: 'added' | 'updated' | 'removed',
+            totalProperties: number,
+            oldPropertyType?: string,
+            newPropertyType?: string
+        ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
+        reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
+        reportDashboardModeToggled: (mode: DashboardMode, source: EventSource | null) => ({ mode, source }),
+        reportDashboardRefreshed: (lastRefreshed?: string | dayjs.Dayjs | null) => ({ lastRefreshed }),
+        reportDashboardDateRangeChanged: (dateFrom?: string | dayjs.Dayjs, dateTo?: string | dayjs.Dayjs | null) => ({
+            dateFrom,
+            dateTo,
+        }),
+        reportDashboardPinToggled: (pinned: boolean, source: 'more_dropdown' | 'main_nav' | 'dashboards_list') => ({
+            pinned,
+            source,
+        }),
+        reportDashboardDropdownNavigation: true,
+        reportDashboardRenamed: (originalLength: number, newLength: number) => ({ originalLength, newLength }),
+        reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
+        reportUpgradeModalShown: (featureName: string) => ({ featureName }),
     },
     listeners: {
-        reportAnnotationViewed: async ({ annotations }: { annotations: AnnotationType[] | null }, breakpoint) => {
+        reportAnnotationViewed: async ({ annotations }, breakpoint) => {
             if (!annotations) {
                 // If value is `null` the component has been unmounted, don't report
                 return
@@ -66,10 +122,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<PersonType>>({
             }
             posthog.capture('person viewed', properties)
         },
-        reportInsightViewed: async (
-            { filters, isFirstLoad }: { filters: FilterType; isFirstLoad: boolean },
-            breakpoint
-        ) => {
+        reportInsightViewed: async ({ filters, isFirstLoad }, breakpoint) => {
             await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
 
             // Reports `insight viewed` event
@@ -113,34 +166,29 @@ export const eventUsageLogic = kea<eventUsageLogicType<PersonType>>({
                 properties.period = filters.period
                 properties.date_to = filters.date_to
                 properties.retention_type = filters.retentionType
-                const cohortizingEvent = filters.startEntity?.events.length
-                    ? filters.startEntity?.events[0].id
-                    : filters.startEntity?.actions[0].id
-                const retainingEvent = filters.returningEntity?.events.length
-                    ? filters.returningEntity?.events[0].id
-                    : filters.returningEntity?.actions[0].id
-                properties.same_retention_and_cohortizing_event = cohortizingEvent == retainingEvent
+                const cohortizingEvent = filters.target_entity
+                const retainingEvent = filters.returning_entity
+                properties.same_retention_and_cohortizing_event =
+                    cohortizingEvent?.id == retainingEvent?.id && cohortizingEvent?.type == retainingEvent?.type
             } else if (insight === 'PATHS') {
                 properties.path_type = filters.path_type
+                properties.has_start_point = !!filters.start_point
             }
 
             posthog.capture('insight viewed', properties)
         },
-        reportDashboardViewed: async (
-            { dashboard, hasShareToken }: { hasShareToken: boolean; dashboard: DashboardType },
-            breakpoint
-        ) => {
+        reportDashboardViewed: async ({ dashboard, hasShareToken }, breakpoint) => {
             await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
-            const { created_at, name, is_shared, pinned } = dashboard
+            const { created_at, is_shared, pinned, creation_mode } = dashboard
             const properties: Record<string, any> = {
                 created_at,
-                name: userLogic.values.user?.is_multi_tenancy ? name : undefined, // Don't send name on self-hosted
                 is_shared,
                 pinned,
+                creation_mode,
                 sample_items_count: 0,
                 item_count: dashboard.items.length,
                 created_by_system: !dashboard.created_by,
-                has_share_token: hasShareToken,
+                has_share_token: hasShareToken, // if the dashboard is being viewed in `public` mode
             }
 
             for (const item of dashboard.items) {
@@ -159,8 +207,8 @@ export const eventUsageLogic = kea<eventUsageLogicType<PersonType>>({
             await breakpoint(500)
             posthog.capture('bookmarklet drag start')
         },
-        reportIngestionBookmarkletCollapsible: async ({ activePanels }: { activePanels: string[] }, breakpoint) => {
-            await breakpoint(500)
+        reportIngestionBookmarkletCollapsible: async ({ activePanels }, breakpoint) => {
+            breakpoint(500)
             const action = activePanels.includes('bookmarklet') ? 'shown' : 'hidden'
             posthog.capture(`ingestion bookmarklet panel ${action}`)
         },
@@ -175,6 +223,75 @@ export const eventUsageLogic = kea<eventUsageLogicType<PersonType>>({
                 current_project_count: projectCount,
                 name_length: nameLength,
             })
+        },
+        reportDemoWarningDismissed: async ({ key }) => {
+            posthog.capture('demo warning dismissed', { warning_key: key })
+        },
+        reportOnboardingStepTriggered: async ({ stepKey, extraArgs }) => {
+            // Fired after the user attempts to start an onboarding step (e.g. clicking on create project)
+            posthog.capture('onboarding step triggered', { step: stepKey, ...extraArgs })
+        },
+        reportBulkInviteAttempted: async ({
+            inviteesCount,
+            namesCount,
+        }: {
+            inviteesCount: number
+            namesCount: number
+        }) => {
+            // namesCount -> Number of invitees for which a name was provided
+            posthog.capture('bulk invite attempted', { invitees_count: inviteesCount, name_count: namesCount })
+        },
+        reportInviteAttempted: async ({ nameProvided, instanceEmailAvailable }) => {
+            posthog.capture('team invite attempted', {
+                name_provided: nameProvided,
+                instance_email_available: instanceEmailAvailable,
+            })
+        },
+        reportFunnelCalculated: async ({ eventCount, actionCount, interval, success, error }) => {
+            posthog.capture('funnel result calculated', {
+                event_count: eventCount,
+                action_count: actionCount,
+                total_count_actions_events: eventCount + actionCount,
+                interval: interval,
+                success: success,
+                error: error,
+            })
+        },
+        reportPersonPropertyUpdated: async ({ action, totalProperties, oldPropertyType, newPropertyType }) => {
+            posthog.capture(`person property ${action}`, {
+                old_property_type: oldPropertyType !== 'undefined' ? oldPropertyType : undefined,
+                new_property_type: newPropertyType !== 'undefined' ? newPropertyType : undefined,
+                total_properties: totalProperties,
+            })
+        },
+        reportDashboardModeToggled: async ({ mode, source }) => {
+            posthog.capture('dashboard mode toggled', { mode, source })
+        },
+        reportDashboardRefreshed: async ({ lastRefreshed }) => {
+            posthog.capture(`dashboard refreshed`, { last_refreshed: lastRefreshed?.toString() })
+        },
+        reportDashboardDateRangeChanged: async ({ dateFrom, dateTo }) => {
+            posthog.capture(`dashboard date range changed`, {
+                date_from: dateFrom?.toString(),
+                date_to: dateTo?.toString(),
+            })
+        },
+        reportDashboardPinToggled: async ({ pinned, source }) => {
+            posthog.capture(`dashboard pin toggled`, { pinned: pinned, source })
+        },
+        reportDashboardDropdownNavigation: async () => {
+            /* Triggered when a user navigates using the dropdown in the header.
+             */
+            posthog.capture(`dashboard dropdown navigated`)
+        },
+        reportDashboardRenamed: async ({ originalLength, newLength }) => {
+            posthog.capture(`dashboard renamed`, { original_length: originalLength, new_length: newLength })
+        },
+        reportDashboardShareToggled: async ({ isShared }) => {
+            posthog.capture(`dashboard share toggled`, { is_shared: isShared })
+        },
+        reportUpgradeModalShown: async ({ featureName }) => {
+            posthog.capture('upgrade modal shown', { featureName })
         },
     },
 })

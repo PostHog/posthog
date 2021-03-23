@@ -1,11 +1,15 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
 from django.conf import settings
 from django.contrib.postgres.fields import JSONField
 from django.db import models, transaction
+from django.db.models.query import QuerySet
 from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
+
+from posthog.models.team import Team
+from posthog.utils import mask_email_address
 
 from .utils import UUIDModel, sane_repr
 
@@ -15,9 +19,12 @@ except ImportError:
     License = None  # type: ignore
 
 
+INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
+
+
 class OrganizationManager(models.Manager):
     def bootstrap(
-        self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs
+        self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs,
     ) -> Tuple["Organization", Optional["OrganizationMembership"], Any]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
         from .team import Team  # Avoiding circular import
@@ -37,6 +44,19 @@ class OrganizationManager(models.Manager):
 
 
 class Organization(UUIDModel):
+    class PluginsAccessLevel(models.IntegerChoices):
+        # None means the organization can't use plugins at all. They're hidden. Cloud default.
+        NONE = 0, "none"
+        # Config means the organization can only enable/disable/configure globally managed plugins.
+        # This prevents config orgs from running untrusted code, which the next levels can do.
+        CONFIG = 3, "config"
+        # Install means the organization has config capabilities + can install own editor/GitHub/GitLab/npm plugins.
+        # The plugin repository is off limits, as repository installations are managed by root orgs to avoid confusion.
+        INSTALL = 6, "install"
+        # Root means the organization has unrestricted plugins access on the instance. Self-hosted default.
+        # This includes installing plugins from the repository and managing plugin installations for all other orgs.
+        ROOT = 9, "root"
+
     members: models.ManyToManyField = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
@@ -47,9 +67,18 @@ class Organization(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)  # Onboarding (#2822)
-    personalization: JSONField = JSONField(default=dict, null=False)
+    personalization: JSONField = JSONField(default=dict, null=False, blank=True)
+    plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
+        choices=PluginsAccessLevel.choices,
+    )
 
     objects = OrganizationManager()
+
+    def __str__(self):
+        return self.name
+
+    __repr__ = sane_repr("name")
 
     @property
     def _billing_plan_details(self) -> Tuple[Optional[str], Optional[str]]:
@@ -87,10 +116,32 @@ class Organization(UUIDModel):
     def is_feature_available(self, feature: str) -> bool:
         return feature in self.available_features
 
-    def __str__(self):
-        return self.name
+    @property
+    def is_onboarding_active(self) -> bool:
+        return not self.setup_section_2_completed
 
-    __repr__ = sane_repr("name")
+    @property
+    def active_invites(self) -> QuerySet:
+        return self.invites.filter(created_at__gte=timezone.now() - timezone.timedelta(days=INVITE_DAYS_VALIDITY))
+
+    def complete_onboarding(self) -> "Organization":
+        self.setup_section_2_completed = True
+        self.save()
+        return self
+
+    def get_analytics_metadata(self):
+        return {
+            "member_count": self.members.count(),
+            "project_count": self.teams.count(),
+            "person_count": sum((team.person_set.count() for team in self.teams.all())),
+            "setup_section_2_completed": self.setup_section_2_completed,
+            "personalization": self.personalization,
+        }
+
+
+@receiver(models.signals.pre_delete, sender=Organization)
+def organization_deleted(sender, instance, **kwargs):
+    instance.teams.all().delete()
 
 
 class OrganizationMembership(UUIDModel):
@@ -170,20 +221,33 @@ class OrganizationInvite(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
-    def validate(self, *, user: Optional[Any], email: Optional[str] = None) -> None:
-        if not email:
-            assert user is not None, "Either user or email must be provided!"
-            email = user.email
+    def validate(self, *, user: Any = None, email: Optional[str] = None) -> None:
+        _email = email or (hasattr(user, "email") and user.email)
+
+        if _email and _email != self.target_email:
+            raise exceptions.ValidationError(
+                f"This invite is intended for another email address: {mask_email_address(self.target_email)}"
+                f". You tried to sign up with {_email}.",
+                code="invalid_recipient",
+            )
+
         if self.is_expired():
-            raise ValueError("This invite has expired. Please ask your admin for a new one.")
-        if email != self.target_email:
-            raise ValueError("This invite is intended for another email address.")
+            raise exceptions.ValidationError(
+                "This invite has expired. Please ask your admin for a new one.", code="expired",
+            )
+
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
-            raise ValueError("User already is a member of the organization.")
+            raise exceptions.ValidationError(
+                "You already are a member of this organization.", code="user_already_member",
+            )
+
         if OrganizationMembership.objects.filter(
             organization=self.organization, user__email=self.target_email,
         ).exists():
-            raise ValueError("A user with this email address already belongs to the organization.")
+            raise exceptions.ValidationError(
+                "Another user with this email address already belongs to this organization.",
+                code="existing_email_address",
+            )
 
     def use(self, user: Any, *, prevalidated: bool = False) -> None:
         if not prevalidated:
@@ -192,8 +256,8 @@ class OrganizationInvite(UUIDModel):
         OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
 
     def is_expired(self) -> bool:
-        """Check if invite is older than 3 days."""
-        return self.created_at < timezone.now() - timezone.timedelta(3)
+        """Check if invite is older than INVITE_DAYS_VALIDITY days."""
+        return self.created_at < timezone.now() - timezone.timedelta(INVITE_DAYS_VALIDITY)
 
     def __str__(self):
         return f"{settings.SITE_URL}/signup/{self.id}"

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import Chart from 'chart.js'
+import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
 import { formatLabel } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors } from 'lib/colors'
@@ -8,7 +9,7 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import './Insights.scss'
 
 //--Chart Style Options--//
@@ -22,15 +23,17 @@ const noop = () => {}
 
 export function LineGraph({
     datasets,
+    visibilityMap = null,
     labels,
     color,
     type,
-    isInProgress,
+    isInProgress = false,
     onClick,
     ['data-attr']: dataAttr,
     dashboardItemId,
     inSharedMode,
-    percentage,
+    percentage = false,
+    totalValue,
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
@@ -55,14 +58,13 @@ export function LineGraph({
     const [annotationInRange, setInRange] = useState(false)
     const size = useWindowSize()
 
-    const annotationsCondition =
-        (!type || type === 'line') && datasets.length > 0 && !datasets[0].compare && !inSharedMode
+    const annotationsCondition = type === 'line' && datasets.length > 0 && !datasets[0].compare && !inSharedMode
 
     useEscapeKey(() => setFocused(false), [focused])
 
     useEffect(() => {
         buildChart()
-    }, [datasets, color])
+    }, [datasets, color, visibilityMap])
 
     // annotation related effects
 
@@ -77,10 +79,10 @@ export function LineGraph({
 
     useEffect(() => {
         if (annotationsCondition && datasets[0]?.days?.length > 0) {
-            const begin = moment(datasets[0].days[0])
-            const end = moment(datasets[0].days[datasets[0].days.length - 1]).add(2, 'days')
+            const begin = dayjs(datasets[0].days[0])
+            const end = dayjs(datasets[0].days[datasets[0].days.length - 1]).add(2, 'days')
             const checkBetween = (element) =>
-                moment(element.date_marker).isSameOrBefore(end) && moment(element.date_marker).isSameOrAfter(begin)
+                dayjs(element.date_marker).isSameOrBefore(end) && dayjs(element.date_marker).isSameOrAfter(begin)
             setInRange(annotationsList.some(checkBetween))
         }
     }, [datasets, annotationsList, annotationsCondition])
@@ -136,181 +138,207 @@ export function LineGraph({
             myLineChart.current.destroy()
         }
         // if chart is line graph, make duplicate lines and overlay to show dotted lines
-        datasets =
-            !type || type === 'line'
-                ? [
-                      ...datasets.map((dataset, index) => {
-                          let datasetCopy = Object.assign({}, dataset)
-                          let data = [...dataset.data]
-                          let _labels = [...dataset.labels]
-                          let days = [...dataset.days]
-                          data.pop()
-                          _labels.pop()
-                          days.pop()
-                          datasetCopy.data = data
-                          datasetCopy.labels = _labels
-                          datasetCopy.days = days
-                          return processDataset(datasetCopy, index)
-                      }),
-                      ...datasets.map((dataset, index) => {
-                          let datasetCopy = Object.assign({}, dataset)
-                          let datasetLength = datasetCopy.data.length
-                          datasetCopy.dotted = true
+        const isLineGraph = type === 'line'
+        datasets = isLineGraph
+            ? [
+                  ...datasets.map((dataset, index) => {
+                      let datasetCopy = Object.assign({}, dataset)
+                      let data = [...dataset.data]
+                      let _labels = [...dataset.labels]
+                      let days = [...dataset.days]
+                      data.pop()
+                      _labels.pop()
+                      days.pop()
+                      datasetCopy.data = data
+                      datasetCopy.labels = _labels
+                      datasetCopy.days = days
+                      return processDataset(datasetCopy, index)
+                  }),
+                  ...datasets.map((dataset, index) => {
+                      let datasetCopy = Object.assign({}, dataset)
+                      let datasetLength = datasetCopy.data.length
+                      datasetCopy.dotted = true
 
-                          // if last date is still active show dotted line
-                          if (isInProgress) {
-                              datasetCopy.borderDash = [10, 10]
-                          }
+                      // if last date is still active show dotted line
+                      if (isInProgress) {
+                          datasetCopy.borderDash = [10, 10]
+                      }
 
-                          datasetCopy.data =
-                              datasetCopy.data.length > 2
-                                  ? datasetCopy.data.map((datum, idx) =>
-                                        idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
-                                    )
-                                  : datasetCopy.data
-                          return processDataset(datasetCopy, index)
-                      }),
-                  ]
-                : datasets.map((dataset, index) => processDataset(dataset, index))
+                      datasetCopy.data =
+                          datasetCopy.data.length > 2
+                              ? datasetCopy.data.map((datum, idx) =>
+                                    idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
+                                )
+                              : datasetCopy.data
+                      return processDataset(datasetCopy, index)
+                  }),
+              ]
+            : datasets.map((dataset, index) => processDataset(dataset, index))
+
+        if (isLineGraph && visibilityMap) {
+            datasets = datasets.filter((data) => visibilityMap[data.id])
+        }
+
+        let options = {
+            responsive: true,
+            maintainAspectRatio: false,
+            scaleShowHorizontalLines: false,
+            tooltips: {
+                enabled: true,
+                intersect: false,
+                mode: 'nearest',
+                // If bar, we want to only show the tooltip for what we're hovering over
+                // to avoid confusion
+                axis: { bar: 'x', horizontalBar: 'y' }[type],
+                bodySpacing: 5,
+                position: 'nearest',
+                yPadding: 10,
+                xPadding: 10,
+                caretPadding: 0,
+                displayColors: false,
+                backgroundColor: '#1dc9b7',
+                titleFontColor: '#ffffff',
+                labelFontSize: 23,
+                cornerRadius: 4,
+                fontSize: 12,
+                footerSpacing: 0,
+                titleSpacing: 0,
+                footerFontStyle: 'italic',
+                callbacks: {
+                    label: function (tooltipItem, data) {
+                        let entityData = data.datasets[tooltipItem.datasetIndex]
+                        if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
+                            return null
+                        }
+                        const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
+                        const action =
+                            entityData.action || (entityData.actions && entityData.actions[tooltipItem.index])
+                        const formattedLabel = action ? formatLabel(label, action) : label
+
+                        let value = tooltipItem.yLabel.toLocaleString()
+                        if (type === 'horizontalBar') {
+                            const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
+                            value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
+                        }
+                        return (formattedLabel ? formattedLabel + ' — ' : '') + value + (percentage ? '%' : '')
+                    },
+                    footer: () => (dashboardItemId || !onClick ? '' : 'Click to see users related to the datapoint'),
+                },
+                itemSort: (a, b) => b.yLabel - a.yLabel,
+            },
+            hover: {
+                mode: 'nearest',
+                onHover(evt) {
+                    if (onClick) {
+                        const point = this.getElementAtEvent(evt)
+                        if (point.length) {
+                            evt.target.style.cursor = 'pointer'
+                        } else {
+                            evt.target.style.cursor = 'default'
+                        }
+                    }
+                },
+            },
+            onClick: (_, [point]) => {
+                if (point && onClick) {
+                    const dataset = datasets[point._datasetIndex]
+                    onClick({
+                        point,
+                        dataset,
+                        index: point._index,
+                        label:
+                            typeof point._index !== 'undefined' && dataset.labels
+                                ? dataset.labels[point._index]
+                                : undefined,
+                        day:
+                            typeof point._index !== 'undefined' && dataset.days
+                                ? dataset['compare']
+                                    ? dataset.dates[point._index]
+                                    : dataset.days[point._index]
+                                : undefined,
+                        value:
+                            typeof point._index !== 'undefined' && dataset.data
+                                ? dataset.data[point._index]
+                                : undefined,
+                    })
+                }
+            },
+        }
+        if (type === 'bar') {
+            options.scales = {
+                xAxes: [{ stacked: true, ticks: { fontColor: axisLabelColor } }],
+                yAxes: [{ stacked: true, ticks: { fontColor: axisLabelColor } }],
+            }
+        } else if (type === 'line') {
+            options.scales = {
+                xAxes: [
+                    {
+                        display: true,
+                        gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
+                        ticks: {
+                            autoSkip: true,
+                            beginAtZero: true,
+                            min: 0,
+                            fontColor: axisLabelColor,
+                            precision: 0,
+                            padding: annotationsLoading || !annotationInRange ? 0 : 35,
+                        },
+                    },
+                ],
+                yAxes: [
+                    {
+                        display: true,
+                        gridLines: { color: axisLineColor, zeroLineColor: axisColor },
+                        ticks: percentage
+                            ? {
+                                  min: 0,
+                                  max: 100, // Your absolute max value
+                                  callback: function (value) {
+                                      return value.toFixed(0) + '%' // convert it to percentage
+                                  },
+                              }
+                            : {
+                                  autoSkip: true,
+                                  beginAtZero: true,
+                                  min: 0,
+                                  fontColor: axisLabelColor,
+                                  precision: 0,
+                              },
+                    },
+                ],
+            }
+        } else if (type === 'horizontalBar') {
+            options.scales = {
+                xAxes: [
+                    {
+                        display: true,
+                        ticks: {
+                            autoSkip: true,
+                            beginAtZero: true,
+                            min: 0,
+                            fontColor: axisLabelColor,
+                            precision: 0,
+                        },
+                    },
+                ],
+                yAxes: [
+                    {
+                        ticks: { fontColor: axisLabelColor },
+                    },
+                ],
+            }
+        } else if (type === 'doughnut') {
+            options = {
+                responsive: true,
+                maintainAspectRatio: false,
+                hover: { mode: 'index' },
+            }
+        }
 
         myLineChart.current = new Chart(myChartRef, {
-            type: type || 'line',
-            data: {
-                //Bring in data
-                labels: labels,
-                datasets: datasets,
-            },
-            options:
-                type !== 'doughnut'
-                    ? {
-                          responsive: true,
-                          maintainAspectRatio: false,
-                          scaleShowHorizontalLines: false,
-                          tooltips: {
-                              enabled: true,
-                              intersect: false,
-                              mode: 'nearest',
-                              // If bar, we want to only show the tooltip for what we're hovering over
-                              // to avoid confusion
-                              ...(type !== 'bar' ? { axis: 'x' } : {}),
-                              bodySpacing: 5,
-                              position: 'nearest',
-                              yPadding: 10,
-                              xPadding: 10,
-                              caretPadding: 0,
-                              displayColors: false,
-                              backgroundColor: '#1dc9b7',
-                              titleFontColor: '#ffffff',
-                              labelFontSize: 23,
-                              cornerRadius: 4,
-                              fontSize: 12,
-                              footerSpacing: 0,
-                              titleSpacing: 0,
-                              footerFontStyle: 'italic',
-                              callbacks: {
-                                  label: function (tooltipItem, data) {
-                                      let entityData = data.datasets[tooltipItem.datasetIndex]
-                                      if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
-                                          return null
-                                      }
-                                      const label = entityData.chartLabel || entityData.label || ''
-                                      const formattedLabel = entityData.action
-                                          ? formatLabel(label, entityData.action)
-                                          : label
-                                      return (
-                                          (formattedLabel ? formattedLabel + ' — ' : '') +
-                                          tooltipItem.yLabel.toLocaleString() +
-                                          (percentage ? '%' : '')
-                                      )
-                                  },
-                                  footer: () => (dashboardItemId ? '' : 'Click to see users related to the datapoint'),
-                              },
-                              itemSort: (a, b) => b.yLabel - a.yLabel,
-                          },
-                          hover: {
-                              mode: 'nearest',
-                              onHover(evt) {
-                                  if (onClick) {
-                                      const point = this.getElementAtEvent(evt)
-                                      if (point.length) {
-                                          evt.target.style.cursor = 'pointer'
-                                      } else {
-                                          evt.target.style.cursor = 'default'
-                                      }
-                                  }
-                              },
-                          },
-                          scales: {
-                              xAxes: [
-                                  type === 'bar'
-                                      ? { stacked: true, ticks: { fontColor: axisLabelColor } }
-                                      : {
-                                            display: true,
-                                            gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
-                                            ticks: {
-                                                autoSkip: true,
-                                                beginAtZero: true,
-                                                min: 0,
-                                                fontColor: axisLabelColor,
-                                                precision: 0,
-                                                padding: annotationsLoading || !annotationInRange ? 0 : 35,
-                                            },
-                                        },
-                              ],
-                              yAxes: [
-                                  type === 'bar'
-                                      ? { stacked: true, ticks: { fontColor: axisLabelColor } }
-                                      : {
-                                            display: true,
-                                            gridLines: { color: axisLineColor, zeroLineColor: axisColor },
-                                            ticks: percentage
-                                                ? {
-                                                      min: 0,
-                                                      max: 100, // Your absolute max value
-                                                      callback: function (value) {
-                                                          return value.toFixed(0) + '%' // convert it to percentage
-                                                      },
-                                                  }
-                                                : {
-                                                      autoSkip: true,
-                                                      beginAtZero: true,
-                                                      min: 0,
-                                                      fontColor: axisLabelColor,
-                                                      precision: 0,
-                                                  },
-                                        },
-                              ],
-                          },
-                          onClick: (_, [point]) => {
-                              if (point && onClick) {
-                                  const dataset = datasets[point._datasetIndex]
-                                  onClick({
-                                      point,
-                                      dataset,
-                                      index: point._index,
-                                      label:
-                                          typeof point._index !== 'undefined' && dataset.labels
-                                              ? dataset.labels[point._index]
-                                              : undefined,
-                                      day:
-                                          typeof point._index !== 'undefined' && dataset.days
-                                              ? dataset['compare']
-                                                  ? dataset.dates[point._index]
-                                                  : dataset.days[point._index]
-                                              : undefined,
-                                      value:
-                                          typeof point._index !== 'undefined' && dataset.data
-                                              ? dataset.data[point._index]
-                                              : undefined,
-                                  })
-                              }
-                          },
-                      }
-                    : {
-                          responsive: true,
-                          maintainAspectRatio: false,
-                          hover: { mode: 'index' },
-                      },
+            type,
+            data: { labels, datasets },
+            options,
         })
     }
 
@@ -414,4 +442,8 @@ LineGraph.propTypes = {
     options: PropTypes.object,
     type: PropTypes.string,
     onClick: PropTypes.func,
+    totalValue: PropTypes.number,
+    isInProgress: PropTypes.bool,
+    inSharedMode: PropTypes.bool,
+    percentage: PropTypes.bool,
 }

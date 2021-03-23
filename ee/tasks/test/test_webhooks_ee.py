@@ -35,7 +35,7 @@ class TestWebhooksEE(BaseTest):
             "properties": {},
             "distinct_id": "test",
             "timestamp": _now,
-            "elements_list": {},
+            "elements_chain": 'a.small.xy:z:attr_class="xyz small\\""href="/a-url"nth-child="0"nth-of-type="0"',
         }
         site_url = "http://testserver"
         post_event_to_webhook_ee(event, self.team.pk, site_url)

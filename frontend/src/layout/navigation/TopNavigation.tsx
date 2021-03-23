@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
-import { Dropdown } from 'antd'
+import { Button, Dropdown } from 'antd'
 import {
     ProjectOutlined,
     DownOutlined,
@@ -15,23 +15,72 @@ import {
     PlusOutlined,
     UpOutlined,
     SearchOutlined,
+    SettingOutlined,
+    UserAddOutlined,
 } from '@ant-design/icons'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
-import { hot } from 'react-hot-loader/root'
 import { isMobile, platformCommandControlKey } from 'lib/utils'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
+import { BulkInviteModal } from 'scenes/organization/Settings/BulkInviteModal'
+import { UserType } from '~/types'
+import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
+import MD5 from 'crypto-js/md5'
 
-export const TopNavigation = hot(_TopNavigation)
-export function _TopNavigation(): JSX.Element {
-    const { setMenuCollapsed, setChangelogModalOpen, updateCurrentOrganization, updateCurrentProject } = useActions(
+export interface ProfilePictureProps {
+    name?: string
+    email?: string
+}
+
+export function ProfilePicture({ name, email }: ProfilePictureProps): JSX.Element {
+    const [didImageError, setDidImageError] = useState(false)
+    if (email && !didImageError) {
+        const emailHash = MD5(email.trim().toLowerCase()).toString()
+        const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
+        return (
+            <img
+                className="profile-picture"
+                src={gravatarUrl}
+                onError={() => setDidImageError(true)}
+                title={`This is ${email}'s Gravatar.`}
+                alt=""
+            />
+        )
+    } else if (name) {
+        return <div className="profile-picture">{name[0]?.toUpperCase()}</div>
+    } else if (email) {
+        return <div className="profile-picture">{email[0]?.toUpperCase()}</div>
+    }
+    return <div className="profile-picture">?</div>
+}
+
+export function WhoAmI({ user }: { user: UserType }): JSX.Element {
+    return (
+        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
+            <ProfilePicture name={user.name} email={user.email} />
+            <div className="details hide-lte-lg">
+                <span>{user.name}</span>
+                <span>{user.organization?.name}</span>
+            </div>
+        </div>
+    )
+}
+
+export function TopNavigation(): JSX.Element {
+    const {
+        setMenuCollapsed,
+        setChangelogModalOpen,
+        updateCurrentOrganization,
+        updateCurrentProject,
+        setInviteMembersModalOpen,
+    } = useActions(navigationLogic)
+    const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen, inviteMembersModalOpen } = useValues(
         navigationLogic
     )
-    const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen } = useValues(navigationLogic)
     const { user } = useValues(userLogic)
     const { logout } = useActions(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
@@ -44,16 +93,36 @@ export function _TopNavigation(): JSX.Element {
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
             <div className="whoami" style={{ paddingRight: 16, paddingLeft: 16 }}>
-                <div className="pp">{user?.name[0]?.toUpperCase()}</div>
+                <ProfilePicture name={user?.name} email={user?.email} />
                 <div className="details">
                     <span>{user?.email}</span>
                     <span>{user?.organization?.name}</span>
                 </div>
             </div>
-            <div className="text-center">
+            <div className="text-center mt" style={{ paddingRight: 16, paddingLeft: 16 }}>
                 <div>
-                    <LinkButton className="mt" to="/organization/members" data-attr="top-menu-item-org-settings">
-                        Org settings &amp; members
+                    {user?.email_service_available ? (
+                        <Button
+                            type="primary"
+                            icon={<UserAddOutlined />}
+                            onClick={() => setInviteMembersModalOpen(true)}
+                            data-attr="top-menu-invite-team-members"
+                            style={{ width: '100%' }}
+                        >
+                            Invite Team Members
+                        </Button>
+                    ) : (
+                        <CreateInviteModalWithButton block />
+                    )}
+                </div>
+                <div style={{ marginTop: 10 }}>
+                    <LinkButton
+                        to="/organization/settings"
+                        data-attr="top-menu-item-org-settings"
+                        style={{ width: '100%' }}
+                        icon={<SettingOutlined />}
+                    >
+                        Organization Settings
                     </LinkButton>
                 </div>
                 {user?.is_multi_tenancy ? (
@@ -95,6 +164,7 @@ export function _TopNavigation(): JSX.Element {
                             showUpgradeModal,
                             'organizations_projects',
                             'multiple organizations',
+                            'Organizations group people building products together. An organization can then have multiple projects.',
                             () => {
                                 setOrganizationModalShown(true)
                             },
@@ -152,6 +222,7 @@ export function _TopNavigation(): JSX.Element {
                             showUpgradeModal,
                             'organizations_projects',
                             'multiple projects',
+                            'Projects allow you to separate data and configuration for different products or environments.',
                             () => {
                                 setProjectModalShown(true)
                             }
@@ -192,13 +263,15 @@ export function _TopNavigation(): JSX.Element {
                                 className="mr"
                             />
                         )}
-                        <Badge
-                            data-attr="update-indicator-badge"
-                            type={updateAvailable ? 'warning' : undefined}
-                            tooltip={updateAvailable ? 'New version available' : undefined}
-                            icon={<UpOutlined />}
-                            onClick={() => setChangelogModalOpen(true)}
-                        />
+                        {!user?.is_multi_tenancy && (
+                            <Badge
+                                data-attr="update-indicator-badge"
+                                type={updateAvailable ? 'warning' : undefined}
+                                tooltip={updateAvailable ? 'New version available' : 'PostHog is up-to-date'}
+                                icon={<UpOutlined />}
+                                onClick={() => setChangelogModalOpen(true)}
+                            />
+                        )}
                     </div>
                 </div>
                 <div className="project-chooser">
@@ -209,18 +282,17 @@ export function _TopNavigation(): JSX.Element {
                         </div>
                     </Dropdown>
                 </div>
-                <div>
-                    <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
-                        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
-                            <div className="pp">{user?.name[0]?.toUpperCase()}</div>
-                            <div className="details hide-lte-lg">
-                                <span>{user?.name}</span>
-                                <span>{user?.organization?.name}</span>
+                {user && (
+                    <div>
+                        <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
+                            <div>
+                                <WhoAmI user={user} />
                             </div>
-                        </div>
-                    </Dropdown>
-                </div>
+                        </Dropdown>
+                    </div>
+                )}
             </div>
+            <BulkInviteModal visible={inviteMembersModalOpen} onClose={() => setInviteMembersModalOpen(false)} />
             <CreateProjectModal isVisible={projectModalShown} setIsVisible={setProjectModalShown} />
             <CreateOrganizationModal isVisible={organizationModalShown} setIsVisible={setOrganizationModalShown} />
             {changelogModalOpen && <ChangelogModal onDismiss={() => setChangelogModalOpen(false)} />}

@@ -7,11 +7,14 @@ import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { ShownAsFilter } from '../../ShownAsFilter'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { trendsLogic } from '../../trendsLogic'
+import { trendsLogic } from '../../../trends/trendsLogic'
 import { ViewType } from '../../insightLogic'
 import { ShownAsValue } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FilterType } from '~/types'
+import { userLogic } from 'scenes/userLogic'
+import { Formula } from './Formula'
+import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 
 interface TrendTabProps {
     view: string
@@ -21,6 +24,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { filters } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
 
     return featureFlags['remove-shownas'] ? (
         <>
@@ -43,8 +47,18 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     <hr />
                     <h4 className="secondary">Filters</h4>
                     <PropertyFilters pageKey="trends-filters" />
+                    <TestAccountFilter filters={filters} onChange={setFilters} />
                 </>
             )}
+            {(!filters.insight || filters.insight === ViewType.TRENDS) &&
+                featureFlags['3275-formulas'] &&
+                user?.ee_enabled && (
+                    <>
+                        <hr />
+                        <h4 className="secondary">Formula</h4>
+                        <Formula filters={filters} onChange={(formula: string): void => setFilters({ formula })} />
+                    </>
+                )}
             {filters.insight !== ViewType.LIFECYCLE && filters.insight !== ViewType.STICKINESS && (
                 <>
                     <hr />
@@ -57,7 +71,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                             <InfoCircleOutlined className="info-indicator" />
                         </Tooltip>
                     </h4>
-                    <Row>
+                    <Row align="middle">
                         <BreakdownFilter
                             filters={filters}
                             onChange={(breakdown: string, breakdown_type: string): void =>
@@ -67,7 +81,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         {filters.breakdown && (
                             <CloseButton
                                 onClick={(): void => setFilters({ breakdown: false, breakdown_type: null })}
-                                style={{ marginTop: 1, marginLeft: 10 }}
+                                style={{ marginTop: 1, marginLeft: 5 }}
                             />
                         )}
                     </Row>
@@ -90,6 +104,16 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
             <hr />
             <h4 className="secondary">Filters</h4>
             <PropertyFilters pageKey="trends-filters" />
+            <TestAccountFilter filters={filters} onChange={setFilters} />
+            {(!filters.insight || filters.insight === ViewType.TRENDS) &&
+                featureFlags['3275-formulas'] &&
+                user?.ee_enabled && (
+                    <>
+                        <hr />
+                        <h4 className="secondary">Formula</h4>
+                        <Formula filters={filters} onChange={(formula: string): void => setFilters({ formula })} />
+                    </>
+                )}
             <hr />
             <h4 className="secondary">
                 Break down by
@@ -121,7 +145,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     placement="right"
                     title='
                                             Stickiness shows you how many days users performed an action within the timeframe. If a user
-                                            performed an action on Monday and again on Friday, it would be shown 
+                                            performed an action on Monday and again on Friday, it would be shown
                                             as "2 days".'
                 >
                     <InfoCircleOutlined className="info-indicator" />

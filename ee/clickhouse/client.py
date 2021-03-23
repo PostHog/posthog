@@ -43,7 +43,6 @@ _save_query_user_id = False
 
 if PRIMARY_DB != RDBMS.CLICKHOUSE:
     ch_client = None  # type: Client
-    ch_sync_pool = None  # type: ChPool
 
     def async_execute(query, args=None, settings=None):
         return
@@ -67,6 +66,18 @@ else:
             verify=CLICKHOUSE_VERIFY,
         )
 
+        ch_pool = ChPool(
+            host=CLICKHOUSE_HOST,
+            database=CLICKHOUSE_DATABASE,
+            secure=CLICKHOUSE_SECURE,
+            user=CLICKHOUSE_USER,
+            password=CLICKHOUSE_PASSWORD,
+            ca_certs=CLICKHOUSE_CA,
+            verify=CLICKHOUSE_VERIFY,
+            connections_min=20,
+            connections_max=1000,
+        )
+
         @async_to_sync
         async def async_execute(query, args=None, settings=None):
             loop = asyncio.get_event_loop()
@@ -85,20 +96,20 @@ else:
             verify=CLICKHOUSE_VERIFY,
         )
 
+        ch_pool = ChPool(
+            host=CLICKHOUSE_HOST,
+            database=CLICKHOUSE_DATABASE,
+            secure=CLICKHOUSE_SECURE,
+            user=CLICKHOUSE_USER,
+            password=CLICKHOUSE_PASSWORD,
+            ca_certs=CLICKHOUSE_CA,
+            verify=CLICKHOUSE_VERIFY,
+            connections_min=20,
+            connections_max=1000,
+        )
+
         def async_execute(query, args=None, settings=None):
             return sync_execute(query, args, settings=settings)
-
-    ch_sync_pool = ChPool(
-        host=CLICKHOUSE_HOST,
-        database=CLICKHOUSE_DATABASE,
-        secure=CLICKHOUSE_SECURE,
-        user=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        ca_certs=CLICKHOUSE_CA,
-        verify=CLICKHOUSE_VERIFY,
-        connections_min=20,
-        connections_max=100,
-    )
 
     def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, settings=None):
         if not redis_client:
@@ -113,18 +124,19 @@ else:
             return result
 
     def sync_execute(query, args=None, settings=None):
-        start_time = time()
-        try:
-            result = ch_client.execute(query, args, settings=settings)
-        finally:
-            execution_time = time() - start_time
-            g = statsd.Gauge("%s_clickhouse_sync_execution_time" % (STATSD_PREFIX,))
-            g.send("clickhouse_sync_query_time", execution_time)
-            if app_settings.SHELL_PLUS_PRINT_SQL:
-                print(format_sql(query, args))
-                print("Execution time: %.6fs" % (execution_time,))
-            if _save_query_user_id:
-                save_query(query, args, execution_time)
+        with ch_pool.get_client() as client:
+            start_time = time()
+            try:
+                result = client.execute(query, args, settings=settings)
+            finally:
+                execution_time = time() - start_time
+                g = statsd.Gauge("%s_clickhouse_sync_execution_time" % (STATSD_PREFIX,))
+                g.send("clickhouse_sync_query_time", execution_time)
+                if app_settings.SHELL_PLUS_PRINT_SQL:
+                    print(format_sql(query, args))
+                    print("Execution time: %.6fs" % (execution_time,))
+                if _save_query_user_id:
+                    save_query(query, args, execution_time)
         return result
 
 
@@ -144,20 +156,22 @@ def _key_hash(query: str, args: Any) -> bytes:
     return key
 
 
-def format_sql(sql, params):
+def format_sql(sql, params, colorize=True):
     substitute_params = (
         ch_client.substitute_params if isinstance(ch_client, SyncClient) else ch_client._client.substitute_params
     )
-
     sql = substitute_params(sql, params or {})
     sql = sqlparse.format(sql, reindent_aligned=True)
-    try:
-        import pygments.formatters
-        import pygments.lexers
+    if colorize:
+        try:
+            import pygments.formatters
+            import pygments.lexers
 
-        sql = pygments.highlight(sql, pygments.lexers.get_lexer_by_name("sql"), pygments.formatters.TerminalFormatter())
-    except:
-        pass
+            sql = pygments.highlight(
+                sql, pygments.lexers.get_lexer_by_name("sql"), pygments.formatters.TerminalFormatter()
+            )
+        except:
+            pass
 
     return sql
 
@@ -172,7 +186,12 @@ def save_query(sql: str, params: Dict, execution_time: float) -> None:
         queries = json.loads(get_safe_cache(key) or "[]")
 
         queries.insert(
-            0, {"timestamp": now().isoformat(), "query": format_sql(sql, params), "execution_time": execution_time}
+            0,
+            {
+                "timestamp": now().isoformat(),
+                "query": format_sql(sql, params, colorize=False),
+                "execution_time": execution_time,
+            },
         )
         cache.set(key, json.dumps(queries), timeout=120)
     except Exception as e:

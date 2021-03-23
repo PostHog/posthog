@@ -25,5 +25,5 @@ class PostHogConfig(AppConfig):
                     {"posthog_version": VERSION, "git_rev": get_git_commit(), "git_branch": get_git_branch(),},
                 )
             posthoganalytics.disabled = True
-        elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE"):
+        elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True

@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -9,7 +10,7 @@ from posthog.test.base import TransactionBaseTest
 from posthog.utils import relative_date_parse
 
 
-def test_event_api_factory(event_factory, person_factory, action_factory):
+def factory_test_event_api(event_factory, person_factory, action_factory):
     class TestEvents(TransactionBaseTest):
         TESTS_API = True
         ENDPOINT = "event"
@@ -360,6 +361,18 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 response = self.client.get("/api/event/").json()
             self.assertEqual(len(response["results"]), 1)
 
+        @patch("posthog.api.event.EventViewSet.CSV_EXPORT_LIMIT", 1000)
+        def test_events_csv_export_with_limit(self):
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                for _ in range(1234):
+                    event_factory(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
+                response = self.client.get("/api/event.csv")
+            self.assertEqual(
+                len(response.content.splitlines()),
+                1001,
+                "CSV export should return up to CSV_EXPORT_LIMIT events (+ headers row)",
+            )
+
     return TestEvents
 
 
@@ -372,5 +385,5 @@ def _create_action(**kwargs):
     return action
 
 
-class TestEvent(test_event_api_factory(Event.objects.create, Person.objects.create, _create_action)):  # type: ignore
+class TestEvent(factory_test_event_api(Event.objects.create, Person.objects.create, _create_action)):  # type: ignore
     pass
