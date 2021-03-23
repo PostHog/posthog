@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytz
 from rest_framework import status
 
@@ -12,7 +14,7 @@ class TestPreflight(BaseTest):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response = response.json()
-            available_timezones = response.pop("available_timezones")
+            available_timezones = cast(dict, response.pop("available_timezones"))
 
             self.assertEqual(
                 response,
@@ -38,7 +40,7 @@ class TestPreflight(BaseTest):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response = response.json()
-            available_timezones = response.pop("available_timezones")
+            available_timezones = cast(dict, response.pop("available_timezones"))
 
             self.assertEqual(
                 response,
@@ -68,7 +70,7 @@ class TestPreflight(BaseTest):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response = response.json()
-            available_timezones = response.pop("available_timezones")
+            available_timezones = cast(dict, response.pop("available_timezones"))
 
             self.assertEqual(
                 response,
