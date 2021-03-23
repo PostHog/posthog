@@ -18,7 +18,7 @@ def preprocess_session_recording_events(events: List[Event]) -> List[Event]:
     result = []
     snapshots_by_session = defaultdict(list)
     for event in events:
-        if is_snapshot(event):
+        if is_unchunked_snapshot(event):
             session_recording_id = event["properties"]["$session_id"]
             snapshots_by_session[session_recording_id].append(event)
         else:
@@ -85,8 +85,8 @@ def chunk_string(string: str, chunk_length: int) -> List[str]:
     return [string[0 + offset : chunk_length + offset] for offset in range(0, len(string), chunk_length)]
 
 
-def is_snapshot(event: Dict) -> bool:
-    return event["event"] == "$snapshot"
+def is_unchunked_snapshot(event: Dict) -> bool:
+    return event["event"] == "$snapshot" and "chunk_id" not in event["properties"]["$snapshot_data"]
 
 
 def compress_to_string(json_string: str) -> str:

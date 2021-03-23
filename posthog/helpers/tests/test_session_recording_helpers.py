@@ -39,6 +39,9 @@ def test_preprocess_recording_event_creates_chunks():
         assert "chunk_id" in result["properties"]["$snapshot_data"]
         assert result["event"] == "$snapshot"
 
+    # it does not rechunk already chunked events
+    assert preprocess_session_recording_events(preprocessed) == preprocessed
+
 
 def test_compression_and_chunking(snapshot_events, mocker: MockerFixture):
     mocker.patch("posthog.models.utils.UUIDT", return_value="0178495e-8521-0000-8e1c-2652fa57099b")
