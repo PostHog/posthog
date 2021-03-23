@@ -2,18 +2,16 @@ import { Col, Row, Form, Input, Button, Alert } from 'antd'
 import React from 'react'
 import logo from 'public/posthog-logo-white.svg'
 import './Signup.scss'
-import { useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { PasswordInput } from './PasswordInput'
 import { CheckOutlined, CloudFilled, GithubFilled } from '@ant-design/icons'
+import { IconRocket } from 'lib/components/icons'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
 export function Signup(): JSX.Element {
     const [form] = Form.useForm()
-    const { preflight } = useValues(preflightLogic)
     const loading = false // TODO
     const errorResponse: Record<string, any> = {} // TODO
     const authenticate = (values: any): void => console.log(values) // TODO
@@ -129,28 +127,32 @@ export function Signup(): JSX.Element {
                                 />
                             </Form.Item>
                             <PasswordInput />
+                            <Form.Item className="text-center">
+                                By creating an account, you agree to our{' '}
+                                <a href={`https://posthog.com/terms?${UTM_TAGS}`} target="_blank" rel="noopener">
+                                    Terms of Service
+                                </a>{' '}
+                                and{' '}
+                                <a href={`https://posthog.com/privacy?${UTM_TAGS}`} target="_blank" rel="noopener">
+                                    Privacy Policy
+                                </a>
+                                .
+                            </Form.Item>
                             <Form.Item>
                                 <Button
-                                    type="primary"
+                                    className="signup-submit"
                                     htmlType="submit"
                                     data-attr="password-signup"
                                     loading={loading}
                                     block
                                 >
-                                    Login
+                                    <span className="icon">
+                                        <IconRocket />
+                                    </span>
+                                    Create Account
                                 </Button>
                             </Form.Item>
                         </Form>
-                        <div className="text-center">
-                            <a href="https://app.posthog.com/accounts/password_reset/" data-attr="forgot-password">
-                                Forgot your password?
-                            </a>
-                        </div>
-                        {preflight?.cloud && (
-                            <div className="text-center mt">
-                                Don't have an account? <Link to="/signup">Sign up now</Link>
-                            </div>
-                        )}
                         <div style={{ marginTop: 48 }}>
                             <SocialLoginButtons displayStyle="link" caption="Or sign up with" />
                         </div>
