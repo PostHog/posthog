@@ -74,6 +74,7 @@ const showChartFilter = function (activeView, featureFlags) {
         case ViewType.RETENTION:
             return true
         case ViewType.FUNNELS:
+            return true
             return featureFlags['funnel-trends-1269']
         case ViewType.LIFECYCLE:
         case ViewType.PATHS:
