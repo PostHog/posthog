@@ -37,7 +37,7 @@ function FormStepOne(): JSX.Element {
                         message: 'Please enter your email to continue',
                     },
                 ]}
-                validateStatus={signupResponse?.errorAttribute === 'email' ? 'error' : ''}
+                validateStatus={signupResponse?.errorAttribute === 'email' ? 'error' : undefined}
                 help={signupResponse?.errorAttribute === 'email' ? signupResponse.errorDetail : undefined}
             >
                 <Input
@@ -52,7 +52,7 @@ function FormStepOne(): JSX.Element {
             <PasswordInput
                 label="Create a password"
                 showStrengthIndicator
-                validateStatus={signupResponse?.errorAttribute === 'password' ? 'error' : ''}
+                validateStatus={signupResponse?.errorAttribute === 'password' ? 'error' : undefined}
                 help={signupResponse?.errorAttribute === 'password' ? signupResponse.errorDetail : undefined}
             />
             <Form.Item>

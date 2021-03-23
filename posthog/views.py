@@ -13,7 +13,6 @@ from rest_framework.exceptions import AuthenticationFailed
 
 from posthog.ee import is_ee_enabled
 from posthog.models import User
-from posthog.settings import AUTO_LOGIN, TEST
 from posthog.utils import (
     get_redis_info,
     get_redis_queue_depth,
@@ -35,7 +34,7 @@ def login_required(view):
     def handler(request, *args, **kwargs):
         if not User.objects.exists():
             return redirect("/preflight")
-        elif not request.user.is_authenticated and AUTO_LOGIN:
+        elif not request.user.is_authenticated and settings.E2E_TESTING:
             user = User.objects.first()
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         return base_handler(request, *args, **kwargs)
@@ -168,11 +167,13 @@ def preflight_check(_):
     return JsonResponse(
         {
             "django": True,
-            "redis": is_redis_alive() or TEST,
-            "plugins": is_plugin_server_alive() or TEST,
-            "celery": is_celery_alive() or TEST,
+            "redis": is_redis_alive() or settings.TEST,
+            "plugins": is_plugin_server_alive() or settings.TEST,
+            "celery": is_celery_alive() or settings.TEST,
             "db": is_postgres_alive(),
-            "initiated": User.objects.exists(),
+            "initiated": User.objects.exists()
+            if not settings.E2E_TESTING
+            else False,  # Enables E2E testing of signup flow
             "cloud": settings.MULTI_TENANCY,
             "available_social_auth_providers": get_available_social_auth_providers(),
         }

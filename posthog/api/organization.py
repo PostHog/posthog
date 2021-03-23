@@ -101,7 +101,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
     def get_setup(self, instance: Organization) -> Dict[str, Union[bool, int, str, None]]:
 
         if not instance.is_onboarding_active:
-            # As Section 2 is the last one of the setup process (as of today), if it's completed it means the setup process is done
+            # As Section 2 is the last one of the setup process (as of today),
+            # if it's completed it means the setup process is done
             return {"is_active": False, "current_section": None}
 
         non_demo_team_id = next((team.pk for team in instance.teams.filter(is_demo=False)), None)
@@ -252,7 +253,8 @@ class OrganizationSocialSignupSerializer(serializers.Serializer):
 
 class OrganizationSignupViewset(generics.CreateAPIView):
     serializer_class = OrganizationSignupSerializer
-    permission_classes = (UninitiatedOrCloudOnly,)
+    # Enables E2E testing of signup flow
+    permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (UninitiatedOrCloudOnly,)
 
 
 class OrganizationSocialSignupViewset(generics.CreateAPIView):
