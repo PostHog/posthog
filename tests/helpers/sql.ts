@@ -6,27 +6,33 @@ import { PluginsServer, PluginsServerConfig, Team } from '../../src/types'
 import { commonOrganizationId, commonOrganizationMembershipId, commonUserId, makePluginObjects } from './plugins'
 
 export async function resetTestDatabase(
-    code: string,
+    code?: string,
     extraServerConfig: Partial<PluginsServerConfig> = {}
 ): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig }
     const db = new Pool({ connectionString: config.DATABASE_URL })
-    const mocks = makePluginObjects(code)
-    await db.query('DELETE FROM posthog_element')
-    await db.query('DELETE FROM posthog_elementgroup')
-    await db.query('DELETE FROM posthog_sessionrecordingevent')
-    await db.query('DELETE FROM posthog_persondistinctid')
-    await db.query('DELETE FROM posthog_person')
-    await db.query('DELETE FROM posthog_event')
-    await db.query('DELETE FROM posthog_pluginstorage')
-    await db.query('DELETE FROM posthog_pluginattachment')
-    await db.query('DELETE FROM posthog_pluginconfig')
-    await db.query('DELETE FROM posthog_plugin')
-    await db.query('DELETE FROM posthog_team')
-    await db.query('DELETE FROM posthog_organizationmembership')
-    await db.query('DELETE FROM posthog_organization')
-    await db.query('DELETE FROM posthog_user')
+    try {
+        await db.query('DELETE FROM ee_hook')
+    } catch {}
 
+    await db.query(`
+        DELETE FROM posthog_element;
+        DELETE FROM posthog_elementgroup;
+        DELETE FROM posthog_sessionrecordingevent;
+        DELETE FROM posthog_persondistinctid;
+        DELETE FROM posthog_person;
+        DELETE FROM posthog_event;
+        DELETE FROM posthog_pluginstorage;
+        DELETE FROM posthog_pluginattachment;
+        DELETE FROM posthog_pluginconfig;
+        DELETE FROM posthog_plugin;
+        DELETE FROM posthog_team;
+        DELETE FROM posthog_organizationmembership;
+        DELETE FROM posthog_organization;
+        DELETE FROM posthog_user;
+    `)
+
+    const mocks = makePluginObjects(code)
     const teamIds = mocks.pluginConfigRows.map((c) => c.team_id)
     await createUserTeamAndOrganization(db, teamIds[0])
 
@@ -39,7 +45,6 @@ export async function resetTestDatabase(
     for (const pluginAttachment of mocks.pluginAttachmentRows) {
         await insertRow(db, 'posthog_pluginattachment', pluginAttachment)
     }
-    await delay(400)
     await db.end()
 }
 

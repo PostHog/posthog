@@ -20,7 +20,6 @@ import {
 import { status } from '../../shared/status'
 import { castTimestampOrNow, UUID, UUIDT } from '../../shared/utils'
 import {
-    CohortPeople,
     Element,
     Person,
     PersonDistinctId,
@@ -28,8 +27,10 @@ import {
     PostgresSessionRecordingEvent,
     SessionRecordingEvent,
     Team,
+    TeamId,
     TimestampFormat,
 } from '../../types'
+import { TeamManager } from './team-manager'
 
 export class EventsProcessor {
     pluginsServer: PluginsServer
@@ -38,6 +39,7 @@ export class EventsProcessor {
     kafkaProducer: Producer
     celery: Client
     posthog: ReturnType<typeof nodePostHog>
+    teamManager: TeamManager
 
     constructor(pluginsServer: PluginsServer) {
         this.pluginsServer = pluginsServer
@@ -45,6 +47,7 @@ export class EventsProcessor {
         this.clickhouse = pluginsServer.clickhouse!
         this.kafkaProducer = pluginsServer.kafkaProducer!
         this.celery = new Client(pluginsServer.db, pluginsServer.CELERY_DEFAULT_QUEUE)
+        this.teamManager = new TeamManager(pluginsServer.db)
         this.posthog = nodePostHog('sTMFPsFhdP1Ssg', { fetch })
         if (process.env.NODE_ENV === 'test') {
             this.posthog.optOut()
@@ -354,12 +357,7 @@ export class EventsProcessor {
             }))
         }
 
-        const teamQueryResult = await this.db.postgresQuery(
-            'SELECT * FROM posthog_team WHERE id = $1',
-            [teamId],
-            'selectTeam'
-        )
-        const team: Team = teamQueryResult.rows[0]
+        const team = await this.teamManager.fetchTeam(teamId, eventUuid)
 
         if (!team) {
             throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
@@ -369,7 +367,7 @@ export class EventsProcessor {
             properties['$ip'] = ip
         }
 
-        await this.storeNamesAndProperties(team, event, properties)
+        await this.teamManager.updateEventNamesAndProperties(teamId, event, eventUuid, properties, this.posthog)
 
         const pdiSelectResult = await this.db.postgresQuery(
             'SELECT COUNT(*) AS pdicount FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
@@ -398,110 +396,22 @@ export class EventsProcessor {
             )
         }
 
-        return await this.createEvent(eventUuid, event, team, distinctId, properties, timestamp, elementsList, siteUrl)
-    }
-
-    private async storeNamesAndProperties(team: Team, event: string, properties: Properties): Promise<void> {
-        const timeout = timeoutGuard('Still running "storeNamesAndProperties". Timeout warning after 30 sec!', {
-            event: event,
-            ingested: team.ingested_event,
-        })
-        // In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
-        let save = false
-        if (!team.ingested_event) {
-            // First event for the team captured
-            const organizationMembers = await this.db.postgresQuery(
-                'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
-                [team.organization_id],
-                'posthog_organizationmembership'
-            )
-            const distinctIds: { distinct_id: string }[] = organizationMembers.rows
-            for (const { distinct_id } of distinctIds) {
-                this.posthog.identify(distinct_id)
-                this.posthog.capture('first team event ingested', { team: team.uuid })
-            }
-            team.ingested_event = true
-            save = true
-        }
-        if (team.event_names && !team.event_names.includes(event)) {
-            save = true
-            team.event_names.push(event)
-            team.event_names_with_usage.push({ event: event, usage_count: null, volume: null })
-        }
-        for (const [key, value] of Object.entries(properties)) {
-            if (team.event_properties && !team.event_properties.includes(key)) {
-                team.event_properties.push(key)
-                team.event_properties_with_usage.push({ key: key, usage_count: null, volume: null })
-                save = true
-            }
-            if (
-                typeof value === 'number' &&
-                team.event_properties_numerical &&
-                !team.event_properties_numerical.includes(key)
-            ) {
-                team.event_properties_numerical.push(key)
-                save = true
-            }
-        }
-        if (save) {
-            const timeout2 = timeoutGuard(
-                'Still running "storeNamesAndProperties" save. Timeout warning after 30 sec!',
-                { event }
-            )
-            await this.db.postgresQuery(
-                `UPDATE posthog_team SET
-                    ingested_event = $1, event_names = $2, event_names_with_usage = $3, event_properties = $4,
-                    event_properties_with_usage = $5, event_properties_numerical = $6
-                WHERE id = $7`,
-                [
-                    team.ingested_event,
-                    JSON.stringify(team.event_names),
-                    JSON.stringify(team.event_names_with_usage),
-                    JSON.stringify(team.event_properties),
-                    JSON.stringify(team.event_properties_with_usage),
-                    JSON.stringify(team.event_properties_numerical),
-                    team.id,
-                ],
-                'storeNamesAndProperties'
-            )
-            clearTimeout(timeout2)
-        }
-        clearTimeout(timeout)
-    }
-
-    private async shouldSendHooksTask(team: Team): Promise<boolean> {
-        // Webhooks
-        if (team.slack_incoming_webhook) {
-            return true
-        }
-        // REST hooks (Zapier)
-        if (!this.pluginsServer.KAFKA_ENABLED) {
-            // REST hooks are EE-only
-            return false
-        }
-        const timeout = timeoutGuard(`Still running "shouldSendHooksTask". Timeout warning after 30 sec!`)
-        try {
-            const hookQueryResult = await this.db.postgresQuery(
-                `SELECT COUNT(*) FROM ee_hook WHERE team_id = $1 AND event = 'action_performed' LIMIT 1`,
-                [team.id],
-                'shouldSendHooksTask'
-            )
-            return parseInt(hookQueryResult.rows[0].count) > 0
-        } catch (error) {
-            // In FOSS PostHog ee_hook does not exist. If the error is other than that, rethrow it
-            if (!String(error).includes('relation "ee_hook" does not exist')) {
-                throw error
-            }
-        } finally {
-            clearTimeout(timeout)
-        }
-        return false
+        return await this.createEvent(
+            eventUuid,
+            event,
+            teamId,
+            distinctId,
+            properties,
+            timestamp,
+            elementsList,
+            siteUrl
+        )
     }
 
     private async createEvent(
         uuid: string,
         event: string,
-        team: Team,
+        teamId: TeamId,
         distinctId: string,
         properties?: Properties,
         timestamp?: DateTime | string,
@@ -519,7 +429,7 @@ export class EventsProcessor {
             event,
             properties: JSON.stringify(properties ?? {}),
             timestamp: timestampString,
-            teamId: team.id,
+            teamId,
             distinctId,
             elementsChain,
             createdAt: timestampString,
@@ -535,7 +445,7 @@ export class EventsProcessor {
                     },
                 ],
             })
-            if (await this.shouldSendHooksTask(team)) {
+            if (await this.teamManager.shouldSendWebhooks(teamId)) {
                 this.pluginsServer.statsd?.increment(`hooks.send_task`)
                 this.celery.sendTask(
                     'ee.tasks.webhooks_ee.post_event_to_webhook_ee',
@@ -547,7 +457,7 @@ export class EventsProcessor {
                             timestamp,
                             elements_chain: elementsChain,
                         },
-                        team.id,
+                        teamId,
                         siteUrl,
                     ],
                     {}
@@ -556,7 +466,7 @@ export class EventsProcessor {
         } else {
             let elementsHash = ''
             if (elements && elements.length > 0) {
-                elementsHash = await this.db.createElementGroup(elements, team.id)
+                elementsHash = await this.db.createElementGroup(elements, teamId)
             }
             const {
                 rows: [event],
@@ -574,7 +484,7 @@ export class EventsProcessor {
                 ],
                 'createEventInsert'
             )
-            if (await this.shouldSendHooksTask(team)) {
+            if (await this.teamManager.shouldSendWebhooks(teamId)) {
                 this.pluginsServer.statsd?.increment(`hooks.send_task`)
                 this.celery.sendTask('posthog.tasks.webhooks.post_event_to_webhook', [event.id, siteUrl], {})
             }

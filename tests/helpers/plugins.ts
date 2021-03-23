@@ -101,7 +101,7 @@ export const mockPluginWithArchive = (indexJs: string, pluginJson?: string): Plu
 })
 
 export const makePluginObjects = (
-    indexJs: string
+    indexJs = ''
 ): {
     pluginRows: Plugin[]
     pluginConfigRows: PluginConfig[]
