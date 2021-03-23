@@ -25,8 +25,8 @@ from posthog.utils import (
 )
 
 from .utils import (
-    available_timezones_with_offsets,
     get_available_social_auth_providers,
+    get_available_timezones_with_offsets,
     get_celery_heartbeat,
     get_plugin_server_version,
 )
@@ -177,6 +177,6 @@ def preflight_check(_):
             "initiated": User.objects.exists(),
             "cloud": settings.MULTI_TENANCY,
             "available_social_auth_providers": get_available_social_auth_providers(),
-            "available_timezones": available_timezones_with_offsets(),
+            "available_timezones": get_available_timezones_with_offsets(),
         }
     )

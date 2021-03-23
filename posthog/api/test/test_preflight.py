@@ -12,6 +12,8 @@ class TestPreflight(BaseTest):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response = response.json()
+            available_timezones = response.pop("available_timezones")
+
             self.assertEqual(
                 response,
                 {
@@ -23,9 +25,9 @@ class TestPreflight(BaseTest):
                     "initiated": True,
                     "cloud": False,
                     "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
-                    "available_timezones": pytz.common_timezones,
                 },
             )
+            self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
     def test_cloud_preflight_request(self):
 
@@ -36,6 +38,8 @@ class TestPreflight(BaseTest):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response = response.json()
+            available_timezones = response.pop("available_timezones")
+
             self.assertEqual(
                 response,
                 {
@@ -47,9 +51,9 @@ class TestPreflight(BaseTest):
                     "initiated": False,
                     "cloud": True,
                     "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
-                    "available_timezones": pytz.common_timezones,
                 },
             )
+            self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
     def test_cloud_preflight_request_with_social_auth_providers(self):
 
@@ -64,6 +68,8 @@ class TestPreflight(BaseTest):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response = response.json()
+            available_timezones = response.pop("available_timezones")
+
             self.assertEqual(
                 response,
                 {
@@ -75,6 +81,6 @@ class TestPreflight(BaseTest):
                     "initiated": False,
                     "cloud": True,
                     "available_social_auth_providers": {"google-oauth2": True, "github": False, "gitlab": False},
-                    "available_timezones": pytz.common_timezones,
                 },
             )
+            self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)

@@ -643,7 +643,7 @@ class GenericEmails:
         return self.emails.get(email[at_location + 1 :], False)
 
 
-def available_timezones_with_offsets() -> Dict[str, float]:
+def get_available_timezones_with_offsets() -> Dict[str, float]:
     now = dt.datetime.now()
     result = {}
     for tz in pytz.common_timezones:
