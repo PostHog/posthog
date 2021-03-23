@@ -9,6 +9,6 @@ SELECT groupArray(value) FROM (
      AND JSONHas(properties, %(key)s)
     GROUP BY value
     ORDER BY count DESC
-    LIMIT %(limit)s
+    LIMIT %(limit)s OFFSET %(offset)s
 )
 """

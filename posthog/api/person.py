@@ -14,7 +14,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.utils import get_target_entity
+from posthog.api.utils import format_next_url, get_target_entity
 from posthog.constants import TRENDS_LINEAR, TRENDS_TABLE
 from posthog.models import Event, Filter, Person
 from posthog.models.filters import RetentionFilter
@@ -315,13 +315,7 @@ def paginated_result(
 ) -> Optional[str]:
     next_url: Optional[str] = request.get_full_path()
     if len(entites) > 99 and next_url:
-        if "offset" in next_url:
-            next_url = next_url[1:]
-            next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
-        else:
-            next_url = request.build_absolute_uri(
-                "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
-            )
+        next_url = format_next_url(request, next_url, offset, 100)
     else:
         next_url = None
     return next_url

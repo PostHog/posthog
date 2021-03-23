@@ -30,6 +30,8 @@ from posthog.models.filters import Filter
 
 
 class ClickhouseTrendsBreakdown:
+    has_more_values = False
+
     def _format_breakdown_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
         # process params
         params: Dict[str, Any] = {"team_id": team_id}
@@ -89,13 +91,23 @@ class ClickhouseTrendsBreakdown:
                 team_id, filter, entity
             )
         elif filter.breakdown_type == "person":
-            _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_person_params(
-                filter, team_id
-            )
+            (
+                _params,
+                breakdown_filter,
+                _breakdown_filter_params,
+                breakdown_value,
+                has_more_values,
+            ) = self._breakdown_person_params(filter, team_id)
+            self.has_more_values = has_more_values
         else:
-            _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_prop_params(
-                filter, team_id
-            )
+            (
+                _params,
+                breakdown_filter,
+                _breakdown_filter_params,
+                breakdown_value,
+                has_more_values,
+            ) = self._breakdown_prop_params(filter, team_id)
+            self.has_more_values = has_more_values
 
         if len(_params["values"]) == 0:
             return "SELECT 1", {}, lambda _: []
@@ -160,7 +172,9 @@ class ClickhouseTrendsBreakdown:
             latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
             prop_filters=prop_filters,
         )
-        top_elements_array = self._get_top_elements(elements_query, filter, team_id, params=prop_filter_params)
+        top_elements_array, has_more_values = self._get_top_elements(
+            elements_query, filter, team_id, params=prop_filter_params
+        )
         params = {
             "values": top_elements_array,
         }
@@ -169,7 +183,7 @@ class ClickhouseTrendsBreakdown:
             "latest_person_sql": GET_LATEST_PERSON_SQL.format(query=""),
         }
 
-        return params, breakdown_filter, breakdown_filter_params, "value"
+        return params, breakdown_filter, breakdown_filter_params, "value", has_more_values
 
     def _breakdown_prop_params(self, filter: Filter, team_id: int):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
@@ -179,13 +193,15 @@ class ClickhouseTrendsBreakdown:
         elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
             parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to, prop_filters=prop_filters
         )
-        top_elements_array = self._get_top_elements(elements_query, filter, team_id, params=prop_filter_params)
+        top_elements_array, has_more_values = self._get_top_elements(
+            elements_query, filter, team_id, params=prop_filter_params
+        )
         params = {
             "values": top_elements_array,
         }
         breakdown_filter = BREAKDOWN_PROP_JOIN_SQL
 
-        return params, breakdown_filter, {}, "JSONExtractRaw(properties, %(key)s)"
+        return params, breakdown_filter, {}, "JSONExtractRaw(properties, %(key)s)", has_more_values
 
     def _parse_single_aggregate_result(self, filter: Filter, entity: Entity) -> Callable:
         def _parse(result: List) -> List:
@@ -244,8 +260,8 @@ class ClickhouseTrendsBreakdown:
         else:
             return str(value) or ""
 
-    def _get_top_elements(self, query: str, filter: Filter, team_id: int, params: Dict = {}) -> List:
-        element_params = {"key": filter.breakdown, "limit": 20, "team_id": team_id, **params}
+    def _get_top_elements(self, query: str, filter: Filter, team_id: int, params: Dict = {}) -> Tuple[List, bool]:
+        element_params = {"key": filter.breakdown, "limit": 21, "team_id": team_id, "offset": filter.offset, **params}
 
         try:
             top_elements_array_result = sync_execute(query, element_params)
@@ -253,7 +269,7 @@ class ClickhouseTrendsBreakdown:
         except:
             top_elements_array = []
 
-        return top_elements_array
+        return top_elements_array[:20], len(top_elements_array) > 20
 
     def _format_all_query(self, team_id: int, filter: Filter, entity: Entity) -> Tuple[str, Dict]:
         parsed_date_from, parsed_date_to, date_params = parse_timestamps(
