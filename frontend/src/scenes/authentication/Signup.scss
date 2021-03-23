@@ -110,6 +110,11 @@ $good_sans: 'Good Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 
             color: $website_orange;
             font-family: $gosha_sans;
         }
+
+        .inner {
+            background-color: white;
+            border-radius: $radius;
+        }
     }
 
     .signup-submit {
@@ -135,6 +140,34 @@ $good_sans: 'Good Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 
 
         &:hover {
             background-color: darken($website_orange, 15%);
+        }
+    }
+
+    .mobile-logo {
+        display: none;
+        padding: 0;
+        padding-bottom: $default_spacing * 2;
+    }
+
+    @media (max-width: 992px) {
+        .main-logo {
+            display: none;
+            &.mobile-logo {
+                display: block;
+            }
+        }
+
+        .auth-main-content {
+            padding-bottom: 0;
+            flex-direction: column;
+        }
+
+        .showcase-content .inner {
+            padding-bottom: 64px;
+
+            h1 {
+                text-align: center;
+            }
         }
     }
 }

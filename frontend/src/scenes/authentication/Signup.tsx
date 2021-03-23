@@ -1,4 +1,4 @@
-import { Col, Row, Form, Input, Button, Alert } from 'antd'
+import { Col, Row, Form, Input, Button, Alert, Grid } from 'antd'
 import React from 'react'
 import logo from 'public/posthog-logo-white.svg'
 import './Signup.scss'
@@ -7,22 +7,27 @@ import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { PasswordInput } from './PasswordInput'
 import { CheckOutlined, CloudFilled, GithubFilled } from '@ant-design/icons'
 import { IconRocket } from 'lib/components/icons'
+import { Breakpoint } from 'antd/lib/_util/responsiveObserve'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
 export function Signup(): JSX.Element {
     const [form] = Form.useForm()
+    const { useBreakpoint } = Grid
     const loading = false // TODO
     const errorResponse: Record<string, any> = {} // TODO
     const authenticate = (values: any): void => console.log(values) // TODO
+    const screens = useBreakpoint()
+    const isSmallScreen = (Object.keys(screens) as Breakpoint[]).filter((key) => screens[key]).length <= 2 // xs; sm
 
     return (
         <div className="signup">
             <Row>
-                <Col span={24} md={14} className="image-showcase-container">
-                    <div className="image-showcase ant-col-24 ant-col-md-14">
+                <Col span={24} lg={14} className="image-showcase-container" order={isSmallScreen ? 2 : undefined}>
+                    <div className="image-showcase ant-col-24 ant-col-lg-14">
                         <div className="planet" />
                     </div>
+
                     <div className="showcase-content">
                         <div className="main-logo">
                             <a href={`https://posthog.com?${UTM_TAGS}`}>
@@ -82,7 +87,12 @@ export function Signup(): JSX.Element {
                         </div>
                     </div>
                 </Col>
-                <Col span={24} md={10} className="auth-main-content">
+                <Col span={24} lg={10} className="auth-main-content" order={isSmallScreen ? 1 : undefined}>
+                    <div className="main-logo mobile-logo">
+                        <a href={`https://posthog.com?${UTM_TAGS}`}>
+                            <img src={logo} alt="" />
+                        </a>
+                    </div>
                     <div className="inner">
                         <h2 className="subtitle" style={{ justifyContent: 'center' }}>
                             Get started
