@@ -88,8 +88,10 @@
         padding-right: 6px;
     }
 
-    &:hover {
+    &:hover,
+    &:active {
         background-color: darken($website_orange, 15%);
+        color: $text_light;
     }
 }
 
