@@ -18,16 +18,26 @@ def test_preprocess_recording_event_creates_chunks():
         {
             "event": "$snapshot",
             "properties": {"$session_id": "1234", "$snapshot_data": {"type": 2, "foo": "bar"}, "distinct_id": "abc123"},
-        }
+        },
+        {
+            "event": "$snapshot",
+            "properties": {"$session_id": "1234", "$snapshot_data": {"type": 1, "foo": "bar"}, "distinct_id": "abc123"},
+        },
+        {
+            "event": "$snapshot",
+            "properties": {"$session_id": "5678", "$snapshot_data": {"type": 1, "foo": "bar"}, "distinct_id": "abc123"},
+        },
     ]
 
     preprocessed = preprocess_session_recording_events(events)
     assert preprocessed != events
-    assert len(preprocessed) == 1
-    assert preprocessed[0]["event"] == "$snapshot"
-    assert preprocessed[0]["properties"]["$session_id"] == "1234"
-    assert preprocessed[0]["properties"]["distinct_id"] == "abc123"
-    assert "chunk_id" in preprocessed[0]["properties"]["$snapshot_data"]
+    assert len(preprocessed) == 2
+    for result, expected_session_id in zip(preprocessed, ["1234", "5678"]):
+        assert result["event"] == "$snapshot"
+        assert result["properties"]["$session_id"] == expected_session_id
+        assert result["properties"]["distinct_id"] == "abc123"
+        assert "chunk_id" in result["properties"]["$snapshot_data"]
+        assert result["event"] == "$snapshot"
 
 
 def test_compression_and_chunking(snapshot_events, mocker: MockerFixture):

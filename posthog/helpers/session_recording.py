@@ -15,14 +15,16 @@ FULL_SNAPSHOT = 2
 
 
 def preprocess_session_recording_events(events: List[Event]) -> List[Event]:
-    result, snapshots = [], []
+    result = []
+    snapshots_by_session = defaultdict(list)
     for event in events:
         if is_snapshot(event):
-            snapshots.append(event)
+            session_recording_id = event["properties"]["$session_id"]
+            snapshots_by_session[session_recording_id].append(event)
         else:
             result.append(event)
 
-    if len(snapshots) > 0:
+    for session_recording_id, snapshots in snapshots_by_session.items():
         result.extend(list(compress_and_chunk_snapshots(snapshots)))
 
     return result
@@ -30,7 +32,7 @@ def preprocess_session_recording_events(events: List[Event]) -> List[Event]:
 
 def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> Generator[Event, None, None]:
     data_list = [event["properties"]["$snapshot_data"] for event in events]
-    session_id = events[0]["properties"]["$session_id"]  # assumption: all events within a request have same session_id
+    session_id = events[0]["properties"]["$session_id"]
     has_full_snapshot = any(snapshot_data["type"] == FULL_SNAPSHOT for snapshot_data in data_list)
 
     compressed_data = compress_to_string(json.dumps(data_list))
