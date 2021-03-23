@@ -8,9 +8,9 @@ import utc from 'dayjs/plugin/utc'
 import timezone from 'dayjs/plugin/timezone'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { ProjectOutlined, LaptopOutlined, GlobalOutlined, SettingOutlined, FieldTimeOutlined } from '@ant-design/icons'
+import { ProjectOutlined, LaptopOutlined, GlobalOutlined, SettingOutlined } from '@ant-design/icons'
 import { Link } from '../Link'
-import { humanTZOffset, shortTimeZone } from 'lib/utils'
+import { humanTzOffset, shortTimeZone } from 'lib/utils'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY HH:mm'
 
@@ -19,7 +19,20 @@ dayjs.extend(relativeTime)
 dayjs.extend(utc)
 dayjs.extend(timezone)
 
-/* TZLabel - Returns a simple label component with the timezone conversion elements */
+function TZConversionHeader(): JSX.Element {
+    return (
+        <h3 className="l3">
+            Timezone conversion
+            <span className="float-right">
+                <Link to="/project/settings#timezone">
+                    <SettingOutlined />
+                </Link>
+            </span>
+        </h3>
+    )
+}
+
+/** Return a simple label component with timezone conversion UI. */
 export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; showSeconds?: boolean }): JSX.Element {
     const parsedTime = dayjs.isDayjs(time) ? time : dayjs(time)
     const { currentTeam } = useValues(teamLogic)
@@ -29,21 +42,14 @@ export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; sho
 
     const PopoverContent = (
         <div className="tz-label-popover">
-            <h3 className="l3">
-                Timezone conversion
-                <span className="float-right">
-                    <Link to="/project/settings#timezone">
-                        <SettingOutlined />
-                    </Link>
-                </span>
-            </h3>
+            <TZConversionHeader />
             <div className="divider" />
             <div className="timezones">
                 <Row className="timezone">
                     <Col className="name">
                         <LaptopOutlined /> {shortTimeZone(undefined, parsedTime.toDate())}
                     </Col>
-                    <Col className="scope">| Your computer</Col>
+                    <Col className="scope">Your device</Col>
                     <Col className="time" style={timeStyle}>
                         {parsedTime.format(DATE_OUTPUT_FORMAT)}
                     </Col>
@@ -53,7 +59,7 @@ export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; sho
                         <Col className="name">
                             <ProjectOutlined /> {shortTimeZone(currentTeam.timezone, parsedTime.toDate())}
                         </Col>
-                        <Col className="scope">| Project</Col>
+                        <Col className="scope">Project</Col>
                         <Col className="time" style={timeStyle}>
                             {parsedTime.tz(currentTeam.timezone).format(DATE_OUTPUT_FORMAT)}
                         </Col>
@@ -81,13 +87,16 @@ export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; sho
     )
 }
 
+/** Return an explainer component for analytics visualization pages. */
 export function TZIndicator({ style }: { style?: React.CSSProperties }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const PopoverContent = (
         <div className="tz-label-popover">
-            <h3 className="l3">Timezone conversion</h3>
+            <TZConversionHeader />
             <p style={{ maxWidth: 320 }}>
-                All graphs are computed in UTC timezone. Conversion to your local timezones shown below.
+                Times presented in visualizations are UTC.
+                <br />
+                Conversion of your local timezones to UTC below.
             </p>
             <div className="divider" />
             <div className="timezones">
@@ -95,9 +104,9 @@ export function TZIndicator({ style }: { style?: React.CSSProperties }): JSX.Ele
                     <Col className="name">
                         <LaptopOutlined /> {shortTimeZone(undefined)}
                     </Col>
-                    <Col className="scope">| Your computer</Col>
+                    <Col className="scope">Your device</Col>
                     <Col className="time" style={{ minWidth: 100, fontWeight: 'bold' }}>
-                        {humanTZOffset()}
+                        {humanTzOffset()}
                     </Col>
                 </Row>
                 {currentTeam && (
@@ -105,9 +114,9 @@ export function TZIndicator({ style }: { style?: React.CSSProperties }): JSX.Ele
                         <Col className="name">
                             <ProjectOutlined /> {shortTimeZone(currentTeam.timezone)}
                         </Col>
-                        <Col className="scope">| Project</Col>
+                        <Col className="scope">Project</Col>
                         <Col className="time" style={{ minWidth: 100, fontWeight: 'bold' }}>
-                            {humanTZOffset(currentTeam.timezone)}
+                            {humanTzOffset(currentTeam.timezone)}
                         </Col>
                     </Row>
                 )}
@@ -118,7 +127,7 @@ export function TZIndicator({ style }: { style?: React.CSSProperties }): JSX.Ele
     return (
         <Popover content={PopoverContent}>
             <span className="tz-indicator" style={style}>
-                <FieldTimeOutlined /> UTC
+                <GlobalOutlined /> UTC
             </span>
         </Popover>
     )

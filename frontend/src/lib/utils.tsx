@@ -760,15 +760,23 @@ export function endWithPunctation(text?: string | null): string {
     return trimmedText
 }
 
-export function shortTimeZone(timeZone?: string, at_date: Date = new Date()): string {
-    /* Returns the short timezone identifier for a specific timezone (e.g. BST, EST, PDT)
-        @param timezone: 'America/New_York'
-    */
-    return new Date(at_date).toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone }).split(' ')[2]
+/**
+ * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
+ * @param timeZone E.g. 'America/New_York'
+ * @param atDate
+ */
+export function shortTimeZone(timeZone?: string, atDate: Date = new Date()): string {
+    const localeTimeString = new Date(atDate).toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
+    return localeTimeString.split(' ')[2].replace('GMT', 'UTC')
 }
 
-export function humanTZOffset(timezone?: string): string {
+export function humanTzOffset(timezone?: string): string {
     const offset = dayjs().tz(timezone).utcOffset() / 60
+    if (!offset) {
+        return 'no offset'
+    }
+    const absoluteOffset = Math.abs(offset)
+    const hourForm = absoluteOffset === 1 ? 'hour' : 'hours'
     const direction = offset > 0 ? 'ahead' : 'behind'
-    return `${offset > 0 ? '+' : '-'}${Math.abs(offset)} hours ${direction}`
+    return `${absoluteOffset} ${hourForm} ${direction}`
 }

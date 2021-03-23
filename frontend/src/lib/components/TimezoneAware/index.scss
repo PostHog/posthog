@@ -25,10 +25,12 @@
                 color: $text_muted;
                 margin-right: 16px;
                 flex-grow: 1;
+                font-style: italic;
             }
 
             .time {
                 min-width: 170px;
+                text-align: right;
             }
         }
     }
