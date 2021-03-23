@@ -3,5 +3,6 @@ describe('Organization settings', () => {
         cy.get('[data-attr=top-navigation-whoami]').click()
         cy.get('[data-attr=top-menu-item-org-settings]').click()
         cy.location('pathname').should('include', '/organization/settings')
+        cy.get('.page-title').should('contain', 'Organization')
     })
 })

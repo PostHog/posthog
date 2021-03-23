@@ -10,7 +10,6 @@ import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { ReloadOutlined } from '@ant-design/icons'
 import { red } from '@ant-design/colors'
-import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from './ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,6 +21,7 @@ import { userLogic } from 'scenes/userLogic'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { RestrictedArea } from '../../../lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from '../../../lib/constants'
+import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -61,8 +61,7 @@ function DisplayName(): JSX.Element {
     )
 }
 
-export const ProjectSettings = hot(_ProjectSettings)
-function _ProjectSettings(): JSX.Element {
+export function ProjectSettings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
@@ -146,6 +145,14 @@ function _ProjectSettings(): JSX.Element {
                 </CodeSnippet>
                 Write-only means it can only create new events. It can't read events or any of your other data stored
                 with PostHog, so it's safe to use in public apps.
+                <Divider />
+                <h2 className="subtitle" id="testaccounts">
+                    Filter out test accounts and team members
+                </h2>
+                <p>
+                    Filter out test accounts and internal team members from all your queries for more accurate insights.
+                </p>
+                <TestAccountFiltersConfig />
                 <Divider />
                 <h2 className="subtitle" id="urls">
                     Permitted Domains/URLs

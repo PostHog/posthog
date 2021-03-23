@@ -1,11 +1,10 @@
 import React, { useState } from 'react'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { DeleteWithUndo } from 'lib/utils'
 import { Tooltip, Table, Spin, Button, Input } from 'antd'
 import { ExportOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions, kea } from 'kea'
-import { hot } from 'react-hot-loader/root'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
 import { Cohort } from './Cohort'
@@ -15,7 +14,10 @@ import api from 'lib/api'
 import './cohorts.scss'
 import Fuse from 'fuse.js'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
+import relativeTime from 'dayjs/plugin/relativeTime'
 import { cohortsUrlLogicType } from './CohortsType'
+
+dayjs.extend(relativeTime)
 
 const cohortsUrlLogic = kea<cohortsUrlLogicType<CohortType>>({
     actions: {
@@ -51,8 +53,7 @@ const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
         .map((result) => result.item)
 }
 
-export const Cohorts = hot(_Cohorts)
-function _Cohorts(): JSX.Element {
+export function Cohorts(): JSX.Element {
     const { cohorts, cohortsLoading } = useValues(cohortsModel)
     const { loadCohorts } = useActions(cohortsModel)
     const { openCohort } = useValues(cohortsUrlLogic)
@@ -94,7 +95,7 @@ function _Cohorts(): JSX.Element {
                         Calculating <Spin />
                     </span>
                 ) : (
-                    moment(cohort.last_calculation).fromNow()
+                    dayjs(cohort.last_calculation).fromNow()
                 )
             },
         },

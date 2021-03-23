@@ -22,7 +22,6 @@ import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
-import { hot } from 'react-hot-loader/root'
 import { isMobile, platformCommandControlKey } from 'lib/utils'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { Link } from 'lib/components/Link'
@@ -71,8 +70,7 @@ export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     )
 }
 
-export const TopNavigation = hot(_TopNavigation)
-export function _TopNavigation(): JSX.Element {
+export function TopNavigation(): JSX.Element {
     const {
         setMenuCollapsed,
         setChangelogModalOpen,
