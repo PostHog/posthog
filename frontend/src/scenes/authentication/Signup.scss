@@ -46,6 +46,12 @@ $good_sans: 'Good Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 
             padding-top: $default_spacing * 2;
             max-width: 600px;
             margin: 0 auto;
+
+            .showcase-description {
+                height: calc(100vh - 180px);
+                display: flex;
+                flex-direction: column;
+            }
         }
 
         h1 {
@@ -61,6 +67,11 @@ $good_sans: 'Good Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 
 
         .alt-options {
             margin-top: $default_spacing * 3;
+            display: flex;
+            flex-grow: 1;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding-bottom: $default_spacing * 2;
 
             a {
                 color: rgba(255, 255, 255, 0.8);

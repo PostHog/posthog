@@ -5,15 +5,18 @@ import './Signup.scss'
 import { Link } from 'lib/components/Link'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { PasswordInput } from './PasswordInput'
-import { CheckOutlined, CloudFilled, GithubFilled } from '@ant-design/icons'
 import { IconRocket } from 'lib/components/icons'
 import { Breakpoint } from 'antd/lib/_util/responsiveObserve'
+import { SignupSideContentCloud, SignupSideContentHosted } from './SignupSideContent'
+import { useValues } from 'kea'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
 export function Signup(): JSX.Element {
     const [form] = Form.useForm()
     const { useBreakpoint } = Grid
+    const { preflight } = useValues(preflightLogic)
     const loading = false // TODO
     const errorResponse: Record<string, any> = {} // TODO
     const authenticate = (values: any): void => console.log(values) // TODO
@@ -35,55 +38,11 @@ export function Signup(): JSX.Element {
                             </a>
                         </div>
                         <div className="inner">
-                            <h1 className="page-title">Try PostHog Cloud!</h1>
-                            <div className="showcase-description">
-                                PostHog Cloud is the hosted version of our open source package.
-                                <br />
-                                <br />
-                                We manage hosting, scaling and upgrades.
-                                <div className="signup-list">
-                                    <div>
-                                        <CheckOutlined /> First 10k events free every month
-                                    </div>
-                                    <div>
-                                        <CheckOutlined /> Pay per use, cancel anytime
-                                    </div>
-                                    <div>
-                                        <CheckOutlined /> Community, Slack &amp; email support
-                                    </div>
-                                </div>
-                                <div className="alt-options">
-                                    <h3>Interested in self-hosting?</h3>
-                                    <a
-                                        href={`https://posthog.com/pricing?o=vpc&${UTM_TAGS}`}
-                                        target="_blank"
-                                        rel="noopener"
-                                        className="alt-option"
-                                    >
-                                        <div>
-                                            <CloudFilled />
-                                        </div>
-                                        <div>
-                                            <b>Private cloud</b>
-                                            <div>Managed deployments, maximum scalability</div>
-                                        </div>
-                                    </a>
-                                    <a
-                                        href={`https://posthog.com/docs/deployment?${UTM_TAGS}`}
-                                        target="_blank"
-                                        rel="noopener"
-                                        className="alt-option"
-                                    >
-                                        <div>
-                                            <GithubFilled />
-                                        </div>
-                                        <div>
-                                            <b>Open source</b>
-                                            <div>Deploy on your own infrastructure. Free forever.</div>
-                                        </div>
-                                    </a>
-                                </div>
-                            </div>
+                            {preflight?.cloud ? (
+                                <SignupSideContentCloud utm_tags={UTM_TAGS} />
+                            ) : (
+                                <SignupSideContentHosted utm_tags={UTM_TAGS} />
+                            )}
                         </div>
                     </div>
                 </Col>
