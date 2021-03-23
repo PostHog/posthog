@@ -41,9 +41,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
             has_more_breakdown_values = trends_query.has_more_values
 
         self._refresh_dashboard(request=request)
-        next = (
-            format_next_url(request, request.get_full_path(), filter.offset, 20) if has_more_breakdown_values else None
-        )
+        next = format_next_url(request, filter.offset, 20) if has_more_breakdown_values else None
         return {"result": result, "next": next}
 
     @cached_function()

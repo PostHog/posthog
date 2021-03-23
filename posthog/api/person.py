@@ -315,7 +315,7 @@ def paginated_result(
 ) -> Optional[str]:
     next_url: Optional[str] = request.get_full_path()
     if len(entites) > 99 and next_url:
-        next_url = format_next_url(request, next_url, offset, 100)
+        next_url = format_next_url(request, offset, 100)
     else:
         next_url = None
     return next_url
