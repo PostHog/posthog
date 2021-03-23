@@ -29,8 +29,7 @@ describe('Auth', () => {
     })
 
     it('Redirect to appropriate place after login', () => {
-        cy.get('[data-attr=top-menu-item-logout]').click()
-
+        cy.visit('/logout')
         cy.visit('/events')
         cy.wait(200)
         cy.location('pathname').should('include', '/login') // Should be redirected to login because we're now logged out
@@ -43,12 +42,10 @@ describe('Auth', () => {
     })
 
     it('Redirect to appropriate place after login with complex URL', () => {
-        cy.get('[data-attr=top-menu-item-logout]').click()
-
+        cy.visit('/logout')
         cy.visit(
             '/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&actions=%5B%5D&events=%5B%7B"id"%3A"%24pageview"%2C"name"%3A"%24pageview"%2C"type"%3A"events"%2C"order"%3A0%7D%2C%7B"id"%3A"%24autocapture"%2C"name"%3A"%24autocapture"%2C"type"%3A"events"%2C"order"%3A1%7D%5D&properties=%5B%5D&filter_test_accounts=false&new_entity=%5B%5D'
         )
-        cy.wait(200)
         cy.location('pathname').should('include', '/login') // Should be redirected to login because we're now logged out
 
         cy.get('[data-attr=login-email]').type('test@posthog.com')
