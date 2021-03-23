@@ -7,7 +7,9 @@ import { Link } from 'lib/components/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { PasswordInput } from './PasswordInput'
-import { CheckOutlined } from '@ant-design/icons'
+import { CheckOutlined, CloudFilled, GithubFilled } from '@ant-design/icons'
+
+const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
 export function Signup(): JSX.Element {
     const [form] = Form.useForm()
@@ -21,13 +23,15 @@ export function Signup(): JSX.Element {
             <Row>
                 <Col span={24} md={14} className="image-showcase-container">
                     <div className="image-showcase ant-col-24 ant-col-md-14">
+                        <div className="planet" />
+                    </div>
+                    <div className="showcase-content">
                         <div className="main-logo">
-                            <a href="https://posthog.com?utm_campaign=in-product&utm_tag=signup-header">
+                            <a href={`https://posthog.com?${UTM_TAGS}`}>
                                 <img src={logo} alt="" />
                             </a>
                         </div>
-                        <div className="planet" />
-                        <div className="showcase-content">
+                        <div className="inner">
                             <h1 className="page-title">Try PostHog Cloud!</h1>
                             <div className="showcase-description">
                                 PostHog Cloud is the hosted version of our open source package.
@@ -44,6 +48,37 @@ export function Signup(): JSX.Element {
                                     <div>
                                         <CheckOutlined /> Community, Slack &amp; email support
                                     </div>
+                                </div>
+                                <div className="alt-options">
+                                    <h3>Interested in self-hosting?</h3>
+                                    <a
+                                        href={`https://posthog.com/pricing?o=vpc&${UTM_TAGS}`}
+                                        target="_blank"
+                                        rel="noopener"
+                                        className="alt-option"
+                                    >
+                                        <div>
+                                            <CloudFilled />
+                                        </div>
+                                        <div>
+                                            <b>Private cloud</b>
+                                            <div>Managed deployments, maximum scalability</div>
+                                        </div>
+                                    </a>
+                                    <a
+                                        href={`https://posthog.com/docs/deployment?${UTM_TAGS}`}
+                                        target="_blank"
+                                        rel="noopener"
+                                        className="alt-option"
+                                    >
+                                        <div>
+                                            <GithubFilled />
+                                        </div>
+                                        <div>
+                                            <b>Open source</b>
+                                            <div>Deploy on your own infrastructure. Free forever.</div>
+                                        </div>
+                                    </a>
                                 </div>
                             </div>
                         </div>
