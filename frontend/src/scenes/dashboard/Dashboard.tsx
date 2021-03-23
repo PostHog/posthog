@@ -11,6 +11,7 @@ import './Dashboard.scss'
 import { useKeyboardHotkeys } from '../../lib/hooks/useKeyboardHotkeys'
 import { DashboardMode } from '../../types'
 import { EventSource } from '../../lib/utils/eventUsageLogic'
+import { TZIndicator } from 'lib/components/TimezoneAware'
 import { Link } from 'lib/components/Link'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
@@ -116,19 +117,22 @@ function DashboardView(): JSX.Element {
                         </div>
                          */}
                         {dashboardMode !== DashboardMode.Public && (
-                            <DateFilter
-                                defaultValue="Custom"
-                                showCustom
-                                dateFrom={dashboardFilters?.date_from}
-                                dateTo={dashboardFilters?.date_to}
-                                onChange={setDates}
-                                makeLabel={(key) => (
-                                    <>
-                                        <CalendarOutlined />
-                                        <span className="hide-when-small"> {key}</span>
-                                    </>
-                                )}
-                            />
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />
+                                <DateFilter
+                                    defaultValue="Custom"
+                                    showCustom
+                                    dateFrom={dashboardFilters?.date_from}
+                                    dateTo={dashboardFilters?.date_to}
+                                    onChange={setDates}
+                                    makeLabel={(key) => (
+                                        <>
+                                            <CalendarOutlined />
+                                            <span className="hide-when-small"> {key}</span>
+                                        </>
+                                    )}
+                                />
+                            </div>
                         )}
                     </div>
                     <DashboardItems inSharedMode={dashboardMode === DashboardMode.Public} />

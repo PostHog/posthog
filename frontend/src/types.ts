@@ -25,7 +25,7 @@ export interface UserType {
     team: TeamType | null
     toolbar_mode: 'disabled' | 'toolbar'
     organizations: OrganizationType[]
-    teams: TeamType[]
+    teams: Partial<TeamType>[]
     current_organization_id: string
     current_team_id: number
     has_password: boolean
@@ -126,6 +126,7 @@ export interface TeamType {
     ingested_event: boolean
     is_demo: boolean
     test_account_filters: FilterType[]
+    timezone: string
 }
 
 export interface ActionType {
@@ -574,6 +575,7 @@ export interface PreflightStatus {
     cloud: boolean
     celery: boolean
     available_social_auth_providers: AuthBackends
+    available_timezones: Record<string, number>
 }
 
 export enum DashboardMode { // Default mode is null

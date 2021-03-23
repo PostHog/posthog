@@ -15,6 +15,7 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { NewPropertyComponent } from './NewPropertyComponent'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
+import { TZLabel } from 'lib/components/TimezoneAware'
 dayjs.extend(relativeTime)
 
 const { TabPane } = Tabs
@@ -96,10 +97,12 @@ export function Person(): JSX.Element {
                                         )}
                                     </div>
                                 </div>
-                                <div className="item-group">
-                                    <label>First seen</label>
-                                    <div>{dayjs(person.created_at).fromNow()}</div>
-                                </div>
+                                {person.created_at && (
+                                    <div className="item-group">
+                                        <label>First seen</label>
+                                        <div>{<TZLabel time={person.created_at} />}</div>
+                                    </div>
+                                )}
                                 <div className="text-center mt">
                                     <a onClick={() => setMergeModalOpen(true)}>
                                         <MergeCellsOutlined /> Merge person
