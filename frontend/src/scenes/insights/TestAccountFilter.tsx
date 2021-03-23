@@ -1,4 +1,4 @@
-import { Switch, Tooltip } from 'antd'
+import { Row, Switch, Tooltip } from 'antd'
 import { useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import React from 'react'
@@ -20,29 +20,35 @@ export function TestAccountFilter({
         <Tooltip
             title={
                 hasFilters
-                    ? 'Filter out test accounts and internal team members from this query.'
-                    : "You don't have a test account filter set up. Click settings to set it up."
+                    ? 'Filter out internal test and team members users from this query.'
+                    : "You don't have internal users filtering set up. Click the gear icon to configure it."
             }
         >
-            <Switch
-                disabled={!hasFilters}
-                checked={hasFilters ? filters.filter_test_accounts : false}
-                onChange={(checked: boolean) => {
-                    localStorage.setItem('default_filter_test_accounts', checked.toString())
-                    onChange({ filter_test_accounts: checked })
-                }}
-                size="small"
-            />
-            <label
-                style={{
-                    marginLeft: '10px',
-                }}
-            >
-                Filter out test accounts.{' '}
-                <Link to="/project/settings#testaccounts">
-                    <SettingOutlined /> Settings
+            <Row style={{ alignItems: 'center' }}>
+                <Switch
+                    disabled={!hasFilters}
+                    checked={hasFilters ? filters.filter_test_accounts : false}
+                    onChange={(checked: boolean) => {
+                        localStorage.setItem('default_filter_test_accounts', checked.toString())
+                        onChange({ filter_test_accounts: checked })
+                    }}
+                    size="small"
+                />
+                <label
+                    style={{
+                        marginLeft: 10,
+                    }}
+                >
+                    Filter out internal users
+                </label>
+                <Link to="/project/settings#internal-users-filtering">
+                    <SettingOutlined
+                        style={{
+                            marginLeft: 8,
+                        }}
+                    />
                 </Link>
-            </label>
+            </Row>
         </Tooltip>
     )
 }

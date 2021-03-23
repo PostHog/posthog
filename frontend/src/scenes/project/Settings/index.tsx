@@ -146,11 +146,18 @@ export function ProjectSettings(): JSX.Element {
                 Write-only means it can only create new events. It can't read events or any of your other data stored
                 with PostHog, so it's safe to use in public apps.
                 <Divider />
-                <h2 className="subtitle" id="testaccounts">
-                    Filter out test accounts and team members
+                <h2 className="subtitle" id="internal-users-filtering">
+                    Filtering out internal users
                 </h2>
                 <p>
-                    Filter out test accounts and internal team members from all your queries for more accurate insights.
+                    Increase the quality of your analytics results by filtering out internal test and team member users
+                    from queries.
+                    <br />
+                    This way only <b>real user data</b> will be taken into account.
+                    <br />
+                    <i>
+                        For best effectiveness, make sure to properly define internal users with the OR filters below.
+                    </i>
                 </p>
                 <TestAccountFiltersConfig />
                 <Divider />
