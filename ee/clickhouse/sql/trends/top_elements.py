@@ -4,7 +4,8 @@ SELECT groupArray(value) FROM (
         JSONExtractRaw(properties, %(key)s) as value,
         count(*) as count
     FROM events e
-    WHERE team_id = %(team_id)s {parsed_date_from} {parsed_date_to}
+    WHERE
+        team_id = %(team_id)s {parsed_date_from} {parsed_date_to} {prop_filters}
      AND JSONHas(properties, %(key)s)
     GROUP BY value
     ORDER BY count DESC
