@@ -3,16 +3,15 @@ import { Input, Button, Form, Switch, Slider, Card, Row, Col, Collapse, Tooltip 
 import { useActions, useValues } from 'kea'
 import { SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { DeleteOutlined, SaveOutlined, PlusOutlined } from '@ant-design/icons'
+import { DeleteOutlined, SaveOutlined, PlusOutlined, ApiFilled } from '@ant-design/icons'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { featureFlagLogic } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilter } from '~/types'
 import './FeatureFlag.scss'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
-import { IconExternalLink } from 'lib/components/icons'
-import pythonLogo from 'public/python.svg'
-import jsLogo from 'public/javascript.svg'
+import { IconExternalLink, IconJavascript, IconPython } from 'lib/components/icons'
+import { teamLogic } from 'scenes/teamLogic'
 
 const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
 
@@ -53,6 +52,29 @@ function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
                     rel="noopener"
                     href={`https://posthog.com/docs/integrations/python-integration${UTM_TAGS}#feature-flags`}
                 >
+                    Check the docs <IconExternalLink />
+                </a>
+            </div>
+        </>
+    )
+}
+
+function APISnippet(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    return (
+        <>
+            <CodeSnippet language={Language.Bash} wrap>
+                {`curl ${window.location.origin}/decide/ \\
+-X POST -H 'Content-Type: application/json' \\
+-d '{
+    "api_key": "${currentTeam ? currentTeam.api_token : '[project_api_key]'}",
+    "distinct_id": "[user distinct id]"
+}'
+                `}
+            </CodeSnippet>
+            <div className="mt">
+                Need more information?{' '}
+                <a target="_blank" rel="noopener" href={`https://posthog.com/docs/api/feature-flags${UTM_TAGS}`}>
                     Check the docs <IconExternalLink />
                 </a>
             </div>
@@ -195,13 +217,13 @@ export function FeatureFlag(): JSX.Element {
                                 />
                             </Form.Item>
                         </Col>
-                        <Col span={12} style={{ paddingTop: 32 }}>
+                        <Col span={12} style={{ paddingTop: 31 }}>
                             <Collapse>
                                 <Collapse.Panel
                                     header={
-                                        <div style={{ display: 'flex', fontWeight: 'bold' }}>
-                                            <img src={jsLogo} height={16} style={{ marginRight: 6 }} /> Javascript
-                                            integration instructions
+                                        <div style={{ display: 'flex', fontWeight: 'bold', alignItems: 'center' }}>
+                                            <IconJavascript style={{ marginRight: 6 }} /> Javascript integration
+                                            instructions
                                         </div>
                                     }
                                     key="js"
@@ -216,9 +238,8 @@ export function FeatureFlag(): JSX.Element {
                                 </Collapse.Panel>
                                 <Collapse.Panel
                                     header={
-                                        <div style={{ display: 'flex', fontWeight: 'bold' }}>
-                                            <img src={pythonLogo} height={16} style={{ marginRight: 6 }} /> Python
-                                            integration instructions
+                                        <div style={{ display: 'flex', fontWeight: 'bold', alignItems: 'center' }}>
+                                            <IconPython style={{ marginRight: 6 }} /> Python integration instructions
                                         </div>
                                     }
                                     key="python"
@@ -229,6 +250,22 @@ export function FeatureFlag(): JSX.Element {
                                         }
                                     >
                                         {({ getFieldValue }) => <PythonSnippet flagKey={getFieldValue('key')} />}
+                                    </Form.Item>
+                                </Collapse.Panel>
+                                <Collapse.Panel
+                                    header={
+                                        <div style={{ display: 'flex', fontWeight: 'bold', alignItems: 'center' }}>
+                                            <ApiFilled style={{ marginRight: 6 }} /> API integration instructions
+                                        </div>
+                                    }
+                                    key="api"
+                                >
+                                    <Form.Item
+                                        shouldUpdate={(prevValues, currentValues) =>
+                                            prevValues.key !== currentValues.key
+                                        }
+                                    >
+                                        <APISnippet />
                                     </Form.Item>
                                 </Collapse.Panel>
                             </Collapse>
@@ -251,7 +288,7 @@ export function FeatureFlag(): JSX.Element {
                     <Row gutter={16}>
                         {featureFlag.filters.groups.map((group, index) => (
                             <Col span={24} md={12} key={`${index}-${featureFlag.filters.groups.length}`}>
-                                <Card style={{ position: 'relative', marginBottom: 32, paddingBottom: 32 }}>
+                                <Card style={{ position: 'relative', marginBottom: 32, paddingBottom: 16 }}>
                                     {featureFlag.filters.groups.length > 1 && (
                                         <>
                                             <span style={{ position: 'absolute', top: 0, right: 0, margin: 4 }}>
@@ -279,7 +316,7 @@ export function FeatureFlag(): JSX.Element {
                                         </>
                                     )}
 
-                                    <Form.Item style={{ position: 'relative' }}>
+                                    <Form.Item style={{ position: 'relative', marginBottom: 16 }}>
                                         {group.properties?.length ? (
                                             <b>Matching users with filters</b>
                                         ) : (
