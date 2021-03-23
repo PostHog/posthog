@@ -1352,6 +1352,47 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 )
             self.assertEqual(len(response), 20)
 
+        def test_breakdown_user_props_with_filter(self):
+            person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
+            person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
+            event_factory(event="sign up", distinct_id="person1", team=self.team)
+            event_factory(event="sign up", distinct_id="person2", team=self.team)
+            response = trends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "email",
+                        "breakdown_type": "person",
+                        "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                        "properties": [
+                            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                        ],
+                    }
+                ),
+                self.team,
+            )
+            self.assertEqual(len(response), 1)
+            self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
+
+        def test_breakdown_with_filter(self):
+            person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
+            person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
+            event_factory(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
+            event_factory(event="sign up", distinct_id="person2", team=self.team, properties={"key": "oh"})
+            response = trends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "key",
+                        "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                        "properties": [{"key": "key", "value": "oh", "operator": "not_icontains"}],
+                    }
+                ),
+                self.team,
+            )
+            self.assertEqual(len(response), 1)
+            self.assertEqual(response[0]["breakdown_value"], "val")
+
         def test_action_filtering(self):
             sign_up_action, person = self._create_events()
             action_response = trends().run(Filter(data={"actions": [{"id": sign_up_action.id}]}), self.team)
