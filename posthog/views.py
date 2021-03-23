@@ -7,6 +7,7 @@ from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpResponse, JsonResponse
+from django.shortcuts import redirect
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
@@ -32,7 +33,9 @@ def login_required(view):
 
     @wraps(view)
     def handler(request, *args, **kwargs):
-        if not request.user.is_authenticated and AUTO_LOGIN and User.objects.count() > 0:
+        if not User.objects.exists():
+            return redirect("/preflight")
+        elif not request.user.is_authenticated and AUTO_LOGIN:
             user = User.objects.first()
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         return base_handler(request, *args, **kwargs)
