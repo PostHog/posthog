@@ -39,7 +39,7 @@ export function TestAccountFilter({
                         marginLeft: 10,
                     }}
                 >
-                    Filter out internal users
+                    Filter out internal and test users
                 </label>
                 <Link to="/project/settings#internal-users-filtering">
                     <SettingOutlined

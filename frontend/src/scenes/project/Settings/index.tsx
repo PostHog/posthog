@@ -154,17 +154,14 @@ export function ProjectSettings(): JSX.Element {
                 <TimezoneConfig />
                 <Divider />
                 <h2 className="subtitle" id="internal-users-filtering">
-                    Filtering out internal users
+                    Filtering out internal and test users
                 </h2>
                 <p>
-                    Increase the quality of your analytics results by filtering out internal test and team member users
-                    from queries.
+                    Increase the quality of your analytics results by filtering out internal test users and team members
+                    from queries. This way only <b>real user data</b> will be taken into account.
                     <br />
-                    This way only <b>real user data</b> will be taken into account.
                     <br />
-                    <i>
-                        For best effectiveness, make sure to properly define internal users with the OR filters below.
-                    </i>
+                    <i>For best effectiveness, make sure to properly define internal users with the filters below.</i>
                 </p>
                 <TestAccountFiltersConfig />
                 <Divider />
