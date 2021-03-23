@@ -38,6 +38,7 @@ export interface UserType {
     realm: 'cloud' | 'hosted'
     billing?: OrganizationBilling
     is_event_property_usage_enabled: boolean
+    is_async_event_action_mapping_enabled: boolean
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
