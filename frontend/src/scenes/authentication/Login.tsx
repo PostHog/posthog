@@ -7,6 +7,7 @@ import { loginLogic } from './loginLogic'
 import { Link } from 'lib/components/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
+import { PasswordInput } from './PasswordInput'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=login-header'
 
@@ -73,23 +74,7 @@ export function Login(): JSX.Element {
                                     type="email"
                                 />
                             </Form.Item>
-                            <Form.Item
-                                name="password"
-                                label="Password"
-                                rules={[
-                                    {
-                                        required: true,
-                                        message: 'Please enter your password to continue',
-                                    },
-                                ]}
-                            >
-                                <Input
-                                    className="ph-ignore-input"
-                                    type="password"
-                                    data-attr="login-password"
-                                    placeholder="********"
-                                />
-                            </Form.Item>
+                            <PasswordInput />
                             <Form.Item>
                                 <Button
                                     type="primary"

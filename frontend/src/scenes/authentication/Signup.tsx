@@ -136,7 +136,7 @@ export function Signup(): JSX.Element {
                                     type="email"
                                 />
                             </Form.Item>
-                            <PasswordInput />
+                            <PasswordInput showStrengthIndicator />
                             <Form.Item className="text-center">
                                 By creating an account, you agree to our{' '}
                                 <a href={`https://posthog.com/terms?${UTM_TAGS}`} target="_blank" rel="noopener">
