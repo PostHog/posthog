@@ -8,6 +8,7 @@ import { Link } from 'lib/components/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { PasswordInput } from './PasswordInput'
+import { IconRocket } from 'lib/components/icons'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=login-header'
 
@@ -20,8 +21,8 @@ export function Login(): JSX.Element {
     return (
         <div className="login">
             <Row>
-                <Col span={24} md={10} className="image-showcase-container">
-                    <div className="image-showcase ant-col-24 ant-col-md-10">
+                <Col span={24} lg={14} className="image-showcase-container">
+                    <div className="image-showcase ant-col-24 ant-col-lg-14">
                         <div className="the-mountains" />
                         <div className="main-logo">
                             <img src={logo} alt="" />
@@ -31,7 +32,7 @@ export function Login(): JSX.Element {
                         </div>
                     </div>
                 </Col>
-                <Col span={24} md={14} className="auth-main-content">
+                <Col span={24} lg={10} className="auth-main-content">
                     <div className="main-logo mobile-logo">
                         <a href={`https://posthog.com?${UTM_TAGS}`}>
                             <img src={logo} alt="" />
@@ -77,12 +78,15 @@ export function Login(): JSX.Element {
                             <PasswordInput />
                             <Form.Item>
                                 <Button
-                                    type="primary"
+                                    className="rocket-button"
                                     htmlType="submit"
                                     data-attr="password-signup"
                                     loading={authenticateResponseLoading}
                                     block
                                 >
+                                    <span className="icon">
+                                        <IconRocket />
+                                    </span>
                                     Login
                                 </Button>
                             </Form.Item>
@@ -98,7 +102,7 @@ export function Login(): JSX.Element {
                             </div>
                         )}
                         <div style={{ marginTop: 48 }}>
-                            <SocialLoginButtons displayStyle="link" caption="Or login with" />
+                            <SocialLoginButtons displayStyle="link" caption="Or login with:" />
                         </div>
                     </div>
                 </Col>

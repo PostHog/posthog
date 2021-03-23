@@ -1,14 +1,24 @@
 import { Form, Input } from 'antd'
+import { FormItemProps } from 'antd/es/form'
 import React, { lazy, Suspense } from 'react'
 
 const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
 
-export function PasswordInput({ showStrengthIndicator }: { showStrengthIndicator?: boolean }): JSX.Element {
+interface PasswordInputProps extends FormItemProps {
+    showStrengthIndicator?: boolean
+    label?: string
+}
+
+export function PasswordInput({
+    label = 'Password',
+    showStrengthIndicator,
+    ...props
+}: PasswordInputProps): JSX.Element {
     return (
         <>
             <Form.Item
                 name="password"
-                label="Password"
+                label={label}
                 rules={[
                     {
                         required: true,
@@ -16,6 +26,7 @@ export function PasswordInput({ showStrengthIndicator }: { showStrengthIndicator
                     },
                 ]}
                 style={showStrengthIndicator ? { marginBottom: 0 } : undefined}
+                {...props}
             >
                 <Input className="ph-ignore-input" type="password" data-attr="login-password" placeholder="********" />
             </Form.Item>

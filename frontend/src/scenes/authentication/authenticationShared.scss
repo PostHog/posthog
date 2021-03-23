@@ -67,6 +67,32 @@
     padding-bottom: $default_spacing * 2;
 }
 
+.rocket-button {
+    background-color: $website_orange;
+    text-transform: uppercase;
+    font-family: $gosha_sans;
+    border-radius: 4px;
+    color: $text_light;
+    border: 0px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    height: unset;
+    font-size: 1.1rem;
+    transition: background-color 0.3s ease-out;
+
+    .icon {
+        float: left;
+        background-color: rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        padding-left: 6px;
+        padding-right: 6px;
+    }
+
+    &:hover {
+        background-color: darken($website_orange, 15%);
+    }
+}
+
 @media (max-width: 992px) {
     .main-logo {
         display: none;
