@@ -1,5 +1,61 @@
 # Changelog
 
+### 1.23.1 - Monday 22 March 2021
+
+- [Optimized Background Action Calculation](https://github.com/PostHog/posthog/pull/3717).
+
+We've made the interval between background action calculations configurable, with a default of 5 minutes. Previously the interval was set in stone at 30 seconds, which could cause unmanageable database load in some conditions.
+
+### 1.23.0 - Thursday 18 March 2021
+
+
+- [Date Filter for Heatmaps](https://github.com/PostHog/posthog/pull/3586)
+
+![Toolbar Date Filter](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/toolbar-date.png)
+
+Following a fierce battle with Webpack, Marius brought us the heatmap date filters. 
+
+Our heatmaps are now on a whole new level as they are no longer set to show only the last 7 days but allow you to pick any date range. You can now see heatmaps of yesterday, the last 30 days, or any range you like!
+
+- [Automatic Filtering of Test Accounts](https://github.com/PostHog/posthog/pull/3492)
+
+![Filter test accounts](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/filter-test-accounts.png)
+
+If you've ever found yourself looking at a graph and wondering: "how much do events from me and my team affect this data?", well, your days of wondering are over.
+
+We now provide you with a toggle in 'Insights' to automatically filter out test accounts and your team's accounts your team from your graphs. Out of the box we provide you with some basic relevant filters, but you can also configure this yourself in 'Settings'.
+
+- [Webhooks Are Back - And They're Better](https://github.com/PostHog/posthog/pulls?q=is%3Apr+is%3Aclosed+webhook)
+
+![Webhooks](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/webhooks.png)
+
+Members of our community pointed out to us that our latest release caused some issues with webhooks on self-hosted FOSS installations. Largley with help from various community members who provided us with context and feedback, we have now addressed these issues and webhooks should work as normal on 1.23.0.
+
+However, we made sure to throw in a little treat to make up for it. You can now access all event properties in your webhook messages, which opens up a whole new realm of possibilities for creating useful alerts and notifications for when certain actions are triggered in PostHog.
+
+- [Organization Settings & Gravatar Support](https://github.com/PostHog/posthog/pull/3584)
+
+![Gravatars](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/gravatar.png)
+
+PostHog now has an 'Organization Settings' page that lets you rename and delete your organization, as well as manage invites.
+
+Oh, and don't we all love gravatars? 
+
+Well, if you have one set for your email, PostHog will now display it on your profile and the 'Organization Settings' page.
+
+- [First Time Event Tracker Plugin](/plugins/first-time-event-tracker)
+
+![](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/first-time-plugin.png)
+
+Based on user requests, we have now built a plugin that adds two boolean properties to your events:
+
+- `is_event_first_ever`: tells you if the event if the first event of its kind
+- `is_event_first_for_user`: tells you if the event is the first event of its kind for the user
+
+By enabling it you are then able to add a filter for those properties on all your analytics, to determine things like conversion rates from first touch.
+
+> **Important:** This plugin will only work on events ingested after the plugin was enabled. This means it will register events as being the first if there were events that occurred before it was enabled. 
+
 ### 1.22.0 - Wednesday 3 March 2021
 
 #### Important Announcement for Self-Hosted Users

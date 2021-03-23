@@ -9,8 +9,9 @@ from posthog.models import Action, ActionStep, Cohort, Event, Filter, Organizati
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.queries.abstract_test.test_timerange import AbstractTimerangeTest
 from posthog.queries.trends import Trends
+from posthog.tasks.calculate_action import calculate_action, calculate_actions_from_last_calculation
 from posthog.test.base import APIBaseTest
-from posthog.utils import relative_date_parse
+from posthog.utils import generate_cache_key, relative_date_parse
 
 
 # parameterize tests to reuse in EE
@@ -65,6 +66,8 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             no_events = action_factory(team=self.team, name="no events")
             sign_up_action = action_factory(team=self.team, name="sign up")
 
+            calculate_actions_from_last_calculation()
+
             return sign_up_action, person
 
         def _create_breakdown_events(self):
@@ -77,7 +80,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     )
             sign_up_action = action_factory(team=self.team, name="sign up")
 
-        def _compare_entity_response(self, response1, response2, remove=("action", "label")):
+        def assertEntityResponseEqual(self, response1, response2, remove=("action", "label")):
             if len(response1):
                 for attr in remove:
                     response1[0].pop(attr)
@@ -88,7 +91,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     response2[0].pop(attr)
             else:
                 return False
-            return str(response1[0]) == str(response2[0])
+            self.assertDictEqual(response1[0], response2[0])
 
         def test_trends_per_day(self):
             self._create_events()
@@ -1349,13 +1352,54 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 )
             self.assertEqual(len(response), 20)
 
+        def test_breakdown_user_props_with_filter(self):
+            person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
+            person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
+            event_factory(event="sign up", distinct_id="person1", team=self.team)
+            event_factory(event="sign up", distinct_id="person2", team=self.team)
+            response = trends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "email",
+                        "breakdown_type": "person",
+                        "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                        "properties": [
+                            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                        ],
+                    }
+                ),
+                self.team,
+            )
+            self.assertEqual(len(response), 1)
+            self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
+
+        def test_breakdown_with_filter(self):
+            person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
+            person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
+            event_factory(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
+            event_factory(event="sign up", distinct_id="person2", team=self.team, properties={"key": "oh"})
+            response = trends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "key",
+                        "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                        "properties": [{"key": "key", "value": "oh", "operator": "not_icontains"}],
+                    }
+                ),
+                self.team,
+            )
+            self.assertEqual(len(response), 1)
+            self.assertEqual(response[0]["breakdown_value"], "val")
+
         def test_action_filtering(self):
             sign_up_action, person = self._create_events()
             action_response = trends().run(Filter(data={"actions": [{"id": sign_up_action.id}]}), self.team)
             event_response = trends().run(Filter(data={"events": [{"id": "sign up"}]}), self.team)
             self.assertEqual(len(action_response), 1)
 
-            self.assertTrue(self._compare_entity_response(action_response, event_response))
+            self.assertEntityResponseEqual(action_response, event_response)
 
         def test_trends_for_non_existing_action(self):
             with freeze_time("2020-01-04"):
@@ -1368,9 +1412,13 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
         def test_dau_filtering(self):
             sign_up_action, person = self._create_events()
+
             with freeze_time("2020-01-02"):
                 person_factory(team_id=self.team.pk, distinct_ids=["someone_else"])
                 event_factory(team=self.team, event="sign up", distinct_id="someone_else")
+
+            calculate_action(sign_up_action.id)
+
             with freeze_time("2020-01-04"):
                 action_response = trends().run(
                     Filter(data={"actions": [{"id": sign_up_action.id, "math": "dau"}]}), self.team
@@ -1379,7 +1427,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             self.assertEqual(response[0]["data"][4], 1)
             self.assertEqual(response[0]["data"][5], 2)
-            self.assertTrue(self._compare_entity_response(action_response, response))
+            self.assertEntityResponseEqual(action_response, response)
 
         def test_dau_with_breakdown_filtering(self):
             sign_up_action, _ = self._create_events()
@@ -1407,7 +1455,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(sum(event_response[2]["data"]), 1)
             self.assertEqual(event_response[2]["data"][4], 1)  # property not defined
 
-            self.assertTrue(self._compare_entity_response(action_response, event_response))
+            self.assertEntityResponseEqual(action_response, event_response)
 
         def _create_maths_events(self, values):
             sign_up_action, person = self._create_events()
@@ -1416,8 +1464,8 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 event_factory(
                     team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": value}
                 )
-
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": None})
+            calculate_actions_from_last_calculation()
             return sign_up_action
 
         def _test_math_property_aggregation(self, math_property, values, expected_value):
@@ -1435,7 +1483,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             )
             # :TRICKY: Work around clickhouse functions not being 100%
             self.assertAlmostEqual(action_response[0]["data"][-1], expected_value, delta=0.5)
-            self.assertTrue(self._compare_entity_response(action_response, event_response))
+            self.assertEntityResponseEqual(action_response, event_response)
 
         def test_sum_filtering(self):
             self._test_math_property_aggregation("sum", values=[2, 3, 5.5, 7.5], expected_value=18)
@@ -1468,6 +1516,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": "x"})
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": None})
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 8})
+            calculate_actions_from_last_calculation()
             action_response = trends().run(
                 Filter(data={"actions": [{"id": sign_up_action.id, "math": "avg", "math_property": "some_number"}]}),
                 self.team,
@@ -1476,7 +1525,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 Filter(data={"events": [{"id": "sign up", "math": "avg", "math_property": "some_number"}]}), self.team
             )
             self.assertEqual(action_response[0]["data"][-1], 5)
-            self.assertTrue(self._compare_entity_response(action_response, event_response))
+            self.assertEntityResponseEqual(action_response, event_response)
 
         def test_per_entity_filtering(self):
             self._create_events()
@@ -1627,7 +1676,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             self.assertEqual(sum(event_response[3]["data"]), 7)
             self.assertEqual(event_response[3]["breakdown_value"], "all")
-            self.assertTrue(self._compare_entity_response(event_response, action_response,))
+            self.assertEntityResponseEqual(
+                event_response, action_response,
+            )
 
         def test_interval_filtering_breakdown(self):
             self._create_events(use_time=True)
@@ -1771,7 +1822,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 if response["breakdown_value"] == "person4":
                     self.assertEqual(response["count"], 0)
 
-            self.assertTrue(self._compare_entity_response(event_response, action_response,))
+            self.assertEntityResponseEqual(
+                event_response, action_response,
+            )
 
         def test_breakdown_by_person_property_pie(self):
             self._create_multiple_people()
@@ -2393,6 +2446,42 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     self.assertEqual(res["data"], [1, 0, 0, 1, 0, 1, 0, 1])
                 elif res["status"] == "new":
                     self.assertEqual(res["data"], [1, 0, 0, 1, 0, 0, 0, 0])
+
+        def test_filter_test_accounts(self):
+            p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            event_factory(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"key": "val"},
+            )
+
+            p2 = person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            event_factory(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p2",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"key": "val"},
+            )
+            self.team.test_account_filters = [{"key": "name", "value": "p1", "operator": "is_not", "type": "person"}]
+            self.team.save()
+            data = {
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                "filter_test_accounts": "true",
+            }
+            filter = Filter(data=data)
+            filter_2 = Filter(data={**data, "filter_test_accounts": "false",})
+            filter_3 = Filter(data={**data, "breakdown": "key"})
+            result = trends().run(filter, self.team,)
+            self.assertEqual(result[0]["count"], 1)
+            result = trends().run(filter_2, self.team,)
+            self.assertEqual(result[0]["count"], 2)
+            result = trends().run(filter_3, self.team,)
+            self.assertEqual(result[0]["count"], 1)
 
     return TestTrends
 

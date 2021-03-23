@@ -18,6 +18,7 @@ from posthog.constants import (
     DATE_TO,
     DISPLAY,
     EVENTS,
+    FILTER_TEST_ACCOUNTS,
     FORMULA,
     INSIGHT,
     INSIGHT_TO_DISPLAY,
@@ -66,6 +67,19 @@ class ShownAsMixin(BaseParamMixin):
     @include_dict
     def shown_as_to_dict(self):
         return {"shown_as": self.shown_as} if self.shown_as else {}
+
+
+class FilterTestAccountsMixin(BaseParamMixin):
+    @cached_property
+    def filter_test_accounts(self) -> Optional[bool]:
+        setting = self._data.get(FILTER_TEST_ACCOUNTS, None)
+        if setting == True or setting == "true":
+            return True
+        return None
+
+    @include_dict
+    def filter_out_team_members_to_dict(self):
+        return {"filter_test_accounts": self.filter_test_accounts} if self.filter_test_accounts else {}
 
 
 class FormulaMixin(BaseParamMixin):

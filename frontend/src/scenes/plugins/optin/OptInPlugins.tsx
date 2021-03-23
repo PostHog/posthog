@@ -15,8 +15,8 @@ export function OptInPlugins(): JSX.Element {
     useEffect(() => {
         async function setStatus(): Promise<void> {
             try {
-                const response = await api.get('api/organizations/@current/plugins/status')
-                setServerStatus(response.status)
+                const response = await api.get('_preflight')
+                setServerStatus(response.plugins ? 'online' : 'offline')
             } catch (e) {
                 setServerStatus('offline')
             }

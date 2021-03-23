@@ -12,6 +12,7 @@ import {
 import { Select } from 'antd'
 import { userLogic } from 'scenes/userLogic'
 import { PropertyValue } from 'lib/components/PropertyFilters'
+import { TestAccountFilter } from '../TestAccountFilter'
 
 export function PathTab(): JSX.Element {
     const { customEventNames } = useValues(userLogic)
@@ -57,6 +58,7 @@ export function PathTab(): JSX.Element {
             <hr />
             <h4 className="secondary">Filters</h4>
             <PropertyFilters pageKey="insight-path" />
+            <TestAccountFilter filters={filter} onChange={setFilter} />
         </>
     )
 }

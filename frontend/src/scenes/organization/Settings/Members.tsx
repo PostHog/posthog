@@ -17,6 +17,7 @@ import { OrganizationMemberType, OrganizationType, UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
+import { ProfilePicture } from '~/layout/navigation/TopNavigation'
 
 const membershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
     (value) => typeof value === 'number'
@@ -62,7 +63,7 @@ function isMembershipLevelChangeDisallowed(
     return false
 }
 
-function LevelComponent(level: OrganizationMembershipLevel, member: Record<string, any>): JSX.Element | null {
+function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { changeMemberAccessLevel } = useActions(membersLogic)
@@ -70,6 +71,8 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Record<strin
     if (!user) {
         return null
     }
+
+    const { level } = member
 
     function generateHandleClick(listLevel: OrganizationMembershipLevel): () => void {
         return function handleClick() {
@@ -79,11 +82,11 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Record<strin
             if (listLevel === OrganizationMembershipLevel.Owner) {
                 Modal.confirm({
                     centered: true,
-                    title: `Pass on organization ownership to ${member.user_first_name}?`,
-                    content: `You won't be ${user.organization?.name} owner anymore - you'll become just an administrator.`,
+                    title: `Transfer organization ownership to ${member.user_first_name}?`,
+                    content: `You will no longer be the owner of ${user.organization?.name}. After the transfer you will become an administrator.`,
                     icon: <SwapOutlined />,
                     okType: 'danger',
-                    okText: 'Pass Ownership',
+                    okText: 'Transfer Ownership',
                     onOk() {
                         changeMemberAccessLevel(member, listLevel)
                     },
@@ -96,7 +99,7 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Record<strin
 
     const levelButton = (
         <Button icon={level === OrganizationMembershipLevel.Owner ? <CrownFilled /> : undefined}>
-            {organizationMembershipLevelToName.get(level) ?? 'unknown'}
+            {organizationMembershipLevelToName.get(level) ?? `unknown (${level})`}
         </Button>
     )
 
@@ -123,17 +126,17 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Record<strin
                                 {listLevel === OrganizationMembershipLevel.Owner ? (
                                     <>
                                         <CrownFilled style={{ marginRight: '0.5rem' }} />
-                                        Pass on organization ownership
+                                        Transfer organization ownership
                                     </>
                                 ) : listLevel > level ? (
                                     <>
                                         <UpOutlined style={{ marginRight: '0.5rem' }} />
-                                        Promote to {organizationMembershipLevelToName.get(listLevel)}
+                                        Upgrade to {organizationMembershipLevelToName.get(listLevel)}
                                     </>
                                 ) : (
                                     <>
                                         <DownOutlined style={{ marginRight: '0.5rem' }} />
-                                        Demote to {organizationMembershipLevelToName.get(listLevel)}
+                                        Downgrade to {organizationMembershipLevelToName.get(listLevel)}
                                     </>
                                 )}
                             </a>
@@ -147,7 +150,7 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Record<strin
     )
 }
 
-function ActionsComponent(_: any, member: Record<string, any>): JSX.Element | null {
+function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { removeMember } = useActions(membersLogic)
@@ -178,7 +181,8 @@ function ActionsComponent(_: any, member: Record<string, any>): JSX.Element | nu
 
     const allowDeletion =
         // higher-ranked users cannot be removed, at the same time the currently logged-in user can leave any time
-        (member.level <= currentMembershipLevel || member.user_id === user.id) &&
+        ((currentMembershipLevel >= OrganizationMembershipLevel.Admin && member.level <= currentMembershipLevel) ||
+            member.user_id === user.id) &&
         // unless that user is the organization's owner, in which case they can't leave
         member.level !== OrganizationMembershipLevel.Owner
 
@@ -202,41 +206,63 @@ export function Members({ user }: { user: UserType }): JSX.Element {
 
     const columns: ColumnsType<Record<string, any>> = [
         {
+            dataIndex: 'user_email',
+            key: 'user_email',
+            render: function ProfilePictureRender(_, member) {
+                return <ProfilePicture name={member.user_first_name} email={member.user_email} />
+            },
+            width: 32,
+        },
+        {
             title: 'Name',
             dataIndex: 'user_first_name',
             key: 'user_first_name',
             render: (firstName: string, member: Record<string, any>) =>
                 member.user_id == user.id ? `${firstName} (me)` : firstName,
+            sorter: (a, b) =>
+                (a as OrganizationMemberType).user_first_name.localeCompare(
+                    (b as OrganizationMemberType).user_first_name
+                ),
         },
         {
             title: 'Email',
             dataIndex: 'user_email',
             key: 'user_email',
+            sorter: (a, b) =>
+                (a as OrganizationMemberType).user_email.localeCompare((b as OrganizationMemberType).user_email),
         },
         {
             title: 'Level',
             dataIndex: 'level',
             key: 'level',
-            render: LevelComponent,
+            render: function LevelRender(_, member) {
+                return LevelComponent(member as OrganizationMemberType)
+            },
+            sorter: (a, b) => (a as OrganizationMemberType).level - (b as OrganizationMemberType).level,
+            defaultSortOrder: 'descend',
         },
         {
-            title: 'Joined At',
+            title: 'Joined At',
             dataIndex: 'joined_at',
             key: 'joined_at',
             render: (joinedAt: string) => humanFriendlyDetailedTime(joinedAt),
+            sorter: (a, b) =>
+                (a as OrganizationMemberType).joined_at.localeCompare((b as OrganizationMemberType).joined_at),
+            defaultSortOrder: 'ascend',
         },
         {
-            title: '',
             dataIndex: 'actions',
             key: 'actions',
             align: 'center',
-            render: ActionsComponent,
+            render: function ActionsRender(_, member) {
+                return ActionsComponent(member as OrganizationMemberType)
+            },
         },
     ]
 
     return (
         <>
-            <h2 className="subtitle">Organization Members</h2>
+            <h2 className="subtitle">Members</h2>
             <Table
                 dataSource={members}
                 columns={columns}

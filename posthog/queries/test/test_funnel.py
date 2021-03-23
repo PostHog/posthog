@@ -2,12 +2,13 @@ from unittest.mock import patch
 
 from freezegun import freeze_time
 
-from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
+from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS, TRENDS_LINEAR
 from posthog.models import Action, ActionStep, Element, Event, Person
 from posthog.models.filters import Filter
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.queries.abstract_test.test_timerange import AbstractTimerangeTest
 from posthog.queries.funnel import Funnel
+from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 from posthog.tasks.update_cache import update_cache_item
 from posthog.test.base import APIBaseTest, BaseTest
 
@@ -139,6 +140,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self._signup_event(distinct_id="a_user_that_got_deleted_or_doesnt_exist")
 
+            calculate_actions_from_last_calculation()
+
             result = funnel.run()
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 4)
@@ -201,6 +204,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="half_property", properties={"$browser": "Safari"})
             self._pay_event(distinct_id="half_property")
 
+            calculate_actions_from_last_calculation()
+
             result = funnel.run()
             self.assertEqual(result[0]["count"], 2)
             self.assertEqual(result[1]["count"], 1)
@@ -260,6 +265,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._pay_event(distinct_id="half_property")
             self._movie_event(distinct_id="half_property")
 
+            calculate_actions_from_last_calculation()
+
             result = funnel.run()
 
             self.assertEqual(result[0]["count"], 1)
@@ -297,6 +304,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._pay_event(distinct_id="with_property")
             self._movie_event(distinct_id="with_property")
 
+            calculate_actions_from_last_calculation()
+
             result = funnel.run()
             self.assertEqual(result[0]["count"], 1)
             self.assertEqual(result[1]["count"], 1)
@@ -331,6 +340,23 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 0)
 
+        def test_funnel_filter_test_accounts(self):
+            person_factory(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
+            person_factory(distinct_ids=["person2"], team_id=self.team.pk)
+            event_factory(distinct_id="person1", event="event1", team=self.team)
+            event_factory(distinct_id="person2", event="event1", team=self.team)
+            result = Funnel(
+                filter=Filter(
+                    data={
+                        "events": [{"id": "event1", "order": 0}],
+                        "insight": INSIGHT_FUNNELS,
+                        FILTER_TEST_ACCOUNTS: True,
+                    }
+                ),
+                team=self.team,
+            ).run()
+            self.assertEqual(result[0]["count"], 1)
+
     return TestGetFunnel
 
 
@@ -347,7 +373,9 @@ def funnel_trends_test_factory(Funnel, event_factory, person_factory):
                 dropped_1 = person_factory(distinct_ids=["dropped_1"], team=self.team)
             with freeze_time("2021-01-01T03:21:34.000Z"):
                 dropped_2 = person_factory(distinct_ids=["dropped_2"], team=self.team)
-                completed_1 = person_factory(distinct_ids=["completed_1"], team=self.team)
+                completed_1 = person_factory(
+                    distinct_ids=["completed_1"], team=self.team, properties={"email": "test@posthog.com"}
+                )
                 across_days = person_factory(distinct_ids=["across_days"], team=self.team)
                 event_factory(event="sign up", distinct_id="dropped_1", team=self.team)
                 event_factory(event="sign up", distinct_id="dropped_2", team=self.team)
@@ -365,7 +393,7 @@ def funnel_trends_test_factory(Funnel, event_factory, person_factory):
                 event_factory(event="pay", distinct_id="completed_2", team=self.team)
                 event_factory(event="pay", distinct_id="across_days", team=self.team)
 
-        def _run(self, date_from=None, date_to=None, interval=None):
+        def _run(self, date_from=None, date_to=None, interval=None, filter_test_accounts=False):
             self._create_events()
             return Funnel(
                 team=self.team,
@@ -376,6 +404,7 @@ def funnel_trends_test_factory(Funnel, event_factory, person_factory):
                         "interval": interval if interval else "day",
                         "date_from": date_from,
                         **({"date_to": date_to} if date_to else {}),
+                        **({FILTER_TEST_ACCOUNTS: True} if filter_test_accounts else {}),
                         "events": [{"id": "sign up", "order": 0}, {"id": "pay", "order": 1},],
                     }
                 ),
@@ -512,6 +541,11 @@ def funnel_trends_test_factory(Funnel, event_factory, person_factory):
                 response = self._run("-1d", "dStart")
             self.assertEqual(response[0]["data"][0], 25)
             self.assertEqual(response[0]["labels"][0], "Fri. 1 January")
+
+        def test_filter_test_accounts(self):
+            with freeze_time("2021-01-02T04:00:00.000Z"):
+                response = self._run(filter_test_accounts=True)
+            self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 0, 0, 50])
 
     return TestFunnelTrends
 

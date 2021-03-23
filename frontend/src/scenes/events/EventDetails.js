@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { EventElements } from 'scenes/events/EventElements'
 import { Tabs, Button } from 'antd'
 
@@ -46,7 +46,7 @@ export function EventDetails({ event }) {
                 <TabPane tab="Properties" key="properties">
                     <PropertiesTable
                         properties={{
-                            $timestamp: moment(event.timestamp).toISOString(),
+                            $timestamp: dayjs(event.timestamp).toISOString(),
                             ...displayedEventProperties,
                             ...visibleHiddenProperties,
                         }}

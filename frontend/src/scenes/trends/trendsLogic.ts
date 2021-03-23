@@ -15,7 +15,7 @@ import {
     ACTION_TYPE,
     ShownAsValue,
 } from 'lib/constants'
-import { ViewType, insightLogic } from '../insights/insightLogic'
+import { ViewType, insightLogic, defaultFilterTestAccounts } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
 import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
@@ -76,6 +76,7 @@ function cleanFilters(filters: Partial<FilterType>): Record<string, any> {
         actions: Array.isArray(filters.actions) ? filters.actions : undefined,
         events: Array.isArray(filters.events) ? filters.events : undefined,
         properties: filters.properties || [],
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
     }
 }
 
@@ -466,6 +467,7 @@ export const trendsLogic = kea<
                             order: 0,
                         },
                     ]
+                    cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts()
                 }
 
                 if (searchParams.insight === ViewType.STICKINESS) {

@@ -12,6 +12,7 @@ from typing import (
 
 from django.db import connection
 
+from posthog.helpers.session_recording import decompress_chunked_snapshot_data
 from posthog.models import Person, SessionRecordingEvent, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
@@ -36,7 +37,7 @@ SESSIONS_IN_RANGE_QUERY = """
             MIN(timestamp) as start_time,
             MAX(timestamp) as end_time,
             MAX(timestamp) - MIN(timestamp) as duration,
-            COUNT(*) FILTER(where snapshot_data->>'type' = '2') as full_snapshots
+            COUNT(*) FILTER(where snapshot_data->>'type' = '2' OR (snapshot_data->>'has_full_snapshot')::boolean) as full_snapshots
         FROM posthog_sessionrecordingevent
         WHERE
             team_id = %(team_id)s
@@ -63,6 +64,8 @@ class SessionRecording:
         from posthog.api.person import PersonSerializer
 
         distinct_id, start_time, snapshots = self.query_recording_snapshots(team, session_recording_id)
+        snapshots = list(decompress_chunked_snapshot_data(team.pk, session_recording_id, snapshots))
+
         person = (
             PersonSerializer(Person.objects.get(team=team, persondistinctid__distinct_id=distinct_id)).data
             if distinct_id

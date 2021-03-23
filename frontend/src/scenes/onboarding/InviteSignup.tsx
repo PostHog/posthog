@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
-import { hot } from 'react-hot-loader/root'
 import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
 import { SceneLoading } from 'lib/utils'
 import './InviteSignup.scss'
@@ -179,8 +178,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
     )
 }
 
-export const InviteSignup = hot(_InviteSignup)
-function _InviteSignup(): JSX.Element {
+export function InviteSignup(): JSX.Element {
     const { invite, inviteLoading } = useValues(inviteSignupLogic)
     const { user } = useValues(userLogic)
 

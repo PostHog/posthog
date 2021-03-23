@@ -15,6 +15,7 @@ class Plugin(models.Model):
     plugin_type: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=PluginType.choices, default=None
     )
+    is_global: models.BooleanField = models.BooleanField(default=False)  # Whether plugin is installed for all orgs
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)
     url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
@@ -32,6 +33,9 @@ class Plugin(models.Model):
     from_json: models.BooleanField = models.BooleanField(default=False)
     from_web: models.BooleanField = models.BooleanField(default=False)
 
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+
 
 class PluginConfig(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
@@ -44,10 +48,13 @@ class PluginConfig(models.Model):
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
     error: JSONField = JSONField(default=None, null=True)
 
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+
 
 class PluginAttachment(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
-    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
+    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE, null=True)
     key: models.CharField = models.CharField(max_length=200)
     content_type: models.CharField = models.CharField(max_length=200)
     file_name: models.CharField = models.CharField(max_length=200)

@@ -4,7 +4,7 @@ import { toParams } from 'lib/utils'
 import { appEditorUrl } from 'lib/components/AppEditorLink/utils'
 import { toast } from 'react-toastify'
 import { userLogic } from 'scenes/userLogic'
-import moment from 'moment'
+import dayjs from 'dayjs'
 
 const defaultValue = 'https://'
 
@@ -23,7 +23,7 @@ export const appUrlsLogic = kea({
                 let params = {
                     events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
                     breakdown: '$current_url',
-                    date_from: moment().subtract(3, 'days').toISOString(),
+                    date_from: dayjs().subtract(3, 'days').toISOString(),
                 }
                 let data = (await api.get('api/insight/trend/?' + toParams(params))).data
                 if (data && data[0]?.count === 0) {
