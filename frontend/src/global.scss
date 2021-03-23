@@ -259,7 +259,7 @@ code.code {
     }
 }
 
-.Toastify__progress-bar--default {
+.Toastify__progress-bar {
     background: $success;
 }
 
@@ -275,6 +275,9 @@ code.code {
     }
     &.accent-border {
         border-color: $primary_alt;
+    }
+    .Toastify__progress-bar {
+        background: $primary_alt;
     }
 }
 
@@ -340,6 +343,10 @@ code.code {
     &.errored:not(:focus) {
         border-color: $danger !important;
     }
+}
+
+.ant-form-item-label {
+    font-weight: bold;
 }
 
 // Button styles
@@ -500,5 +507,18 @@ code.code {
     &.and {
         background-color: $yellow_100;
         color: $primary_alt;
+    }
+}
+
+// Simple tags
+
+.simple-tag {
+    border-radius: $radius;
+    font-weight: bold;
+    padding: 2px 6px;
+
+    &.tag-light-lilac {
+        background-color: $hc_light_lilac;
+        color: $hc_navy;
     }
 }
