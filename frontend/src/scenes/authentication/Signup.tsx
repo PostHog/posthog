@@ -43,7 +43,7 @@ function FormStepOne(): JSX.Element {
                 <Input
                     className="ph-ignore-input"
                     autoFocus
-                    data-attr="login-email"
+                    data-attr="signup-email"
                     placeholder="email@yourcompany.com"
                     type="email"
                     ref={emailInputRef}
@@ -111,7 +111,7 @@ function FormStepTwo(): JSX.Element {
                 <Input
                     className="ph-ignore-input"
                     autoFocus
-                    data-attr="login-first-name"
+                    data-attr="signup-first-name"
                     placeholder="Jane Doe"
                     ref={firstNameInputRef}
                     disabled={signupResponseLoading}
@@ -124,7 +124,7 @@ function FormStepTwo(): JSX.Element {
             >
                 <Input
                     className="ph-ignore-input"
-                    data-attr="login-orgnaization-name"
+                    data-attr="signup-organization-name"
                     placeholder="Hogflix Movies"
                     disabled={signupResponseLoading}
                 />

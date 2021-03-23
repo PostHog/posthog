@@ -3,9 +3,9 @@ describe('Auth', () => {
         cy.get('[data-attr=top-navigation-whoami]').click()
     })
 
-    /*it('Logout', () => {
+    it('Logout', () => {
         cy.get('[data-attr=top-menu-item-logout]').click()
-        cy.location('pathname').should('include', '/login')
+        cy.location('pathname').should('eq', '/login')
     })
 
     it('Logout and login', () => {
@@ -13,7 +13,7 @@ describe('Auth', () => {
 
         cy.get('[data-attr=login-email]').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
 
-        cy.get('[data-attr=login-password]').type('12345678').should('have.value', '12345678')
+        cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
 
         cy.get('[type=submit]').click()
     })
@@ -22,11 +22,11 @@ describe('Auth', () => {
         cy.get('[data-attr=top-menu-item-logout]').click()
 
         cy.get('[data-attr=login-email]').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
-        cy.get('[data-attr=login-password]').type('wrong password').should('have.value', 'wrong password')
+        cy.get('[data-attr=password]').type('wrong password').should('have.value', 'wrong password')
         cy.get('[type=submit]').click()
 
         cy.get('.ant-alert-error').should('contain', 'Invalid email or password.')
-    })*/
+    })
 
     it('Redirect to appropriate place after login', () => {
         cy.visit('/logout')
@@ -36,7 +36,7 @@ describe('Auth', () => {
         cy.location('pathname').should('include', '/login') // Should be redirected to login because we're now logged out
 
         cy.get('[data-attr=login-email]').type('test@posthog.com')
-        cy.get('[data-attr=login-password]').type('12345678')
+        cy.get('[data-attr=password]').type('12345678')
         cy.get('[type=submit]').click()
 
         cy.location('pathname').should('include', '/events')
@@ -52,10 +52,15 @@ describe('Auth', () => {
         cy.location('pathname').should('include', '/login') // Should be redirected to login because we're now logged out
 
         cy.get('[data-attr=login-email]').type('test@posthog.com')
-        cy.get('[data-attr=login-password]').type('12345678')
+        cy.get('[data-attr=password]').type('12345678')
         cy.get('[type=submit]').click()
 
         cy.location('search').should('include', 'autocapture')
         cy.get('[data-attr=trend-element-subject-1]').should('contain', '$autocapture') // Ensure the URL was properly parsed and components shown correctly
+    })
+
+    it('Cannot access signup page if authenticated', () => {
+        cy.visit('/signup')
+        cy.location('pathname').should('eq', '/insights')
     })
 })

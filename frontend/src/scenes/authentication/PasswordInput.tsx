@@ -28,7 +28,7 @@ export function PasswordInput({
                 style={showStrengthIndicator ? { marginBottom: 0 } : undefined}
                 {...props}
             >
-                <Input className="ph-ignore-input" type="password" data-attr="login-password" placeholder="********" />
+                <Input className="ph-ignore-input" type="password" data-attr="password" placeholder="********" />
             </Form.Item>
             {showStrengthIndicator && (
                 <Form.Item shouldUpdate={(prevValues, currentValues) => prevValues.password !== currentValues.password}>
