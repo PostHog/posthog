@@ -24,10 +24,12 @@
         }
 
         .main-logo {
-            padding-top: $default_spacing;
+            padding-top: $default_spacing * 2;
             padding-left: $default_spacing * 2;
+            z-index: $z_city_background_content;
+            position: relative;
             img {
-                height: 60px;
+                height: 28px;
             }
         }
     }
@@ -42,7 +44,14 @@
     .inner {
         width: 100%;
         max-width: 382px; // 350px + 32px padding
-        padding: 0 $default_spacing;
+        padding: $default_spacing;
+        background-color: white;
+        border-radius: $radius;
+    }
+
+    .subtitle {
+        color: $website_orange;
+        font-family: $gosha_sans;
     }
 }
 
@@ -50,5 +59,33 @@
     .ant-alert-message {
         font-weight: bold;
         color: $danger;
+    }
+}
+
+.mobile-logo {
+    display: none;
+    padding: 0;
+    padding-bottom: $default_spacing * 2;
+}
+
+@media (max-width: 992px) {
+    .main-logo {
+        display: none;
+        &.mobile-logo {
+            display: block;
+        }
+    }
+
+    .auth-main-content {
+        padding-bottom: 0;
+        flex-direction: column;
+    }
+
+    .showcase-content .inner {
+        padding-bottom: 64px;
+
+        h1 {
+            text-align: center;
+        }
     }
 }

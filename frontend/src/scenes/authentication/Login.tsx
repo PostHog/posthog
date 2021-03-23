@@ -1,12 +1,14 @@
 import { Col, Row, Form, Input, Button, Alert } from 'antd'
 import React from 'react'
-import smLogo from 'public/icon-white.svg'
+import logo from 'public/posthog-logo-white.svg'
 import './Login.scss'
 import { useActions, useValues } from 'kea'
 import { loginLogic } from './loginLogic'
 import { Link } from 'lib/components/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
+
+const UTM_TAGS = 'utm_campaign=in-product&utm_tag=login-header'
 
 export function Login(): JSX.Element {
     const [form] = Form.useForm()
@@ -21,7 +23,7 @@ export function Login(): JSX.Element {
                     <div className="image-showcase ant-col-24 ant-col-md-10">
                         <div className="the-mountains" />
                         <div className="main-logo">
-                            <img src={smLogo} alt="" />
+                            <img src={logo} alt="" />
                         </div>
                         <div className="showcase-content">
                             <h1 className="page-title">Welcome back to PostHog!</h1>
@@ -29,6 +31,11 @@ export function Login(): JSX.Element {
                     </div>
                 </Col>
                 <Col span={24} md={14} className="auth-main-content">
+                    <div className="main-logo mobile-logo">
+                        <a href={`https://posthog.com?${UTM_TAGS}`}>
+                            <img src={logo} alt="" />
+                        </a>
+                    </div>
                     <div className="inner">
                         <h2 className="subtitle" style={{ justifyContent: 'center' }}>
                             Login to PostHog
