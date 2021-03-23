@@ -7,11 +7,13 @@ import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined } from '@ant-design/icons'
-import { Button } from 'antd'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from '../../lib/hooks/useKeyboardHotkeys'
 import { DashboardMode } from '../../types'
 import { EventSource } from '../../lib/utils/eventUsageLogic'
+import { TZIndicator } from 'lib/components/TimezoneAware'
+import { Link } from 'lib/components/Link'
+import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface Props {
     id: string
@@ -77,7 +79,25 @@ function DashboardView(): JSX.Element {
     }
 
     if (!dashboard) {
-        return <p>Dashboard not found.</p>
+        return (
+            <div className="dashboard not-found">
+                <div className="graphic" />
+                <h1 className="page-title">Dashboard not found</h1>
+                <b>It seems this page may have been lost in space.</b>
+                <p>
+                    It’s possible this dashboard may have been deleted or its sharing settings changed. Please check
+                    with the person who sent you here, or{' '}
+                    <Link
+                        to="https://posthog.com/support?utm_medium=in-product&utm_campaign=dashboard-not-found"
+                        target="_blank"
+                        rel="noopener"
+                    >
+                        contact support
+                    </Link>{' '}
+                    if you think this is a mistake
+                </p>
+            </div>
+        )
     }
 
     return (
@@ -97,30 +117,28 @@ function DashboardView(): JSX.Element {
                         </div>
                          */}
                         {dashboardMode !== DashboardMode.Public && (
-                            <DateFilter
-                                defaultValue="Custom"
-                                showCustom
-                                dateFrom={dashboardFilters?.date_from}
-                                dateTo={dashboardFilters?.date_to}
-                                onChange={setDates}
-                                makeLabel={(key) => (
-                                    <>
-                                        <CalendarOutlined />
-                                        <span className="hide-when-small"> {key}</span>
-                                    </>
-                                )}
-                            />
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />
+                                <DateFilter
+                                    defaultValue="Custom"
+                                    showCustom
+                                    dateFrom={dashboardFilters?.date_from}
+                                    dateTo={dashboardFilters?.date_to}
+                                    onChange={setDates}
+                                    makeLabel={(key) => (
+                                        <>
+                                            <CalendarOutlined />
+                                            <span className="hide-when-small"> {key}</span>
+                                        </>
+                                    )}
+                                />
+                            </div>
                         )}
                     </div>
                     <DashboardItems inSharedMode={dashboardMode === DashboardMode.Public} />
                 </div>
             ) : (
-                <p>
-                    There are no panels on this dashboard.{' '}
-                    <Button type="link" onClick={addGraph}>
-                        Click here to add some!
-                    </Button>
-                </p>
+                <EmptyDashboardComponent />
             )}
         </div>
     )

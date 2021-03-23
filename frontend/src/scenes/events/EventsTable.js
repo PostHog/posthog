@@ -15,6 +15,7 @@ import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
+import { TZLabel } from 'lib/components/TimezoneAware'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
@@ -153,9 +154,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
                 }
-                return (
-                    <Tooltip title={dayjs(event.timestamp).format('LLL')}>{dayjs(event.timestamp).fromNow()}</Tooltip>
-                )
+                return <TZLabel time={event.timestamp} showSeconds />
             },
         },
         {

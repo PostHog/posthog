@@ -150,13 +150,17 @@ class ClickhouseTrendsBreakdown:
 
     def _breakdown_person_params(self, filter: Filter, team_id: int):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts
+        )
 
         elements_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
             latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
+            prop_filters=prop_filters,
         )
-        top_elements_array = self._get_top_elements(elements_query, filter, team_id)
+        top_elements_array = self._get_top_elements(elements_query, filter, team_id, params=prop_filter_params)
         params = {
             "values": top_elements_array,
         }
@@ -169,11 +173,13 @@ class ClickhouseTrendsBreakdown:
 
     def _breakdown_prop_params(self, filter: Filter, team_id: int):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
-        elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
-            parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts
         )
-
-        top_elements_array = self._get_top_elements(elements_query, filter, team_id)
+        elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
+            parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to, prop_filters=prop_filters
+        )
+        top_elements_array = self._get_top_elements(elements_query, filter, team_id, params=prop_filter_params)
         params = {
             "values": top_elements_array,
         }
@@ -238,8 +244,8 @@ class ClickhouseTrendsBreakdown:
         else:
             return str(value) or ""
 
-    def _get_top_elements(self, query: str, filter: Filter, team_id: int) -> List:
-        element_params = {"key": filter.breakdown, "limit": 20, "team_id": team_id}
+    def _get_top_elements(self, query: str, filter: Filter, team_id: int, params: Dict = {}) -> List:
+        element_params = {"key": filter.breakdown, "limit": 20, "team_id": team_id, **params}
 
         try:
             top_elements_array_result = sync_execute(query, element_params)

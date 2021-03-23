@@ -3,7 +3,7 @@ from unittest.mock import patch
 from rest_framework import status
 
 from posthog.models import FeatureFlag, User
-from posthog.test.base import APIBaseTest, TransactionBaseTest
+from posthog.test.base import APITransactionBaseTest, TransactionBaseTest
 
 
 class TestFeatureFlag(TransactionBaseTest):
@@ -76,15 +76,13 @@ class TestFeatureFlag(TransactionBaseTest):
         self.assertIsNone(feature_flag["rollout_percentage"])
 
 
-class TestAPIFeatureFlag(APIBaseTest):
+class TestAPIFeatureFlag(APITransactionBaseTest):
     def setUp(self):
         super().setUp()
-        self.organization, self.team, self.user = User.objects.bootstrap("Feature Flags", "ff@posthog.com", None)
-        self.feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button",)
+        self.feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
 
     @patch("posthoganalytics.capture")
-    def test_creating_feature_flag(self, mock_capture):
-        self.client.force_login(self.user)
+    def test_create_feature_flag(self, mock_capture):
 
         response = self.client.post(
             "/api/feature_flag/",
@@ -109,9 +107,42 @@ class TestAPIFeatureFlag(APIBaseTest):
         )
 
     @patch("posthoganalytics.capture")
+    def test_create_minimal_feature_flag(self, mock_capture):
+
+        response = self.client.post("/api/feature_flag/", {"key": "omega-feature"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["key"], "omega-feature")
+        self.assertEqual(response.json()["name"], "")
+        instance = FeatureFlag.objects.get(id=response.data["id"])  # type: ignore
+        self.assertEqual(instance.key, "omega-feature")
+        self.assertEqual(instance.name, "")
+
+        # Assert analytics are sent
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "feature flag created",
+            {
+                "groups_count": 1,  # 1 is always created by default
+                "has_rollout_percentage": False,
+                "has_filters": False,
+                "filter_count": 0,
+                "created_at": instance.created_at,
+            },
+        )
+
+    def test_cant_create_feature_flag_without_key(self):
+        count = FeatureFlag.objects.count()
+        response = self.client.post("/api/feature_flag/", format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "key"},
+        )
+        self.assertEqual(FeatureFlag.objects.count(), count)
+
+    @patch("posthoganalytics.capture")
     def test_updating_feature_flag(self, mock_capture):
         instance = self.feature_flag
-        self.client.force_login(self.user)
 
         response = self.client.patch(
             f"/api/feature_flag/{instance.pk}",
@@ -175,8 +206,7 @@ class TestAPIFeatureFlag(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_cannot_delete_feature_flag_on_another_team(self, mock_capture):
-        organization, team, user = User.objects.bootstrap("Test", "team2@posthog.com", None)
-
+        _, _, user = User.objects.bootstrap("Test", "team2@posthog.com", None)
         self.client.force_login(user)
 
         response = self.client.delete(f"/api/feature_flag/{self.feature_flag.pk}/")
@@ -188,17 +218,13 @@ class TestAPIFeatureFlag(APIBaseTest):
     def test_creating_a_feature_flag_with_same_team_and_key_after_deleting(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="alpha-feature", deleted=True)
 
-        self.client.force_login(self.user)
-
-        response = self.client.post("/api/feature_flag/", {"name": "Alpha feature", "key": "alpha-feature"},)
+        response = self.client.post("/api/feature_flag/", {"name": "Alpha feature", "key": "alpha-feature"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         instance = FeatureFlag.objects.get(id=response.data["id"])  # type: ignore
         self.assertEqual(instance.key, "alpha-feature")
 
     def test_updating_a_feature_flag_with_same_team_and_key_of_a_deleted_one(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="alpha-feature", deleted=True)
-
-        self.client.force_login(self.user)
 
         instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
 

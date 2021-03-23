@@ -25,7 +25,7 @@ export interface UserType {
     team: TeamType | null
     toolbar_mode: 'disabled' | 'toolbar'
     organizations: OrganizationType[]
-    teams: TeamType[]
+    teams: Partial<TeamType>[]
     current_organization_id: string
     current_team_id: number
     has_password: boolean
@@ -38,6 +38,7 @@ export interface UserType {
     realm: 'cloud' | 'hosted'
     billing?: OrganizationBilling
     is_event_property_usage_enabled: boolean
+    is_async_event_action_mapping_enabled: boolean
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -125,6 +126,7 @@ export interface TeamType {
     ingested_event: boolean
     is_demo: boolean
     test_account_filters: FilterType[]
+    timezone: string
 }
 
 export interface ActionType {
@@ -136,7 +138,7 @@ export interface ActionType {
     name: string
     post_to_slack?: boolean
     steps?: ActionStepType[]
-    created_by: Record<string, any>
+    created_by: UserNestedType | null
 }
 
 export interface ActionStepType {
@@ -278,7 +280,7 @@ export interface CohortGroupType {
 
 export interface CohortType {
     count?: number
-    created_by?: Record<string, any>
+    created_by?: UserNestedType | null
     created_at?: string
     deleted?: boolean
     id: number | 'new'
@@ -374,7 +376,7 @@ export interface DashboardItemType {
     color: string | null
     last_refresh: string
     refreshing: boolean
-    created_by: Record<string, any>
+    created_by: UserNestedType | null
     is_sample: boolean
     dashboard: number
     result: any | null
@@ -386,7 +388,7 @@ export interface DashboardType {
     pinned: boolean
     items: DashboardItemType[]
     created_at: string
-    created_by: number
+    created_by: UserNestedType | null
     is_shared: boolean
     share_token: string
     deleted: boolean
@@ -552,6 +554,26 @@ export interface ChartParams {
     view: ViewType
 }
 
+export interface FeatureFlagGroupType {
+    properties: PropertyFilter[]
+    rollout_percentage: number | null
+}
+interface FeatureFlagFilters {
+    groups: FeatureFlagGroupType[]
+}
+export interface FeatureFlagType {
+    id: number | null
+    key: string
+    name: string // Used as description
+    filters: FeatureFlagFilters
+    deleted: boolean
+    active: boolean
+    created_by: UserNestedType | null
+    created_at: string
+    is_simple_flag: boolean
+    rollout_percentage: number | null
+}
+
 export interface PrevalidatedInvite {
     id: string
     target_email: string
@@ -574,6 +596,7 @@ export interface PreflightStatus {
     cloud: boolean
     celery: boolean
     available_social_auth_providers: AuthBackends
+    available_timezones: Record<string, number>
 }
 
 export enum DashboardMode { // Default mode is null
