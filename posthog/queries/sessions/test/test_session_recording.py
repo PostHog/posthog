@@ -47,18 +47,11 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 self.create_snapshot("user", "3", now() + relativedelta(seconds=15))
                 self.create_snapshot("user", "3", now() + relativedelta(seconds=20))
                 self.create_snapshot("user", "3", now() + relativedelta(seconds=60))
-                self.create_chunked_snapshot(
-                    "user", "4", now() + relativedelta(seconds=999), {"chunk_id": "afb", "has_full_snapshot": True}
-                )
-                self.create_snapshot("user", "4", now() + relativedelta(seconds=1020), type=1)
+                self.create_snapshot("user", "4", now() + relativedelta(seconds=999))
+                self.create_snapshot("user", "4", now() + relativedelta(seconds=1020))
 
                 self.create_snapshot("broken-user", "5", now() + relativedelta(seconds=10), type=3)
-                self.create_chunked_snapshot(
-                    "broken-user",
-                    "5",
-                    now() + relativedelta(seconds=20),
-                    {"chunk_id": "afb", "has_full_snapshot": False},
-                )
+                self.create_snapshot("broken-user", "5", now() + relativedelta(seconds=20), type=3)
 
                 sessions = [
                     {"distinct_id": "user", "start_time": now(), "end_time": now() + relativedelta(seconds=100)},
@@ -121,15 +114,6 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 timestamp=timestamp,
                 session_id=session_id,
                 snapshot_data={"timestamp": timestamp.timestamp(), "type": type},
-            )
-
-        def create_chunked_snapshot(self, distinct_id, session_id, timestamp, snapshot_data):
-            event_factory(
-                team_id=self.team.pk,
-                distinct_id=distinct_id,
-                timestamp=timestamp,
-                session_id=session_id,
-                snapshot_data=snapshot_data,
             )
 
     return TestSessionRecording

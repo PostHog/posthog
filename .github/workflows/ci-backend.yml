@@ -107,7 +107,7 @@ jobs:
               run: |
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
+                  python -m pip install freezegun fakeredis pytest pytest-django
               if: steps.cache.outputs.cache-hit != 'true'
 
             - name: Check migrations
@@ -196,7 +196,7 @@ jobs:
                   cd deploy
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
+                  python -m pip install freezegun fakeredis pytest pytest-django
               if: steps.cache.outputs.cache-hit != 'true'
 
             # The 2-step migration process (first master, then current branch) verifies that it'll always
@@ -300,7 +300,7 @@ jobs:
               run: |
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
+                  python -m pip install freezegun fakeredis pytest pytest-django
               if: steps.cache.outputs.cache-hit != 'true'
 
             - name: Remove ee
