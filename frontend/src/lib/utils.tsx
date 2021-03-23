@@ -759,3 +759,24 @@ export function endWithPunctation(text?: string | null): string {
     }
     return trimmedText
 }
+
+/**
+ * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
+ * @param timeZone E.g. 'America/New_York'
+ * @param atDate
+ */
+export function shortTimeZone(timeZone?: string, atDate: Date = new Date()): string {
+    const localeTimeString = new Date(atDate).toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
+    return localeTimeString.split(' ')[2].replace('GMT', 'UTC')
+}
+
+export function humanTzOffset(timezone?: string): string {
+    const offset = dayjs().tz(timezone).utcOffset() / 60
+    if (!offset) {
+        return 'no offset'
+    }
+    const absoluteOffset = Math.abs(offset)
+    const hourForm = absoluteOffset === 1 ? 'hour' : 'hours'
+    const direction = offset > 0 ? 'ahead' : 'behind'
+    return `${absoluteOffset} ${hourForm} ${direction}`
+}

@@ -178,10 +178,9 @@ export const eventUsageLogic = kea<
         },
         reportDashboardViewed: async ({ dashboard, hasShareToken }, breakpoint) => {
             await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
-            const { created_at, name, is_shared, pinned, creation_mode } = dashboard
+            const { created_at, is_shared, pinned, creation_mode } = dashboard
             const properties: Record<string, any> = {
                 created_at,
-                name: userLogic.values.user?.is_multi_tenancy ? name : undefined, // Don't send name on self-hosted
                 is_shared,
                 pinned,
                 creation_mode,

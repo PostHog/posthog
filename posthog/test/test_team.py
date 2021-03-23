@@ -1,3 +1,4 @@
+from posthog.models import organization
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -6,6 +7,10 @@ from .base import BaseTest
 
 
 class TestTeam(BaseTest):
+    def test_team_has_UTC_timezone_by_default(self):
+        team = Team.objects.create(name="New Team", organization=self.organization)
+        self.assertEqual(team.timezone, "UTC")
+
     def test_create_team_with_test_account_filters(self):
         team = Team.objects.create_with_data(organization=self.organization)
         self.assertEqual(

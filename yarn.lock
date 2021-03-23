@@ -2402,10 +2402,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.2.12.tgz#3fc54881030ad6a51549e04f1d725644a1d1e0d5"
   integrity sha512-MhTK21NvIokMCo4MdJ4iEwjRj/vMG73ucRQtpBmBqZNd1wvy9C7HMFyHmR0uxz1RsT3SCPWuuj1HDvoJsb+QQw==
 
-"@posthog/react-rrweb-player@^1.1.0":
-  version "1.1.0"
-  resolved "https://registry.yarnpkg.com/@posthog/react-rrweb-player/-/react-rrweb-player-1.1.0.tgz#e000c9650133e38b8a018ad089f28ee69d99de64"
-  integrity sha512-2pmKLp8QNswvHZFodqUGJ7w/ugLLOZq+40VLIYN/KbmdpzxDC7mLXJkaWlQTWQuMgWC0jHwZpU96zWCSj8FALQ==
+"@posthog/react-rrweb-player@^1.1.1":
+  version "1.1.1"
+  resolved "https://registry.yarnpkg.com/@posthog/react-rrweb-player/-/react-rrweb-player-1.1.1.tgz#4020ad1413efef0d574fb4043303f0a6154989b0"
+  integrity sha512-z3OXhisr1UJKOYnOc8ebZ7dBvR33y4R6u4fK8negKfv0T5DE3nrg264D0FDwsN7Lke+ZLo2k8so1pD4SQQ6tYA==
   dependencies:
     rc-slider "^9.6.2"
     rc-tooltip "^5.0.1"
