@@ -7,6 +7,7 @@ export function PersonHeader({ person }: { person: Partial<PersonType> }): JSX.E
     const customIdentifier = person?.properties
         ? person.properties.email || person.properties.name || person.properties.username
         : null
+    const distinctId = person.distinct_ids ? person.distinct_ids[0] : null
     return (
         <>
             {person?.is_identified ? (
@@ -22,7 +23,7 @@ export function PersonHeader({ person }: { person: Partial<PersonType> }): JSX.E
                 </div>
             ) : (
                 <div className="person-header anonymous">
-                    <IconPerson /> Anonymous user
+                    <IconPerson /> Anonymous user {distinctId && distinctId.substr(distinctId.length - 5)}
                 </div>
             )}
         </>
