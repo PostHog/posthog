@@ -133,4 +133,20 @@ $good_sans: 'Good Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 
             background-color: darken($website_orange, 15%);
         }
     }
+
+    .form-step {
+        transform-origin: bottom;
+        transition: transform 0.4s ease-out;
+        transform: scaleY(1);
+
+        &.form-step-one {
+            transform-origin: top;
+        }
+
+        &.hide {
+            transform: scaleY(0);
+            height: 0;
+            transition: none;
+        }
+    }
 }

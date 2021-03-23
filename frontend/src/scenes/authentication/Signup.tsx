@@ -1,5 +1,5 @@
 import { Col, Row, Form, Input, Button, Alert, Grid } from 'antd'
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
 import logo from 'public/posthog-logo-white.svg'
 import './Signup.scss'
 import { Link } from 'lib/components/Link'
@@ -8,20 +8,169 @@ import { PasswordInput } from './PasswordInput'
 import { IconRocket } from 'lib/components/icons'
 import { Breakpoint } from 'antd/lib/_util/responsiveObserve'
 import { SignupSideContentCloud, SignupSideContentHosted } from './SignupSideContent'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { signupLogic } from './signupLogic'
+import { Rule } from 'rc-field-form/lib/interface'
+import { ArrowLeftOutlined } from '@ant-design/icons'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
+
+function FormStepOne(): JSX.Element {
+    const { formStep } = useValues(signupLogic)
+    const emailInputRef = useRef<Input | null>(null)
+
+    useEffect(() => {
+        if (formStep === 1) {
+            emailInputRef?.current?.focus()
+        }
+    }, [formStep])
+
+    return (
+        <div className={`form-step form-step-one${formStep !== 1 ? ' hide' : ''}`}>
+            <Form.Item
+                name="email"
+                label="Email"
+                rules={[
+                    {
+                        required: true,
+                        message: 'Please enter your email to continue',
+                    },
+                ]}
+            >
+                <Input
+                    className="ph-ignore-input"
+                    autoFocus
+                    data-attr="login-email"
+                    placeholder="email@yourcompany.com"
+                    type="email"
+                    ref={emailInputRef}
+                />
+            </Form.Item>
+            <PasswordInput showStrengthIndicator />
+            <Form.Item>
+                <Button className="signup-submit" htmlType="submit" data-attr="signup-continue" block>
+                    <span className="icon">
+                        <IconRocket />
+                    </span>
+                    Continue
+                </Button>
+            </Form.Item>
+        </div>
+    )
+}
+
+function FormStepTwo(): JSX.Element {
+    const { formStep, createdAccountLoading } = useValues(signupLogic)
+    const { setFormStep } = useActions(signupLogic)
+
+    const firstNameInputRef = useRef<Input | null>(null)
+
+    useEffect(() => {
+        if (formStep === 2) {
+            firstNameInputRef?.current?.focus()
+        }
+    }, [formStep])
+
+    const requiredRule = (message: string): Rule[] | undefined => {
+        // Required rule only enabled when the user is in the current step to allow the user to freely move between steps
+        if (formStep !== 2) {
+            return undefined
+        }
+        return [
+            {
+                required: true,
+                message,
+            },
+        ]
+    }
+
+    return (
+        <div className={`form-step${formStep !== 2 ? ' hide' : ''}`}>
+            <div className="mb">
+                <Button
+                    type="link"
+                    onClick={() => setFormStep(1)}
+                    icon={<ArrowLeftOutlined />}
+                    disabled={createdAccountLoading}
+                >
+                    Go back
+                </Button>
+            </div>
+            <div className="mb">
+                <b>Just a few more details ...</b>
+            </div>
+            <Form.Item name="first_name" label="Your name" rules={requiredRule('Please enter your first name')}>
+                <Input
+                    className="ph-ignore-input"
+                    autoFocus
+                    data-attr="login-first-name"
+                    placeholder="Jane"
+                    ref={firstNameInputRef}
+                    disabled={createdAccountLoading}
+                />
+            </Form.Item>
+            <Form.Item
+                name="organization_name"
+                label="Organization name"
+                rules={requiredRule('Please enter the name of your organization')}
+            >
+                <Input
+                    className="ph-ignore-input"
+                    data-attr="login-orgnaization-name"
+                    placeholder="Hogflix Movies"
+                    disabled={createdAccountLoading}
+                />
+            </Form.Item>
+
+            <Form.Item className="text-center" style={{ marginTop: 32 }}>
+                By creating an account, you agree to our{' '}
+                <a href={`https://posthog.com/terms?${UTM_TAGS}`} target="_blank" rel="noopener">
+                    Terms of Service
+                </a>{' '}
+                and{' '}
+                <a href={`https://posthog.com/privacy?${UTM_TAGS}`} target="_blank" rel="noopener">
+                    Privacy Policy
+                </a>
+                .
+            </Form.Item>
+            <Form.Item>
+                <Button
+                    className="signup-submit"
+                    htmlType="submit"
+                    data-attr="signup-submit"
+                    block
+                    loading={createdAccountLoading}
+                >
+                    <span className="icon">
+                        <IconRocket />
+                    </span>
+                    Create account
+                </Button>
+            </Form.Item>
+        </div>
+    )
+}
 
 export function Signup(): JSX.Element {
     const [form] = Form.useForm()
     const { useBreakpoint } = Grid
     const { preflight } = useValues(preflightLogic)
+    const { formStep } = useValues(signupLogic)
+    const { setFormStep, signup } = useActions(signupLogic)
+
     const loading = false // TODO
     const errorResponse: Record<string, any> = {} // TODO
-    const authenticate = (values: any): void => console.log(values) // TODO
     const screens = useBreakpoint()
     const isSmallScreen = (Object.keys(screens) as Breakpoint[]).filter((key) => screens[key]).length <= 2 // xs; sm
+
+    const handleFormSubmit = (values: Record<string, string>): void => {
+        if (formStep === 1) {
+            setFormStep(2)
+        } else {
+            signup(values)
+        }
+    }
 
     return (
         <div className="signup">
@@ -71,56 +220,9 @@ export function Signup(): JSX.Element {
                                 style={{ marginBottom: 16 }}
                             />
                         )}
-                        <Form
-                            layout="vertical"
-                            form={form}
-                            onFinish={(values) => authenticate(values)}
-                            requiredMark={false}
-                        >
-                            <Form.Item
-                                name="email"
-                                label="Email"
-                                rules={[
-                                    {
-                                        required: true,
-                                        message: 'Please enter your email to continue',
-                                    },
-                                ]}
-                            >
-                                <Input
-                                    className="ph-ignore-input"
-                                    autoFocus
-                                    data-attr="login-email"
-                                    placeholder="email@yourcompany.com"
-                                    type="email"
-                                />
-                            </Form.Item>
-                            <PasswordInput showStrengthIndicator />
-                            <Form.Item className="text-center">
-                                By creating an account, you agree to our{' '}
-                                <a href={`https://posthog.com/terms?${UTM_TAGS}`} target="_blank" rel="noopener">
-                                    Terms of Service
-                                </a>{' '}
-                                and{' '}
-                                <a href={`https://posthog.com/privacy?${UTM_TAGS}`} target="_blank" rel="noopener">
-                                    Privacy Policy
-                                </a>
-                                .
-                            </Form.Item>
-                            <Form.Item>
-                                <Button
-                                    className="signup-submit"
-                                    htmlType="submit"
-                                    data-attr="password-signup"
-                                    loading={loading}
-                                    block
-                                >
-                                    <span className="icon">
-                                        <IconRocket />
-                                    </span>
-                                    Create Account
-                                </Button>
-                            </Form.Item>
+                        <Form layout="vertical" form={form} onFinish={handleFormSubmit} requiredMark={false}>
+                            <FormStepOne />
+                            <FormStepTwo />
                         </Form>
                         <div style={{ marginTop: 48 }}>
                             <SocialLoginButtons displayStyle="link" caption="Or sign up with" />
