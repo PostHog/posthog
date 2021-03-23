@@ -3,8 +3,9 @@ import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 
 import { Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
-import moment from 'moment'
-import { DateFilter } from './DateFilter/DateFilter'
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import { DateFilter } from './DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 
 import { PageHeader } from 'lib/components/PageHeader'
@@ -17,8 +18,8 @@ import {
     ACTIONS_TABLE,
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART_VALUE,
-    LIFECYCLE,
     FUNNEL_VIZ,
+    ShownAsValue,
 } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -44,7 +45,9 @@ import { People } from 'scenes/funnels/People'
 import { TrendLegend } from './TrendLegend'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { TZIndicator } from 'lib/components/TimezoneAware'
 
+dayjs.extend(relativeTime)
 const { TabPane } = Tabs
 
 const showIntervalFilter = function (activeView, filter) {
@@ -209,39 +212,45 @@ export function Insights() {
                         */}
                             <Card
                                 title={
-                                    <div className="float-right">
-                                        {showIntervalFilter(activeView, allFilters) && (
-                                            <IntervalFilter filters={allFilters} view={activeView} />
-                                        )}
-                                        {showChartFilter(activeView, featureFlags) && (
-                                            <ChartFilter
-                                                onChange={(display) => {
-                                                    if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
-                                                        clearAnnotationsToCreate()
-                                                    }
+                                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                                        <TZIndicator style={{ float: 'left' }} />
+                                        <div style={{ width: '100%', textAlign: 'right' }}>
+                                            {showIntervalFilter(activeView, allFilters) && (
+                                                <IntervalFilter filters={allFilters} view={activeView} />
+                                            )}
+                                            {showChartFilter(activeView, featureFlags) && (
+                                                <ChartFilter
+                                                    onChange={(display) => {
+                                                        if (
+                                                            display === ACTIONS_TABLE ||
+                                                            display === ACTIONS_PIE_CHART
+                                                        ) {
+                                                            clearAnnotationsToCreate()
+                                                        }
+                                                    }}
+                                                    filters={allFilters}
+                                                    disabled={allFilters.shown_as === ShownAsValue.LIFECYCLE}
+                                                />
+                                            )}
+
+                                            {showDateFilter[activeView] && (
+                                                <DateFilter
+                                                    defaultValue="Last 7 days"
+                                                    disabled={dateFilterDisabled}
+                                                    bordered={false}
+                                                />
+                                            )}
+
+                                            {showComparePrevious[activeView] && <CompareFilter />}
+                                            <SaveToDashboard
+                                                item={{
+                                                    entity: {
+                                                        filters: allFilters,
+                                                        annotations: annotationsToCreate,
+                                                    },
                                                 }}
-                                                filters={allFilters}
-                                                disabled={allFilters.shown_as === LIFECYCLE}
                                             />
-                                        )}
-
-                                        {showDateFilter[activeView] && (
-                                            <DateFilter
-                                                defaultValue="Last 7 days"
-                                                disabled={dateFilterDisabled}
-                                                bordered={false}
-                                            />
-                                        )}
-
-                                        {showComparePrevious[activeView] && <CompareFilter />}
-                                        <SaveToDashboard
-                                            item={{
-                                                entity: {
-                                                    filters: allFilters,
-                                                    annotations: annotationsToCreate,
-                                                },
-                                            }}
-                                        />
+                                        </div>
                                     </div>
                                 }
                                 headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
@@ -250,7 +259,7 @@ export function Insights() {
                                 <div>
                                     {lastRefresh && (
                                         <small style={{ position: 'absolute', marginTop: -21, right: 24 }}>
-                                            Computed {moment(lastRefresh).fromNow()}
+                                            Computed {dayjs(lastRefresh).fromNow()}
                                             <Button
                                                 size="small"
                                                 type="link"

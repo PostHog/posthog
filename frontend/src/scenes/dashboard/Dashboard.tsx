@@ -1,13 +1,19 @@
 import React from 'react'
-import { Link } from 'lib/components/Link'
 import { SceneLoading } from 'lib/utils'
-import { BindLogic, useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
+import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { HedgehogOverlay } from 'lib/components/HedgehogOverlay/HedgehogOverlay'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { CalendarOutlined } from '@ant-design/icons'
+import './Dashboard.scss'
+import { useKeyboardHotkeys } from '../../lib/hooks/useKeyboardHotkeys'
+import { DashboardMode } from '../../types'
+import { EventSource } from '../../lib/utils/eventUsageLogic'
+import { TZIndicator } from 'lib/components/TimezoneAware'
+import { Link } from 'lib/components/Link'
+import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface Props {
     id: string
@@ -17,38 +23,122 @@ interface Props {
 export function Dashboard({ id, shareToken }: Props): JSX.Element {
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseInt(id), shareToken }}>
-            <DashboardView id={id} shareToken={shareToken} />
+            <DashboardView />
         </BindLogic>
     )
 }
 
-function DashboardView({ id, shareToken }: Props): JSX.Element {
-    const { dashboard, itemsLoading, items } = useValues(dashboardLogic)
-    const { user } = useValues(userLogic)
+function DashboardView(): JSX.Element {
+    const { dashboard, itemsLoading, items, filters: dashboardFilters, dashboardMode } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
+    const { setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
+
+    useKeyboardHotkeys(
+        dashboardMode === DashboardMode.Public
+            ? {}
+            : {
+                  e: {
+                      action: () =>
+                          setDashboardMode(
+                              dashboardMode === DashboardMode.Edit ? null : DashboardMode.Edit,
+                              EventSource.Hotkey
+                          ),
+                      disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Edit,
+                  },
+                  f: {
+                      action: () =>
+                          setDashboardMode(
+                              dashboardMode === DashboardMode.Fullscreen ? null : DashboardMode.Fullscreen,
+                              EventSource.Hotkey
+                          ),
+                      disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Fullscreen,
+                  },
+                  s: {
+                      action: () =>
+                          setDashboardMode(
+                              dashboardMode === DashboardMode.Sharing ? null : DashboardMode.Sharing,
+                              EventSource.Hotkey
+                          ),
+                      disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Sharing,
+                  },
+                  n: {
+                      action: () => addGraph(),
+                      disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Edit,
+                  },
+                  escape: {
+                      // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
+                      action: () => setDashboardMode(null, EventSource.Hotkey),
+                      disabled: dashboardMode !== DashboardMode.Edit,
+                  },
+              },
+        [setDashboardMode, dashboardMode]
+    )
+
+    if (dashboardsLoading || itemsLoading) {
+        return <SceneLoading />
+    }
+
+    if (!dashboard) {
+        return (
+            <div className="dashboard not-found">
+                <div className="graphic" />
+                <h1 className="page-title">Dashboard not found</h1>
+                <b>It seems this page may have been lost in space.</b>
+                <p>
+                    It’s possible this dashboard may have been deleted or its sharing settings changed. Please check
+                    with the person who sent you here, or{' '}
+                    <Link
+                        to="https://posthog.com/support?utm_medium=in-product&utm_campaign=dashboard-not-found"
+                        target="_blank"
+                        rel="noopener"
+                    >
+                        contact support
+                    </Link>{' '}
+                    if you think this is a mistake
+                </p>
+            </div>
+        )
+    }
 
     return (
-        <div style={{ marginTop: 32 }}>
-            {!shareToken && <DashboardHeader />}
-
-            {dashboardsLoading ? (
-                <SceneLoading />
-            ) : !dashboard ? (
-                <>
-                    <p>A dashboard with the ID {id} was not found!</p>
-                    <HedgehogOverlay type="sad" />
-                </>
-            ) : items && items.length > 0 ? (
-                <DashboardItems inSharedMode={!!shareToken} />
-            ) : itemsLoading ? (
-                <SceneLoading />
-            ) : user?.team?.ingested_event ? (
-                <p>
-                    There are no panels on this dashboard.{' '}
-                    <Link to="/insights?insight=TRENDS">Click here to add some!</Link>
-                </p>
+        <div className="dashboard">
+            {dashboardMode !== 'public' && <DashboardHeader />}
+            {items && items.length ? (
+                <div>
+                    <div className="dashboard-items-actions">
+                        {/* :TODO: Bring this back when addressing https://github.com/PostHog/posthog/issues/3609
+                        <div className="left-item">
+                            Last updated <b>{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</b>
+                            {dashboardMode !== DashboardMode.Public && (
+                                <Button type="link" icon={<ReloadOutlined />} onClick={refreshAllDashboardItems}>
+                                    Refresh
+                                </Button>
+                            )}
+                        </div>
+                         */}
+                        {dashboardMode !== DashboardMode.Public && (
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />
+                                <DateFilter
+                                    defaultValue="Custom"
+                                    showCustom
+                                    dateFrom={dashboardFilters?.date_from}
+                                    dateTo={dashboardFilters?.date_to}
+                                    onChange={setDates}
+                                    makeLabel={(key) => (
+                                        <>
+                                            <CalendarOutlined />
+                                            <span className="hide-when-small"> {key}</span>
+                                        </>
+                                    )}
+                                />
+                            </div>
+                        )}
+                    </div>
+                    <DashboardItems inSharedMode={dashboardMode === DashboardMode.Public} />
+                </div>
             ) : (
-                <p />
+                <EmptyDashboardComponent />
             )}
         </div>
     )

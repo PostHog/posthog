@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { ExportOutlined, SearchOutlined } from '@ant-design/icons'
@@ -12,6 +12,12 @@ import { EventName } from 'scenes/actions/EventName'
 import { eventToName, toParams } from 'lib/utils'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import LocalizedFormat from 'dayjs/plugin/localizedFormat'
+import { TZLabel } from 'lib/components/TimezoneAware'
+
+dayjs.extend(LocalizedFormat)
+dayjs.extend(relativeTime)
 
 export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
     const logic = eventsTableLogic({ fixedFilters, key: pageKey })
@@ -147,9 +153,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
                 }
-                return (
-                    <Tooltip title={moment(event.timestamp).format('LLL')}>{moment(event.timestamp).fromNow()}</Tooltip>
-                )
+                return <TZLabel time={event.timestamp} showSeconds />
             },
         },
         {

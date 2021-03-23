@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams, deleteWithUndo } from 'lib/utils'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { getNextKey } from 'lib/components/Annotations/utils'
 
 export const annotationsModel = kea({
@@ -9,7 +9,7 @@ export const annotationsModel = kea({
         createGlobalAnnotation: (content, date_marker, dashboard_item) => ({
             content,
             date_marker,
-            created_at: moment(),
+            created_at: dayjs(),
             dashboard_item,
         }),
         deleteGlobalAnnotation: (id) => ({ id }),
@@ -52,7 +52,7 @@ export const annotationsModel = kea({
         createGlobalAnnotation: async ({ dashboard_item, content, date_marker, created_at }) => {
             await api.create('api/annotation', {
                 content,
-                date_marker: moment.isMoment(date_marker) ? date_marker : moment(date_marker),
+                date_marker: dayjs.isDayjs(date_marker) ? date_marker : dayjs(date_marker),
                 created_at,
                 dashboard_item,
                 scope: 'organization',

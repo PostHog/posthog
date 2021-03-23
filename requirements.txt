@@ -120,7 +120,7 @@ kombu==4.6.8
     # via
     #   -r requirements.in
     #   celery
-lxml==4.6.2
+lxml==4.6.3
     # via toronado
 lzstring==1.0.4
     # via -r requirements.in

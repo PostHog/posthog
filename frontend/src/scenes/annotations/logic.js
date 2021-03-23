@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams, deleteWithUndo } from 'lib/utils'
+import { annotationsModel } from '~/models'
 
 export const annotationsTableLogic = kea({
     loaders: ({ actions }) => ({
@@ -42,6 +43,7 @@ export const annotationsTableLogic = kea({
     listeners: ({ actions, values }) => ({
         updateAnnotation: async ({ id, content }) => {
             await api.update(`api/annotation/${id}`, { content })
+            actions.loadAnnotations({})
         },
         restoreAnnotation: async ({ id }) => {
             await api.update(`api/annotation/${id}`, { deleted: false })
@@ -62,6 +64,9 @@ export const annotationsTableLogic = kea({
                 results = response.results
             }
             actions.appendAnnotations(results)
+        },
+        [annotationsModel.actions.createGlobalAnnotation]: () => {
+            actions.loadAnnotations({})
         },
     }),
     events: ({ actions }) => ({

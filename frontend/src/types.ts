@@ -4,6 +4,7 @@ import {
     CUSTOM_EVENT,
     EVENT_TYPE,
     OrganizationMembershipLevel,
+    PluginsAccessLevel,
     PAGEVIEW,
     SCREEN,
     ShownAsValue,
@@ -24,10 +25,9 @@ export interface UserType {
     team: TeamType | null
     toolbar_mode: 'disabled' | 'toolbar'
     organizations: OrganizationType[]
-    teams: TeamType[]
+    teams: Partial<TeamType>[]
     current_organization_id: string
     current_team_id: number
-    plugin_access: PluginAccess
     has_password: boolean
     is_multi_tenancy: boolean
     is_staff: boolean
@@ -37,6 +37,8 @@ export interface UserType {
     email_service_available: boolean
     realm: 'cloud' | 'hosted'
     billing?: OrganizationBilling
+    is_event_property_usage_enabled: boolean
+    is_async_event_action_mapping_enabled: boolean
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -80,6 +82,7 @@ export interface OrganizationType {
     membership_level: OrganizationMembershipLevel | null
     setup: SetupState
     personalization: PersonalizationData
+    plugins_access_level: PluginsAccessLevel
 }
 
 export interface OrganizationMemberType {
@@ -123,6 +126,7 @@ export interface TeamType {
     ingested_event: boolean
     is_demo: boolean
     test_account_filters: FilterType[]
+    timezone: string
 }
 
 export interface ActionType {
@@ -413,6 +417,9 @@ export interface PluginType {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     maintainer?: string
+    is_global: boolean
+    organization_id: string
+    organization_name: string
 }
 
 export interface PluginConfigType {
@@ -568,4 +575,41 @@ export interface PreflightStatus {
     cloud: boolean
     celery: boolean
     available_social_auth_providers: AuthBackends
+    available_timezones: Record<string, number>
 }
+
+export enum DashboardMode { // Default mode is null
+    Edit = 'edit', // When the dashboard is being edited
+    Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
+    Sharing = 'sharing', // When the sharing configuration is opened
+    Public = 'public', // When viewing the dashboard publicly via a shareToken
+}
+
+export type Keys =
+    | 'a'
+    | 'b'
+    | 'c'
+    | 'd'
+    | 'e'
+    | 'f'
+    | 'g'
+    | 'h'
+    | 'i'
+    | 'j'
+    | 'k'
+    | 'l'
+    | 'm'
+    | 'n'
+    | 'o'
+    | 'p'
+    | 'q'
+    | 'r'
+    | 's'
+    | 't'
+    | 'u'
+    | 'v'
+    | 'w'
+    | 'x'
+    | 'y'
+    | 'z'
+    | 'escape'

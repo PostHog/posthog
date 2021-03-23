@@ -914,10 +914,21 @@
   resolved "https://registry.yarnpkg.com/@posthog/clickhouse/-/clickhouse-1.7.0.tgz#21fa1e8cfa0637b688f91964e0efeedbf4cf7a3c"
   integrity sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==
 
-"@posthog/plugin-server@0.11.9":
-  version "0.11.9"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.11.9.tgz#01dfcaa92baea0e38cd100eee63ddf1638b6ed31"
-  integrity sha512-Tb0nAXVcXnPkH2GEm7iG0UN86gGfa9//p37/wF0JbVh021NMqc/7UQZ4jHeOoo/zalcyY+CEJpE55ppHPh9HZg==
+"@posthog/piscina@^2.2.0-posthog":
+  version "2.2.0-posthog"
+  resolved "https://registry.yarnpkg.com/@posthog/piscina/-/piscina-2.2.0-posthog.tgz#de92f7809258ca98e0c6c101c14e808df3a07bcb"
+  integrity sha512-M4yfSogzAplo0ZN/i2B3jHeEjIEUVOo0Mcc0wikvlCSGP5h/AtTaYja+p2FfmrP4jjMeTksEfVAh/Nt2fEcKSg==
+  dependencies:
+    eventemitter-asyncresource "^1.0.0"
+    hdr-histogram-js "^2.0.1"
+    hdr-histogram-percentiles-obj "^3.0.0"
+  optionalDependencies:
+    nice-napi "^1.0.2"
+
+"@posthog/plugin-server@0.14.5":
+  version "0.14.5"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.14.5.tgz#47270a6b81a47a8952e884036349d4294b8e7ff1"
+  integrity sha512-YdBao3gSQKPiOwm6Hfm6QjXZ68R/hLs7+d8bEBu/EPrntJIEALWoWvC6c9sLbKtVKN9OpXUS2orGq/rlFFDX0Q==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"
@@ -925,6 +936,7 @@
     "@babel/standalone" "^7.13.7"
     "@google-cloud/bigquery" "^5.5.0"
     "@posthog/clickhouse" "^1.7.0"
+    "@posthog/piscina" "^2.2.0-posthog"
     "@sentry/node" "^5.29.0"
     "@sentry/tracing" "^5.29.0"
     adm-zip "^0.4.16"
@@ -938,7 +950,6 @@
     node-fetch "^2.6.1"
     node-schedule "^1.3.2"
     pg "^8.4.2"
-    piscina "^2.1.0"
     posthog-js-lite "^0.0.5"
     protobufjs "^6.10.2"
     redlock "^4.2.0"
@@ -2078,17 +2089,6 @@ pino@^6.2.1:
     pino-std-serializers "^2.4.2"
     quick-format-unescaped "^4.0.1"
     sonic-boom "^1.0.2"
-
-piscina@^2.1.0:
-  version "2.1.0"
-  resolved "https://registry.yarnpkg.com/piscina/-/piscina-2.1.0.tgz#947d937e0efd0de7a0e8bf10363c2e053c619413"
-  integrity sha512-3FgX36QyZcU4prKuNKl7/lWlOF3HAv9n7JpCjw09Zbql2KkzXXQ7E5xUS+RV5wV24Rn0r6Lr8jLdtU/cNZHAnA==
-  dependencies:
-    eventemitter-asyncresource "^1.0.0"
-    hdr-histogram-js "^2.0.1"
-    hdr-histogram-percentiles-obj "^3.0.0"
-  optionalDependencies:
-    nice-napi "^1.0.2"
 
 postgres-array@~2.0.0:
   version "2.0.0"

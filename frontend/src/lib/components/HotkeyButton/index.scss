@@ -1,0 +1,23 @@
+@import '~/vars';
+
+.hotkey-button {
+    .ant-btn-primary {
+        .hotkey {
+            border: 0;
+        }
+    }
+
+    .hotkey {
+        padding: 0 6px;
+        border-radius: $radius;
+        font-weight: bold;
+        margin-left: 6px;
+        background-color: white;
+        color: $primary;
+        text-shadow: none;
+        text-transform: uppercase;
+        border: 1px solid $border_light;
+        margin-bottom: 2px;
+        font-size: 0.85rem;
+    }
+}

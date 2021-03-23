@@ -1,6 +1,7 @@
 import re
 from typing import Any, Dict, List, Optional
 
+import pytz
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.core.validators import MinLengthValidator
 from django.db import models
@@ -13,6 +14,8 @@ from .dashboard import Dashboard
 from .utils import UUIDT, generate_random_token, sane_repr
 
 TEAM_CACHE: Dict[str, "Team"] = {}
+
+TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
 
 
 class TeamManager(models.Manager):
@@ -71,7 +74,7 @@ class Team(models.Model):
         default=generate_random_token,
         validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
     )
-    app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
+    app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True)
     name: models.CharField = models.CharField(
         max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")],
     )
@@ -88,12 +91,14 @@ class Team(models.Model):
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     uuid: models.UUIDField = models.UUIDField(default=UUIDT, editable=False, unique=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
-    session_recording_retention_period_days: models.IntegerField = models.IntegerField(null=True, default=None)
+    session_recording_retention_period_days: models.IntegerField = models.IntegerField(
+        null=True, default=None, blank=True
+    )
     plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
-
     test_account_filters: JSONField = JSONField(default=list)
+    timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
 
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)

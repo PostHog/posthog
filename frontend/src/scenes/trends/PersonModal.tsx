@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
@@ -25,7 +25,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
     const title =
         filters.shown_as === 'Stickiness'
             ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
-            : `"${people?.label}" on ${people?.day ? moment(people.day).format('ll') : '...'}`
+            : `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
     const closeModal = (): void => setShowingPeople(false)
     return (
         <Modal

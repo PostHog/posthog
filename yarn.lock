@@ -2402,10 +2402,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.2.12.tgz#3fc54881030ad6a51549e04f1d725644a1d1e0d5"
   integrity sha512-MhTK21NvIokMCo4MdJ4iEwjRj/vMG73ucRQtpBmBqZNd1wvy9C7HMFyHmR0uxz1RsT3SCPWuuj1HDvoJsb+QQw==
 
-"@posthog/react-rrweb-player@^1.1.0":
-  version "1.1.0"
-  resolved "https://registry.yarnpkg.com/@posthog/react-rrweb-player/-/react-rrweb-player-1.1.0.tgz#e000c9650133e38b8a018ad089f28ee69d99de64"
-  integrity sha512-2pmKLp8QNswvHZFodqUGJ7w/ugLLOZq+40VLIYN/KbmdpzxDC7mLXJkaWlQTWQuMgWC0jHwZpU96zWCSj8FALQ==
+"@posthog/react-rrweb-player@^1.1.1":
+  version "1.1.1"
+  resolved "https://registry.yarnpkg.com/@posthog/react-rrweb-player/-/react-rrweb-player-1.1.1.tgz#4020ad1413efef0d574fb4043303f0a6154989b0"
+  integrity sha512-z3OXhisr1UJKOYnOc8ebZ7dBvR33y4R6u4fK8negKfv0T5DE3nrg264D0FDwsN7Lke+ZLo2k8so1pD4SQQ6tYA==
   dependencies:
     rc-slider "^9.6.2"
     rc-tooltip "^5.0.1"
@@ -2819,6 +2819,13 @@
   version "16.9.9"
   resolved "https://registry.yarnpkg.com/@types/react-dom/-/react-dom-16.9.9.tgz#d2d0a6f720a0206369ccbefff752ba37b9583136"
   integrity sha512-jE16FNWO3Logq/Lf+yvEAjKzhpST/Eac8EMd1i4dgZdMczfgqC8EjpxwNgEe3SExHYLliabXDh9DEhhqnlXJhg==
+  dependencies:
+    "@types/react" "*"
+
+"@types/react-grid-layout@^1.1.1":
+  version "1.1.1"
+  resolved "https://registry.yarnpkg.com/@types/react-grid-layout/-/react-grid-layout-1.1.1.tgz#1eb322fa88cd1475bdc60ecca9676f6853e18887"
+  integrity sha512-bvPkITzwGGOZKjp01nVSgPrdfGm/uTa5t8Odd8vQRXJsLj7uZLZXSXgWr+TiXBAkUsmHPxhsyswXQCiFeDuZnQ==
   dependencies:
     "@types/react" "*"
 
@@ -3318,6 +3325,11 @@ ansi-styles@^4.0.0, ansi-styles@^4.1.0:
   integrity sha512-zbB9rCJAT1rbjiVDb2hqKFHNYLxgtk8NURxZ3IZwD3F6NtxbXZQCnnSi1Lkx+IDohdPlFp222wVALIheZJQSEg==
   dependencies:
     color-convert "^2.0.1"
+
+antd-dayjs-webpack-plugin@^1.0.6:
+  version "1.0.6"
+  resolved "https://registry.yarnpkg.com/antd-dayjs-webpack-plugin/-/antd-dayjs-webpack-plugin-1.0.6.tgz#7d98bcb51422248b8cd4a32e352a0425a3bffa3a"
+  integrity sha512-UlK3BfA0iE2c5+Zz/Bd2iPAkT6cICtrKG4/swSik5MZweBHtgmu1aUQCHvICdiv39EAShdZy/edfP6mlkS/xXg==
 
 antd@^4.11.2:
   version "4.11.2"
@@ -4411,6 +4423,11 @@ chart.js@^2.9.3:
   dependencies:
     chartjs-color "^2.1.0"
     moment "^2.10.2"
+
+chartjs-adapter-dayjs@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/chartjs-adapter-dayjs/-/chartjs-adapter-dayjs-1.0.0.tgz#794cafb11d3715a565daae4ef99525f9ed2d763f"
+  integrity sha512-EnbVqTJGFKLpg1TROLdCEufrzbmIa2oeLGx8O2Wdjw2EoMudoOo9+YFu+6CM0Z0hQ/v3yq/e/Y6efQMu22n8Jg==
 
 chartjs-color-string@^0.6.0:
   version "0.6.0"
@@ -5541,7 +5558,7 @@ date-fns@^2.0.1, date-fns@^2.15.0:
   resolved "https://registry.yarnpkg.com/date-fns/-/date-fns-2.16.1.tgz#05775792c3f3331da812af253e1a935851d3834b"
   integrity sha512-sAJVKx/FqrLYHAQeN7VpJrPhagZc9R4ImZIWYRFZaaohR3KzmuK88touwsSwSVT8Qcbd4zoDsnGfX4GFB4imyQ==
 
-dayjs@^1.8.30:
+dayjs@^1.10.4, dayjs@^1.8.30:
   version "1.10.4"
   resolved "https://registry.yarnpkg.com/dayjs/-/dayjs-1.10.4.tgz#8e544a9b8683f61783f570980a8a80eaf54ab1e2"
   integrity sha512-RI/Hh4kqRc1UKLOAf/T5zdMMX5DQIlDxwUe3wSyMMnEbGunnpENCdbUgM+dW7kXidZqCttBrmw7BhN4TMddkCw==
