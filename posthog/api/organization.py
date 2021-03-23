@@ -8,7 +8,7 @@ from django.db import transaction
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 from django.urls.base import reverse
-from rest_framework import exceptions, generics, permissions, response, serializers, status, viewsets
+from rest_framework import exceptions, generics, permissions, response, serializers, validators, viewsets
 from rest_framework.request import Request
 
 from posthog.api.routing import StructuredViewSetMixin
@@ -162,7 +162,13 @@ class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
 class OrganizationSignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128)
-    email: serializers.Field = serializers.EmailField()
+    email: serializers.Field = serializers.EmailField(
+        validators=[
+            validators.UniqueValidator(
+                queryset=User.objects.all(), message="There is already an account with this email address."
+            )
+        ]
+    )
     password: serializers.Field = serializers.CharField(allow_null=True)
     organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)

@@ -89,7 +89,8 @@
     }
 
     &:hover,
-    &:active {
+    &:active,
+    &:focus {
         background-color: darken($website_orange, 15%);
         color: $text_light;
     }
