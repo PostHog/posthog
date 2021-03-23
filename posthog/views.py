@@ -1,7 +1,6 @@
 from functools import wraps
 from typing import Dict, List, Union
 
-import pytz
 from django.conf import settings
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required as base_login_required
@@ -25,7 +24,12 @@ from posthog.utils import (
     is_redis_alive,
 )
 
-from .utils import get_available_social_auth_providers, get_celery_heartbeat, get_plugin_server_version
+from .utils import (
+    available_timezones_with_offsets,
+    get_available_social_auth_providers,
+    get_celery_heartbeat,
+    get_plugin_server_version,
+)
 
 
 def login_required(view):
@@ -173,6 +177,6 @@ def preflight_check(_):
             "initiated": User.objects.exists(),
             "cloud": settings.MULTI_TENANCY,
             "available_social_auth_providers": get_available_social_auth_providers(),
-            "available_timezones": pytz.common_timezones,
+            "available_timezones": available_timezones_with_offsets(),
         }
     )

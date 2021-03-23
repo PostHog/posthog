@@ -574,7 +574,7 @@ export interface PreflightStatus {
     cloud: boolean
     celery: boolean
     available_social_auth_providers: AuthBackends
-    available_timezones: string[]
+    available_timezones: Record<string, number>
 }
 
 export enum DashboardMode { // Default mode is null

@@ -150,7 +150,7 @@ export function ProjectSettings(): JSX.Element {
                 <h2 className="subtitle" id="timezone">
                     Timezone
                 </h2>
-                <p>Set the timezone for your project so you see relevant time conversions within PostHog.</p>
+                <p>Set the timezone for your project so that you can see relevant time conversions in PostHog.</p>
                 <TimezoneConfig />
                 <Divider />
                 <h2 className="subtitle" id="testaccounts">

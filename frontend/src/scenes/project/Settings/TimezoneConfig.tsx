@@ -18,18 +18,22 @@ export function TimezoneConfig(): JSX.Element {
             <Select
                 showSearch
                 placeholder="Select a timezone"
-                style={{ width: '40rem', maxWidth: '100%' }}
+                style={{ width: '20rem', maxWidth: '100%' }}
                 loading={currentTeamLoading}
                 value={currentTeam.timezone}
                 onChange={(val) => patchCurrentTeam({ timezone: val })}
             >
-                {preflight.available_timezones.map((tz) => (
-                    <Select.Option value={tz} key={tz}>
-                        {tz}
-                    </Select.Option>
-                ))}
+                {Object.entries(preflight.available_timezones).map(([tz, offset]) => {
+                    const display = `${tz.replace(/\//g, ' / ').replace(/_/g, ' ')} (UTC${
+                        offset > 0 ? '+' : '-'
+                    }${Math.abs(offset)})`
+                    return (
+                        <Select.Option value={tz} key={tz}>
+                            {display}
+                        </Select.Option>
+                    )
+                })}
             </Select>
-            ,
         </div>
     )
 }
