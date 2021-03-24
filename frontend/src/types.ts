@@ -606,14 +606,17 @@ export enum DashboardMode { // Default mode is null
     Public = 'public', // When viewing the dashboard publicly via a shareToken
 }
 
-export type Keys =
+// Reserved hotkeys globally available
+export type GlobalHotKeys = 'g'
+
+// Hotkeys for local (component) actions
+export type HotKeys =
     | 'a'
     | 'b'
     | 'c'
     | 'd'
     | 'e'
     | 'f'
-    | 'g'
     | 'h'
     | 'i'
     | 'j'

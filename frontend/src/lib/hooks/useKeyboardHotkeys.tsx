@@ -1,17 +1,41 @@
+import { useValues } from 'kea'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { DependencyList } from 'react'
-import { Keys } from '~/types'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { HotKeys, GlobalHotKeys } from '~/types'
 
 export interface HotkeyInterface {
     action: () => void
     disabled?: boolean
 }
 
-export type Hotkeys = Partial<Record<Keys, HotkeyInterface>>
+type LocalHotkeysInterface = Partial<Record<HotKeys, HotkeyInterface>>
+export const useKeyboardHotkeys = (
+    hotkeys: LocalHotkeysInterface,
+    deps?: DependencyList,
+    enableOnGlobal?: boolean
+): void => _useKeyboardHotkeys(hotkeys, deps, enableOnGlobal)
 
-const IGNORE_INPUTS = ['input', 'textarea'] // Inputs in which hotkey events will be ignored
+/*
+ Global keyboard hotkeys reserve special keys for shortcuts that are available everywhere 
+ in the app, we separate them to avoid mixup with local commands
+ */
+type GlobalHotkeysInterface = Partial<Record<GlobalHotKeys, HotkeyInterface>>
+export const useGlobalKeyboardHotkeys = (hotkeys: GlobalHotkeysInterface, deps?: DependencyList): void =>
+    _useKeyboardHotkeys(hotkeys, deps)
 
-export function useKeyboardHotkeys(hotkeys: Hotkeys, deps?: DependencyList): void {
+type AllHotKeys = GlobalHotKeys | HotKeys
+type AllHotkeysInterface = Partial<Record<AllHotKeys, HotkeyInterface>>
+/**
+ *
+ * @param hotkeys Hotkeys to listen to and actions to execute
+ * @param deps List of dependencies for the hook
+ * @param enableOnGlobal Whether these hotkeys should run when a globally-scoped hotkey is enabled
+ */
+function _useKeyboardHotkeys(hotkeys: AllHotkeysInterface, deps?: DependencyList, enableOnGlobal?: boolean): void {
+    const IGNORE_INPUTS = ['input', 'textarea'] // Inputs in which hotkey events will be ignored
+    const { hotkeyNavigationEngaged } = useValues(navigationLogic)
+
     useEventListener(
         'keydown',
         (event) => {
@@ -27,8 +51,14 @@ export function useKeyboardHotkeys(hotkeys: Hotkeys, deps?: DependencyList): voi
                 return
             }
 
+            // Ignore if global hotkeys are engaged and this is not intended as a global action,
+            // currently this only encompasses global navigation keys
+            if (!enableOnGlobal && hotkeyNavigationEngaged) {
+                return
+            }
+
             for (const relevantKey of Object.keys(hotkeys)) {
-                const hotkey = hotkeys[relevantKey as Keys]
+                const hotkey = hotkeys[relevantKey as AllHotKeys]
 
                 if (!hotkey || hotkey.disabled) {
                     continue

@@ -30,10 +30,13 @@ import {
 import { navigationLogic } from './navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import { dashboardsModel } from '~/models'
-import { DashboardType } from '~/types'
+import { DashboardType, HotKeys } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { canViewPlugins } from '../../scenes/plugins/access'
+import { useGlobalKeyboardHotkeys, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { router } from 'kea-router'
 
 // to show the right page in the sidebar
 const sceneOverride: Record<string, string> = {
@@ -47,12 +50,15 @@ interface MenuItemProps {
     icon: JSX.Element
     identifier: string
     to: string
+    hotkey?: HotKeys
     onClick?: () => void
 }
 
-const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.Element => {
+const MenuItem = ({ title, icon, identifier, to, hotkey, onClick }: MenuItemProps): JSX.Element => {
     const { scene, loadingScene } = useValues(sceneLogic)
-    const { collapseMenu } = useActions(navigationLogic)
+    const { hotkeyNavigationEngaged } = useValues(navigationLogic)
+    const { collapseMenu, setHotkeyNavigationEngaged } = useActions(navigationLogic)
+    const { push } = useActions(router)
 
     function activeScene(): string {
         const nominalScene = loadingScene || scene
@@ -63,7 +69,25 @@ const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.
     function handleClick(): void {
         onClick?.()
         collapseMenu()
+        setHotkeyNavigationEngaged(false)
     }
+
+    useKeyboardHotkeys(
+        hotkeyNavigationEngaged && hotkey
+            ? {
+                  [hotkey]: {
+                      action: () => {
+                          handleClick()
+                          if (to) {
+                              push(to)
+                          }
+                      },
+                  },
+              }
+            : {},
+        undefined,
+        true
+    )
 
     return (
         <Link to={to} onClick={handleClick}>
@@ -73,6 +97,7 @@ const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.
             >
                 {icon}
                 <span className="menu-title text-center">{title}</span>
+                {hotkeyNavigationEngaged && hotkey}
             </div>
         </Link>
     )
@@ -141,12 +166,19 @@ function PinnedDashboards(): JSX.Element {
 export function MainNavigation(): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { menuCollapsed, toolbarModalOpen, pinnedDashboardsVisible } = useValues(navigationLogic)
-    const { setMenuCollapsed, collapseMenu, setToolbarModalOpen, setPinnedDashboardsVisible } = useActions(
+    const { menuCollapsed, toolbarModalOpen, pinnedDashboardsVisible, hotkeyNavigationEngaged } = useValues(
         navigationLogic
     )
+    const {
+        setMenuCollapsed,
+        collapseMenu,
+        setToolbarModalOpen,
+        setPinnedDashboardsVisible,
+        setHotkeyNavigationEngaged,
+    } = useActions(navigationLogic)
     const navRef = useRef<HTMLDivElement | null>(null)
     const [canScroll, setCanScroll] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEscapeKey(collapseMenu, [menuCollapsed])
 
@@ -166,6 +198,12 @@ export function MainNavigation(): JSX.Element {
     useEffect(() => {
         setCanScroll(calcCanScroll(navRef.current))
     }, [navRef])
+
+    useGlobalKeyboardHotkeys(
+        featureFlags['hotkeys-3740']
+            ? { g: { action: () => setHotkeyNavigationEngaged(!hotkeyNavigationEngaged) } }
+            : {}
+    )
 
     return (
         <>
@@ -208,6 +246,7 @@ export function MainNavigation(): JSX.Element {
                                 identifier="dashboards"
                                 to="/dashboard"
                                 onClick={() => setPinnedDashboardsVisible(false)}
+                                hotkey="d"
                             />
                         </div>
                     </Popover>
@@ -216,12 +255,13 @@ export function MainNavigation(): JSX.Element {
                         icon={<IconInsights />}
                         identifier="insights"
                         to="/insights?insight=TRENDS"
+                        hotkey="i"
                     />
                     <div className="divider" />
-                    <MenuItem title="Events" icon={<IconEvents />} identifier="events" to="/events" />
+                    <MenuItem title="Events" icon={<IconEvents />} identifier="events" to="/events" hotkey="e" />
                     <MenuItem title="Sessions" icon={<ClockCircleFilled />} identifier="sessions" to="/sessions" />
                     <div className="divider" />
-                    <MenuItem title="Persons" icon={<IconPerson />} identifier="persons" to="/persons" />
+                    <MenuItem title="Persons" icon={<IconPerson />} identifier="persons" to="/persons" hotkey="p" />
                     <MenuItem title="Cohorts" icon={<IconCohorts />} identifier="cohorts" to="/cohorts" />
                     <div className="divider" />
                     <MenuItem
@@ -239,6 +279,7 @@ export function MainNavigation(): JSX.Element {
                         icon={<MessageOutlined />}
                         identifier="annotations"
                         to="/annotations"
+                        hotkey="a"
                     />
                     <MenuItem
                         title="Project"

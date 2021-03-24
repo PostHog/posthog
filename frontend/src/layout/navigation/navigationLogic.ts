@@ -26,6 +26,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
         setToolbarModalOpen: (isOpen: boolean) => ({ isOpen }),
         setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
         setInviteMembersModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setHotkeyNavigationEngaged: (hotkeyNavigationEngaged: boolean) => ({ hotkeyNavigationEngaged }),
     },
     reducers: {
         menuCollapsed: [
@@ -56,6 +57,12 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
             false,
             {
                 setPinnedDashboardsVisible: (_, { visible }) => visible,
+            },
+        ],
+        hotkeyNavigationEngaged: [
+            false,
+            {
+                setHotkeyNavigationEngaged: (_, { hotkeyNavigationEngaged }) => hotkeyNavigationEngaged,
             },
         ],
     },
@@ -145,6 +152,12 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
                 user: { current_team_id: id },
             })
             location.href = dest
+        },
+        setHotkeyNavigationEngaged: async ({ hotkeyNavigationEngaged }, breakpoint) => {
+            if (hotkeyNavigationEngaged) {
+                await breakpoint(3000)
+                actions.setHotkeyNavigationEngaged(false)
+            }
         },
     }),
     events: ({ actions }) => ({

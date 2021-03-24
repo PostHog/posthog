@@ -46,7 +46,7 @@ import { TrendLegend } from './TrendLegend'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
-import { DisplayType, FilterType, Keys } from '~/types'
+import { DisplayType, FilterType, HotKeys } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 dayjs.extend(relativeTime)
@@ -105,7 +105,7 @@ const showComparePrevious = {
     [`${ViewType.PATHS}`]: false,
 }
 
-function InsightHotkey({ hotkey }: { hotkey: Keys }): JSX.Element {
+function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
     /* Temporary element to only show hotkeys when feature flag is active */
     const { featureFlags } = useValues(featureFlagLogic)
     return featureFlags['hotkeys-3740'] ? <span className="hotkey">{hotkey}</span> : <></>
