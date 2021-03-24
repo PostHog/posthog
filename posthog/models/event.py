@@ -137,6 +137,7 @@ class EventManager(models.QuerySet):
 
     def filter_by_element(self, filters: Dict, team_id: int):
         groups = ElementGroup.objects.filter(team_id=team_id)
+        did_filter = False
 
         if filters.get("selector"):
             selector = Selector(filters["selector"])
@@ -155,6 +156,10 @@ class EventManager(models.QuerySet):
                     for val in vals:
                         _filter_conditions |= Q(**{"element__{}".format(key): val})
                     groups = groups.filter(_filter_conditions)
+                    did_filter = True  # check if filtering in place
+
+        if not filter and not did_filter:
+            return {}
 
         groups = groups.filter(**filter)
         return {"elements_hash__in": groups.values_list("hash", flat=True)}

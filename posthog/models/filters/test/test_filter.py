@@ -315,7 +315,6 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
 
             filter = Filter(data={"properties": {"is_first": ["true"]}})
             events = filter_events(filter, self.team)
-            import pprint
 
             self.assertEqual(events[0]["id"], event2.pk)
 
