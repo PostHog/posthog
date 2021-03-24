@@ -14,15 +14,16 @@ export function initKea(): void {
             loadersPlugin({
                 onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                     // Toast if it's a fetch error or a specific API update error
-                    console.log(error)
                     if (
-                        error?.message === 'Failed to fetch' ||
-                        (error?.status && ![0, 200, 201, 204].includes(error?.status))
+                        error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
+                        (error?.status !== undefined && ![200, 201, 204].includes(error.status))
                     ) {
                         errorToast(
                             `Error on ${identifierToHuman(reducerKey)}`,
                             `Attempting to ${identifierToHuman(actionKey).toLowerCase()} returned an error:`,
-                            error.detail,
+                            error.status !== 0
+                                ? error.detail
+                                : "Check your internet connection and make sure you don't have an extension blocking our requests.",
                             error.code
                         )
                     }

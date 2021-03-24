@@ -75,9 +75,9 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
             <p>
                 {message || 'We could not complete your action. Detailed error:'}{' '}
                 <span className="error-details">{errorDetail || 'Unknown exception.'}</span>
-                <p className="mt-05">
-                    Please <b>try again or contact us</b> if the error persists.
-                </p>
+            </p>
+            <p className="mt-05">
+                Please <b>try again or contact us</b> if the error persists.
             </p>
             <div className="action-bar">
                 {errorCode && <span>Code: {errorCode}</span>}
