@@ -271,6 +271,7 @@ export const trendsLogic = kea<
 
     selectors: ({ selectors }) => ({
         results: [() => [selectors._results], (response) => response.result],
+        resultsLoading: [() => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
         loadMoreBreakdownUrl: [() => [selectors._results], (response) => response.next],
         sessionsPageParams: [
             () => [selectors.filters, selectors.people],

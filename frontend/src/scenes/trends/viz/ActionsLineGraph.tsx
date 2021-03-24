@@ -22,7 +22,7 @@ export function ActionsLineGraph({
         filters: filtersParam,
         cachedResults,
     })
-    const { filters, indexedResults, _resultsLoading: resultsLoading, visibilityMap } = useValues(logic)
+    const { filters, indexedResults, resultsLoading, visibilityMap } = useValues(logic)
     const { loadPeople } = useActions(logic)
 
     const [{ fromItem }] = useState(router.values.hashParams)
