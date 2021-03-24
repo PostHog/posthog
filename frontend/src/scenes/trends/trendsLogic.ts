@@ -18,7 +18,7 @@ import {
 import { ViewType, insightLogic, defaultFilterTestAccounts } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
-import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
+import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResponse, TrendResult } from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { toast, ToastId } from 'react-toastify'
@@ -132,7 +132,16 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
 // - dashboardItemId
 // - filters
 export const trendsLogic = kea<
-    trendsLogicType<TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter, ToastId>
+    trendsLogicType<
+        TrendResponse,
+        IndexedTrendResult,
+        TrendResult,
+        FilterType,
+        ActionType,
+        TrendPeople,
+        PropertyFilter,
+        ToastId
+    >
 >({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
@@ -143,8 +152,8 @@ export const trendsLogic = kea<
     },
 
     loaders: ({ values, props }) => ({
-        results: {
-            __default: [] as TrendResult[],
+        _results: {
+            __default: {} as TrendResponse,
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return props.cachedResults
@@ -172,7 +181,8 @@ export const trendsLogic = kea<
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, response.last_refresh)
-                return response.result
+
+                return response
             },
         },
     }),
@@ -259,6 +269,7 @@ export const trendsLogic = kea<
     }),
 
     selectors: ({ selectors }) => ({
+        results: [() => [selectors.results], (response) => response.results],
         sessionsPageParams: [
             () => [selectors.filters, selectors.people],
             (filters, people) => {

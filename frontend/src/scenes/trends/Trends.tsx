@@ -14,6 +14,7 @@ import { ActionsPie, ActionsTable, ActionsLineGraph, ActionsBarValueGraph } from
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { Button } from 'antd'
 
 interface Props {
     view: ViewType
@@ -45,6 +46,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     )}
                 </div>
             )}
+            {_filters.breakdown && <Button type="primary">Show More</Button>}
             <PersonModal
                 visible={showingPeople && !cohortModalVisible}
                 view={view}
