@@ -113,8 +113,8 @@ export class EventsProcessor {
             })
             clearTimeout(timeout2)
         } else {
-            const timeout3 = timeoutGuard('Still running "captureEE". Timeout warning after 30 sec!', { eventUuid })
-            result = await this.captureEE(
+            const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
+            result = await this.capture(
                 eventUuid,
                 personUuid,
                 ip,
@@ -332,7 +332,7 @@ export class EventsProcessor {
         }
     }
 
-    private async captureEE(
+    private async capture(
         eventUuid: string,
         personUuid: string,
         ip: string | null,
