@@ -146,11 +146,15 @@ class EventManager(models.QuerySet):
             filter = {}
 
         for key in ["tag_name", "text", "href"]:
-            if filters.get(key):
-                filter["element__{}".format(key)] = filters[key]
-
-        if not filter:
-            return {}
+            vals = filters.get(key)
+            if vals:
+                if isinstance(vals, str):
+                    filter["element__{}".format(key)] = filters[key]
+                elif isinstance(vals, list):
+                    _filter_conditions = Q()
+                    for val in vals:
+                        _filter_conditions |= Q(**{"element__{}".format(key): val})
+                    groups = groups.filter(_filter_conditions)
 
         groups = groups.filter(**filter)
         return {"elements_hash__in": groups.values_list("hash", flat=True)}
