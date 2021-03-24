@@ -530,7 +530,7 @@ export interface ActionFilter {
 }
 
 export interface TrendResponse {
-    results: TrendResult[]
+    result: TrendResult[]
     next?: string
 }
 

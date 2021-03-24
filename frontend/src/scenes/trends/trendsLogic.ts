@@ -269,7 +269,7 @@ export const trendsLogic = kea<
     }),
 
     selectors: ({ selectors }) => ({
-        results: [() => [selectors.results], (response) => response.results],
+        results: [() => [selectors._results], (response) => response.result],
         sessionsPageParams: [
             () => [selectors.filters, selectors.people],
             (filters, people) => {
