@@ -116,16 +116,22 @@ def filter_element(filters: Dict, prepend: str = "") -> Tuple[List[str], Dict]:
         params["{}tag_name_regex".format(prepend)] = r"(^|;){}(\.|$|;|:)".format(filters["tag_name"])
         conditions.append("match(elements_chain, %({}tag_name_regex)s)".format(prepend))
 
-    attributes: Dict[str, str] = {}
+    attributes: Dict[str, List] = {}
+
     for key in ["href", "text"]:
+        vals = filters.get(key)
         if filters.get(key):
-            attributes[key] = re.escape(filters[key])
+            attributes[key] = [re.escape(vals)] if isinstance(vals, str) else [re.escape(text) for text in filters[key]]
 
     if len(attributes.keys()) > 0:
-        params["{}attributes_regex".format(prepend)] = ".*?({}).*?".format(
-            ".*?".join(['{}="{}"'.format(key, value) for key, value in attributes.items()])
-        )
-        conditions.append("match(elements_chain, %({}attributes_regex)s)".format(prepend))
+        or_conditions = []
+        for key, value_list in attributes.items():
+            for idx, value in enumerate(value_list):
+                params["{}_{}_{}_attributes_regex".format(prepend, key, idx)] = ".*?({}).*?".format(
+                    ".*?".join(['{}="{}"'.format(key, value)])
+                )
+                or_conditions.append("match(elements_chain, %({}_{}_{}_attributes_regex)s)".format(prepend, key, idx))
+            conditions.append(" OR ".join(or_conditions))
 
     return (conditions, params)
 

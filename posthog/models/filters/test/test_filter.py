@@ -378,10 +378,27 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
                     Element.objects.create(tag_name="div"),
                 ],
             )
+
+            event3 = event_factory(
+                team=self.team,
+                event="$autocapture",
+                distinct_id="distinct_id",
+                elements=[
+                    Element.objects.create(tag_name="a", text="some other text"),
+                    Element.objects.create(tag_name="div"),
+                ],
+            )
+
             event2 = event_factory(team=self.team, event="$autocapture", distinct_id="distinct_id")
-            filter = Filter(data={"properties": [{"key": "text", "value": "some text", "type": "element"}]})
+            filter = Filter(
+                data={"properties": [{"key": "text", "value": ["some text", "some other text"], "type": "element"}]}
+            )
             events = filter_events(filter=filter, team=self.team)
-            self.assertEqual(len(events), 1)
+            self.assertEqual(len(events), 2)
+
+            filter2 = Filter(data={"properties": [{"key": "text", "value": "some text", "type": "element"}]})
+            events_response_2 = filter_events(filter=filter2, team=self.team)
+            self.assertEqual(len(events_response_2), 1)
 
         def test_filter_out_team_members(self):
             person1 = person_factory(
