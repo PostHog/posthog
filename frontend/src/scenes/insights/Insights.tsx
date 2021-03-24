@@ -46,11 +46,12 @@ import { TrendLegend } from './TrendLegend'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
+import { DisplayType, FilterType } from '~/types'
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
 
-const showIntervalFilter = function (activeView, filter) {
+const showIntervalFilter = function (activeView: ViewType, filter: FilterType): boolean {
     switch (activeView) {
         case ViewType.FUNNELS:
             return filter.display === ACTIONS_LINE_GRAPH_LINEAR
@@ -62,11 +63,11 @@ const showIntervalFilter = function (activeView, filter) {
         case ViewType.LIFECYCLE:
         case ViewType.SESSIONS:
         default:
-            return ![ACTIONS_PIE_CHART, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE].includes(filter.display) // sometimes insights aren't set for trends
+            return ![ACTIONS_PIE_CHART, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE].includes(filter.display || '') // sometimes insights aren't set for trends
     }
 }
 
-const showChartFilter = function (activeView, featureFlags) {
+const showChartFilter = function (activeView: ViewType, featureFlags: Record<string, boolean>): boolean {
     switch (activeView) {
         case ViewType.TRENDS:
         case ViewType.STICKINESS:
@@ -103,7 +104,7 @@ const showComparePrevious = {
     [`${ViewType.PATHS}`]: false,
 }
 
-export function Insights() {
+export function Insights(): JSX.Element {
     useMountedLogic(insightCommandLogic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
@@ -133,7 +134,7 @@ export function Insights() {
                     tabBarExtraContent={{
                         right: (
                             <Button
-                                type={activeView === 'history' && 'primary'}
+                                type={activeView === 'history' ? 'primary' : undefined}
                                 data-attr="insight-history-button"
                                 onClick={() => setActiveView('history')}
                             >
@@ -165,7 +166,7 @@ export function Insights() {
                 {activeView === 'history' ? (
                     <Col xs={24} xl={24}>
                         <Card className="" style={{ overflow: 'visible' }}>
-                            <InsightHistoryPanel onChange={() => setOpenHistory(false)} />
+                            <InsightHistoryPanel />
                         </Card>
                     </Col>
                 ) : (
@@ -182,14 +183,14 @@ export function Insights() {
                                               [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
                                               [`${ViewType.STICKINESS}`]: <TrendTab view={ViewType.STICKINESS} />,
                                               [`${ViewType.LIFECYCLE}`]: <TrendTab view={ViewType.LIFECYCLE} />,
-                                              [`${ViewType.SESSIONS}`]: <SessionTab view={ViewType.SESSIONS} />,
+                                              [`${ViewType.SESSIONS}`]: <SessionTab />,
                                               [`${ViewType.FUNNELS}`]: <FunnelTab />,
                                               [`${ViewType.RETENTION}`]: <RetentionTab />,
                                               [`${ViewType.PATHS}`]: <PathTab />,
                                           }[activeView]
                                         : {
                                               [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
-                                              [`${ViewType.SESSIONS}`]: <SessionTab view={ViewType.SESSIONS} />,
+                                              [`${ViewType.SESSIONS}`]: <SessionTab />,
                                               [`${ViewType.FUNNELS}`]: <FunnelTab />,
                                               [`${ViewType.RETENTION}`]: <RetentionTab />,
                                               [`${ViewType.PATHS}`]: <PathTab />,
@@ -216,11 +217,11 @@ export function Insights() {
                                         <TZIndicator style={{ float: 'left' }} />
                                         <div style={{ width: '100%', textAlign: 'right' }}>
                                             {showIntervalFilter(activeView, allFilters) && (
-                                                <IntervalFilter filters={allFilters} view={activeView} />
+                                                <IntervalFilter view={activeView} />
                                             )}
                                             {showChartFilter(activeView, featureFlags) && (
                                                 <ChartFilter
-                                                    onChange={(display) => {
+                                                    onChange={(display: DisplayType) => {
                                                         if (
                                                             display === ACTIONS_TABLE ||
                                                             display === ACTIONS_PIE_CHART
@@ -339,11 +340,11 @@ export function Insights() {
     )
 }
 
-const isFunnelEmpty = (filters) => {
+const isFunnelEmpty = (filters: FilterType): boolean => {
     return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
 }
 
-function FunnelInsight() {
+function FunnelInsight(): JSX.Element {
     const { stepsWithCount, isValidFunnel, stepsWithCountLoading } = useValues(funnelLogic({}))
 
     return (
@@ -368,7 +369,7 @@ function FunnelInsight() {
     )
 }
 
-function FunnelPeople() {
+function FunnelPeople(): JSX.Element {
     const { stepsWithCount } = useValues(funnelLogic())
     if (stepsWithCount && stepsWithCount.length > 0) {
         return <People />
