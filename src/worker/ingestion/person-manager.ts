@@ -3,7 +3,7 @@ import LRU from 'lru-cache'
 import { DB } from '../../shared/db'
 import { PluginsServerConfig } from '../../types'
 
-const TEN_MINUTES = 10 * 60 * 1000
+const ONE_HOUR = 60 * 60 * 1000
 
 export class PersonManager {
     personSeen: LRU<string, boolean>
@@ -11,14 +11,14 @@ export class PersonManager {
     constructor(serverConfig: PluginsServerConfig) {
         this.personSeen = new LRU({
             max: serverConfig.DISTINCT_ID_LRU_SIZE,
-            maxAge: TEN_MINUTES,
+            maxAge: ONE_HOUR,
             updateAgeOnGet: true,
         })
     }
 
     async isNewPerson(db: DB, teamId: number, distinctId: string): Promise<boolean> {
         const key = `${teamId}::${distinctId}`
-        if (this.personSeen.has(key)) {
+        if (this.personSeen.get(key)) {
             return false
         }
 
