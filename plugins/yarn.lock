@@ -925,10 +925,10 @@
   optionalDependencies:
     nice-napi "^1.0.2"
 
-"@posthog/plugin-server@0.14.5":
-  version "0.14.5"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.14.5.tgz#47270a6b81a47a8952e884036349d4294b8e7ff1"
-  integrity sha512-YdBao3gSQKPiOwm6Hfm6QjXZ68R/hLs7+d8bEBu/EPrntJIEALWoWvC6c9sLbKtVKN9OpXUS2orGq/rlFFDX0Q==
+"@posthog/plugin-server@0.14.6":
+  version "0.14.6"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.14.6.tgz#897034125e75ee82b3928fbc45f44a9c73d45194"
+  integrity sha512-99ZuUbuP4N54OGprmE9W6pfURNE9b2N/XgjCxolP4oJb2xw6jNESZo7pAMiGNlzvhbt8gZ7S93Rc7YYxMeN1Aw==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"
@@ -939,6 +939,7 @@
     "@posthog/piscina" "^2.2.0-posthog"
     "@sentry/node" "^5.29.0"
     "@sentry/tracing" "^5.29.0"
+    "@types/lru-cache" "^5.1.0"
     adm-zip "^0.4.16"
     fast-deep-equal "^3.1.3"
     fastify "^3.8.0"
@@ -946,6 +947,7 @@
     hot-shots "^8.2.1"
     ioredis "^4.19.2"
     kafkajs "^1.15.0"
+    lru-cache "^6.0.0"
     luxon "^1.25.0"
     node-fetch "^2.6.1"
     node-schedule "^1.3.2"
@@ -1088,6 +1090,11 @@
   version "4.0.1"
   resolved "https://registry.yarnpkg.com/@types/long/-/long-4.0.1.tgz#459c65fa1867dafe6a8f322c4c51695663cc55e9"
   integrity sha512-5tXH6Bx/kNGd3MgffdmP4dy2Z+G4eaXw0SE81Tq3BNadtnMR5/ySMzX4SLEzHJzSmPNn4HIdpQsBvXMUykr58w==
+
+"@types/lru-cache@^5.1.0":
+  version "5.1.0"
+  resolved "https://registry.yarnpkg.com/@types/lru-cache/-/lru-cache-5.1.0.tgz#57f228f2b80c046b4a1bd5cac031f81f207f4f03"
+  integrity sha512-RaE0B+14ToE4l6UqdarKPnXwVDuigfFv+5j9Dze/Nqr23yyuqdNvzcZi3xB+3Agvi5R4EOgAksfv3lXX4vBt9w==
 
 "@types/node@^13.7.0":
   version "13.13.41"
