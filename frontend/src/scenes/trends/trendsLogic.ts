@@ -209,6 +209,7 @@ export const trendsLogic = kea<
         setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
         toggleVisibility: (index: number) => ({ index }),
         setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
+        loadMoreBreakdown: true,
     }),
 
     reducers: ({ props }) => ({
@@ -270,6 +271,7 @@ export const trendsLogic = kea<
 
     selectors: ({ selectors }) => ({
         results: [() => [selectors._results], (response) => response.result],
+        loadMoreBreakdownUrl: [() => [selectors._results], (response) => response.next],
         sessionsPageParams: [
             () => [selectors.filters, selectors.people],
             (filters, people) => {
@@ -421,6 +423,13 @@ export const trendsLogic = kea<
             if (props.dashboardItemId) {
                 actions.setFilters(filters, true)
             }
+        },
+        loadMoreBreakdown: async () => {
+            const response = await api.get(values.loadMoreBreakdownUrl)
+            actions.loadResultsSuccess({
+                result: [...values.results, ...response.result],
+                next: response.next,
+            })
         },
     }),
 

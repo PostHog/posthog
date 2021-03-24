@@ -22,8 +22,10 @@ interface Props {
 
 export function TrendInsight({ view }: Props): JSX.Element {
     const [cohortModalVisible, setCohortModalVisible] = useState(false)
-    const { filters: _filters, showingPeople } = useValues(trendsLogic({ dashboardItemId: null, view, filters: null }))
-    const { saveCohortWithFilters, refreshCohort } = useActions(
+    const { filters: _filters, showingPeople, loadMoreBreakdownUrl } = useValues(
+        trendsLogic({ dashboardItemId: null, view, filters: null })
+    )
+    const { saveCohortWithFilters, refreshCohort, loadMoreBreakdown } = useActions(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
     return (
@@ -46,7 +48,11 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     )}
                 </div>
             )}
-            {_filters.breakdown && <Button type="primary">Show More</Button>}
+            {_filters.breakdown && loadMoreBreakdownUrl && (
+                <Button type="primary" onClick={() => loadMoreBreakdown()}>
+                    Show More
+                </Button>
+            )}
             <PersonModal
                 visible={showingPeople && !cohortModalVisible}
                 view={view}
