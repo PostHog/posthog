@@ -30,6 +30,7 @@ import {
     TeamId,
     TimestampFormat,
 } from '../../types'
+import { PersonManager } from './person-manager'
 import { TeamManager } from './team-manager'
 
 export class EventsProcessor {
@@ -40,6 +41,7 @@ export class EventsProcessor {
     celery: Client
     posthog: ReturnType<typeof nodePostHog>
     teamManager: TeamManager
+    personManager: PersonManager
 
     constructor(pluginsServer: PluginsServer) {
         this.pluginsServer = pluginsServer
@@ -48,6 +50,8 @@ export class EventsProcessor {
         this.kafkaProducer = pluginsServer.kafkaProducer!
         this.celery = new Client(pluginsServer.db, pluginsServer.CELERY_DEFAULT_QUEUE)
         this.teamManager = new TeamManager(pluginsServer.db)
+        this.personManager = new PersonManager(pluginsServer)
+
         this.posthog = nodePostHog('sTMFPsFhdP1Ssg', { fetch })
         if (process.env.NODE_ENV === 'test') {
             this.posthog.optOut()
@@ -369,14 +373,7 @@ export class EventsProcessor {
 
         await this.teamManager.updateEventNamesAndProperties(teamId, event, eventUuid, properties, this.posthog)
 
-        const pdiSelectResult = await this.db.postgresQuery(
-            'SELECT COUNT(*) AS pdicount FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
-            [teamId, distinctId],
-            'pdicount'
-        )
-        const pdiCount = parseInt(pdiSelectResult.rows[0].pdicount)
-
-        if (!pdiCount) {
+        if (await this.personManager.isNewPerson(this.db, teamId, distinctId)) {
             // Catch race condition where in between getting and creating, another request already created this user
             try {
                 await this.db.createPerson(sentAt || DateTime.utc(), {}, teamId, null, false, personUuid.toString(), [
