@@ -5,6 +5,19 @@ import { loadersPlugin } from 'kea-loaders'
 import { windowValuesPlugin } from 'kea-window-values'
 import { errorToast, identifierToHuman } from 'lib/utils'
 
+/*
+Actions for which we don't want to show error alerts,
+mostly to avoid user confusion.
+*/
+const ERROR_FILTER_WHITELIST = [
+    'loadPreflight', // Gracefully handled if it fails
+    'loadUser', // App won't load (unless loading from shared dashboards)
+    'loadFunnels', // Special error handling on insights
+    'loadResults', // Special error handling on insights
+    'authenticate', // Special error handling on login
+    'signup', // Special error handling on login
+]
+
 export function initKea(): void {
     resetContext({
         plugins: [
@@ -15,8 +28,9 @@ export function initKea(): void {
                 onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                     // Toast if it's a fetch error or a specific API update error
                     if (
-                        error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
-                        (error?.status !== undefined && ![200, 201, 204].includes(error.status))
+                        !ERROR_FILTER_WHITELIST.includes(actionKey) &&
+                        (error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
+                            (error?.status !== undefined && ![200, 201, 204].includes(error.status)))
                     ) {
                         errorToast(
                             `Error on ${identifierToHuman(reducerKey)}`,
