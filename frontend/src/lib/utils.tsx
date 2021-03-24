@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import { EventType, FilterType } from '~/types'
 import { lightColors } from 'lib/colors'
 import { ActionFilter } from 'scenes/trends/trendsLogic'
-import { CustomerServiceOutlined } from '@ant-design/icons'
+import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
@@ -71,7 +71,9 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
      */
     toast.error(
         <div>
-            <h1>{title || 'Something went wrong'}</h1>
+            <h1>
+                <ExclamationCircleOutlined /> {title || 'Something went wrong'}
+            </h1>
             <p>
                 {message || 'We could not complete your action. Detailed error:'}{' '}
                 <span className="error-details">{errorDetail || 'Unknown exception.'}</span>
@@ -82,7 +84,11 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
             <div className="action-bar">
                 {errorCode && <span>Code: {errorCode}</span>}
                 <span className="help-button">
-                    <a href="#">
+                    <a
+                        href="https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast"
+                        target="_blank"
+                        rel="noopener"
+                    >
                         <CustomerServiceOutlined /> Need help?
                     </a>
                 </span>
