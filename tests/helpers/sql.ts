@@ -120,6 +120,7 @@ export async function createUserTeamAndOrganization(
         is_demo: false,
         api_token: `THIS IS NOT A TOKEN FOR TEAM ${teamId}`,
         test_account_filters: [],
+        timezone: 'UTC',
     })
 }
 
