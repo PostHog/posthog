@@ -101,7 +101,9 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             if response["breakdown_value"] == "person3":
                 self.assertEqual(response["count"], 3)
 
-        self.assertTrue(self._compare_entity_response(event_response, action_response,))
+        self.assertEntityResponseEqual(
+            event_response, action_response,
+        )
 
     def test_breakdown_filtering(self):
         self._create_events()
@@ -213,7 +215,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         self.assertEqual(sum(event_response[1]["data"]), 1)
         self.assertEqual(event_response[1]["data"][5], 1)
-        self.assertTrue(self._compare_entity_response(action_response, event_response))
+        self.assertEntityResponseEqual(action_response, event_response)
 
     def test_dau_with_breakdown_filtering_with_prop_filter(self):
         sign_up_action, _ = self._create_events()
@@ -246,13 +248,12 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 self.team,
             )
 
-        self.assertEqual(event_response[0]["label"], "sign up - value")
-        self.assertEqual(event_response[1]["label"], "sign up - other_value")
+        self.assertEqual(event_response[0]["label"], "sign up - other_value")
 
-        self.assertEqual(sum(event_response[1]["data"]), 1)
-        self.assertEqual(event_response[1]["data"][5], 1)  # property not defined
+        self.assertEqual(sum(event_response[0]["data"]), 1)
+        self.assertEqual(event_response[0]["data"][5], 1)  # property not defined
 
-        self.assertTrue(self._compare_entity_response(action_response, event_response))
+        self.assertEntityResponseEqual(action_response, event_response)
 
     # this ensures that the properties don't conflict when formatting params
     def test_action_with_prop(self):

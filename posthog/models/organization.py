@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
 from django.conf import settings
 from django.contrib.postgres.fields import JSONField
@@ -8,6 +8,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
+from posthog.models.team import Team
 from posthog.utils import mask_email_address
 
 from .utils import UUIDModel, sane_repr
@@ -43,6 +44,19 @@ class OrganizationManager(models.Manager):
 
 
 class Organization(UUIDModel):
+    class PluginsAccessLevel(models.IntegerChoices):
+        # None means the organization can't use plugins at all. They're hidden. Cloud default.
+        NONE = 0, "none"
+        # Config means the organization can only enable/disable/configure globally managed plugins.
+        # This prevents config orgs from running untrusted code, which the next levels can do.
+        CONFIG = 3, "config"
+        # Install means the organization has config capabilities + can install own editor/GitHub/GitLab/npm plugins.
+        # The plugin repository is off limits, as repository installations are managed by root orgs to avoid confusion.
+        INSTALL = 6, "install"
+        # Root means the organization has unrestricted plugins access on the instance. Self-hosted default.
+        # This includes installing plugins from the repository and managing plugin installations for all other orgs.
+        ROOT = 9, "root"
+
     members: models.ManyToManyField = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
@@ -53,7 +67,11 @@ class Organization(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)  # Onboarding (#2822)
-    personalization: JSONField = JSONField(default=dict, null=False)
+    personalization: JSONField = JSONField(default=dict, null=False, blank=True)
+    plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
+        choices=PluginsAccessLevel.choices,
+    )
 
     objects = OrganizationManager()
 
@@ -110,6 +128,20 @@ class Organization(UUIDModel):
         self.setup_section_2_completed = True
         self.save()
         return self
+
+    def get_analytics_metadata(self):
+        return {
+            "member_count": self.members.count(),
+            "project_count": self.teams.count(),
+            "person_count": sum((team.person_set.count() for team in self.teams.all())),
+            "setup_section_2_completed": self.setup_section_2_completed,
+            "personalization": self.personalization,
+        }
+
+
+@receiver(models.signals.pre_delete, sender=Organization)
+def organization_deleted(sender, instance, **kwargs):
+    instance.teams.all().delete()
 
 
 class OrganizationMembership(UUIDModel):

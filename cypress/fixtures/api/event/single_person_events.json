@@ -11,7 +11,11 @@
             },
             "event": "$pageview",
             "timestamp": "2021-02-11T09:21:30.202993+00:00",
-            "person": "smith.nunez@gmail.com",
+            "person": {
+                "distinct_ids": ["01777279-ff1b-0051-1fbd-b89614430f72"],
+                "is_identified": true,
+                "properties": { "email": "smith.nunez@gmail.com" }
+            },
             "elements": [],
             "elements_chain": ""
         },
@@ -23,7 +27,11 @@
             },
             "event": "purchase",
             "timestamp": "2021-02-11T09:21:30.202961+00:00",
-            "person": "smith.nunez@gmail.com",
+            "person": {
+                "distinct_ids": ["01777279-ff1b-0051-1fbd-b89614430f72"],
+                "is_identified": true,
+                "properties": { "email": "smith.nunez@gmail.com" }
+            },
             "elements": [],
             "elements_chain": ""
         },
@@ -38,7 +46,11 @@
             },
             "event": "$autocapture",
             "timestamp": "2021-02-11T09:21:29.202931+00:00",
-            "person": "smith.nunez@gmail.com",
+            "person": {
+                "distinct_ids": ["01777279-ff1b-0051-1fbd-b89614430f72"],
+                "is_identified": true,
+                "properties": { "email": "smith.nunez@gmail.com" }
+            },
             "elements": [],
             "elements_chain": ""
         },
@@ -52,7 +64,11 @@
             },
             "event": "$pageview",
             "timestamp": "2021-02-11T09:21:00.202901+00:00",
-            "person": "smith.nunez@gmail.com",
+            "person": {
+                "distinct_ids": ["01777279-ff1b-0051-1fbd-b89614430f72"],
+                "is_identified": true,
+                "properties": { "email": "smith.nunez@gmail.com" }
+            },
             "elements": [],
             "elements_chain": ""
         },
@@ -67,7 +83,11 @@
             },
             "event": "$autocapture",
             "timestamp": "2021-02-11T09:20:59.202869+00:00",
-            "person": "smith.nunez@gmail.com",
+            "person": {
+                "distinct_ids": ["01777279-ff1b-0051-1fbd-b89614430f72"],
+                "is_identified": true,
+                "properties": { "email": "smith.nunez@gmail.com" }
+            },
             "elements": [],
             "elements_chain": ""
         },
@@ -82,7 +102,11 @@
             },
             "event": "$autocapture",
             "timestamp": "2021-02-11T09:20:44.202832+00:00",
-            "person": "smith.nunez@gmail.com",
+            "person": {
+                "distinct_ids": ["01777279-ff1b-0051-1fbd-b89614430f72"],
+                "is_identified": true,
+                "properties": { "email": "smith.nunez@gmail.com" }
+            },
             "elements": [],
             "elements_chain": ""
         },
@@ -96,7 +120,11 @@
             },
             "event": "$pageview",
             "timestamp": "2021-02-11T09:20:30.202779+00:00",
-            "person": "smith.nunez@gmail.com",
+            "person": {
+                "distinct_ids": ["01777279-ff1b-0051-1fbd-b89614430f72"],
+                "is_identified": true,
+                "properties": { "email": "smith.nunez@gmail.com" }
+            },
             "elements": [],
             "elements_chain": ""
         }

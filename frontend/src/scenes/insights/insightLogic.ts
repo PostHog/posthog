@@ -24,6 +24,9 @@ This includes handling the urls and view state
 */
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
+export const defaultFilterTestAccounts = (): boolean => {
+    return localStorage.getItem('default_filter_test_accounts') === 'true' || false
+}
 
 export const logicFromInsight = (insight: string, logicProps: Record<string, any>): Logic & BuiltLogic => {
     if (insight === ViewType.FUNNELS) {
@@ -187,6 +190,7 @@ export const insightLogic = kea<insightLogicType>({
             const urlParams = {
                 insight: type,
                 properties: values.allFilters.properties,
+                filter_test_accounts: defaultFilterTestAccounts(),
             }
             return ['/insights', urlParams]
         },

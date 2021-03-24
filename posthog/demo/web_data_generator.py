@@ -12,11 +12,9 @@ from posthog.demo.data_generator import DataGenerator
 from posthog.models import Action, ActionStep, Dashboard, DashboardItem, Person
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import UUIDT
+from posthog.utils import get_absolute_path
 
 SCREEN_OPTIONS = ("settings", "profile", "movies", "downloads")
-
-# https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
-__location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
 
 class WebDataGenerator(DataGenerator):
@@ -52,6 +50,7 @@ class WebDataGenerator(DataGenerator):
             team=self.team,
             dashboard=dashboard,
             name="HogFlix signup -> watching movie",
+            description="Shows a conversion funnel from sign up to watching a movie.",
             filters={
                 "actions": [
                     {"id": homepage.id, "name": "HogFlix homepage view", "order": 0, "type": TREND_FILTER_TYPE_ACTIONS},
@@ -188,10 +187,10 @@ class WebDataGenerator(DataGenerator):
 
     @cached_property
     def demo_data(self):
-        with open(os.path.join(__location__, "demo_data.json"), "r") as demo_data_file:
+        with open(get_absolute_path("demo/demo_data.json"), "r") as demo_data_file:
             return json.load(demo_data_file)
 
     @cached_property
     def demo_recording(self):
-        with open(os.path.join(__location__, "demo_session_recording.json"), "r") as demo_session_file:
+        with open(get_absolute_path("demo/demo_session_recording.json"), "r") as demo_session_file:
             return json.load(demo_session_file)

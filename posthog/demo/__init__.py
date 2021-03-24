@@ -38,7 +38,12 @@ def demo(request: Request):
 
 def create_demo_team(organization: Organization, user: User, request: Request) -> Team:
     team = Team.objects.create_with_data(
-        organization=organization, name=TEAM_NAME, ingested_event=True, completed_snippet_onboarding=True, is_demo=True,
+        default_dashboards=False,
+        organization=organization,
+        name=TEAM_NAME,
+        ingested_event=True,
+        completed_snippet_onboarding=True,
+        is_demo=True,
     )
     create_demo_data(team)
     return team

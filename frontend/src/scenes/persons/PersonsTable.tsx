@@ -6,9 +6,13 @@ import { CohortType, PersonType } from '~/types'
 import { ArrowRightOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { midEllipsis } from 'lib/utils'
 import { PersonHeader } from './PersonHeader'
+
+import relativeTime from 'dayjs/plugin/relativeTime'
+import { TZLabel } from 'lib/components/TimezoneAware'
+dayjs.extend(relativeTime)
 
 interface PersonsTableType {
     people: PersonType[]
@@ -83,7 +87,7 @@ export function PersonsTable({
             title: 'First seen',
             key: 'created',
             render: function Render(_: string, person: PersonType) {
-                return <> {moment(person.created_at).fromNow()}</>
+                return person.created_at ? <TZLabel time={person.created_at} /> : <></>
             },
         })
     }

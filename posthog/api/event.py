@@ -45,8 +45,8 @@ class ElementSerializer(serializers.ModelSerializer):
 
 
 class EventSerializer(serializers.HyperlinkedModelSerializer):
-    person = serializers.SerializerMethodField()
     elements = serializers.SerializerMethodField()
+    person = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
@@ -61,15 +61,9 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
         ]
 
     def get_person(self, event: Event) -> Any:
-        if hasattr(event, "person_properties"):
-            if event.person_properties:  # type: ignore
-                return event.person_properties.get("email", event.distinct_id)  # type: ignore
-            else:
-                return event.distinct_id
-        try:
-            return event.person.properties.get("email", event.distinct_id)
-        except:
-            return event.distinct_id
+        if hasattr(event, "serialized_person"):
+            return event.serialized_person  # type: ignore
+        return None
 
     def get_elements(self, event: Event):
         if not event.elements_hash:
@@ -123,7 +117,6 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             elif key == "before":
                 queryset = queryset.filter(timestamp__lt=request.GET["before"])
             elif key == "person_id":
-                person = Person.objects.get(pk=request.GET["person_id"], team_id=self.team_id)
                 queryset = queryset.filter(
                     distinct_id__in=PersonDistinctId.objects.filter(
                         team_id=self.team_id, person_id=request.GET["person_id"]
@@ -155,9 +148,22 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             groups = ElementGroup.objects.none()
         for event in events:
             try:
-                event.person_properties = [person.properties for person in people if event.distinct_id in person.distinct_ids][0]  # type: ignore
+                for person in people:
+                    if event.distinct_id in person.distinct_ids:
+                        event.serialized_person = {  # type: ignore
+                            "is_identified": person.is_identified,
+                            "distinct_ids": [
+                                person.distinct_ids[0],
+                            ],  # only send the first one to avoid a payload bloat
+                            "properties": {
+                                key: person.properties[key]
+                                for key in ["email", "name", "username"]
+                                if key in person.properties
+                            },
+                        }
+                        break
             except IndexError:
-                event.person_properties = None  # type: ignore
+                event.serialized_person = None  # type: ignore
             try:
                 event.elements_group_cache = [group for group in groups if group.hash == event.elements_hash][0]  # type: ignore
             except IndexError:

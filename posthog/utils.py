@@ -1,5 +1,6 @@
 import base64
 import datetime
+import datetime as dt
 import gzip
 import hashlib
 import json
@@ -46,6 +47,9 @@ DATERANGE_MAP = {
     "month": datetime.timedelta(days=31),
 }
 ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
+
+# https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
+__location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
 
 def format_label_date(date: datetime.datetime, interval: str) -> str:
@@ -196,6 +200,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     except (Team.DoesNotExist, AttributeError):
         team = Team.objects.first()
 
+    context["self_capture"] = False
     context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
 
     # TODO: BEGINS DEPRECATED CODE
@@ -235,6 +240,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["git_branch"] = get_git_branch()
 
     if settings.SELF_CAPTURE:
+        context["self_capture"] = True
         if team:
             context["js_posthog_api_key"] = f"'{team.api_token}'"
             context["js_posthog_host"] = "window.location.origin"
@@ -612,3 +618,38 @@ def is_valid_regex(value: Any) -> bool:
         return True
     except re.error:
         return False
+
+
+def get_absolute_path(to: str) -> str:
+    """
+    Returns an absolute path in the FS based on posthog/posthog (back-end root folder)
+    """
+    return os.path.join(__location__, to)
+
+
+class GenericEmails:
+    """
+    List of generic emails that we don't want to use to filter out test accounts.
+    """
+
+    def __init__(self):
+        with open(get_absolute_path("helpers/generic_emails.txt"), "r") as f:
+            self.emails = {x.rstrip(): True for x in f}
+
+    def is_generic(self, email: str) -> bool:
+        at_location = email.find("@")
+        if at_location == -1:
+            return False
+        return self.emails.get(email[at_location + 1 :], False)
+
+
+def get_available_timezones_with_offsets() -> Dict[str, float]:
+    now = dt.datetime.now()
+    result = {}
+    for tz in pytz.common_timezones:
+        offset = pytz.timezone(tz).utcoffset(now)
+        if offset is None:
+            continue
+        offset_hours = int(offset.total_seconds()) / 3600
+        result[tz] = offset_hours
+    return result

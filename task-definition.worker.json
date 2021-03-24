@@ -99,6 +99,14 @@
                 {
                     "name": "BILLING_NO_PLAN_EVENT_ALLOCATION",
                     "value": "10000"
+                },
+                {
+                    "name": "TRUST_ALL_PROXIES",
+                    "value": "True"
+                },
+                {
+                    "name": "ASYNC_EVENT_PROPERTY_USAGE",
+                    "value": "1"
                 }
             ],
             "secrets": [

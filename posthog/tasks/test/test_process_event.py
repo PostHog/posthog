@@ -7,6 +7,7 @@ from django.conf import settings
 from django.utils.timezone import now
 from freezegun import freeze_time
 
+from posthog.ee import is_ee_enabled
 from posthog.models import (
     Action,
     ActionStep,
@@ -43,11 +44,9 @@ def factory_test_process_event(
             self.team.ingested_event = True  # avoid sending `first team event ingested` to PostHog
             self.team.save()
 
-            num_queries = 28
-            if settings.EE_AVAILABLE:  # extra queries to check for hooks
+            num_queries = 17
+            if is_ee_enabled():  # extra queries to check for REST hooks
                 num_queries += 4
-            if settings.MULTI_TENANCY:  # extra query to check for billing plan
-                num_queries += 1
             with self.assertNumQueries(num_queries):
                 process_event(
                     2,

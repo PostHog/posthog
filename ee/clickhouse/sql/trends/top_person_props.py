@@ -21,7 +21,9 @@ SELECT groupArray(value) FROM (
                 ARRAY JOIN array_property_keys, array_property_values
             ) ep
             WHERE key = %(key)s
-        ) ep ON person_id = ep.id WHERE e.team_id = %(team_id)s {parsed_date_from} {parsed_date_to}
+        ) ep ON person_id = ep.id
+    WHERE
+        e.team_id = %(team_id)s {parsed_date_from} {parsed_date_to} {prop_filters}
     GROUP BY value
     ORDER BY count DESC
     LIMIT %(limit)s

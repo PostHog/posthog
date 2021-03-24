@@ -4,8 +4,17 @@ import { CodeOutlined } from '@ant-design/icons'
 import imgPluginDefault from 'public/plugin-default.svg'
 import { PluginInstallationType } from 'scenes/plugins/types'
 
-export function PluginImage({ url, pluginType }: { url?: string; pluginType?: PluginInstallationType }): JSX.Element {
+export function PluginImage({
+    url,
+    pluginType,
+    size = 'medium',
+}: {
+    url?: string
+    pluginType?: PluginInstallationType
+    size?: 'medium' | 'large'
+}): JSX.Element {
     const [state, setState] = useState({ image: imgPluginDefault })
+    const pixelSize = size === 'large' ? 100 : 60
 
     useEffect(() => {
         if (url?.includes('github.com')) {
@@ -14,18 +23,19 @@ export function PluginImage({ url, pluginType }: { url?: string; pluginType?: Pl
         }
     }, [url])
 
-    return (
-        <div className="plugin-image">
-            {pluginType === 'source' ? (
-                <CodeOutlined style={{ fontSize: 40 }} />
-            ) : (
-                <img
-                    src={state.image}
-                    style={{ maxWidth: '100%', maxHeight: '100%' }}
-                    alt=""
-                    onError={() => setState({ ...state, image: imgPluginDefault })}
-                />
-            )}
-        </div>
+    return pluginType === 'source' ? (
+        <CodeOutlined style={{ fontSize: pixelSize }} className="plugin-image" />
+    ) : (
+        <div
+            className="plugin-image"
+            style={{
+                width: pixelSize,
+                height: pixelSize,
+                backgroundImage: `url(${state.image})`,
+                backgroundSize: 'contain',
+                backgroundRepeat: 'no-repeat',
+            }}
+            onError={() => setState({ ...state, image: imgPluginDefault })}
+        />
     )
 }

@@ -1,15 +1,15 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Select } from 'antd'
+import { Select, Tag } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
-    STICKINESS,
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
     ACTIONS_TABLE,
     FUNNEL_VIZ,
     ACTIONS_BAR_CHART_VALUE,
+    ShownAsValue,
 } from '~/lib/constants'
 import { chartFilterLogic } from './chartFilterLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
@@ -21,16 +21,19 @@ export function ChartFilter(props) {
     const { setChartFilter } = useActions(chartFilterLogic)
 
     const linearDisabled = filters.session && filters.session === 'dist'
-    const cumulativeDisabled = filters.session || filters.shown_as === STICKINESS || filters.retentionType
+    const cumulativeDisabled =
+        filters.session || filters.shown_as === ShownAsValue.STICKINESS || filters.insight === ViewType.RETENTION
     const tableDisabled = false
     const pieDisabled = filters.session || filters.insight === ViewType.RETENTION
-    const barDisabled = filters.session || filters.retentionType
-    const barValueDisabled = barDisabled || filters.shown_as === STICKINESS
-    const defaultDisplay = filters.retentionType
-        ? ACTIONS_TABLE
-        : filters.insight === ViewType.FUNNELS
-        ? FUNNEL_VIZ
-        : ACTIONS_LINE_GRAPH_LINEAR
+    const barDisabled = filters.session || filters.insight === ViewType.RETENTION
+    const barValueDisabled =
+        barDisabled || filters.shown_as === ShownAsValue.STICKINESS || filters.insight === ViewType.RETENTION
+    const defaultDisplay =
+        filters.insight === ViewType.RETENTION
+            ? ACTIONS_TABLE
+            : filters.insight === ViewType.FUNNELS
+            ? FUNNEL_VIZ
+            : ACTIONS_LINE_GRAPH_LINEAR
 
     return (
         <Select
@@ -49,7 +52,12 @@ export function ChartFilter(props) {
             {filters.insight === ViewType.FUNNELS ? (
                 <>
                     <Select.Option value={FUNNEL_VIZ}>Steps</Select.Option>
-                    <Select.Option value={ACTIONS_LINE_GRAPH_LINEAR}>Trends</Select.Option>
+                    <Select.Option value={ACTIONS_LINE_GRAPH_LINEAR}>
+                        Trends
+                        <Tag color="orange" style={{ marginLeft: 8, fontSize: 10 }}>
+                            BETA
+                        </Tag>
+                    </Select.Option>
                 </>
             ) : (
                 <>

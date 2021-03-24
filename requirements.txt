@@ -18,7 +18,7 @@ backoff==1.6.0
     # via posthoganalytics
 billiard==3.6.3.0
     # via celery
-celery-redbeat==0.13.0
+celery-redbeat==2.0.0
     # via -r requirements.in
 celery==4.4.2
     # via
@@ -120,7 +120,7 @@ kombu==4.6.8
     # via
     #   -r requirements.in
     #   celery
-lxml==4.6.2
+lxml==4.6.3
     # via toronado
 lzstring==1.0.4
     # via -r requirements.in

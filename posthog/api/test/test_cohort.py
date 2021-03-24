@@ -51,6 +51,7 @@ class TestCohort(BaseTest):
                 "created_by": "something something",
                 "last_calculation": "some random date",
                 "errors_calculating": 100,
+                "deleted": False,
             },
             content_type="application/json",
         )

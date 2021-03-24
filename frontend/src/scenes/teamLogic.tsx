@@ -4,10 +4,23 @@ import { teamLogicType } from './teamLogicType'
 import { TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { toast } from 'react-toastify'
+import React from 'react'
 
 export const teamLogic = kea<teamLogicType<TeamType>>({
     actions: {
-        deleteCurrentTeam: true,
+        deleteTeam: (team: TeamType) => ({ team }),
+        deleteTeamSuccess: true,
+        deleteTeamFailure: true,
+    },
+    reducers: {
+        teamBeingDeleted: [
+            null as TeamType | null,
+            {
+                deleteTeam: (_, { team }) => team,
+                deleteTeamSuccess: () => null,
+                deleteTeamFailure: () => null,
+            },
+        ],
     },
     loaders: ({ values }) => ({
         currentTeam: [
@@ -28,34 +41,34 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
                     userLogic.actions.loadUser()
                     return patchedTeam
                 },
-                renameCurrentTeam: async (newName: string) => {
-                    if (!values.currentTeam) {
-                        throw new Error('Current team has not been loaded yet, so it cannot be renamed!')
-                    }
-                    const renamedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, {
-                        name: newName,
-                    })) as TeamType
-                    userLogic.actions.loadUser()
-                    return renamedTeam
-                },
                 createTeam: async (name: string): Promise<TeamType> => await api.create('api/projects/', { name }),
                 resetToken: async () => await api.update('api/projects/@current/reset_token', {}),
             },
         ],
     }),
-    listeners: ({ values }) => ({
-        deleteCurrentTeam: async () => {
-            if (values.currentTeam) {
-                toast('Deleting project…')
-                await api.delete(`api/projects/${values.currentTeam.id}`)
+    listeners: ({ actions }) => ({
+        deleteTeam: async ({ team }) => {
+            try {
+                await api.delete(`api/projects/${team.id}`)
                 location.reload()
+                actions.deleteTeamSuccess()
+            } catch {
+                actions.deleteTeamFailure()
             }
         },
-        renameCurrentTeamSuccess: () => {
-            toast.success('Project has been renamed')
+        deleteTeamSuccess: () => {
+            toast.success('Project has been deleted')
         },
         createTeamSuccess: () => {
             window.location.href = '/ingestion'
+        },
+        patchCurrentTeamSuccess: () => {
+            toast.success(
+                <div>
+                    <h1>Project updated successfully!</h1>
+                    <p>Click here to dismiss.</p>
+                </div>
+            )
         },
     }),
     events: ({ actions }) => ({

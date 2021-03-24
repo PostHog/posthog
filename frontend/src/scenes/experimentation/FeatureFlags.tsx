@@ -1,40 +1,54 @@
-import React, { Fragment, useState } from 'react'
-import { hot } from 'react-hot-loader/root'
+import React from 'react'
 import { useValues, useActions } from 'kea'
-import { featureFlagLogic } from './featureFlagLogic'
-import { Table, Switch, Drawer, Button } from 'antd'
-import { EditFeatureFlag } from './EditFeatureFlag'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import { featureFlagsLogic } from './featureFlagsLogic'
+import { Table, Switch, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
-import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
+import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined, DisconnectOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/PropertyFiltersDisplay'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
+import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import { router } from 'kea-router'
+import { LinkButton } from 'lib/components/LinkButton'
 
-export const FeatureFlags = hot(_FeatureFlags)
-function _FeatureFlags() {
-    const [openFeatureFlag, setOpenFeatureFlag] = useState(false)
-    const logic = featureFlagLogic({ closeDrawer: () => setOpenFeatureFlag(false) })
-    const { featureFlags, featureFlagsLoading } = useValues(logic)
-    const { updateFeatureFlag, loadFeatureFlags } = useActions(logic)
+export function FeatureFlags(): JSX.Element {
+    const { featureFlags, featureFlagsLoading } = useValues(featureFlagsLogic)
+    const { updateFeatureFlag, loadFeatureFlags } = useActions(featureFlagsLogic)
+    const { push } = useActions(router)
 
-    let columns = [
-        {
-            title: 'Name',
-            dataIndex: 'name',
-            sorter: (a, b) => ('' + a.name).localeCompare(b.name),
-        },
+    const BackTo = '#backTo=Feature Flags&backToURL=/feature_flags'
+
+    const columns = [
         {
             title: 'Key',
             dataIndex: 'key',
-            sorter: (a, b) => ('' + a.key).localeCompare(b.key),
+            className: 'ph-no-capture',
+            sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.key).localeCompare(b.key),
+            render: function Render(_: string, featureFlag: FeatureFlagType) {
+                return (
+                    <>
+                        {!featureFlag.active && (
+                            <Tooltip title="This feature flag is disabled.">
+                                <DisconnectOutlined style={{ marginRight: 4 }} />
+                            </Tooltip>
+                        )}
+                        {featureFlag.key}
+                    </>
+                )
+            },
+        },
+        {
+            title: 'Description',
+            dataIndex: 'name',
+            className: 'ph-no-capture',
+            sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.name).localeCompare(b.name),
         },
         createdAtColumn(),
         createdByColumn(featureFlags),
         {
             title: 'Filters',
-            render: function RenderGroups(featureFlag) {
+            render: function Render(_: string, featureFlag: FeatureFlagType) {
                 if (!featureFlag.filters?.groups) {
                     return 'N/A'
                 }
@@ -45,27 +59,27 @@ function _FeatureFlags() {
             },
         },
         {
-            title: 'Active',
-            render: function RenderActive(featureFlag) {
+            title: 'Enabled',
+            render: function RenderActive(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <Switch
-                        onClick={(_, e) => e.stopPropagation()}
+                        onClick={(_checked, e) => e.stopPropagation()}
                         checked={featureFlag.active}
-                        onChange={(active) => updateFeatureFlag({ ...featureFlag, active })}
+                        onChange={(active) => (featureFlag.id ? updateFeatureFlag(featureFlag.id, { active }) : null)}
                     />
                 )
             },
         },
         {
             title: 'Usage',
-            render: function RenderUsage(featureFlag) {
+            render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <Link
                         to={
                             '/insights?events=[{"id":"$pageview","name":"$pageview","type":"events","math":"dau"}]&properties=[{"key":"$active_feature_flags","operator":"icontains","value":"' +
                             featureFlag.key +
-                            '"}]&breakdown_type=event#backTo=Feature Flags&backToURL=' +
-                            window.location.pathname
+                            '"}]&breakdown_type=event' +
+                            BackTo
                         }
                         data-attr="usage"
                     >
@@ -76,21 +90,23 @@ function _FeatureFlags() {
         },
         {
             title: 'Actions',
-            render: function RenderActive(featureFlag) {
+            render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <>
-                        <Link>
-                            <EditOutlined onClick={() => setOpenFeatureFlag(featureFlag)} />
+                        <Link to={`/feature_flags/${featureFlag.id}${BackTo}`}>
+                            <EditOutlined />
                         </Link>
-                        <DeleteWithUndo
-                            endpoint="feature_flag"
-                            object={featureFlag}
-                            className="text-danger"
-                            style={{ marginLeft: 8 }}
-                            callback={loadFeatureFlags}
-                        >
-                            <DeleteOutlined />
-                        </DeleteWithUndo>
+                        {featureFlag.id && (
+                            <DeleteWithUndo
+                                endpoint="feature_flag"
+                                object={{ name: featureFlag.name, id: featureFlag.id }}
+                                className="text-danger"
+                                style={{ marginLeft: 8 }}
+                                callback={loadFeatureFlags}
+                            >
+                                <DeleteOutlined />
+                            </DeleteWithUndo>
+                        )}
                     </>
                 )
             },
@@ -104,14 +120,14 @@ function _FeatureFlags() {
                 caption="Feature flags are a way of turning functionality in your app on or off, based on user properties."
             />
             <div className="mb text-right">
-                <Button
+                <LinkButton
                     type="primary"
-                    onClick={() => setOpenFeatureFlag('new')}
+                    to={`/feature_flags/new${BackTo}`}
                     data-attr="new-feature-flag"
                     icon={<PlusOutlined />}
                 >
                     New Feature Flag
-                </Button>
+                </LinkButton>
             </div>
             <Table
                 dataSource={featureFlags}
@@ -119,34 +135,18 @@ function _FeatureFlags() {
                 loading={!featureFlags && featureFlagsLoading}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 onRow={(featureFlag) => ({
-                    onClick: () => setOpenFeatureFlag(featureFlag),
+                    onClick: () => push(`/feature_flags/${featureFlag.id}${BackTo}`),
+                    style: !featureFlag.active ? { color: 'var(--muted)' } : {},
                 })}
                 size="small"
-                rowClassName={'cursor-pointer ' + rrwebBlockClass}
+                rowClassName="cursor-pointer"
                 data-attr="feature-flag-table"
             />
-            <Drawer
-                title={openFeatureFlag === 'new' ? 'New feature flag' : openFeatureFlag.name}
-                width={500}
-                onClose={() => setOpenFeatureFlag(false)}
-                destroyOnClose={true}
-                visible={openFeatureFlag}
-            >
-                {openFeatureFlag === 'new' ? (
-                    <EditFeatureFlag
-                        isNew={true}
-                        featureFlag={{ rollout_percentage: null, active: true }}
-                        logic={logic}
-                    />
-                ) : (
-                    <EditFeatureFlag featureFlag={openFeatureFlag} logic={logic} />
-                )}
-            </Drawer>
         </div>
     )
 }
 
-function GroupFilters({ group }) {
+function GroupFilters({ group }: { group: FeatureFlagGroupType }): JSX.Element | string {
     if (group.properties && group.properties.length > 0 && group.rollout_percentage != null) {
         return (
             <div style={{ display: 'flex', alignItems: 'center' }}>

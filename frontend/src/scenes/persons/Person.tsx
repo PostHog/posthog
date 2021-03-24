@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
-import { hot } from 'react-hot-loader/root'
 import { SessionsView } from '../sessions/SessionsView'
 import { EventsTable } from 'scenes/events'
 import { useActions, useValues } from 'kea'
@@ -10,15 +9,18 @@ import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
 import { DownOutlined, DeleteOutlined, MergeCellsOutlined, LoadingOutlined } from '@ant-design/icons'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { MergePerson } from './MergePerson'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { NewPropertyComponent } from './NewPropertyComponent'
 
+import relativeTime from 'dayjs/plugin/relativeTime'
+import { TZLabel } from 'lib/components/TimezoneAware'
+dayjs.extend(relativeTime)
+
 const { TabPane } = Tabs
 
-export const Person = hot(_Person)
-function _Person(): JSX.Element {
+export function Person(): JSX.Element {
     const [activeTab, setActiveTab] = useState('events')
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
 
@@ -95,10 +97,12 @@ function _Person(): JSX.Element {
                                         )}
                                     </div>
                                 </div>
-                                <div className="item-group">
-                                    <label>First seen</label>
-                                    <div>{moment(person.created_at).fromNow()}</div>
-                                </div>
+                                {person.created_at && (
+                                    <div className="item-group">
+                                        <label>First seen</label>
+                                        <div>{<TZLabel time={person.created_at} />}</div>
+                                    </div>
+                                )}
                                 <div className="text-center mt">
                                     <a onClick={() => setMergeModalOpen(true)}>
                                         <MergeCellsOutlined /> Merge person
@@ -135,7 +139,7 @@ function _Person(): JSX.Element {
                             />
                         </Tabs>
                         {person && (
-                            <>
+                            <div style={{ maxWidth: '100%', overflow: 'hidden' }}>
                                 <NewPropertyComponent />
                                 <h3 className="l3">Properties list</h3>
                                 <PropertiesTable
@@ -145,7 +149,7 @@ function _Person(): JSX.Element {
                                     onDelete={(key) => editProperty(key, undefined)}
                                     className="persons-page-props-table"
                                 />
-                            </>
+                            </div>
                         )}
                         {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}
                     </Card>

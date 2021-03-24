@@ -26,7 +26,10 @@ export function EventsVolumeTable(): JSX.Element {
                     </Tooltip>
                 )
             },
-            render: (item: EventUsageType) => humanizeNumber(item.volume),
+            // eslint-disable-next-line react/display-name
+            render: (
+                item: EventUsageType // https://stackoverflow.com/questions/55620562/eslint-component-definition-is-missing-displayname-react-display-name
+            ) => <span className="ph-no-capture">{humanizeNumber(item.volume)}</span>,
             sorter: (a: EventUsageType, b: EventUsageType) =>
                 a.volume == b.volume ? a.usage_count - b.usage_count : a.volume - b.volume,
         },
@@ -42,7 +45,8 @@ export function EventsVolumeTable(): JSX.Element {
                     </Tooltip>
                 )
             },
-            render: (item: EventUsageType) => humanizeNumber(item.usage_count),
+            // eslint-disable-next-line react/display-name
+            render: (item: EventUsageType) => <span className="ph-no-capture">{humanizeNumber(item.usage_count)}</span>,
             sorter: (a: EventUsageType, b: EventUsageType) =>
                 a.usage_count == b.usage_count ? a.volume - b.volume : a.usage_count - b.usage_count,
         },
@@ -50,17 +54,17 @@ export function EventsVolumeTable(): JSX.Element {
     const { user } = useValues(userLogic)
     return (
         <>
-            {user?.team.event_names_with_usage[0]?.volume === null && (
+            {user?.team?.event_names_with_usage[0]?.volume === null && (
                 <>
                     <Alert
                         type="warning"
-                        description="We haven't been able to get usage and volume data yet. Please check back later"
+                        message="We haven't been able to get usage and volume data yet. Please check back later"
                     />
                     <br />
                 </>
             )}
             <Table
-                dataSource={user?.team.event_names_with_usage}
+                dataSource={user?.team?.event_names_with_usage}
                 columns={columns}
                 rowKey="event"
                 size="small"
