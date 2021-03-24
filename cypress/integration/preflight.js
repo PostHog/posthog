@@ -16,7 +16,7 @@ describe('Preflight', () => {
 
     it('Preflight live mode', () => {
         cy.get('[data-attr=preflight-live]').click()
-        cy.get('[data-attr=preflight-refresh]').should('be.visible')
+        cy.get('[data-attr=preflight-refresh]').click()
         cy.get('[data-attr=caption]').should('contain', 'Install before ingesting real user data')
         cy.wait(200)
         cy.get('[data-attr=preflightStatus]').should('contain', 'All systems go!')

@@ -263,9 +263,9 @@ export interface EntityWithProperties extends Entity {
 }
 
 export interface PersonType {
-    id: number
-    uuid: string
-    name: string
+    id?: number
+    uuid?: string
+    name?: string
     distinct_ids: string[]
     properties: Record<string, any>
     is_identified: boolean
@@ -312,6 +312,7 @@ export interface EventType {
     id: number | string
     properties: Record<string, any>
     timestamp: string
+    person?: Partial<PersonType> | null
 }
 
 export interface SessionType {

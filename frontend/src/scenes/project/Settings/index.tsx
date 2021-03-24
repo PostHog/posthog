@@ -153,11 +153,15 @@ export function ProjectSettings(): JSX.Element {
                 <p>Set the timezone for your project so that you can see relevant time conversions in PostHog.</p>
                 <TimezoneConfig />
                 <Divider />
-                <h2 className="subtitle" id="testaccounts">
-                    Filter out test accounts and team members
+                <h2 className="subtitle" id="internal-users-filtering">
+                    Filtering out internal and test users
                 </h2>
                 <p>
-                    Filter out test accounts and internal team members from all your queries for more accurate insights.
+                    Increase the quality of your analytics results by filtering out internal users such as test accounts
+                    and team members from queries. This way only <b>real user data</b> will be taken into account.
+                </p>
+                <p>
+                    <i>For best effectiveness, make sure to properly define internal users with the filters below.</i>
                 </p>
                 <TestAccountFiltersConfig />
                 <Divider />
