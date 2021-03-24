@@ -54,6 +54,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     SCHEDULE_LOCK_TTL: number
     REDIS_POOL_MIN_SIZE: number
     REDIS_POOL_MAX_SIZE: number
+    DISTINCT_ID_LRU_SIZE: number
 }
 
 export interface PluginsServer extends PluginsServerConfig {
