@@ -11,7 +11,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType<FeatureFlagType>>({
                 const response = await api.get('api/feature_flag/')
                 return response.results as FeatureFlagType[]
             },
-            updateFeatureFlag: async ({ id, payload }: { id: string; payload: Partial<FeatureFlagType> }) => {
+            updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
                 const response = await api.update(`api/feature_flag/${id}`, payload)
                 return [...values.featureFlags].map((flag) => (flag.id === response.id ? response : flag))
             },

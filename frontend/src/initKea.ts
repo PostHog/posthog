@@ -3,9 +3,7 @@ import localStoragePlugin from 'kea-localstorage'
 import { routerPlugin } from 'kea-router'
 import { loadersPlugin } from 'kea-loaders'
 import { windowValuesPlugin } from 'kea-window-values'
-import { toast } from 'react-toastify'
-import React from 'react'
-import { identifierToHuman } from 'lib/utils'
+import { errorToast, identifierToHuman } from 'lib/utils'
 
 export function initKea(): void {
     resetContext({
@@ -16,20 +14,16 @@ export function initKea(): void {
             loadersPlugin({
                 onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                     // Toast if it's a fetch error or a specific API update error
+                    console.log(error)
                     if (
                         error?.message === 'Failed to fetch' ||
-                        (error?.status && error?.status !== 0 && error?.status !== 200)
+                        (error?.status && ![0, 200, 201, 204].includes(error?.status))
                     ) {
-                        toast.error(
-                            <div>
-                                {' '}
-                                <h1>Error on {identifierToHuman(reducerKey)}</h1>{' '}
-                                <p>
-                                    {' '}
-                                    Attempting to {identifierToHuman(actionKey)} returned an error:{' '}
-                                    <span className="error-details">{error.detail || 'Unknown exception.'}</span>{' '}
-                                </p>{' '}
-                            </div>
+                        errorToast(
+                            `Error on ${identifierToHuman(reducerKey)}`,
+                            `Attempting to ${identifierToHuman(actionKey).toLowerCase()} returned an error:`,
+                            error.detail,
+                            error.code
                         )
                     }
                     console.error(error)

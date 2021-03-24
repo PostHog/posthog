@@ -6,6 +6,7 @@ import dayjs from 'dayjs'
 import { EventType, FilterType } from '~/types'
 import { lightColors } from 'lib/colors'
 import { ActionFilter } from 'scenes/trends/trendsLogic'
+import { CustomerServiceOutlined } from '@ant-design/icons'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
@@ -51,8 +52,6 @@ export function fromParams(): Record<string, any> {
               }, {} as Record<string, any>)
 }
 
-export const colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
-
 export function percentage(division: number): string {
     return division
         ? division.toLocaleString(undefined, {
@@ -60,6 +59,39 @@ export function percentage(division: number): string {
               maximumFractionDigits: 2,
           })
         : ''
+}
+
+export function errorToast(title?: string, message?: string, errorDetail?: string, errorCode?: string): void {
+    /**
+     * Shows a standardized error toast when something goes wrong. Automated for any loader usage.
+     * @param title Title message of the toast
+     * @param message Body message on the toast
+     * @param errorDetail Error response returned from the server, or any other more specific error detail.
+     * @param errorCode Error code from the server that can help track the error.
+     */
+    toast.error(
+        <div>
+            <h1>{title || 'Something went wrong'}</h1>
+            <p>
+                {message || 'We could not complete your action. Detailed error:'}{' '}
+                <span className="error-details">{errorDetail || 'Unknown exception.'}</span>
+                <p className="mt-05">
+                    Please <b>try again or contact us</b> if the error persists.
+                </p>
+            </p>
+            <div className="action-bar">
+                {errorCode && <span>Code: {errorCode}</span>}
+                <span className="help-button">
+                    <a href="#">
+                        <CustomerServiceOutlined /> Need help?
+                    </a>
+                </span>
+            </div>
+        </div>,
+        {
+            toastId: 'error', // will ensure only one error is displayed at a time
+        }
+    )
 }
 
 export function Loading(props: Record<string, any>): JSX.Element {
@@ -760,12 +792,12 @@ export function endWithPunctation(text?: string | null): string {
     return trimmedText
 }
 
-/**
- * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
- * @param timeZone E.g. 'America/New_York'
- * @param atDate
- */
 export function shortTimeZone(timeZone?: string, atDate: Date = new Date()): string {
+    /**
+     * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
+     * @param timeZone E.g. 'America/New_York'
+     * @param atDate
+     */
     const localeTimeString = new Date(atDate).toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
     return localeTimeString.split(' ')[2].replace('GMT', 'UTC')
 }

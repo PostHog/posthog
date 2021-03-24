@@ -257,6 +257,21 @@ code.code {
         font-size: 1.14rem;
         font-weight: bold;
     }
+
+    .action-bar {
+        @extend .text-small;
+        color: $text_muted;
+        margin-top: $default_spacing / 2;
+        display: flex;
+        align-items: center;
+        a {
+            color: $text_muted;
+        }
+        .help-button {
+            flex-grow: 1;
+            text-align: right;
+        }
+    }
 }
 
 .Toastify__progress-bar {
