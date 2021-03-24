@@ -238,6 +238,7 @@ code.code {
 }
 
 // Toasts
+
 .Toastify__toast-container {
     opacity: 1;
     transform: none;
@@ -294,11 +295,13 @@ code.code {
 }
 
 // Table styles
+
 .table-bordered td {
     border: 1px solid $border;
 }
 
 // Card styles
+
 .ant-card-body > :first-child {
     margin-top: 0;
 }
@@ -308,6 +311,7 @@ code.code {
 }
 
 // Form & input styles
+
 .input-set {
     padding-bottom: $default_spacing;
     color: $text_default;
@@ -350,6 +354,7 @@ code.code {
 }
 
 // Button styles
+
 .btn-close {
     color: $text_muted;
 }
@@ -394,6 +399,7 @@ code.code {
 }
 
 // Overlays styles
+
 #bottom-notice {
     z-index: 10500;
     display: flex;
@@ -521,4 +527,19 @@ code.code {
         background-color: $hc_light_lilac;
         color: $hc_navy;
     }
+}
+
+// Hotkey styles
+.hotkey {
+    padding: 0 6px;
+    border-radius: $radius;
+    font-weight: bold;
+    margin-left: 6px;
+    background-color: white;
+    color: $primary;
+    text-shadow: none;
+    text-transform: uppercase;
+    border: 1px solid $border_light;
+    margin-bottom: 2px;
+    font-size: 0.85rem;
 }

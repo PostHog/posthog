@@ -46,7 +46,8 @@ import { TrendLegend } from './TrendLegend'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
-import { DisplayType, FilterType } from '~/types'
+import { DisplayType, FilterType, Keys } from '~/types'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
@@ -104,6 +105,12 @@ const showComparePrevious = {
     [`${ViewType.PATHS}`]: false,
 }
 
+function InsightHotkey({ hotkey }: { hotkey: Keys }): JSX.Element {
+    /* Temporary element to only show hotkeys when feature flag is active */
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags['hotkeys-3740'] ? <span className="hotkey">{hotkey}</span> : <></>
+}
+
 export function Insights(): JSX.Element {
     useMountedLogic(insightCommandLogic)
     const [{ fromItem }] = useState(router.values.hashParams)
@@ -118,8 +125,38 @@ export function Insights(): JSX.Element {
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
     const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
 
+    useKeyboardHotkeys(
+        featureFlags['hotkeys-3740']
+            ? {
+                  t: {
+                      action: () => setActiveView(ViewType.TRENDS),
+                  },
+                  f: {
+                      action: () => setActiveView(ViewType.FUNNELS),
+                  },
+                  s: {
+                      action: () => setActiveView(ViewType.SESSIONS),
+                  },
+                  r: {
+                      action: () => setActiveView(ViewType.RETENTION),
+                  },
+                  p: {
+                      action: () => setActiveView(ViewType.PATHS),
+                  },
+                  k: {
+                      action: () => setActiveView(ViewType.STICKINESS),
+                      disabled: !featureFlags['remove-shownas'],
+                  },
+                  l: {
+                      action: () => setActiveView(ViewType.LIFECYCLE),
+                      disabled: !featureFlags['remove-shownas'],
+                  },
+              }
+            : {}
+    )
+
     return (
-        <div className="actions-graph">
+        <div className="insights-page">
             <PageHeader title="Insights" />
             <Row justify="space-between" align="middle" className="top-bar">
                 <Tabs
@@ -143,20 +180,70 @@ export function Insights(): JSX.Element {
                         ),
                     }}
                 >
-                    <TabPane tab={<span data-attr="insight-trends-tab">Trends</span>} key={ViewType.TRENDS} />
-                    <TabPane tab={<span data-attr="insight-funnels-tab">Funnels</span>} key={ViewType.FUNNELS} />
-                    <TabPane tab={<span data-attr="insight-sessions-tab">Sessions</span>} key={ViewType.SESSIONS} />
-                    <TabPane tab={<span data-attr="insight-retention-tab">Retention</span>} key={ViewType.RETENTION} />
-                    <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS} />
+                    <TabPane
+                        tab={
+                            <span data-attr="insight-trends-tab">
+                                Trends
+                                <InsightHotkey hotkey="t" />
+                            </span>
+                        }
+                        key={ViewType.TRENDS}
+                    />
+                    <TabPane
+                        tab={
+                            <span data-attr="insight-funnels-tab">
+                                Funnels
+                                <InsightHotkey hotkey="f" />
+                            </span>
+                        }
+                        key={ViewType.FUNNELS}
+                    />
+                    <TabPane
+                        tab={
+                            <span data-attr="insight-sessions-tab">
+                                Sessions
+                                <InsightHotkey hotkey="s" />
+                            </span>
+                        }
+                        key={ViewType.SESSIONS}
+                    />
+                    <TabPane
+                        tab={
+                            <span data-attr="insight-retention-tab">
+                                Retention
+                                <InsightHotkey hotkey="r" />
+                            </span>
+                        }
+                        key={ViewType.RETENTION}
+                    />
+                    <TabPane
+                        tab={
+                            <span data-attr="insight-path-tab">
+                                User Paths
+                                <InsightHotkey hotkey="p" />
+                            </span>
+                        }
+                        key={ViewType.PATHS}
+                    />
                     {featureFlags['remove-shownas'] && (
                         <TabPane
-                            tab={<span data-attr="insight-stickiness-tab">Stickiness</span>}
+                            tab={
+                                <span data-attr="insight-stickiness-tab">
+                                    Stickiness
+                                    <InsightHotkey hotkey="k" />
+                                </span>
+                            }
                             key={ViewType.STICKINESS}
                         />
                     )}
                     {featureFlags['remove-shownas'] && (
                         <TabPane
-                            tab={<span data-attr="insight-lifecycle-tab">Lifecycle</span>}
+                            tab={
+                                <span data-attr="insight-lifecycle-tab">
+                                    Lifecycle
+                                    <InsightHotkey hotkey="l" />
+                                </span>
+                            }
                             key={ViewType.LIFECYCLE}
                         />
                     )}
@@ -260,7 +347,7 @@ export function Insights(): JSX.Element {
                                 <div>
                                     {lastRefresh && (
                                         <small style={{ position: 'absolute', marginTop: -21, right: 24 }}>
-                                            Computed {dayjs(lastRefresh).fromNow()}
+                                            Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
                                             <Button
                                                 size="small"
                                                 type="link"

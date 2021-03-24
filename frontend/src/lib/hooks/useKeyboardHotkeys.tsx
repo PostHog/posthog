@@ -17,6 +17,11 @@ export function useKeyboardHotkeys(hotkeys: Hotkeys, deps?: DependencyList): voi
         (event) => {
             const key = (event as KeyboardEvent).key
 
+            // Ignore if the key is pressed with a meta or control key (these are general browser commands; e.g. Cmd + R)
+            if ((event as KeyboardEvent).metaKey || (event as KeyboardEvent).ctrlKey) {
+                return
+            }
+
             // Ignore typing on inputs (default behavior); except Esc key
             if (key !== 'Escape' && IGNORE_INPUTS.includes((event.target as HTMLElement).tagName.toLowerCase())) {
                 return

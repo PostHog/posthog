@@ -48,7 +48,7 @@ export const insightLogic = kea<insightLogicType>({
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: true,
-        endQuery: (view: string, lastRefresh: null | boolean, exception?: Record<string, any>) => ({
+        endQuery: (view: string, lastRefresh: string | null, exception?: Record<string, any>) => ({
             view,
             lastRefresh,
             exception,
@@ -58,7 +58,7 @@ export const insightLogic = kea<insightLogicType>({
         setShowErrorMessage: (showErrorMessage: boolean) => ({ showErrorMessage }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setTimeout: (timeout) => ({ timeout }),
-        setLastRefresh: (lastRefresh: null | boolean) => ({ lastRefresh }),
+        setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
     }),
 
@@ -103,7 +103,7 @@ export const insightLogic = kea<insightLogicType>({
         ],
         timeout: [null, { setTimeout: (_, { timeout }) => timeout }],
         lastRefresh: [
-            null as null | boolean,
+            null as string | null,
             {
                 setLastRefresh: (_, { lastRefresh }) => lastRefresh,
                 setActiveView: () => null,

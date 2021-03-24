@@ -6,7 +6,7 @@
     height: 100%;
 }
 
-.actions-graph {
+.insights-page {
     .top-bar {
         .ant-tabs,
         .ant-tabs-nav-list {
@@ -18,6 +18,26 @@
     }
     hr {
         margin: 1rem 0;
+    }
+
+    .hotkey {
+        margin-bottom: 0;
+        padding-top: 2px;
+        padding-bottom: 2px;
+    }
+
+    .ant-tabs-tab:hover {
+        .hotkey {
+            background-color: #fafafa;
+        }
+    }
+
+    .ant-tabs-tab-active {
+        .hotkey {
+            background-color: $primary;
+            border: 0;
+            color: white;
+        }
     }
 }
 

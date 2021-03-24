@@ -167,7 +167,7 @@ export const trendsLogic = kea<
                     }
                 } catch (e) {
                     breakpoint()
-                    insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, false, e)
+                    insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, null, e)
                     return []
                 }
                 breakpoint()
