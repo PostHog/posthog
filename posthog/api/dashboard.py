@@ -35,6 +35,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "description",
             "pinned",
             "items",
             "created_at",
@@ -45,6 +46,7 @@ class DashboardSerializer(serializers.ModelSerializer):
             "creation_mode",
             "use_template",
             "filters",
+            "tags",
         ]
         read_only_fields = ("creation_mode",)
 
