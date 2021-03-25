@@ -37,14 +37,22 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             with freeze_time(freeze_args[0]):
                 event_factory(
-                    team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": "value"},
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$bool_prop": True},
                 )
 
             with freeze_time(freeze_args[1]):
                 event_factory(
-                    team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": "value"},
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$bool_prop": False},
                 )
-                event_factory(team=self.team, event="sign up", distinct_id="anonymous_id")
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="anonymous_id", properties={"$bool_prop": False}
+                )
                 event_factory(team=self.team, event="sign up", distinct_id="blabla")
             with freeze_time(freeze_args[2]):
                 event_factory(
@@ -1284,6 +1292,27 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
         def test_breakdown_filtering(self):
             self._create_events()
+
+            # test bool breakdown
+            with freeze_time("2020-01-04T13:01:01Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-14d",
+                            "breakdown": "$bool_prop",
+                            "events": [
+                                {"id": "sign up", "name": "sign up", "type": "events", "order": 0,},
+                                {"id": "no events"},
+                            ],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(response[0]["label"], "sign up - False")
+            self.assertEqual(response[1]["label"], "sign up - True")
+            self.assertEqual(response[2]["label"], "sign up - Other")
+
             # test breakdown filtering
             with freeze_time("2020-01-04T13:01:01Z"):
                 response = trends().run(
@@ -1307,7 +1336,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             self.assertEqual(sum(response[0]["data"]), 2)
             self.assertEqual(response[0]["data"][4 + 7], 2)
-            self.assertEqual(response[0]["breakdown_value"], "nan")
+            self.assertEqual(response[0]["breakdown_value"], "Other")
 
             self.assertEqual(sum(response[1]["data"]), 1)
             self.assertEqual(response[1]["data"][5 + 7], 1)
