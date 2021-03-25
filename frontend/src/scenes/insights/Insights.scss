@@ -22,11 +22,9 @@
 
     .hotkey {
         margin-bottom: 0;
-        padding-top: 2px;
-        padding-bottom: 2px;
     }
 
-    .ant-tabs-tab:hover {
+    .ant-tabs-tab:not(.ant-tabs-tab-active):hover {
         .hotkey {
             background-color: #fafafa;
         }
@@ -35,7 +33,7 @@
     .ant-tabs-tab-active {
         .hotkey {
             background-color: $primary;
-            border: 0;
+            border-color: $primary;
             color: white;
         }
     }

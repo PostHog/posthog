@@ -22,7 +22,7 @@ export const useKeyboardHotkeys = (
  */
 type GlobalHotkeysInterface = Partial<Record<GlobalHotKeys, HotkeyInterface>>
 export const useGlobalKeyboardHotkeys = (hotkeys: GlobalHotkeysInterface, deps?: DependencyList): void =>
-    _useKeyboardHotkeys(hotkeys, deps)
+    _useKeyboardHotkeys(hotkeys, deps, true)
 
 type AllHotKeys = GlobalHotKeys | HotKeys
 type AllHotkeysInterface = Partial<Record<AllHotKeys, HotkeyInterface>>

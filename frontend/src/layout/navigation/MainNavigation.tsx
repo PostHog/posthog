@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react'
-import { Layout, Menu, Modal, Popover } from 'antd'
+import { Layout, Menu, Modal, Popover, Tooltip } from 'antd'
 import {
     ProjectFilled,
     ApiFilled,
@@ -51,10 +51,11 @@ interface MenuItemProps {
     identifier: string
     to: string
     hotkey?: HotKeys
+    tooltip?: string
     onClick?: () => void
 }
 
-const MenuItem = ({ title, icon, identifier, to, hotkey, onClick }: MenuItemProps): JSX.Element => {
+const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: MenuItemProps): JSX.Element => {
     const { scene, loadingScene } = useValues(sceneLogic)
     const { hotkeyNavigationEngaged } = useValues(navigationLogic)
     const { collapseMenu, setHotkeyNavigationEngaged } = useActions(navigationLogic)
@@ -91,16 +92,36 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, onClick }: MenuItemProp
 
     return (
         <Link to={to} onClick={handleClick}>
-            <div
-                className={`menu-item${activeScene() === identifier ? ' menu-item-active' : ''}`}
-                data-attr={`menu-item-${identifier}`}
+            <Tooltip
+                title={
+                    tooltip ? (
+                        <>
+                            {tooltip}
+                            {hotkey && (
+                                <div className="mt-05">
+                                    <i>Keyboard navigation: </i>
+                                    <span className="hotkey">G</span>
+                                    <span className="hotkey">{hotkey.toUpperCase()}</span>
+                                </div>
+                            )}
+                        </>
+                    ) : undefined
+                }
+                placement="left"
             >
-                {icon}
-                <span className="menu-title text-center">{title}</span>
-                {hotkey && (
-                    <span className={`hotkey${hotkeyNavigationEngaged ? '' : ' hide'}`}>{hotkey.toUpperCase()}</span>
-                )}
-            </div>
+                <div
+                    className={`menu-item${activeScene() === identifier ? ' menu-item-active' : ''}`}
+                    data-attr={`menu-item-${identifier}`}
+                >
+                    {icon}
+                    <span className="menu-title text-center">{title}</span>
+                    {hotkey && (
+                        <span className={`hotkey${hotkeyNavigationEngaged ? '' : ' hide'}`}>
+                            {hotkey.toUpperCase()}
+                        </span>
+                    )}
+                </div>
+            </Tooltip>
         </Link>
     )
 }
@@ -264,19 +285,42 @@ export function MainNavigation(): JSX.Element {
                         identifier="insights"
                         to="/insights?insight=TRENDS"
                         hotkey="i"
+                        tooltip="Answers to all your analytics questions."
                     />
                     <div className="divider" />
-                    <MenuItem title="Events" icon={<IconEvents />} identifier="events" to="/events" hotkey="e" />
+                    <MenuItem
+                        title="Events"
+                        icon={<IconEvents />}
+                        identifier="events"
+                        to="/events"
+                        hotkey="e"
+                        tooltip="List of events and actions"
+                    />
                     <MenuItem
                         title="Sessions"
                         icon={<ClockCircleFilled />}
                         identifier="sessions"
                         to="/sessions"
                         hotkey="s"
+                        tooltip="Understand interactions based by visits and watch session recordings"
                     />
                     <div className="divider" />
-                    <MenuItem title="Persons" icon={<IconPerson />} identifier="persons" to="/persons" hotkey="p" />
-                    <MenuItem title="Cohorts" icon={<IconCohorts />} identifier="cohorts" to="/cohorts" hotkey="c" />
+                    <MenuItem
+                        title="Persons"
+                        icon={<IconPerson />}
+                        identifier="persons"
+                        to="/persons"
+                        hotkey="p"
+                        tooltip="Understand your users individually"
+                    />
+                    <MenuItem
+                        title="Cohorts"
+                        icon={<IconCohorts />}
+                        identifier="cohorts"
+                        to="/cohorts"
+                        hotkey="c"
+                        tooltip="Group users for easy filtering"
+                    />
                     <div className="divider" />
                     <MenuItem
                         title="Feat. Flags"
@@ -284,6 +328,7 @@ export function MainNavigation(): JSX.Element {
                         identifier="featureFlags"
                         to="/feature_flags"
                         hotkey="f"
+                        tooltip="Controlled feature releases"
                     />
                     <div className="divider" />
                     {canViewPlugins(user?.organization) && (
@@ -293,6 +338,7 @@ export function MainNavigation(): JSX.Element {
                             identifier="plugins"
                             to="/project/plugins"
                             hotkey="l"
+                            tooltip="Extend your analytics functionality"
                         />
                     )}
                     <MenuItem
