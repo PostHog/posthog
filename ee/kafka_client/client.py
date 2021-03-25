@@ -10,7 +10,7 @@ from kafka import KafkaProducer as KP
 from ee.clickhouse.client import async_execute, sync_execute
 from ee.kafka_client import helper
 from ee.settings import KAFKA_ENABLED
-from posthog.settings import IS_HEROKU, KAFKA_BASE64_KEYS, KAFKA_HOSTS, TEST
+from posthog.settings import IS_HEROKU, KAFKA_BASE64_KEYS, KAFKA_HOSTS, KAFKA_SCRAM_PASSWORD, KAFKA_SCRAM_USER, TEST
 from posthog.utils import SingletonDecorator
 
 
@@ -33,6 +33,13 @@ class _KafkaProducer:
             self.producer = kafka_helper.get_kafka_producer(value_serializer=lambda d: d)
         elif KAFKA_BASE64_KEYS:
             self.producer = helper.get_kafka_producer(value_serializer=lambda d: d)
+        elif KAFKA_SCRAM_USER:
+            self.producer = KP(
+                bootstrap_servers=KAFKA_HOSTS,
+                sasl_mechanism="SCRAM-SHA-512",
+                sasl_plain_username=KAFKA_SCRAM_USER,
+                sasl_plain_password=KAFKA_SCRAM_PASSWORD,
+            )
         else:
             self.producer = KP(bootstrap_servers=KAFKA_HOSTS)
 
