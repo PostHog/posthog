@@ -385,6 +385,7 @@ export interface DashboardItemType {
 export interface DashboardType {
     id: number
     name: string
+    description: string
     pinned: boolean
     items: DashboardItemType[]
     created_at: string
@@ -394,6 +395,7 @@ export interface DashboardType {
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
+    tags: string[]
 }
 
 export interface OrganizationInviteType {

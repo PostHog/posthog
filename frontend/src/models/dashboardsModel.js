@@ -45,10 +45,10 @@ export const dashboardsModel = kea({
                 }
                 return result
             },
-            renameDashboard: async ({ id, name }, breakpoint) => {
+            updateDashboard: async ({ id, ...payload }, breakpoint) => {
                 await breakpoint(700)
-                const response = await api.update(`api/dashboard/${id}`, { name })
-                eventUsageLogic.actions.reportDashboardRenamed(values.rawDashboards[id].name.length, name.length)
+                const response = await api.update(`api/dashboard/${id}`, payload)
+                console.log(values) // :TODO: Temp
                 return response
             },
             setIsSharedDashboard: async ({ id, isShared }) =>
@@ -79,7 +79,7 @@ export const dashboardsModel = kea({
         rawDashboards: {
             addDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
-            renameDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+            updateDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             setIsSharedDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             deleteDashboardSuccess: (state, { dashboard }) => ({
                 ...state,
