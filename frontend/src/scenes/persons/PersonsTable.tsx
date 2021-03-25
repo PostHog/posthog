@@ -11,6 +11,7 @@ import { midEllipsis } from 'lib/utils'
 import { PersonHeader } from './PersonHeader'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
+import { TZLabel } from 'lib/components/TimezoneAware'
 dayjs.extend(relativeTime)
 
 interface PersonsTableType {
@@ -86,7 +87,7 @@ export function PersonsTable({
             title: 'First seen',
             key: 'created',
             render: function Render(_: string, person: PersonType) {
-                return <> {dayjs(person.created_at).fromNow()}</>
+                return person.created_at ? <TZLabel time={person.created_at} /> : <></>
             },
         })
     }

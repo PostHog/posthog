@@ -24,7 +24,12 @@ from posthog.utils import (
     is_redis_alive,
 )
 
-from .utils import get_available_social_auth_providers, get_celery_heartbeat, get_plugin_server_version
+from .utils import (
+    get_available_social_auth_providers,
+    get_available_timezones_with_offsets,
+    get_celery_heartbeat,
+    get_plugin_server_version,
+)
 
 
 def login_required(view):
@@ -176,5 +181,6 @@ def preflight_check(_):
             else False,  # Enables E2E testing of signup flow
             "cloud": settings.MULTI_TENANCY,
             "available_social_auth_providers": get_available_social_auth_providers(),
+            "available_timezones": get_available_timezones_with_offsets(),
         }
     )

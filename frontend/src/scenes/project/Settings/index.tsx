@@ -22,10 +22,11 @@ import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { RestrictedArea } from '../../../lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from '../../../lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
+import { TimezoneConfig } from './TimezoneConfig'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { renameCurrentTeam } = useActions(teamLogic)
+    const { patchCurrentTeam } = useActions(teamLogic)
 
     const [name, setName] = useState(currentTeam?.name || '')
 
@@ -50,7 +51,7 @@ function DisplayName(): JSX.Element {
                 type="primary"
                 onClick={(e) => {
                     e.preventDefault()
-                    renameCurrentTeam(name)
+                    patchCurrentTeam({ name })
                 }}
                 disabled={!name || !currentTeam || name === currentTeam.name}
                 loading={currentTeamLoading}
@@ -146,11 +147,21 @@ export function ProjectSettings(): JSX.Element {
                 Write-only means it can only create new events. It can't read events or any of your other data stored
                 with PostHog, so it's safe to use in public apps.
                 <Divider />
-                <h2 className="subtitle" id="testaccounts">
-                    Filter out test accounts and team members
+                <h2 className="subtitle" id="timezone">
+                    Timezone
+                </h2>
+                <p>Set the timezone for your project so that you can see relevant time conversions in PostHog.</p>
+                <TimezoneConfig />
+                <Divider />
+                <h2 className="subtitle" id="internal-users-filtering">
+                    Filtering out internal and test users
                 </h2>
                 <p>
-                    Filter out test accounts and internal team members from all your queries for more accurate insights.
+                    Increase the quality of your analytics results by filtering out internal users such as test accounts
+                    and team members from queries. This way only <b>real user data</b> will be taken into account.
+                </p>
+                <p>
+                    <i>For best effectiveness, make sure to properly define internal users with the filters below.</i>
                 </p>
                 <TestAccountFiltersConfig />
                 <Divider />

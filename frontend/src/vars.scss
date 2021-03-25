@@ -56,6 +56,11 @@ $purple_700: #7c4286;
 $purple_500: #c278cf;
 $purple_300: #dcb1e3;
 
+// High-contrast colors
+$hc_navy: #35416b; // paired with $hc_light_lilac or $hc_yellow
+$hc_light_lilac: #ead1ee; // paired with $hc_navy
+$hc_yellow: #fbd577;
+
 // Gradients
 $sky: linear-gradient(180deg, #373088 0%, #d05783 60.94%, #ffb269 100%);
 $dusk_sky: linear-gradient(180deg, #20305a 0%, #373088 33.85%, #d05783 100%);
@@ -69,6 +74,17 @@ $gosha_sans: 'GoshaSans-Bold', -apple-system, BlinkMacSystemFont, 'Segoe UI', Ro
 .mixin-elevated {
     box-shadow: 0px 80px 80px rgba(0, 0, 0, 0.075), 0px 10px 10px rgba(0, 0, 0, 0.035) !important;
 }
+
+.mixin-gradient-overlay {
+    content: '';
+    width: 100%;
+    height: 3rem;
+    background: linear-gradient(to top, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0));
+    position: absolute;
+    pointer-events: none;
+    bottom: 0;
+}
+
 $default_spacing: 16px;
 $radius: 2px;
 $top_nav_height: 50px;
@@ -81,12 +97,13 @@ $top_nav_height: 50px;
 }
 
 // Z-indexes
-$z_top_navigation: 800;
-$z_mobile_nav_overlay: 931;
+$z_command_palette: 1875;
+$z_drawer: 1000;
 $z_main_nav: 948;
 $z_pinned_dashboards_popup: 962;
-$z_drawer: 1000;
-$z_command_palette: 1875;
+$z_mobile_nav_overlay: 931;
+$z_top_navigation: 800;
+$z_content_overlay: 488;
 $z_city_background_content: 1;
 $z_city_background_image: 0;
 
