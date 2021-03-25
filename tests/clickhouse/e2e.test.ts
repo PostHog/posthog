@@ -53,7 +53,7 @@ describe('e2e clickhouse ingestion', () => {
         expect((await server.db.fetchEvents()).length).toBe(0)
         const uuid = new UUIDT().toString()
         posthog.capture('custom event', { name: 'haha', uuid })
-        await server.db.flushKafkaMessages()
+        await server.kafkaProducer?.flush()
         await delayUntilEventIngested(() => server.db.fetchEvents())
         const events = await server.db.fetchEvents()
         expect(events.length).toBe(1)

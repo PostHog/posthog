@@ -62,7 +62,7 @@ export const createTaskRunner = (server: PluginsServer): TaskWorker => async ({ 
         await loadSchedule(server)
     }
     if (task === 'flushKafkaMessages') {
-        await server.db.flushKafkaMessages()
+        await server.kafkaProducer?.flush()
     }
     server.statsd?.timing(`piscina_task.${task}`, timer)
     return response

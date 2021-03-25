@@ -302,10 +302,10 @@ describe('createTaskRunner()', () => {
     })
 
     it('handles `flushKafkaMessages` task', async () => {
-        server.db = { flushKafkaMessages: jest.fn() }
+        server.kafkaProducer = { flush: jest.fn() }
 
         await taskRunner({ task: 'flushKafkaMessages' })
 
-        expect(server.db.flushKafkaMessages).toHaveBeenCalled()
+        expect(server.kafkaProducer.flush).toHaveBeenCalled()
     })
 })
