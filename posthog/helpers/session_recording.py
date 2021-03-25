@@ -86,7 +86,14 @@ def chunk_string(string: str, chunk_length: int) -> List[str]:
 
 
 def is_unchunked_snapshot(event: Dict) -> bool:
-    return event["event"] == "$snapshot" and "chunk_id" not in event["properties"]["$snapshot_data"]
+    try:
+        is_snapshot = event["event"] == "$snapshot"
+    except KeyError:
+        raise ValueError('All events must have the event name field "event"!')
+    try:
+        return is_snapshot and "chunk_id" not in event["properties"]["$snapshot_data"]
+    except KeyError:
+        raise ValueError('$snapshot events must contain property "$snapshot_data"!')
 
 
 def compress_to_string(json_string: str) -> str:
