@@ -83,12 +83,13 @@ export function SignupSideContentHosted({ utm_tags }: { utm_tags: string }): JSX
                     </div>
                 </div>
                 <div className="alt-options">
-                    <h3>Interested in Cloud?</h3>
+                    <h3>Interested in a hosted solution?</h3>
                     <a
                         href={`https://posthog.com/pricing?o=cloud&${utm_tags}`}
                         target="_blank"
                         rel="noopener"
                         className="alt-option"
+                        style={{ border: 0 }}
                     >
                         <div>
                             <CloudFilled />

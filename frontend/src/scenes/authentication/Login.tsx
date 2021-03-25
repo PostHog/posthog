@@ -28,7 +28,7 @@ export function Login(): JSX.Element {
                             <img src={logo} alt="" />
                         </div>
                         <div className="showcase-content">
-                            <h1 className="page-title">Welcome back to PostHog!</h1>
+                            <h1 className="page-title">Welcome back!</h1>
                         </div>
                     </div>
                 </Col>
