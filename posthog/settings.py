@@ -61,6 +61,9 @@ DEBUG = get_from_env("DEBUG", False, type_cast=strtobool)
 TEST = (
     "test" in sys.argv or sys.argv[0].endswith("pytest") or get_from_env("TEST", False, type_cast=strtobool)
 )  # type: bool
+E2E_TESTING = get_from_env(
+    "E2E_TESTING", False, type_cast=strtobool,
+)  # whether the app is currently running for E2E tests
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=strtobool)
 SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=strtobool)
 
@@ -197,7 +200,7 @@ STATSD_PREFIX = os.getenv("STATSD_PREFIX", "")
 AXES_ENABLED = get_from_env("AXES_ENABLED", True, type_cast=strtobool)
 AXES_FAILURE_LIMIT = int(os.getenv("AXES_FAILURE_LIMIT", 5))
 AXES_COOLOFF_TIME = timedelta(minutes=15)
-AXES_LOCKOUT_TEMPLATE = "too_many_failed_logins.html"
+AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axess_logout"
 AXES_META_PRECEDENCE_ORDER = [
     "HTTP_X_FORWARDED_FOR",
     "REMOTE_ADDR",

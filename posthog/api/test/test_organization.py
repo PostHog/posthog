@@ -5,7 +5,6 @@ from unittest.mock import patch
 
 import pytest
 import pytz
-from django.test import tag
 from rest_framework import status
 
 from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User
