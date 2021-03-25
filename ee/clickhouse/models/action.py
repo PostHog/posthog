@@ -2,7 +2,6 @@ from typing import Dict, List, Tuple
 
 from django.forms.models import model_to_dict
 
-from ee.clickhouse.models.property import filter_element
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter
 from posthog.models.action_step import ActionStep
@@ -23,6 +22,8 @@ def format_action_filter(
         conditions: List[str] = []
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
+            from ee.clickhouse.models.property import filter_element  # prevent circular import
+
             el_conditions, element_params = filter_element(
                 model_to_dict(step), "{}_{}{}".format(action.pk, index, prepend)
             )
