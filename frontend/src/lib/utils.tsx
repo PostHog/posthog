@@ -1,12 +1,14 @@
 import React, { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
 import { toast } from 'react-toastify'
-import { Spin } from 'antd'
+import { Button, Spin } from 'antd'
 import dayjs from 'dayjs'
 import { EventType, FilterType } from '~/types'
 import { lightColors } from 'lib/colors'
 import { ActionFilter } from 'scenes/trends/trendsLogic'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { featureFlagLogic } from './logic/featureFlagLogic'
+import { open } from '@papercups-io/chat-widget'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
@@ -69,6 +71,15 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
      * @param errorDetail Error response returned from the server, or any other more specific error detail.
      * @param errorCode Error code from the server that can help track the error.
      */
+
+    const handleHelp = (): void => {
+        if (featureFlagLogic.values.featureFlags['papercups-enabled']) {
+            open()
+        } else {
+            window.open('https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast')
+        }
+    }
+
     toast.error(
         <div>
             <h1>
@@ -84,13 +95,9 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
             <div className="action-bar">
                 {errorCode && <span>Code: {errorCode}</span>}
                 <span className="help-button">
-                    <a
-                        href="https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast"
-                        target="_blank"
-                        rel="noopener"
-                    >
+                    <Button type="link" onClick={handleHelp}>
                         <CustomerServiceOutlined /> Need help?
-                    </a>
+                    </Button>
                 </span>
             </div>
         </div>,
