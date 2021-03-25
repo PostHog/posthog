@@ -32,6 +32,9 @@ export const dashboardLogic = kea({
         updateAndRefreshDashboard: true,
         setDates: (dateFrom, dateTo, reloadDashboard = true) => ({ dateFrom, dateTo, reloadDashboard }),
         addGraph: true, // takes the user to insights to add a graph
+        setNewTag: (newTag) => ({ newTag }), // string or null (null = not adding a tag)
+        deleteTag: (tag) => ({ tag }),
+        saveNewTag: (tag) => ({ tag }),
     }),
 
     loaders: ({ actions, props }) => ({
@@ -122,6 +125,12 @@ export const dashboardLogic = kea({
             null,
             {
                 setDashboardMode: (_, { source }) => source, // used to determine what input to focus on edit mode
+            },
+        ],
+        newTag: [
+            null,
+            {
+                setNewTag: (_, { newTag }) => newTag,
             },
         ],
     }),
@@ -364,6 +373,13 @@ export const dashboardLogic = kea({
             router.actions.push(
                 `/insights?insight=TRENDS#backTo=${values.dashboard.name}&backToURL=/dashboard/${values.dashboard.id}`
             )
+        },
+        saveNewTag: ({ tag }) => {
+            actions.setNewTag(null)
+            actions.triggerDashboardUpdate({ tags: [...values.dashboard.tags, tag] })
+        },
+        deleteTag: ({ tag }) => {
+            actions.triggerDashboardUpdate({ tags: values.dashboard.tags.filter((_tag) => _tag !== tag) })
         },
     }),
 })

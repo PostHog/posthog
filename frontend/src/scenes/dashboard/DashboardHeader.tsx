@@ -1,5 +1,5 @@
-import { isMobile, Loading } from 'lib/utils'
-import { Button, Card, Dropdown, Input, Menu, Select, Tooltip } from 'antd'
+import { colorForString, isMobile, Loading } from 'lib/utils'
+import { Button, Card, Dropdown, Input, Menu, Select, Tag, Tooltip } from 'antd'
 import React, { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -14,6 +14,7 @@ import {
     FullscreenExitOutlined,
     ShareAltOutlined,
     PlusOutlined,
+    SyncOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
 import dayjs from 'dayjs'
@@ -24,12 +25,21 @@ import { HotkeyButton } from 'lib/components/HotkeyButton'
 import { router } from 'kea-router'
 
 export function DashboardHeader(): JSX.Element {
-    const { dashboard, dashboardMode, lastDashboardModeSource } = useValues(dashboardLogic)
-    const { addNewDashboard, triggerDashboardUpdate, setDashboardMode, addGraph } = useActions(dashboardLogic)
+    const { dashboard, dashboardMode, lastDashboardModeSource, newTag } = useValues(dashboardLogic)
+    const {
+        addNewDashboard,
+        triggerDashboardUpdate,
+        setDashboardMode,
+        addGraph,
+        setNewTag,
+        saveNewTag,
+        deleteTag,
+    } = useActions(dashboardLogic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [newName, setNewName] = useState(dashboard.name) // Used to update the input immediately, debouncing API calls
     const [newDescription, setNewDescription] = useState(dashboard.description) // Used to update the input immediately, debouncing API calls
+    const { updateDashboardLoading } = useValues(dashboardsModel)
 
     const nameInputRef = useRef<Input | null>(null)
     const descriptionInputRef = useRef<HTMLInputElement | null>(null)
@@ -227,7 +237,48 @@ export function DashboardHeader(): JSX.Element {
                     </>
                 )}
             </div>
-
+            <div className="mb">
+                {dashboard.tags.map((tag: string, index: number) => {
+                    return (
+                        <Tag
+                            key={index}
+                            color={colorForString(tag)}
+                            closable
+                            className="tag-wrapper"
+                            onClose={() => deleteTag(tag)}
+                        >
+                            {tag}
+                        </Tag>
+                    )
+                })}
+                <span className="tag-wrapper" style={{ display: 'inline-flex' }}>
+                    <Tag
+                        onClick={() => setNewTag('')}
+                        data-attr="button-add-tag"
+                        style={{
+                            cursor: 'pointer',
+                            borderStyle: 'dashed',
+                            backgroundColor: '#ffffff',
+                            display: newTag !== null ? 'none' : 'initial',
+                        }}
+                    >
+                        <PlusOutlined /> New Tag
+                    </Tag>
+                    <Input
+                        type="text"
+                        size="small"
+                        onBlur={() => setNewTag(null)}
+                        //ref={addTagInput}
+                        style={{ width: 78, display: newTag === null ? 'none' : 'flex' }}
+                        value={newTag}
+                        onChange={(e) => setNewTag(e.target.value)}
+                        onPressEnter={() => saveNewTag(newTag)}
+                        disabled={updateDashboardLoading}
+                        prefix={updateDashboardLoading ? <SyncOutlined spin /> : null}
+                        placeholder="new-tag"
+                    />
+                </span>
+            </div>
             <Card className="dashboard-description">
                 {dashboardMode === DashboardMode.Edit ? (
                     <Input.TextArea
