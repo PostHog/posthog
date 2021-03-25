@@ -98,7 +98,7 @@ export function PersonsTable({
         render: function Render(_: string, person: PersonType, index: number) {
             return (
                 <>
-                    <Link to={linkToPerson(person)} data-attr={'goto-person-arrow-' + index}>
+                    <Link to={linkToPerson(person)} data-attr={'goto-person-arrow-' + index} data-test-goto-person>
                         <ArrowRightOutlined />
                         {allColumns ? ' view' : ''}
                     </Link>

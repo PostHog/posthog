@@ -46,6 +46,7 @@ export function PersonCohorts(): JSX.Element {
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             onRow={(cohort) => ({
                 onClick: () => navigateToCohort(cohort),
+                'data-test-cohort-row': cohort.id,
             })}
             locale={{ emptyText: 'Person belongs to no cohorts' }}
         />
