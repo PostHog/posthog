@@ -138,21 +138,34 @@ class EventManager(models.QuerySet):
     def filter_by_element(self, filters: Dict, team_id: int):
         groups = ElementGroup.objects.filter(team_id=team_id)
 
+        filter = Q()
         if filters.get("selector"):
             selector = Selector(filters["selector"])
-            subqueries, filter = self._element_subquery(selector)
+            subqueries, subq_filter = self._element_subquery(selector)
+            filter = Q(**subq_filter)
             groups = groups.annotate(**subqueries)  # type: ignore
         else:
-            filter = {}
+            filter = Q()
 
         for key in ["tag_name", "text", "href"]:
-            if filters.get(key):
-                filter["element__{}".format(key)] = filters[key]
+            values = filters.get(key, [])
+
+            if not values:
+                continue
+
+            values = values if isinstance(values, list) else [values]
+            if len(values) == 0:
+                continue
+
+            condition = Q()
+            for searched_value in values:
+                condition |= Q(**{"element__{}".format(key): searched_value})
+            filter &= condition
 
         if not filter:
             return {}
 
-        groups = groups.filter(**filter)
+        groups = groups.filter(filter)
         return {"elements_hash__in": groups.values_list("hash", flat=True)}
 
     def filter_by_url(self, action_step: ActionStep, subquery: QuerySet):
