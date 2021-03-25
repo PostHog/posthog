@@ -149,6 +149,10 @@ class EventManager(models.QuerySet):
 
         for key in ["tag_name", "text", "href"]:
             values = filters.get(key, [])
+
+            if not values:
+                continue
+
             values = values if isinstance(values, list) else [values]
             if len(values) == 0:
                 continue
