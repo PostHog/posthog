@@ -66,7 +66,6 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         return instance
 
     def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:  # type: ignore
-        raise serializers.ValidationError("Nossir!")
         request = self.context["request"]
         try:
             validated_key = validated_data.get("key", None)
