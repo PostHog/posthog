@@ -1,6 +1,6 @@
 import { Input, Tag } from 'antd'
 import { colorForString } from 'lib/utils'
-import React, { CSSProperties, useEffect, useState } from 'react'
+import React, { CSSProperties, useEffect, useRef, useState } from 'react'
 import { PlusOutlined, SyncOutlined, CloseOutlined } from '@ant-design/icons'
 
 interface ObjectTagsInterface {
@@ -9,7 +9,14 @@ interface ObjectTagsInterface {
     onTagDelete: (tag: string) => void
     saving: boolean
     style?: CSSProperties
-    disabledChanges?: boolean
+    staticOnly?: boolean // whether tags can be added or removed
+}
+
+const COLOR_OVERRIDES: Record<string, string> = {
+    official: 'green',
+    approved: 'green',
+    verified: 'green',
+    deprecated: 'red',
 }
 
 export function ObjectTags({
@@ -18,7 +25,7 @@ export function ObjectTags({
     onTagDelete,
     saving,
     style,
-    disabledChanges,
+    staticOnly,
 }: ObjectTagsInterface): JSX.Element {
     const [addingNewTag, setAddingNewTag] = useState(false)
     const [newTag, setNewTag] = useState('')
@@ -29,6 +36,8 @@ export function ObjectTags({
         onTagDelete(tag)
     }
 
+    const addInput = useRef<Input | null>(null)
+
     useEffect(() => {
         if (!saving) {
             setAddingNewTag(false)
@@ -36,13 +45,17 @@ export function ObjectTags({
         }
     }, [saving])
 
+    useEffect(() => {
+        addingNewTag && addInput.current?.focus()
+    }, [addingNewTag])
+
     return (
         <div style={style}>
             {tags.map((tag, index) => {
                 return (
-                    <Tag key={index} color={colorForString(tag)}>
+                    <Tag key={index} color={COLOR_OVERRIDES[tag] || colorForString(tag)}>
                         {tag}{' '}
-                        {!disabledChanges &&
+                        {!staticOnly &&
                             (deletedTags.includes(tag) ? (
                                 <SyncOutlined spin />
                             ) : (
@@ -51,7 +64,7 @@ export function ObjectTags({
                     </Tag>
                 )
             })}
-            {!disabledChanges && (
+            {!staticOnly && (
                 <span style={{ display: 'inline-flex' }}>
                     <Tag
                         onClick={() => setAddingNewTag(true)}
@@ -69,14 +82,14 @@ export function ObjectTags({
                         type="text"
                         size="small"
                         onBlur={() => setAddingNewTag(false)}
-                        //ref={addTagInput}
+                        ref={addInput}
                         style={{ width: 78, display: !addingNewTag ? 'none' : 'flex' }}
                         value={newTag}
                         onChange={(e) => setNewTag(e.target.value)}
                         onPressEnter={() => onTagSave(newTag)}
                         disabled={saving}
                         prefix={saving ? <SyncOutlined spin /> : null}
-                        placeholder="new-tag"
+                        placeholder='try "official"'
                     />
                 </span>
             )}
