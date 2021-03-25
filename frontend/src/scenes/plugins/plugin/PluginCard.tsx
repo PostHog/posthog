@@ -195,6 +195,7 @@ export function PluginCard({
                                     loading={!!updatingPlugin}
                                     icon={updateStatus?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
                                     disabled={rearranging}
+                                    data-attr="plugin-update"
                                 >
                                     <span className="show-over-500">
                                         {updateStatus?.updated ? 'Updated' : 'Update'}
@@ -206,6 +207,7 @@ export function PluginCard({
                                     className="padding-under-500"
                                     disabled={rearranging}
                                     onClick={() => editPlugin(pluginId)}
+                                    data-attr="plugin-configure"
                                 >
                                     <SettingOutlined />
                                     <span className="show-over-500">Configure</span>
@@ -220,6 +222,7 @@ export function PluginCard({
                                         url ? () => installPlugin(url, PluginInstallationType.Repository) : undefined
                                     }
                                     icon={<CloudDownloadOutlined />}
+                                    data-attr="plugin-install"
                                 >
                                     <span className="show-over-500">Install</span>
                                 </Button>
