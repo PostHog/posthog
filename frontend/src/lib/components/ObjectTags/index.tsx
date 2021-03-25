@@ -5,9 +5,9 @@ import { PlusOutlined, SyncOutlined, CloseOutlined } from '@ant-design/icons'
 
 interface ObjectTagsInterface {
     tags: string[]
-    onTagSave: (tag: string) => void
-    onTagDelete: (tag: string) => void
-    saving: boolean
+    onTagSave?: (tag: string) => void
+    onTagDelete?: (tag: string) => void
+    saving?: boolean
     style?: CSSProperties
     staticOnly?: boolean // whether tags can be added or removed
 }
@@ -21,9 +21,9 @@ const COLOR_OVERRIDES: Record<string, string> = {
 
 export function ObjectTags({
     tags,
-    onTagSave,
-    onTagDelete,
-    saving,
+    onTagSave, // Required unless `staticOnly`
+    onTagDelete, // Required unless `staticOnly`
+    saving, // Required unless `staticOnly`
     style,
     staticOnly,
 }: ObjectTagsInterface): JSX.Element {
@@ -33,7 +33,7 @@ export function ObjectTags({
 
     const handleDelete = (tag: string): void => {
         setDeletedTags([...deletedTags, tag])
-        onTagDelete(tag)
+        onTagDelete && onTagDelete(tag)
     }
 
     const addInput = useRef<Input | null>(null)
@@ -56,6 +56,7 @@ export function ObjectTags({
                     <Tag key={index} color={COLOR_OVERRIDES[tag] || colorForString(tag)}>
                         {tag}{' '}
                         {!staticOnly &&
+                            onTagDelete &&
                             (deletedTags.includes(tag) ? (
                                 <SyncOutlined spin />
                             ) : (
@@ -64,7 +65,7 @@ export function ObjectTags({
                     </Tag>
                 )
             })}
-            {!staticOnly && (
+            {!staticOnly && onTagSave && saving !== undefined && (
                 <span style={{ display: 'inline-flex' }}>
                     <Tag
                         onClick={() => setAddingNewTag(true)}

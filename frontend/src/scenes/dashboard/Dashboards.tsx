@@ -11,12 +11,13 @@ import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 import { PageHeader } from 'lib/components/PageHeader'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 import { DashboardType } from '~/types'
+import { ObjectTags } from 'lib/components/ObjectTags'
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard } = useActions(dashboardsModel)
     const { setNewDashboardDrawer } = useActions(dashboardsLogic)
-    const { dashboards, newDashboardDrawer } = useValues(dashboardsLogic)
+    const { dashboards, newDashboardDrawer, dashboardTags } = useValues(dashboardsLogic)
 
     const columns = [
         {
@@ -40,13 +41,43 @@ export function Dashboards(): JSX.Element {
             title: 'Dashboard',
             dataIndex: 'name',
             key: 'name',
-            render: function RenderName(name: string, { id }: { id: number }) {
+            render: function Render(name: string, { id }: { id: number }) {
                 return (
                     <Link data-attr="dashboard-name" to={`/dashboard/${id}`}>
                         {name || 'Untitled'}
                     </Link>
                 )
             },
+        },
+        {
+            title: 'Description',
+            dataIndex: 'description',
+            key: 'description',
+            render: function Render(description: string) {
+                return (
+                    <>
+                        {description || (
+                            <span style={{ color: 'var(--text-muted)' }}>Dashboard has no description</span>
+                        )}
+                    </>
+                )
+            },
+        },
+        {
+            title: 'Tags',
+            dataIndex: 'tags',
+            key: 'tags',
+            render: function Render(tags: string[]) {
+                return tags.length ? (
+                    <ObjectTags tags={tags} staticOnly />
+                ) : (
+                    <span style={{ color: 'var(--text-muted)' }}>Dashboard has no tags</span>
+                )
+            },
+            filters: dashboardTags.map((tag) => {
+                return { text: tag, value: tag }
+            }),
+            onFilter: (value: string, record: DashboardType) => record.tags.includes(value),
         },
         createdAtColumn(),
         createdByColumn(dashboards),
