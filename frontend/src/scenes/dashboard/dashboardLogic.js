@@ -32,7 +32,6 @@ export const dashboardLogic = kea({
         updateAndRefreshDashboard: true,
         setDates: (dateFrom, dateTo, reloadDashboard = true) => ({ dateFrom, dateTo, reloadDashboard }),
         addGraph: true, // takes the user to insights to add a graph
-        setNewTag: (newTag) => ({ newTag }), // string or null (null = not adding a tag)
         deleteTag: (tag) => ({ tag }),
         saveNewTag: (tag) => ({ tag }),
     }),
@@ -125,12 +124,6 @@ export const dashboardLogic = kea({
             null,
             {
                 setDashboardMode: (_, { source }) => source, // used to determine what input to focus on edit mode
-            },
-        ],
-        newTag: [
-            null,
-            {
-                setNewTag: (_, { newTag }) => newTag,
             },
         ],
     }),
@@ -375,10 +368,14 @@ export const dashboardLogic = kea({
             )
         },
         saveNewTag: ({ tag }) => {
-            actions.setNewTag(null)
             actions.triggerDashboardUpdate({ tags: [...values.dashboard.tags, tag] })
         },
-        deleteTag: ({ tag }) => {
+        deleteTag: async ({ tag }, breakpoint) => {
+            await breakpoint(100)
+            console.log(
+                tag,
+                values.dashboard.tags.filter((_tag) => _tag !== tag)
+            )
             actions.triggerDashboardUpdate({ tags: values.dashboard.tags.filter((_tag) => _tag !== tag) })
         },
     }),
