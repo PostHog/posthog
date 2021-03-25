@@ -83,30 +83,36 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
         posthog.capture('error toast help requested', { papercups_enabled: papercupsOn }) // Can't use eventUsageLogic here, not mounted
     }
 
-    toast.error(
-        <div>
-            <h1>
-                <ExclamationCircleOutlined /> {title || 'Something went wrong'}
-            </h1>
-            <p>
-                {message || 'We could not complete your action. Detailed error:'}{' '}
-                <span className="error-details">{errorDetail || 'Unknown exception.'}</span>
-            </p>
-            <p className="mt-05">
-                Please <b>try again or contact us</b> if the error persists.
-            </p>
-            <div className="action-bar">
-                {errorCode && <span>Code: {errorCode}</span>}
-                <span className="help-button">
-                    <Button type="link" onClick={handleHelp}>
-                        <CustomerServiceOutlined /> Need help?
-                    </Button>
-                </span>
-            </div>
-        </div>,
-        {
-            toastId: 'error', // will ensure only one error is displayed at a time
-        }
+    toast.dismiss('error') // This will ensure only the last error is shown
+
+    setTimeout(
+        () =>
+            toast.error(
+                <div>
+                    <h1>
+                        <ExclamationCircleOutlined /> {title || 'Something went wrong'}
+                    </h1>
+                    <p>
+                        {message || 'We could not complete your action. Detailed error:'}{' '}
+                        <span className="error-details">{errorDetail || 'Unknown exception.'}</span>
+                    </p>
+                    <p className="mt-05">
+                        Please <b>try again or contact us</b> if the error persists.
+                    </p>
+                    <div className="action-bar">
+                        {errorCode && <span>Code: {errorCode}</span>}
+                        <span className="help-button">
+                            <Button type="link" onClick={handleHelp}>
+                                <CustomerServiceOutlined /> Need help?
+                            </Button>
+                        </span>
+                    </div>
+                </div>,
+                {
+                    toastId: 'error', // will ensure only one error is displayed at a time
+                }
+            ),
+        100
     )
 }
 
