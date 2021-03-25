@@ -3,12 +3,13 @@ import { PluginAttachment, PluginConfigSchema, PluginEvent, Properties } from '@
 import { Pool as GenericPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
-import { Kafka, Producer } from 'kafkajs'
+import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
 import { DB } from './shared/db'
+import { KafkaProducerWrapper } from './shared/kafka-producer-wrapper'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { LazyPluginVM } from './worker/vm/lazy'
 
@@ -39,6 +40,9 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_CLIENT_CERT_KEY_B64: string | null
     KAFKA_TRUSTED_CERT_B64: string | null
     KAFKA_CONSUMPTION_TOPIC: string | null
+    KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
+    KAFKA_MAX_MESSAGE_BATCH_SIZE: number
+    KAFKA_FLUSH_FREQUENCY_MS: number
     PLUGINS_CELERY_QUEUE: string
     REDIS_URL: string
     BASE_DIR: string
@@ -64,7 +68,7 @@ export interface PluginsServer extends PluginsServerConfig {
     redisPool: GenericPool<Redis>
     clickhouse?: ClickHouse
     kafka?: Kafka
-    kafkaProducer?: Producer
+    kafkaProducer?: KafkaProducerWrapper
     statsd?: StatsD
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>

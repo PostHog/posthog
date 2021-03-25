@@ -32,7 +32,7 @@ export function createPosthog(server: PluginsServer, pluginConfig: PluginConfig)
                 throw new Error('kafkaProducer not configured!')
             }
             // ignore the promise, run in the background just like with celery
-            void server.db.queueKafkaMessage({
+            void server.kafkaProducer.queueMessage({
                 topic: server.KAFKA_CONSUMPTION_TOPIC!,
                 messages: [
                     {
