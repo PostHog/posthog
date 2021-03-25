@@ -74,6 +74,7 @@ export const eventUsageLogic = kea<
         reportDashboardRenamed: (originalLength: number, newLength: number) => ({ originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
+        reportErrorToastHelp: (papercupsEnabled: boolean) => ({ papercupsEnabled }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -292,6 +293,9 @@ export const eventUsageLogic = kea<
         },
         reportUpgradeModalShown: async ({ featureName }) => {
             posthog.capture('upgrade modal shown', { featureName })
+        },
+        reportErrorToastHelp: async ({ papercupsEnabled }) => {
+            posthog.capture('error toast help requested', { papercups_enabled: papercupsEnabled })
         },
     },
 })

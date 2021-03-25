@@ -9,6 +9,7 @@ import { ActionFilter } from 'scenes/trends/trendsLogic'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './logic/featureFlagLogic'
 import { open } from '@papercups-io/chat-widget'
+import { eventUsageLogic } from './utils/eventUsageLogic'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
@@ -73,11 +74,13 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
      */
 
     const handleHelp = (): void => {
-        if (featureFlagLogic.values.featureFlags['papercups-enabled']) {
+        const papercupsOn = featureFlagLogic.values.featureFlags['papercups-enabled']
+        if (papercupsOn) {
             open()
         } else {
             window.open('https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast')
         }
+        eventUsageLogic.actions.reportErrorToastHelp(papercupsOn)
     }
 
     toast.error(
