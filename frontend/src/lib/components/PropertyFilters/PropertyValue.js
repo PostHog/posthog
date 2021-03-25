@@ -20,27 +20,27 @@ export function PropertyValue({
     const [optionsCache, setOptionsCache] = useState({})
     const [options, setOptions] = useState({})
 
-    function loadPropertyValues(_value) {
+    function loadPropertyValues(newInput) {
         if (type === 'cohort') {
             return
         }
         let key = propertyKey.split('__')[0]
         setOptions({ [propertyKey]: { ...options[propertyKey], status: 'loading' }, ...options })
-        setOptionsCache({ ...optionsCache, [_value]: 'loading' })
+        setOptionsCache({ ...optionsCache, [newInput]: 'loading' })
         if (outerOptions) {
             setOptions({
                 [propertyKey]: { values: [...new Set([...outerOptions.map((option) => option)])], status: true },
                 ...options,
             })
-            setOptionsCache({ ...optionsCache, [_value]: true })
+            setOptionsCache({ ...optionsCache, [newInput]: true })
         } else {
-            api.get(endpoint || 'api/' + type + '/values/?key=' + key + (_value ? '&value=' + _value : '')).then(
+            api.get(endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '')).then(
                 (propValues) => {
                     setOptions({
                         [propertyKey]: { values: [...new Set([...propValues.map((option) => option)])], status: true },
                         ...options,
                     })
-                    setOptionsCache({ ...optionsCache, [_value]: true })
+                    setOptionsCache({ ...optionsCache, [newInput]: true })
                 }
             )
         }
@@ -66,7 +66,7 @@ export function PropertyValue({
                 style={{ width: '100%', ...style }}
                 onChange={(_, payload) => {
                     if (isOperatorMulti(operator) && payload.length > 0) {
-                        onSet(payload.map(({ _value }) => _value))
+                        onSet(payload.map(({ value: val }) => val))
                     } else {
                         onSet((payload && payload.value) || null)
                     }
