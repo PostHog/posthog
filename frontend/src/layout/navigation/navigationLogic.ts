@@ -6,6 +6,7 @@ import { navigationLogicType } from './navigationLogicType'
 import { OrganizationType, SystemStatus, UserType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import dayjs from 'dayjs'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 type WarningType =
     | 'welcome'
@@ -155,6 +156,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
         },
         setHotkeyNavigationEngaged: async ({ hotkeyNavigationEngaged }, breakpoint) => {
             if (hotkeyNavigationEngaged) {
+                eventUsageLogic.actions.reportHotkeyNavigation('global', 'g')
                 await breakpoint(3000)
                 actions.setHotkeyNavigationEngaged(false)
             }

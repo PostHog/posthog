@@ -48,6 +48,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { DisplayType, FilterType, HotKeys } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
@@ -121,34 +122,40 @@ export function Insights(): JSX.Element {
     )
     const { setActiveView } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { reportHotkeyNavigation } = useActions(eventUsageLogic)
 
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
     const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
+
+    const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
+        setActiveView(view)
+        reportHotkeyNavigation('insights', hotkey)
+    }
 
     useKeyboardHotkeys(
         featureFlags['hotkeys-3740']
             ? {
                   t: {
-                      action: () => setActiveView(ViewType.TRENDS),
+                      action: () => handleHotkeyNavigation(ViewType.TRENDS, 't'),
                   },
                   f: {
-                      action: () => setActiveView(ViewType.FUNNELS),
+                      action: () => handleHotkeyNavigation(ViewType.FUNNELS, 'f'),
                   },
                   s: {
-                      action: () => setActiveView(ViewType.SESSIONS),
+                      action: () => handleHotkeyNavigation(ViewType.SESSIONS, 's'),
                   },
                   r: {
-                      action: () => setActiveView(ViewType.RETENTION),
+                      action: () => handleHotkeyNavigation(ViewType.RETENTION, 'r'),
                   },
                   p: {
-                      action: () => setActiveView(ViewType.PATHS),
+                      action: () => handleHotkeyNavigation(ViewType.PATHS, 'p'),
                   },
                   k: {
-                      action: () => setActiveView(ViewType.STICKINESS),
+                      action: () => handleHotkeyNavigation(ViewType.STICKINESS, 'k'),
                       disabled: !featureFlags['remove-shownas'],
                   },
                   l: {
-                      action: () => setActiveView(ViewType.LIFECYCLE),
+                      action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
                       disabled: !featureFlags['remove-shownas'],
                   },
               }

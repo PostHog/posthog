@@ -37,6 +37,7 @@ import { canViewPlugins } from '../../scenes/plugins/access'
 import { useGlobalKeyboardHotkeys, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { router } from 'kea-router'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 // to show the right page in the sidebar
 const sceneOverride: Record<string, string> = {
@@ -60,6 +61,7 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
     const { hotkeyNavigationEngaged } = useValues(navigationLogic)
     const { collapseMenu, setHotkeyNavigationEngaged } = useActions(navigationLogic)
     const { push } = useActions(router)
+    const { reportHotkeyNavigation } = useActions(eventUsageLogic)
 
     function activeScene(): string {
         const nominalScene = loadingScene || scene
@@ -82,6 +84,7 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
                           if (to) {
                               push(to)
                           }
+                          reportHotkeyNavigation('global', hotkey)
                       },
                   },
               }

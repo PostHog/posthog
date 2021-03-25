@@ -4,7 +4,7 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
-import { AnnotationType, FilterType, DashboardType, PersonType, DashboardMode } from '~/types'
+import { AnnotationType, FilterType, DashboardType, PersonType, DashboardMode, HotKeys, GlobalHotKeys } from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 import dayjs from 'dayjs'
 
@@ -74,6 +74,7 @@ export const eventUsageLogic = kea<
         reportDashboardRenamed: (originalLength: number, newLength: number) => ({ originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
+        reportHotkeyNavigation: (scope: 'global' | 'insights', hotkey: HotKeys | GlobalHotKeys) => ({ scope, hotkey }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -276,8 +277,8 @@ export const eventUsageLogic = kea<
                 date_to: dateTo?.toString(),
             })
         },
-        reportDashboardPinToggled: async ({ pinned, source }) => {
-            posthog.capture(`dashboard pin toggled`, { pinned: pinned, source })
+        reportDashboardPinToggled: async (payload) => {
+            posthog.capture(`dashboard pin toggled`, payload)
         },
         reportDashboardDropdownNavigation: async () => {
             /* Triggered when a user navigates using the dropdown in the header.
@@ -290,8 +291,11 @@ export const eventUsageLogic = kea<
         reportDashboardShareToggled: async ({ isShared }) => {
             posthog.capture(`dashboard share toggled`, { is_shared: isShared })
         },
-        reportUpgradeModalShown: async ({ featureName }) => {
-            posthog.capture('upgrade modal shown', { featureName })
+        reportUpgradeModalShown: async (payload) => {
+            posthog.capture('upgrade modal shown', payload)
+        },
+        reportHotkeyNavigation: async (payload) => {
+            posthog.capture('hotkey navigation', payload)
         },
     },
 })
