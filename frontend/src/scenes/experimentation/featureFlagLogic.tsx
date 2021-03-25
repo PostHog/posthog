@@ -13,7 +13,7 @@ const NEW_FLAG = {
     name: '',
     filters: { groups: [{ properties: [], rollout_percentage: null }] },
     deleted: false,
-    active: true,
+    active: false,
     created_by: null,
     is_simple_flag: false,
     rollout_percentage: null,
