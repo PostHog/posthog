@@ -372,10 +372,6 @@ export const dashboardLogic = kea({
         },
         deleteTag: async ({ tag }, breakpoint) => {
             await breakpoint(100)
-            console.log(
-                tag,
-                values.dashboard.tags.filter((_tag) => _tag !== tag)
-            )
             actions.triggerDashboardUpdate({ tags: values.dashboard.tags.filter((_tag) => _tag !== tag) })
         },
     }),

@@ -46,9 +46,17 @@ export const dashboardsModel = kea({
                 return result
             },
             updateDashboard: async ({ id, ...payload }, breakpoint) => {
+                if (!Object.entries(payload).length) {
+                    return
+                }
                 await breakpoint(700)
                 const response = await api.update(`api/dashboard/${id}`, payload)
-                console.log(values) // :TODO: Temp
+                const attribute = Object.keys(payload)[0]
+                eventUsageLogic.actions.reportDashboardFrontEndUpdate(
+                    attribute,
+                    values.rawDashboards[id][attribute].length,
+                    payload[attribute].length
+                )
                 return response
             },
             setIsSharedDashboard: async ({ id, isShared }) =>

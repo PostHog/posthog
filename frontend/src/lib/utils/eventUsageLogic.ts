@@ -72,7 +72,11 @@ export const eventUsageLogic = kea<
             source,
         }),
         reportDashboardDropdownNavigation: true,
-        reportDashboardRenamed: (originalLength: number, newLength: number) => ({ originalLength, newLength }),
+        reportDashboardFrontEndUpdate: (
+            attribute: 'name' | 'description' | 'tags',
+            originalLength: number,
+            newLength: number
+        ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
     },
@@ -285,8 +289,12 @@ export const eventUsageLogic = kea<
              */
             posthog.capture(`dashboard dropdown navigated`)
         },
-        reportDashboardRenamed: async ({ originalLength, newLength }) => {
-            posthog.capture(`dashboard renamed`, { original_length: originalLength, new_length: newLength })
+        reportDashboardFrontEndUpdate: async ({ attribute, originalLength, newLength }) => {
+            posthog.capture(`dashboard frontend updated`, {
+                attribute,
+                original_length: originalLength,
+                new_length: newLength,
+            })
         },
         reportDashboardShareToggled: async ({ isShared }) => {
             posthog.capture(`dashboard share toggled`, { is_shared: isShared })
