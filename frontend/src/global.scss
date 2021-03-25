@@ -532,6 +532,7 @@ code.code {
 // Hotkey styles
 .hotkey {
     padding: 0 6px;
+    min-width: 22px;
     border-radius: $radius;
     font-weight: bold;
     margin-left: 6px;
@@ -542,4 +543,5 @@ code.code {
     border: 1px solid $border_light;
     margin-bottom: 2px;
     font-size: 0.85rem;
+    text-align: center;
 }

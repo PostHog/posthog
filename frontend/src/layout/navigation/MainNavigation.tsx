@@ -97,7 +97,9 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, onClick }: MenuItemProp
             >
                 {icon}
                 <span className="menu-title text-center">{title}</span>
-                {hotkeyNavigationEngaged && hotkey}
+                {hotkey && (
+                    <span className={`hotkey${hotkeyNavigationEngaged ? '' : ' hide'}`}>{hotkey.toUpperCase()}</span>
+                )}
             </div>
         </Link>
     )
@@ -228,7 +230,13 @@ export function MainNavigation(): JSX.Element {
                         </Link>
                     </div>
                     {currentOrganization?.setup.is_active && (
-                        <MenuItem title="Setup" icon={<SettingOutlined />} identifier="onboardingSetup" to="/setup" />
+                        <MenuItem
+                            title="Setup"
+                            icon={<SettingOutlined />}
+                            identifier="onboardingSetup"
+                            to="/setup"
+                            hotkey="u"
+                        />
                     )}
                     <Popover
                         content={PinnedDashboards}
@@ -259,20 +267,33 @@ export function MainNavigation(): JSX.Element {
                     />
                     <div className="divider" />
                     <MenuItem title="Events" icon={<IconEvents />} identifier="events" to="/events" hotkey="e" />
-                    <MenuItem title="Sessions" icon={<ClockCircleFilled />} identifier="sessions" to="/sessions" />
+                    <MenuItem
+                        title="Sessions"
+                        icon={<ClockCircleFilled />}
+                        identifier="sessions"
+                        to="/sessions"
+                        hotkey="s"
+                    />
                     <div className="divider" />
                     <MenuItem title="Persons" icon={<IconPerson />} identifier="persons" to="/persons" hotkey="p" />
-                    <MenuItem title="Cohorts" icon={<IconCohorts />} identifier="cohorts" to="/cohorts" />
+                    <MenuItem title="Cohorts" icon={<IconCohorts />} identifier="cohorts" to="/cohorts" hotkey="c" />
                     <div className="divider" />
                     <MenuItem
                         title="Feat. Flags"
                         icon={<IconFeatureFlags />}
                         identifier="featureFlags"
                         to="/feature_flags"
+                        hotkey="f"
                     />
                     <div className="divider" />
                     {canViewPlugins(user?.organization) && (
-                        <MenuItem title="Plugins" icon={<ApiFilled />} identifier="plugins" to="/project/plugins" />
+                        <MenuItem
+                            title="Plugins"
+                            icon={<ApiFilled />}
+                            identifier="plugins"
+                            to="/project/plugins"
+                            hotkey="l"
+                        />
                     )}
                     <MenuItem
                         title="Annotations"
@@ -286,6 +307,7 @@ export function MainNavigation(): JSX.Element {
                         icon={<ProjectFilled />}
                         identifier="projectSettings"
                         to="/project/settings"
+                        hotkey="j"
                     />
                     <div className="divider" />
                     <MenuItem
@@ -293,6 +315,7 @@ export function MainNavigation(): JSX.Element {
                         icon={<IconToolbar />}
                         identifier="toolbar"
                         to=""
+                        hotkey="t"
                         onClick={() => setToolbarModalOpen(true)}
                     />
                     <div className={`scroll-indicator ${canScroll ? '' : 'hide'}`} onClick={scrollToBottom}>
