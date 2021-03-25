@@ -60,7 +60,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         CLICKHOUSE_USER: 'ClickHouse username',
         CLICKHOUSE_PASSWORD: 'ClickHouse password',
         CLICKHOUSE_CA: 'ClickHouse CA certs',
-        CLICKHOUSE_SECURE: 'Secure ClickHouse connection',
+        CLICKHOUSE_SECURE: 'whether to secure ClickHouse connection',
         REDIS_URL: 'Redis store URL',
         BASE_DIR: 'base path for resolving local plugins',
         PLUGINS_RELOAD_PUBSUB_CHANNEL: 'Redis channel for reload events',
@@ -68,7 +68,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         WEB_PORT: 'port for web server to listen on',
         WEB_HOSTNAME: 'hostname for web server to listen on',
         WORKER_CONCURRENCY: 'number of concurrent worker threads',
-        TASK_TIMEOUT: 'How many seconds until tasks are timed out',
+        TASK_TIMEOUT: 'how many seconds until tasks are timed out',
         TASKS_PER_WORKER: 'number of parallel tasks per worker thread',
         LOG_LEVEL: 'minimum log level',
         KAFKA_ENABLED: 'use Kafka instead of Celery to ingest events',
@@ -81,9 +81,10 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         STATSD_HOST: 'StatsD host - integration disabled if this is not provided',
         STATSD_PORT: 'StatsD port',
         STATSD_PREFIX: 'StatsD prefix',
-        SCHEDULE_LOCK_TTL: 'How many seconds to hold the lock for the schedule',
-        REDIS_POOL_MIN_SIZE: 'Minimum number of Redis connections to use per thread',
-        REDIS_POOL_MAX_SIZE: 'Maximum number of Redis connections to use per thread',
+        SCHEDULE_LOCK_TTL: 'how many seconds to hold the lock for the schedule',
+        REDIS_POOL_MIN_SIZE: 'minimum number of Redis connections to use per thread',
+        REDIS_POOL_MAX_SIZE: 'maximum number of Redis connections to use per thread',
+        DISTINCT_ID_LRU_SIZE: 'size of persons distinct ID LRU cache',
     }
 }
 

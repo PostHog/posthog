@@ -34,7 +34,9 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | BASE_DIR                      | base path for resolving local plugins                      | `'.'`                                 |
 | WORKER_CONCURRENCY            | number of concurrent worker threads                        | `0` – all cores                       |
 | TASKS_PER_WORKER              | number of parallel tasks per worker thread                 | `10`                                  |
-| SCHEDULE_LOCK_TTL             | How many seconds to hold the lock for the schedule         | `60`                                  |
+| REDIS_POOL_MIN_SIZE           | minimum number of Redis connections to use per thread      | `1`                                   |
+| REDIS_POOL_MAX_SIZE           | maximum number of Redis connections to use per thread      | `3`                                   |
+| SCHEDULE_LOCK_TTL             | how many seconds to hold the lock for the schedule         | `60`                                  |
 | CELERY_DEFAULT_QUEUE          | Celery outgoing queue                                      | `'celery'`                            |
 | PLUGINS_CELERY_QUEUE          | Celery incoming queue                                      | `'posthog-plugins'`                   |
 | PLUGINS_RELOAD_PUBSUB_CHANNEL | Redis channel for reload events                            | `'reload-plugins'`                    |
@@ -43,7 +45,7 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | CLICKHOUSE_USER               | ClickHouse username                                        | `'default'`                           |
 | CLICKHOUSE_PASSWORD           | ClickHouse password                                        | `null`                                |
 | CLICKHOUSE_CA                 | ClickHouse CA certs                                        | `null`                                |
-| CLICKHOUSE_SECURE             | Secure ClickHouse connection                               | `false`                               |
+| CLICKHOUSE_SECURE             | whether to secure ClickHouse connection                    | `false`                               |
 | KAFKA_ENABLED                 | use Kafka instead of Celery to ingest events               | `false`                               |
 | KAFKA_HOSTS                   | comma-delimited Kafka hosts                                | `null`                                |
 | KAFKA_CONSUMPTION_TOPIC       | Kafka incoming events topic                                | `'events_plugin_ingestion'`           |
@@ -61,6 +63,7 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | STATSD_HOST                   | StatsD host - integration disabled if this is not provided | `null`                                |
 | STATSD_PORT                   | StatsD port                                                | `8125`                                |
 | STATSD_PREFIX                 | StatsD prefix                                              | `'plugin-server.'`                    |
+| DISTINCT_ID_LRU_SIZE          | size of persons distinct ID LRU cache                      | `10000`                               |
 
 ## Releasing a new version
 
