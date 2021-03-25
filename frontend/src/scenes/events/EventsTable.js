@@ -102,7 +102,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                     return { props: { colSpan: 0 } }
                 }
                 return showLinkToPerson && event.person?.distinct_ids?.length ? (
-                    <Link to={`/person/${encodeURIComponent(event.person.distinct_ids[0])}`} className="ph-no-capture">
+                    <Link to={`/person/${encodeURIComponent(event.person.distinct_ids[0])}`}>
                         <PersonHeader person={event.person} />
                     </Link>
                 ) : (
