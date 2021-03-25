@@ -16,7 +16,7 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import get_target_entity
 from posthog.constants import TRENDS_LINEAR, TRENDS_TABLE
-from posthog.models import Event, Filter, Person
+from posthog.models import Cohort, Event, Filter, Person
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
@@ -308,6 +308,15 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         people = self.stickiness_class().people(target_entity, filter, team)
         next_url = paginated_result(people, request, filter.offset)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
+
+    @action(methods=["GET"], detail=False)
+    def cohorts(self, request: request.Request) -> response.Response:
+        from posthog.api.cohort import CohortSerializer
+
+        person = self.get_queryset().get(id=str(request.GET["person_id"]))
+        cohorts = Cohort.objects.annotate(count=Count("people")).filter(people__id=person.id)
+
+        return response.Response({"results": CohortSerializer(cohorts, many=True).data})
 
 
 def paginated_result(
