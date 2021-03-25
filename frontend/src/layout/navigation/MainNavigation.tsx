@@ -13,7 +13,7 @@ import {
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { triggerResizeAfterADelay } from 'lib/utils'
+import { isMobile, triggerResizeAfterADelay } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import lgLogo from 'public/posthog-logo-white.svg'
 import smLogo from 'public/icon-white.svg'
@@ -62,6 +62,7 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
     const { collapseMenu, setHotkeyNavigationEngaged } = useActions(navigationLogic)
     const { push } = useActions(router)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     function activeScene(): string {
         const nominalScene = loadingScene || scene
@@ -97,7 +98,7 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
         <Link to={to} onClick={handleClick}>
             <Tooltip
                 title={
-                    tooltip ? (
+                    tooltip && featureFlags['hotkeys-3740'] && !isMobile() ? (
                         <>
                             {tooltip}
                             {hotkey && (

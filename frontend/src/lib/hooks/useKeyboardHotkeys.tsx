@@ -42,7 +42,11 @@ function _useKeyboardHotkeys(hotkeys: AllHotkeysInterface, deps?: DependencyList
             const key = (event as KeyboardEvent).key
 
             // Ignore if the key is pressed with a meta or control key (these are general browser commands; e.g. Cmd + R)
-            if ((event as KeyboardEvent).metaKey || (event as KeyboardEvent).ctrlKey) {
+            if (
+                (event as KeyboardEvent).metaKey ||
+                (event as KeyboardEvent).ctrlKey ||
+                (event as KeyboardEvent).altKey
+            ) {
                 return
             }
 

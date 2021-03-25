@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 
-import { Loading } from 'lib/utils'
+import { isMobile, Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -109,7 +109,7 @@ const showComparePrevious = {
 function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
     /* Temporary element to only show hotkeys when feature flag is active */
     const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags['hotkeys-3740'] ? <span className="hotkey">{hotkey}</span> : <></>
+    return featureFlags['hotkeys-3740'] && !isMobile() ? <span className="hotkey">{hotkey}</span> : <></>
 }
 
 export function Insights(): JSX.Element {
