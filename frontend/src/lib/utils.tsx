@@ -9,7 +9,7 @@ import { ActionFilter } from 'scenes/trends/trendsLogic'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './logic/featureFlagLogic'
 import { open } from '@papercups-io/chat-widget'
-import { eventUsageLogic } from './utils/eventUsageLogic'
+import posthog from 'posthog-js'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
@@ -80,7 +80,7 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
         } else {
             window.open('https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast')
         }
-        eventUsageLogic.actions.reportErrorToastHelp(papercupsOn)
+        posthog.capture('error toast help requested', { papercups_enabled: papercupsOn }) // Can't use eventUsageLogic here, not mounted
     }
 
     toast.error(
