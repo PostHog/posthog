@@ -24,6 +24,7 @@ import { HotkeyButton } from 'lib/components/HotkeyButton'
 import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { dashboardsLogic } from './dashboardsLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export function DashboardHeader(): JSX.Element {
     const { dashboard, dashboardMode, lastDashboardModeSource } = useValues(dashboardLogic)
@@ -33,6 +34,7 @@ export function DashboardHeader(): JSX.Element {
     const { dashboardTags } = useValues(dashboardsLogic)
     const { dashboards, dashboardsLoading, dashboardLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
+    const { user } = useValues(userLogic)
     const [newName, setNewName] = useState(dashboard.name) // Used to update the input immediately, debouncing API calls
     const [newDescription, setNewDescription] = useState(dashboard.description) // Used to update the input immediately, debouncing API calls
 
@@ -232,45 +234,51 @@ export function DashboardHeader(): JSX.Element {
                     </>
                 )}
             </div>
-            <div className="mb">
-                <ObjectTags
-                    tags={dashboard.tags}
-                    onTagSave={saveNewTag}
-                    onTagDelete={deleteTag}
-                    saving={dashboardLoading}
-                    tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
-                />
-            </div>
-            <Card className="dashboard-description">
-                {dashboardMode === DashboardMode.Edit ? (
-                    <Input.TextArea
-                        placeholder="Add a description to your dashboard that helps others understand it better."
-                        value={newDescription}
-                        onChange={(e) => {
-                            setNewDescription(e.target.value) // To update the input immediately
-                            triggerDashboardUpdate({ description: e.target.value }) // This is breakpointed (i.e. debounced) to avoid multiple API calls
-                        }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                setDashboardMode(null, DashboardEventSource.InputEnter)
-                            }
-                        }}
-                        ref={descriptionInputRef}
-                        tabIndex={5}
-                        allowClear
-                    />
-                ) : (
-                    dashboard.description || (
-                        <Button
-                            type="link"
-                            onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.AddDescription)}
-                            style={{ width: '100%', textAlign: 'left' }}
-                        >
-                            Add a description...
-                        </Button>
-                    )
-                )}
-            </Card>
+            {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                <>
+                    <div className="mb">
+                        <ObjectTags
+                            tags={dashboard.tags}
+                            onTagSave={saveNewTag}
+                            onTagDelete={deleteTag}
+                            saving={dashboardLoading}
+                            tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
+                        />
+                    </div>
+                    <Card className="dashboard-description">
+                        {dashboardMode === DashboardMode.Edit ? (
+                            <Input.TextArea
+                                placeholder="Add a description to your dashboard that helps others understand it better."
+                                value={newDescription}
+                                onChange={(e) => {
+                                    setNewDescription(e.target.value) // To update the input immediately
+                                    triggerDashboardUpdate({ description: e.target.value }) // This is breakpointed (i.e. debounced) to avoid multiple API calls
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                        setDashboardMode(null, DashboardEventSource.InputEnter)
+                                    }
+                                }}
+                                ref={descriptionInputRef}
+                                tabIndex={5}
+                                allowClear
+                            />
+                        ) : (
+                            dashboard.description || (
+                                <Button
+                                    type="link"
+                                    onClick={() =>
+                                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.AddDescription)
+                                    }
+                                    style={{ width: '100%', textAlign: 'left' }}
+                                >
+                                    Add a description...
+                                </Button>
+                            )
+                        )}
+                    </Card>
+                </>
+            )}
         </>
     )
 }

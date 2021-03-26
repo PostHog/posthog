@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Card, Col, Drawer, Row, Spin } from 'antd'
@@ -12,12 +12,15 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 import { DashboardType } from '~/types'
 import { ObjectTags } from 'lib/components/ObjectTags'
+import { userLogic } from 'scenes/userLogic'
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard } = useActions(dashboardsModel)
     const { setNewDashboardDrawer } = useActions(dashboardsLogic)
     const { dashboards, newDashboardDrawer, dashboardTags } = useValues(dashboardsLogic)
+    const { user } = useValues(userLogic)
+    const [displayedColumns, setDisplayedColumns] = useState([] as Record<string, any>)
 
     const columns = [
         {
@@ -93,6 +96,15 @@ export function Dashboards(): JSX.Element {
         },
     ]
 
+    useEffect(() => {
+        console.log(user?.organization?.available_features)
+        if (!user?.organization?.available_features.includes('dashboard_collaboration')) {
+            setDisplayedColumns(columns.filter((col) => !['description', 'tags'].includes(col.key)))
+        } else {
+            setDisplayedColumns(columns)
+        }
+    }, [user?.organization?.available_features])
+
     return (
         <div>
             <PageHeader title="Dashboards" />
@@ -126,7 +138,7 @@ export function Dashboards(): JSX.Element {
                         rowKey="id"
                         size="small"
                         pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                        columns={columns}
+                        columns={displayedColumns}
                     />
                 ) : (
                     <div>
