@@ -1,7 +1,7 @@
 from typing import Dict, Optional
 
 from django.test import TestCase
-from rest_framework.test import APITransactionTestCase
+from rest_framework.test import APITestCase
 
 from posthog.models import Organization, Team, User
 
@@ -37,16 +37,20 @@ class TestMixin:
     TESTS_EMAIL: Optional[str] = "user1@posthog.com"
     TESTS_PASSWORD: Optional[str] = "testpassword12345"
     TESTS_API_TOKEN: str = "token123"
-    TESTS_FORCE_LOGIN: bool = True
+    TESTS_AUTO_LOGIN: bool = True
     team: Team = None
+    user: User = None
 
     def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
 
+    def setUp(self):
+        super().setUp()
+        if self.TESTS_AUTO_LOGIN and self.user:
+            self.client.force_login(self.user)
+
     @classmethod
     def setUpTestData(cls):
-        if hasattr(super(), "setUp"):
-            super().setUp()  # type: ignore
         cls.organization: Organization = Organization.objects.create(name=cls.TESTS_ORGANIZATION_NAME)
         cls.team: Team = Team.objects.create(
             organization=cls.organization,
@@ -56,11 +60,8 @@ class TestMixin:
             ],
         )
         if cls.TESTS_EMAIL:
-            cls.user = cls._create_user(cls.TESTS_EMAIL, cls.TESTS_PASSWORD)
+            cls.user = User.objects.create_and_join(cls.organization, cls.TESTS_EMAIL, cls.TESTS_PASSWORD)
             cls.organization_membership = cls.user.organization_memberships.get()
-
-            if cls.TESTS_FORCE_LOGIN:
-                cls.client.force_login(cls.user)
 
 
 class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
@@ -73,7 +74,7 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     pass
 
 
-class APIBaseTest(TestMixin, ErrorResponsesMixin, APITransactionTestCase):
+class APIBaseTest(TestMixin, ErrorResponsesMixin, APITestCase):
     """
     Functional API tests using Django REST Framework test suite.
     """
