@@ -1,10 +1,9 @@
 from typing import Dict, Optional
 
-from django.test import Client, TestCase, TransactionTestCase
-from rest_framework.test import APITestCase, APITransactionTestCase
+from django.test import TestCase
+from rest_framework.test import APITransactionTestCase
 
 from posthog.models import Organization, Team, User
-from posthog.models.organization import OrganizationMembership
 
 
 class ErrorResponsesMixin:
@@ -33,92 +32,50 @@ class ErrorResponsesMixin:
         }
 
 
-class TestMixin(ErrorResponsesMixin):
-    TESTS_API: bool = False
+class TestMixin:
     TESTS_ORGANIZATION_NAME: str = "Test"
     TESTS_EMAIL: Optional[str] = "user1@posthog.com"
     TESTS_PASSWORD: Optional[str] = "testpassword12345"
     TESTS_API_TOKEN: str = "token123"
     TESTS_FORCE_LOGIN: bool = True
-    team: Team
+    team: Team = None
 
     def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
 
-    def setUp(self):
+    @classmethod
+    def setUpTestData(cls):
         if hasattr(super(), "setUp"):
             super().setUp()  # type: ignore
-        self.organization: Organization = Organization.objects.create(name=self.TESTS_ORGANIZATION_NAME)
-        self.team: Team = Team.objects.create(
-            organization=self.organization,
-            api_token=self.TESTS_API_TOKEN,
+        cls.organization: Organization = Organization.objects.create(name=cls.TESTS_ORGANIZATION_NAME)
+        cls.team: Team = Team.objects.create(
+            organization=cls.organization,
+            api_token=cls.TESTS_API_TOKEN,
             test_account_filters=[
-                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
             ],
         )
-        if self.TESTS_EMAIL:
-            self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
-            self.organization_membership = self.user.organization_memberships.get()
-        if self.TESTS_API:
-            self.client = Client()
-            if self.TESTS_FORCE_LOGIN and self.TESTS_EMAIL:
-                self.client.force_login(self.user)
+        if cls.TESTS_EMAIL:
+            cls.user = cls._create_user(cls.TESTS_EMAIL, cls.TESTS_PASSWORD)
+            cls.organization_membership = cls.user.organization_memberships.get()
+
+            if cls.TESTS_FORCE_LOGIN:
+                cls.client.force_login(cls.user)
 
 
-class BaseTest(TestMixin, TestCase):
-    pass
-
-
-class TransactionBaseTest(TestMixin, TransactionTestCase):
-    pass
-
-
-class APITestMixin(ErrorResponsesMixin):
+class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     """
-    Test API using Django REST Framework test suite.
-    """
-
-    CONFIG_ORGANIZATION_NAME: str = "Test Co"
-    CONFIG_USER_EMAIL: Optional[str] = "user1@posthog.com"
-    CONFIG_PASSWORD: Optional[str] = "testpassword12345"
-    CONFIG_API_TOKEN: str = "token123"
-    CONFIG_AUTO_LOGIN: bool = True
-
-    def _create_user(self, email: str, password: Optional[str] = None, **kwargs) -> User:
-        return User.objects.create_and_join(organization=self.organization, email=email, password=password, **kwargs,)
-
-    def setUp(self):
-        super().setUp()  # type: ignore
-        self.organization: Organization = Organization.objects.create(
-            name=self.CONFIG_ORGANIZATION_NAME, plugins_access_level=Organization.PluginsAccessLevel.ROOT
-        )
-        self.team: Team = Team.objects.create(
-            organization=self.organization,
-            api_token=self.CONFIG_API_TOKEN,
-            test_account_filters=[
-                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
-            ],
-        )
-        if self.CONFIG_USER_EMAIL:
-            self.user = self._create_user(
-                self.CONFIG_USER_EMAIL, self.CONFIG_PASSWORD, level=OrganizationMembership.Level.OWNER
-            )
-            self.organization_membership = self.user.organization_memberships.get()
-            if self.CONFIG_AUTO_LOGIN:
-                self.client.force_login(self.user)  # type: ignore
-
-
-class APIBaseTest(APITestMixin, APITestCase):
-    """
-    DEPRECATED in favor of APITransactionBaseTest.
+    Base class for performing Postgres-based backend unit tests on.
+    Each class and each test is wrapped inside an atomic block to rollback DB commits after each test.
+    Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase 
     """
 
     pass
 
 
-class APITransactionBaseTest(APITestMixin, APITransactionTestCase):
+class APIBaseTest(TestMixin, ErrorResponsesMixin, APITransactionTestCase):
     """
-    Test class using Django REST Framework test suite.
+    Functional API tests using Django REST Framework test suite.
     """
 
     pass
