@@ -111,7 +111,7 @@ export function ObjectTags({
                             ) : (
                                 (!tagsAvailable || !tagsAvailable.length) && (
                                     <Select.Option key="__" value="__" disabled style={{ color: 'var(--muted)' }}>
-                                        Enter your first tag
+                                        Type to add a new tag
                                     </Select.Option>
                                 )
                             )}

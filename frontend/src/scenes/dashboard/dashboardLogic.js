@@ -368,6 +368,16 @@ export const dashboardLogic = kea({
             )
         },
         saveNewTag: ({ tag }) => {
+            if (values.dashboard.tags.includes(tag)) {
+                toast.error(
+                    // TODO: move to errorToast once #3561 is merged
+                    <div>
+                        <h1>Oops! Can't add that tag</h1>
+                        <p>Your dashboard already has that tag.</p>
+                    </div>
+                )
+                return
+            }
             actions.triggerDashboardUpdate({ tags: [...values.dashboard.tags, tag] })
         },
         deleteTag: async ({ tag }, breakpoint) => {

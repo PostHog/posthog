@@ -238,7 +238,7 @@ export function DashboardHeader(): JSX.Element {
                     onTagSave={saveNewTag}
                     onTagDelete={deleteTag}
                     saving={dashboardLoading}
-                    tagsAvailable={dashboardTags}
+                    tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
                 />
             </div>
             <Card className="dashboard-description">
