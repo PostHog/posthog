@@ -13,6 +13,7 @@ import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 import { DashboardType } from '~/types'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
+import { ColumnType } from 'antd/lib/table'
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
@@ -20,14 +21,14 @@ export function Dashboards(): JSX.Element {
     const { setNewDashboardDrawer } = useActions(dashboardsLogic)
     const { dashboards, newDashboardDrawer, dashboardTags } = useValues(dashboardsLogic)
     const { user } = useValues(userLogic)
-    const [displayedColumns, setDisplayedColumns] = useState([] as Record<string, any>)
+    const [displayedColumns, setDisplayedColumns] = useState([] as ColumnType<DashboardType>[])
 
-    const columns = [
+    const columns: ColumnType<DashboardType>[] = [
         {
             title: '',
             width: 24,
             align: 'center',
-            render: function RenderPin({ id, pinned }: DashboardType) {
+            render: function Render({ id, pinned }: DashboardType) {
                 return (
                     <span
                         onClick={() =>
@@ -74,10 +75,10 @@ export function Dashboards(): JSX.Element {
             filters: dashboardTags.map((tag) => {
                 return { text: tag, value: tag }
             }),
-            onFilter: (value: string, record: DashboardType) => record.tags.includes(value),
+            onFilter: (value, record) => typeof value === 'string' && record.tags.includes(value),
         },
-        createdAtColumn(),
-        createdByColumn(dashboards),
+        createdAtColumn() as ColumnType<DashboardType>,
+        createdByColumn(dashboards) as ColumnType<DashboardType>,
         {
             title: 'Actions',
             align: 'center',
@@ -97,13 +98,14 @@ export function Dashboards(): JSX.Element {
     ]
 
     useEffect(() => {
-        console.log(user?.organization?.available_features)
         if (!user?.organization?.available_features.includes('dashboard_collaboration')) {
-            setDisplayedColumns(columns.filter((col) => !['description', 'tags'].includes(col.key)))
+            setDisplayedColumns(
+                columns.filter((col) => !col.dataIndex || !['description', 'tags'].includes(col.dataIndex.toString()))
+            )
         } else {
             setDisplayedColumns(columns)
         }
-    }, [user?.organization?.available_features])
+    }, [user?.organization?.available_features, dashboardTags])
 
     return (
         <div>
