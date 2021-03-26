@@ -4,7 +4,7 @@ import json
 from collections import defaultdict
 from typing import Dict, Generator, List
 
-from sentry_sdk.api import capture_message
+from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
 
@@ -93,6 +93,7 @@ def is_unchunked_snapshot(event: Dict) -> bool:
     try:
         return is_snapshot and "chunk_id" not in event["properties"]["$snapshot_data"]
     except KeyError:
+        capture_exception()
         raise ValueError('$snapshot events must contain property "$snapshot_data"!')
 
 
