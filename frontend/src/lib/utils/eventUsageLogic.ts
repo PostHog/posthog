@@ -80,6 +80,7 @@ export const eventUsageLogic = kea<
             project_timezone?: string,
             device_timezone?: string
         ) => ({ component, project_timezone, device_timezone }),
+        reportTestAccountFiltersUpdated: (filters: Record<string, any>[]) => ({ filters }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -308,6 +309,15 @@ export const eventUsageLogic = kea<
         },
         reportTimezoneComponentViewed: async (payload) => {
             posthog.capture('timezone component viewed', payload)
+        },
+        reportTestAccountFiltersUpdated: async ({ filters }) => {
+            const payload = {
+                filters_count: filters.length,
+                filters: filters.map((filter) => {
+                    return { key: filter.key, operator: filter.operator, value_length: filter.value.length }
+                }),
+            }
+            posthog.capture('test account filters updated', payload)
         },
     },
 })
