@@ -1,4 +1,4 @@
-import { Button, Input, Skeleton } from 'antd'
+import { Button, Skeleton, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
@@ -6,7 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 export function DataAttributes(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { patchCurrentTeam } = useActions(teamLogic)
-    const [value, setValue] = useState(currentTeam?.data_attributes?.join(', ') || '')
+    const [value, setValue] = useState(currentTeam?.data_attributes || [])
 
     if (!currentTeam) {
         return <Skeleton paragraph={{ rows: 0 }} active />
@@ -32,21 +32,19 @@ export function DataAttributes(): JSX.Element {
                 instead be <code>button[data-custom-id='cta-button']</code>.
             </p>
             <div>
-                <Input
-                    placeholder="data-attr, ..."
-                    style={{ width: '20rem', maxWidth: '100%' }}
+                <Select
+                    mode="tags"
+                    style={{ width: 300 }}
+                    onChange={(values) => setValue(values || [])}
                     value={value}
-                    onChange={(e) => setValue(e.target.value)}
+                    data-attr="data-attribute-select"
+                    placeholder={'data-attr, ...'}
                 />
                 <Button
                     type="primary"
                     onClick={() =>
                         patchCurrentTeam({
-                            data_attributes:
-                                value
-                                    .split(',')
-                                    .map((s) => s.trim())
-                                    .filter((a) => a) || [],
+                            data_attributes: value.map((s) => s.trim()).filter((a) => a) || [],
                         })
                     }
                 >
