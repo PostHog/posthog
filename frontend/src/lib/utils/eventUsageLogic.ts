@@ -75,6 +75,11 @@ export const eventUsageLogic = kea<
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportHotkeyNavigation: (scope: 'global' | 'insights', hotkey: HotKeys | GlobalHotKeys) => ({ scope, hotkey }),
+        reportTimezoneComponentViewed: (
+            component: 'label' | 'indicator',
+            project_timezone?: string,
+            device_timezone?: string
+        ) => ({ component, project_timezone, device_timezone }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -300,6 +305,9 @@ export const eventUsageLogic = kea<
         },
         reportHotkeyNavigation: async (payload) => {
             posthog.capture('hotkey navigation', payload)
+        },
+        reportTimezoneComponentViewed: async (payload) => {
+            posthog.capture('timezone component viewed', payload)
         },
     },
 })

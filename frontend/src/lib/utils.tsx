@@ -767,7 +767,7 @@ export function endWithPunctation(text?: string | null): string {
  */
 export function shortTimeZone(timeZone?: string, atDate: Date = new Date()): string {
     const localeTimeString = new Date(atDate).toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
-    return localeTimeString.split(' ')[2].replace('GMT', 'UTC')
+    return localeTimeString.split(' ')[2]
 }
 
 export function humanTzOffset(timezone?: string): string {
