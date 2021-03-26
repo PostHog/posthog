@@ -220,13 +220,17 @@ def filter_element(filters: Dict, prepend: str = "") -> Tuple[List[str], Dict]:
     conditions = []
 
     if filters.get("selector"):
-        selector = Selector(filters["selector"], escape_slashes=False)
-        params["{}selector_regex".format(prepend)] = _create_regex(selector)
-        conditions.append("match(elements_chain, %({}selector_regex)s)".format(prepend))
+        selectors = filters["selector"] if isinstance(filters["selector"], list) else [filters["selector"]]
+        for query in selectors:
+            selector = Selector(query, escape_slashes=False)
+            params["{}selector_regex".format(prepend)] = _create_regex(selector)
+            conditions.append("match(elements_chain, %({}selector_regex)s)".format(prepend))
 
     if filters.get("tag_name"):
-        params["{}tag_name_regex".format(prepend)] = r"(^|;){}(\.|$|;|:)".format(filters["tag_name"])
-        conditions.append("match(elements_chain, %({}tag_name_regex)s)".format(prepend))
+        tag_names = filters["tag_name"] if isinstance(filters["tag_name"], list) else [filters["tag_name"]]
+        for tag_name in tag_names:
+            params["{}tag_name_regex".format(prepend)] = r"(^|;){}(\.|$|;|:)".format(tag_name)
+            conditions.append("match(elements_chain, %({}tag_name_regex)s)".format(prepend))
 
     attributes: Dict[str, List] = {}
 
