@@ -287,6 +287,7 @@ class Event(models.Model):
         indexes = [
             models.Index(fields=["elements_hash"]),
             models.Index(fields=["timestamp", "team_id", "event"]),
+            models.Index(fields=["created_at"]),
         ]
 
     def _can_use_cached_query(self, last_updated_action_ts):
