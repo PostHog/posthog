@@ -161,7 +161,10 @@ export function ProjectSettings(): JSX.Element {
                     and team members from queries. This way only <b>real user data</b> will be taken into account.
                 </p>
                 <p>
-                    <i>For best effectiveness, make sure to properly define internal users with the filters below.</i>
+                    <i>
+                        For best effectiveness, make sure to properly define <b>non-internal</b> users with the filters
+                        below.
+                    </i>
                 </p>
                 <TestAccountFiltersConfig />
                 <Divider />
