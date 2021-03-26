@@ -118,6 +118,7 @@ test('plugin meta has what it should have', async () => {
         'attachments',
         'cache',
         'config',
+        'geoip',
         'global',
         'storage',
     ])

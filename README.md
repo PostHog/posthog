@@ -63,6 +63,7 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | STATSD_HOST                   | StatsD host - integration disabled if this is not provided | `null`                                |
 | STATSD_PORT                   | StatsD port                                                | `8125`                                |
 | STATSD_PREFIX                 | StatsD prefix                                              | `'plugin-server.'`                    |
+| DISABLE_MMDB                  | whether to disable MMDB IP location capabilities           | `false`                               |
 | DISTINCT_ID_LRU_SIZE          | size of persons distinct ID LRU cache                      | `10000`                               |
 
 ## Releasing a new version

@@ -53,10 +53,10 @@ async function loadPluginsFromDB(
     const pluginAttachmentRows = await getPluginAttachmentRows(server)
     const attachmentsPerConfig = new Map<TeamId, Record<string, PluginAttachment>>()
     for (const row of pluginAttachmentRows) {
-        let attachments = attachmentsPerConfig.get(row.plugin_config_id)
+        let attachments = attachmentsPerConfig.get(row.plugin_config_id!)
         if (!attachments) {
             attachments = {}
-            attachmentsPerConfig.set(row.plugin_config_id, attachments)
+            attachmentsPerConfig.set(row.plugin_config_id!, attachments)
         }
         attachments[row.key] = {
             content_type: row.content_type,

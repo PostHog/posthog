@@ -2,12 +2,19 @@ import { Pool, PoolClient } from 'pg'
 
 import { defaultConfig } from '../../src/shared/config'
 import { delay, UUIDT } from '../../src/shared/utils'
-import { PluginsServer, PluginsServerConfig, Team } from '../../src/types'
+import { Plugin, PluginAttachmentDB, PluginConfig, PluginsServer, PluginsServerConfig, Team } from '../../src/types'
 import { commonOrganizationId, commonOrganizationMembershipId, commonUserId, makePluginObjects } from './plugins'
+
+export interface ExtraDatabaseRows {
+    plugins?: Omit<Plugin, 'id'>[]
+    pluginConfigs?: Omit<PluginConfig, 'id'>[]
+    pluginAttachments?: Omit<PluginAttachmentDB, 'id'>[]
+}
 
 export async function resetTestDatabase(
     code?: string,
-    extraServerConfig: Partial<PluginsServerConfig> = {}
+    extraServerConfig: Partial<PluginsServerConfig> = {},
+    extraRows: ExtraDatabaseRows = {}
 ): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig }
     const db = new Pool({ connectionString: config.DATABASE_URL })
@@ -36,13 +43,13 @@ export async function resetTestDatabase(
     const teamIds = mocks.pluginConfigRows.map((c) => c.team_id)
     await createUserTeamAndOrganization(db, teamIds[0])
 
-    for (const plugin of mocks.pluginRows) {
+    for (const plugin of mocks.pluginRows.concat(extraRows.plugins ?? [])) {
         await insertRow(db, 'posthog_plugin', plugin)
     }
-    for (const pluginConfig of mocks.pluginConfigRows) {
+    for (const pluginConfig of mocks.pluginConfigRows.concat(extraRows.pluginConfigs ?? [])) {
         await insertRow(db, 'posthog_pluginconfig', pluginConfig)
     }
-    for (const pluginAttachment of mocks.pluginAttachmentRows) {
+    for (const pluginAttachment of mocks.pluginAttachmentRows.concat(extraRows.pluginAttachments ?? [])) {
         await insertRow(db, 'posthog_pluginattachment', pluginAttachment)
     }
     await db.end()

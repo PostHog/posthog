@@ -46,6 +46,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SCHEDULE_LOCK_TTL: 60,
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
+        DISABLE_MMDB: isTestEnv,
         DISTINCT_ID_LRU_SIZE: 10000,
     }
 }
@@ -84,6 +85,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         SCHEDULE_LOCK_TTL: 'how many seconds to hold the lock for the schedule',
         REDIS_POOL_MIN_SIZE: 'minimum number of Redis connections to use per thread',
         REDIS_POOL_MAX_SIZE: 'maximum number of Redis connections to use per thread',
+        DISABLE_MMDB: 'whether to disable fetching MaxMind database for IP location',
         DISTINCT_ID_LRU_SIZE: 'size of persons distinct ID LRU cache',
     }
 }
