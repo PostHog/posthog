@@ -6,7 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 export function DataAttributes(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { patchCurrentTeam } = useActions(teamLogic)
-    const [value, setValue] = useState(currentTeam?.important_data_attributes?.join(', ') || '')
+    const [value, setValue] = useState(currentTeam?.data_attributes?.join(', ') || '')
 
     if (!currentTeam) {
         return <Skeleton paragraph={{ rows: 0 }} active />
@@ -42,7 +42,7 @@ export function DataAttributes(): JSX.Element {
                     type="primary"
                     onClick={() =>
                         patchCurrentTeam({
-                            important_data_attributes:
+                            data_attributes:
                                 value
                                     .split(',')
                                     .map((s) => s.trim())

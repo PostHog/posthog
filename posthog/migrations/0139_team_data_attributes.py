@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 def set_default_data_attributes(apps, schema_editor):
     Team = apps.get_model("posthog", "Team")
-    Team.objects.update(important_data_attributes=["data-attr"])
+    Team.objects.update(data_attributes=["data-attr"])
 
 
 class Migration(migrations.Migration):
@@ -18,10 +18,8 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="team",
-            name="important_data_attributes",
-            field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=200, null=True), blank=True, default=list, size=None
-            ),
+            name="data_attributes",
+            field=django.contrib.postgres.fields.jsonb.JSONField(default=list),
         ),
         migrations.RunPython(set_default_data_attributes, migrations.RunPython.noop),
     ]

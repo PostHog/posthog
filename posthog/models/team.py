@@ -99,9 +99,7 @@ class Team(models.Model):
     is_demo: models.BooleanField = models.BooleanField(default=False)
     test_account_filters: JSONField = JSONField(default=list)
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
-    important_data_attributes: ArrayField = ArrayField(
-        models.CharField(max_length=200, null=True), default=list, blank=True
-    )
+    data_attributes: JSONField = JSONField(default=list)
 
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
