@@ -935,10 +935,10 @@
   optionalDependencies:
     nice-napi "^1.0.2"
 
-"@posthog/plugin-server@0.15.0":
-  version "0.15.0"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.15.0.tgz#68cb1207f2ebab85f50bf84c8f63d5f4b0203751"
-  integrity sha512-5Nbv/6Kj7bi4odlnu/kuqRTVIG7op96d8TlKg5QENjg3615Ef8TFX47zRLvcJr8E5KQib67O5hKAh3+IpKF7mg==
+"@posthog/plugin-server@0.15.1":
+  version "0.15.1"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.15.1.tgz#3b844b54674836873950f01eb20131d3df4a2184"
+  integrity sha512-ReDECDjt05dFaNctXpzHzPsKQNrDRDZnqddL5nNXZ5xKVLYA+n3RjvjuwnyAM3xUy/b/gSK5Bg/QG38mFyjZrQ==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"
