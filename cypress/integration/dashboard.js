@@ -1,4 +1,4 @@
-describe('Dashboards FOSS Features', () => {
+describe('Dashboard', () => {
     beforeEach(() => {
         cy.get('[data-attr=menu-item-dashboards]').click()
         cy.location('pathname').should('include', '/dashboard')

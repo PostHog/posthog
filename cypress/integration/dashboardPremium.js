@@ -1,4 +1,4 @@
-describe('Dashboards', () => {
+describe('Dashboards Premium Features', () => {
     beforeEach(() => {
         cy.get('[data-attr=menu-item-dashboards]').click()
         cy.location('pathname').should('include', '/dashboard')
