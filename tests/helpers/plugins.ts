@@ -49,7 +49,7 @@ export const plugin60: Plugin = {
 }
 
 export const pluginAttachment1: PluginAttachmentDB = {
-    id: 1,
+    id: 42666,
     key: 'maxmindMmdb',
     content_type: 'application/octet-stream',
     file_name: 'test.txt',
@@ -103,9 +103,9 @@ export const mockPluginWithArchive = (indexJs: string, pluginJson?: string): Plu
 export const makePluginObjects = (
     indexJs = ''
 ): {
-    pluginRows: Plugin[]
-    pluginConfigRows: PluginConfig[]
-    pluginAttachmentRows: PluginAttachmentDB[]
+    pluginRows: Omit<Plugin, 'id'>[]
+    pluginConfigRows: Omit<PluginConfig, 'id'>[]
+    pluginAttachmentRows: Omit<PluginAttachmentDB, 'id'>[]
 } => ({
     pluginRows: [mockPluginWithArchive(indexJs)],
     pluginConfigRows: [pluginConfig39],

@@ -22,7 +22,7 @@ test('getPluginAttachmentRows', async () => {
             contents: Buffer.from([116, 101, 115, 116]),
             file_name: 'test.txt',
             file_size: 4,
-            id: 1,
+            id: 42666,
             key: 'maxmindMmdb',
             plugin_config_id: 39,
             team_id: 2,

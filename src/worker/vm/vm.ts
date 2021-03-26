@@ -5,6 +5,7 @@ import { VM } from 'vm2'
 import { PluginConfig, PluginConfigVMReponse, PluginsServer } from '../../types'
 import { createCache } from './extensions/cache'
 import { createConsole } from './extensions/console'
+import { createGeoIp } from './extensions/geoip'
 import { createGoogle } from './extensions/google'
 import { createPosthog } from './extensions/posthog'
 import { createStorage } from './extensions/storage'
@@ -61,6 +62,7 @@ export async function createPluginConfigVM(
             config: pluginConfig.config,
             attachments: pluginConfig.attachments,
             storage: createStorage(server, pluginConfig),
+            geoip: createGeoIp(server),
         },
         '__pluginHostMeta'
     )

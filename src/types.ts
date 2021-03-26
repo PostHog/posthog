@@ -1,3 +1,4 @@
+import { ReaderModel } from '@maxmind/geoip2-node'
 import ClickHouse from '@posthog/clickhouse'
 import { PluginAttachment, PluginConfigSchema, PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
@@ -5,6 +6,7 @@ import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
+import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
@@ -58,9 +60,9 @@ export interface PluginsServerConfig extends Record<string, any> {
     SCHEDULE_LOCK_TTL: number
     REDIS_POOL_MIN_SIZE: number
     REDIS_POOL_MAX_SIZE: number
+    DISABLE_MMDB: boolean
     DISTINCT_ID_LRU_SIZE: number
 }
-
 export interface PluginsServer extends PluginsServerConfig {
     // active connections to Postgres, Redis, ClickHouse, Kafka, StatsD
     db: DB
@@ -70,6 +72,8 @@ export interface PluginsServer extends PluginsServerConfig {
     kafka?: Kafka
     kafkaProducer?: KafkaProducerWrapper
     statsd?: StatsD
+    mmdb: ReaderModel | null
+    mmdbUpdateJob: Job | null
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
     pluginConfigs: Map<PluginConfigId, PluginConfig>
@@ -151,8 +155,8 @@ export interface PluginError {
 
 export interface PluginAttachmentDB {
     id: number
-    team_id: TeamId
-    plugin_config_id: PluginConfigId
+    team_id: TeamId | null
+    plugin_config_id: PluginConfigId | null
     key: string
     content_type: string
     file_size: number | null
