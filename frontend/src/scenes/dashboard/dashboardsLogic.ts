@@ -29,14 +29,10 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
         dashboardTags: [
             () => [dashboardsModel.selectors.dashboards],
             (dashboards: DashboardType[]): string[] =>
-                dashboards.length
-                    ? uniqueBy(
-                          dashboards
-                              .map((dashboard) => dashboard.tags.map((tag) => tag))
-                              .reduce((accumulator, value) => accumulator.concat(value)),
-                          (item) => item
-                      ).sort()
-                    : [],
+                uniqueBy(
+                    dashboards.flatMap(({ tags }) => tags),
+                    (item) => item
+                ).sort(),
         ],
     }),
     listeners: () => ({
