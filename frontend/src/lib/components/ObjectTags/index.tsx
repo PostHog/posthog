@@ -1,12 +1,15 @@
-import { Input, Tag } from 'antd'
+import { Tag, Select } from 'antd'
 import { colorForString } from 'lib/utils'
 import React, { CSSProperties, useEffect, useRef, useState } from 'react'
 import { PlusOutlined, SyncOutlined, CloseOutlined } from '@ant-design/icons'
+import { SelectGradientOverflow } from '../SelectGradientOverflow'
+import { RefSelectProps } from 'antd/lib/select'
 
 interface ObjectTagsInterface {
     tags: string[]
     onTagSave?: (tag: string) => void
     onTagDelete?: (tag: string) => void
+    tagsAvailable?: string[] // list of all tags that already exist
     saving?: boolean
     style?: CSSProperties
     staticOnly?: boolean // whether tags can be added or removed
@@ -24,6 +27,7 @@ export function ObjectTags({
     onTagSave, // Required unless `staticOnly`
     onTagDelete, // Required unless `staticOnly`
     saving, // Required unless `staticOnly`
+    tagsAvailable,
     style,
     staticOnly,
 }: ObjectTagsInterface): JSX.Element {
@@ -36,7 +40,7 @@ export function ObjectTags({
         onTagDelete && onTagDelete(tag)
     }
 
-    const addInput = useRef<Input | null>(null)
+    const addInput = useRef<RefSelectProps | null>(null)
 
     useEffect(() => {
         if (!saving) {
@@ -79,19 +83,46 @@ export function ObjectTags({
                     >
                         <PlusOutlined /> New Tag
                     </Tag>
-                    <Input
-                        type="text"
-                        size="small"
-                        onBlur={() => setAddingNewTag(false)}
-                        ref={addInput}
-                        style={{ width: 78, display: !addingNewTag ? 'none' : 'flex' }}
-                        value={newTag}
-                        onChange={(e) => setNewTag(e.target.value)}
-                        onPressEnter={() => onTagSave(newTag)}
-                        disabled={saving}
-                        prefix={saving ? <SyncOutlined spin /> : null}
-                        placeholder='try "official"'
-                    />
+                    {addingNewTag && (
+                        <SelectGradientOverflow
+                            size="small"
+                            onBlur={() => setAddingNewTag(false)}
+                            //ref={addInput}
+                            autoFocus
+                            allowClear
+                            autoClearSearchValue
+                            defaultOpen
+                            showSearch
+                            style={{ width: 160 }}
+                            onChange={(value) => {
+                                onTagSave(value)
+                            }}
+                            disabled={saving}
+                            loading={saving}
+                            onSearch={(newInput) => {
+                                setNewTag(newInput)
+                            }}
+                            placeholder='try "official"'
+                        >
+                            {newTag ? (
+                                <Select.Option key={newTag} value={newTag} className="ph-no-capture">
+                                    New Tag: {newTag}
+                                </Select.Option>
+                            ) : (
+                                (!tagsAvailable || !tagsAvailable.length) && (
+                                    <Select.Option key="__" value="__" disabled style={{ color: 'var(--muted)' }}>
+                                        Enter your first tag
+                                    </Select.Option>
+                                )
+                            )}
+                            {tagsAvailable &&
+                                tagsAvailable.map((tag) => (
+                                    <Select.Option key={tag} value={tag} className="ph-no-capture">
+                                        {tag}
+                                    </Select.Option>
+                                ))}
+                        </SelectGradientOverflow>
+                    )}
                 </span>
             )}
         </div>

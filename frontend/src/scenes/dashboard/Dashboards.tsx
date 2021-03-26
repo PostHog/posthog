@@ -54,13 +54,7 @@ export function Dashboards(): JSX.Element {
             dataIndex: 'description',
             key: 'description',
             render: function Render(description: string) {
-                return (
-                    <>
-                        {description || (
-                            <span style={{ color: 'var(--text-muted)' }}>Dashboard has no description</span>
-                        )}
-                    </>
-                )
+                return <>{description || <span style={{ color: 'var(--muted)' }}>Dashboard has no description</span>}</>
             },
         },
         {
@@ -71,7 +65,7 @@ export function Dashboards(): JSX.Element {
                 return tags.length ? (
                     <ObjectTags tags={tags} staticOnly />
                 ) : (
-                    <span style={{ color: 'var(--text-muted)' }}>Dashboard has no tags</span>
+                    <span style={{ color: 'var(--muted)' }}>Dashboard has no tags</span>
                 )
             },
             filters: dashboardTags.map((tag) => {
