@@ -176,7 +176,7 @@ export function ProjectSettings(): JSX.Element {
                 <EditAppUrls />
                 <Divider />
                 <h2 className="subtitle" id="attributes">
-                    Important Data Attributes
+                    Data Attributes
                 </h2>
                 <DataAttributes />
                 <Divider />
