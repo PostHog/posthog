@@ -70,18 +70,36 @@ describe('TeamManager()', () => {
             expect(await teamManager.shouldSendWebhooks(2)).toEqual(true)
         })
 
-        it('caches results', async () => {
+        it('caches results, webhooks-only case', async () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:05').getTime())
             jest.spyOn(server.db, 'postgresQuery')
+
             expect(await teamManager.shouldSendWebhooks(2)).toEqual(false)
 
-            await server.db.postgresQuery('UPDATE posthog_team SET slack_incoming_webhook = true')
+            await server.db.postgresQuery("UPDATE posthog_team SET slack_incoming_webhook = 'https://x.com/'")
+            mocked(server.db.postgresQuery).mockClear()
+
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:10').getTime())
+            expect(await teamManager.shouldSendWebhooks(2)).toEqual(false)
+            expect(server.db.postgresQuery).toHaveBeenCalledTimes(0)
+
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:45').getTime())
+            expect(await teamManager.shouldSendWebhooks(2)).toEqual(true)
+            expect(server.db.postgresQuery).toHaveBeenCalledTimes(1)
+        })
+
+        it('caches results, Zapier hooks-only case', async () => {
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:05').getTime())
+            jest.spyOn(server.db, 'postgresQuery')
+
+            expect(await teamManager.shouldSendWebhooks(2)).toEqual(false)
+
             await server.db.postgresQuery(
                 "INSERT INTO ee_hook (id, team_id, user_id, event, target, created, updated) VALUES('test_hook', 2, 1001, 'action_performed', 'http://example.com', now(), now())"
             )
             mocked(server.db.postgresQuery).mockClear()
 
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:25').getTime())
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:10').getTime())
             expect(await teamManager.shouldSendWebhooks(2)).toEqual(false)
             expect(server.db.postgresQuery).toHaveBeenCalledTimes(0)
 
