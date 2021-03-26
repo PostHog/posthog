@@ -22,19 +22,13 @@
 
     .hotkey {
         margin-bottom: 0;
+        background-color: rgba($primary, 0.1) !important;
+        border-color: rgba($primary, 0.1) !important;
     }
 
     .ant-tabs-tab:not(.ant-tabs-tab-active):hover {
         .hotkey {
-            background-color: #fafafa;
-        }
-    }
-
-    .ant-tabs-tab-active {
-        .hotkey {
-            background-color: $primary;
-            border-color: $primary;
-            color: white;
+            background-color: rgba($primary, 0.2) !important;
         }
     }
 }
