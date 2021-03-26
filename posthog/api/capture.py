@@ -175,7 +175,10 @@ def get_event(request):
     else:
         events = [data]
 
-    events = preprocess_session_recording_events(events)
+    try:
+        events = preprocess_session_recording_events(events)
+    except ValueError as e:
+        return cors_response(request, JsonResponse({"code": "validation", "message": str(e),}, status=400,),)
 
     for event in events:
         try:
