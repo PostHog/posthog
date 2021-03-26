@@ -98,16 +98,18 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
         <Link to={to} onClick={handleClick}>
             <Tooltip
                 title={
-                    tooltip && featureFlags['hotkeys-3740'] && !isMobile() ? (
+                    tooltip && !isMobile() ? (
                         <>
+                            <div className="mb-05">
+                                <b>{title}</b>
+                                {hotkey && featureFlags['hotkeys-3740'] && (
+                                    <>
+                                        <span className="hotkey menu-tooltip-hotkey">G</span>
+                                        <span className="hotkey menu-tooltip-hotkey">{hotkey.toUpperCase()}</span>
+                                    </>
+                                )}
+                            </div>
                             {tooltip}
-                            {hotkey && (
-                                <div className="mt-05">
-                                    <i>Keyboard navigation: </i>
-                                    <span className="hotkey">G</span>
-                                    <span className="hotkey">{hotkey.toUpperCase()}</span>
-                                </div>
-                            )}
                         </>
                     ) : undefined
                 }
@@ -263,6 +265,14 @@ export function MainNavigation(): JSX.Element {
                             hotkey="u"
                         />
                     )}
+                    <MenuItem
+                        title="Insights"
+                        icon={<IconInsights />}
+                        identifier="insights"
+                        to="/insights?insight=TRENDS"
+                        hotkey="i"
+                        tooltip="Answers to all your analytics questions."
+                    />
                     <Popover
                         content={PinnedDashboards}
                         placement="right"
@@ -283,14 +293,7 @@ export function MainNavigation(): JSX.Element {
                             />
                         </div>
                     </Popover>
-                    <MenuItem
-                        title="Insights"
-                        icon={<IconInsights />}
-                        identifier="insights"
-                        to="/insights?insight=TRENDS"
-                        hotkey="i"
-                        tooltip="Answers to all your analytics questions."
-                    />
+
                     <div className="divider" />
                     <MenuItem
                         title="Events"
