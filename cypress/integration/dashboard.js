@@ -1,4 +1,4 @@
-describe('Dashboards', () => {
+describe('Dashboards FOSS Features', () => {
     beforeEach(() => {
         cy.get('[data-attr=menu-item-dashboards]').click()
         cy.location('pathname').should('include', '/dashboard')
@@ -6,6 +6,17 @@ describe('Dashboards', () => {
 
     it('Dashboards loaded', () => {
         cy.get('h1').should('contain', 'Dashboards')
+    })
+
+    it('Cannot see tags or description (non-FOSS feature)', () => {
+        cy.get('h1').should('contain', 'Dashboards')
+        cy.get('th.ant-table-cell').contains('Description').should('not.exist')
+        cy.get('th.ant-table-cell').contains('Tags').should('not.exist')
+
+        cy.get('[data-attr=dashboard-name]').contains('My App Dashboard').click()
+        cy.get('[data-attr=dashboard-item-0]').should('exist')
+        cy.get('.dashboard-description').should('not.exist')
+        cy.get('[data-attr=dashboard-tags]').should('not.exist')
     })
 
     it('Pinned dashboards on menu', () => {
@@ -101,37 +112,5 @@ describe('Dashboards', () => {
         cy.get('[data-attr="dashboard-item-0-dropdown-move"]').trigger('mouseover')
         cy.get('[data-attr="dashboard-item-0-dropdown-move-0"]').click({ force: true })
         cy.get('[data-attr=success-toast]').should('exist')
-    })
-
-    it('Tag dashboard', () => {
-        const newTag = `test-${Math.floor(Math.random() * 10000)}`
-        cy.get('[data-attr=dashboard-name]').contains('My App Dashboard').click()
-        cy.get('[data-attr=button-add-tag]').click()
-        cy.focused().type(newTag)
-        cy.get('[data-attr=new-tag-option]').click()
-        cy.get('.ant-tag').should('contain', newTag)
-
-        cy.wait(300)
-        cy.get('.new-tag-input').should('not.exist') // Input should disappear
-
-        cy.get('[data-attr=menu-item-dashboards]').click()
-        cy.get('.ant-tag').should('contain', newTag) // Tag is shown in dashboard list too
-    })
-
-    it('Cannot add duplicate tags', () => {
-        const newTag = `test2-${Math.floor(Math.random() * 10000)}`
-        cy.get('[data-attr=dashboard-name]').contains('My App Dashboard').click()
-        cy.get('[data-attr=button-add-tag]').click()
-        cy.focused().type(newTag)
-        cy.get('[data-attr=new-tag-option]').click()
-        cy.get('.ant-tag').should('contain', newTag)
-
-        cy.wait(300)
-        cy.get('[data-attr=button-add-tag]').click()
-        cy.focused().type(newTag)
-        cy.get('[data-attr=new-tag-option]').click()
-        cy.get('.Toastify__toast--error').should('be.visible')
-
-        cy.get('.dashboard').find('.ant-tag').contains(newTag).should('have.length', 1)
     })
 })

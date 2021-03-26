@@ -236,7 +236,7 @@ export function DashboardHeader(): JSX.Element {
             </div>
             {user?.organization?.available_features?.includes('dashboard_collaboration') && (
                 <>
-                    <div className="mb">
+                    <div className="mb" data-attr="dashboard-tags">
                         <ObjectTags
                             tags={dashboard.tags}
                             onTagSave={saveNewTag}
