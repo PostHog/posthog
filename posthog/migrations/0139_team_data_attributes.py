@@ -19,7 +19,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="team",
             name="data_attributes",
-            field=django.contrib.postgres.fields.jsonb.JSONField(default=list),
+            field=django.contrib.postgres.fields.jsonb.JSONField(default=["data-attr"]),
         ),
-        migrations.RunPython(set_default_data_attributes, migrations.RunPython.noop),
     ]
