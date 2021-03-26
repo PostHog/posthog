@@ -22,14 +22,14 @@ export function DataAttributes(): JSX.Element {
                 >
                     data attributes
                 </a>{' '}
-                used in your app. For example: <code>data-attr, data-customid, data-myref</code>. These attributes will
+                used in your app. For example: <code>data-attr, data-custom-id, data-myref</code>. These attributes will
                 be used when creating actions to match unique elements on your pages.
             </p>
             <p>
                 For example, when creating an action on your CTA button, the best selector could be something like:{' '}
                 <code>div &gt; form &gt; button</code>. However all buttons in your app have a{' '}
-                <code>data-customid</code> attribute. If you whitelist it here, the selector for your button will
-                instead be <code>button[data-customid='cta-button']</code>.
+                <code>data-custom-id</code> attribute. If you whitelist it here, the selector for your button will
+                instead be <code>button[data-custom-id='cta-button']</code>.
             </p>
             <div>
                 <Input
