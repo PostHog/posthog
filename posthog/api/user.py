@@ -191,6 +191,7 @@ def redirect_to_site(request):
         "actionId": request.GET.get("actionId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
+        "dataAttributes": ",".join(team.important_data_attributes),
     }
 
     if settings.JS_URL:

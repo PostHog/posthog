@@ -178,6 +178,7 @@ export type EditorProps = {
     instrument?: boolean
     distinctId?: string
     userEmail?: boolean
+    dataAttributes?: string[]
 }
 
 export interface PropertyFilter {
