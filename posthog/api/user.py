@@ -154,6 +154,7 @@ def user(request):
                 "is_demo": team.is_demo,
                 "test_account_filters": team.test_account_filters,
                 "timezone": team.timezone,
+                "important_data_attributes": team.important_data_attributes,
             },
             "teams": teams,
             "has_password": user.has_usable_password(),

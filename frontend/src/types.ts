@@ -127,6 +127,7 @@ export interface TeamType {
     is_demo: boolean
     test_account_filters: FilterType[]
     timezone: string
+    important_data_attributes: string[]
 }
 
 export interface ActionType {
