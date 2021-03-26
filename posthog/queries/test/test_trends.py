@@ -451,7 +451,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     Filter(
                         data={
                             "display": TRENDS_TABLE,
-                            "interval": "week",
+                            "interval": "day",
                             "breakdown": "$some_property",
                             "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
                         }
@@ -464,7 +464,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     Filter(
                         data={
                             "display": TRENDS_TABLE,
-                            "interval": "day",
+                            "interval": "week",
                             "breakdown": "$some_property",
                             "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
                         }
@@ -474,6 +474,48 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
             self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
+
+        def test_trends_breakdown_with_math_func(self):
+
+            with freeze_time("2020-01-01 00:06:34"):
+                for i in range(20):
+                    person = person_factory(team_id=self.team.pk, distinct_ids=[f"person{i}"])
+                    event_factory(
+                        team=self.team,
+                        event="sign up",
+                        distinct_id=f"person{i}",
+                        properties={"$some_property": f"value_{i}", "$math_prop": 1},
+                    )
+                    event_factory(
+                        team=self.team,
+                        event="sign up",
+                        distinct_id=f"person{i}",
+                        properties={"$some_property": f"value_{i}", "$math_prop": 1},
+                    )
+
+                person = person_factory(team_id=self.team.pk, distinct_ids=[f"person21"])
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id=f"person21",
+                    properties={"$some_property": "value_21", "$math_prop": 25},
+                )
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                daily_response = trends().run(
+                    Filter(
+                        data={
+                            "display": TRENDS_TABLE,
+                            "interval": "day",
+                            "breakdown": "$some_property",
+                            "events": [{"id": "sign up", "math": "p90", "math_property": "$math_prop"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            breakdown_vals = [val["breakdown_value"] for val in daily_response]
+            self.assertTrue("value_21" in breakdown_vals)
 
         def test_trends_compare(self):
             self._create_events()
