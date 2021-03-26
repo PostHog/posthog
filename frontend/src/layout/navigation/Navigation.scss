@@ -17,6 +17,12 @@
     }
 }
 
+.menu-tooltip-hotkey {
+    background-color: rgba($primary, 0.5) !important;
+    color: white !important;
+    border-color: rgba($primary, 0.5) !important;
+}
+
 .navigation-main {
     // General navigation bar styles (defaults to wide 180px)
     background-color: $bg_menu !important;
