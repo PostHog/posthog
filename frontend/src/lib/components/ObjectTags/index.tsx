@@ -1,9 +1,8 @@
 import { Tag, Select } from 'antd'
 import { colorForString } from 'lib/utils'
-import React, { CSSProperties, useEffect, useRef, useState } from 'react'
+import React, { CSSProperties, useEffect, useState } from 'react'
 import { PlusOutlined, SyncOutlined, CloseOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from '../SelectGradientOverflow'
-import { RefSelectProps } from 'antd/lib/select'
 
 interface ObjectTagsInterface {
     tags: string[]
@@ -40,8 +39,6 @@ export function ObjectTags({
         onTagDelete && onTagDelete(tag)
     }
 
-    const addInput = useRef<RefSelectProps | null>(null)
-
     useEffect(() => {
         if (!saving) {
             setAddingNewTag(false)
@@ -49,15 +46,11 @@ export function ObjectTags({
         }
     }, [saving])
 
-    useEffect(() => {
-        addingNewTag && addInput.current?.focus()
-    }, [addingNewTag])
-
     return (
         <div style={style}>
             {tags.map((tag, index) => {
                 return (
-                    <Tag key={index} color={COLOR_OVERRIDES[tag] || colorForString(tag)}>
+                    <Tag key={index} color={COLOR_OVERRIDES[tag] || colorForString(tag)} style={{ marginTop: 8 }}>
                         {tag}{' '}
                         {!staticOnly &&
                             onTagDelete &&
@@ -87,7 +80,7 @@ export function ObjectTags({
                         <SelectGradientOverflow
                             size="small"
                             onBlur={() => setAddingNewTag(false)}
-                            //ref={addInput}
+                            data-attr="new-tag-input"
                             autoFocus
                             allowClear
                             autoClearSearchValue
@@ -105,7 +98,12 @@ export function ObjectTags({
                             placeholder='try "official"'
                         >
                             {newTag ? (
-                                <Select.Option key={newTag} value={newTag} className="ph-no-capture">
+                                <Select.Option
+                                    key={newTag}
+                                    value={newTag}
+                                    className="ph-no-capture"
+                                    data-attr="new-tag-option"
+                                >
                                     New Tag: {newTag}
                                 </Select.Option>
                             ) : (
