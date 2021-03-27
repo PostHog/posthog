@@ -14,13 +14,19 @@ beforeEach(() => {
         // Freeze time to 2021.01.05 Noon UTC - this should be the same date regardless of timezone.
         cy.clock(1578225600000, ['Date'])
     } else {
-        cy.visit('/')
+        if (Cypress.spec.name.includes('Premium')) {
+            cy.visit('/login')
+            cy.intercept('/api/user/', { fixture: 'api/user-enterprise' })
+            logIn()
+        } else {
+            cy.visit('/')
 
-        cy.url().then((url) => {
-            if (url.includes('login')) {
-                logIn()
-            }
-        })
+            cy.url().then((url) => {
+                if (url.includes('login')) {
+                    logIn()
+                }
+            })
+        }
     }
 })
 

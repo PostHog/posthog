@@ -1,4 +1,4 @@
-describe('Dashboards', () => {
+describe('Dashboard', () => {
     beforeEach(() => {
         cy.get('[data-attr=menu-item-dashboards]').click()
         cy.location('pathname').should('include', '/dashboard')
@@ -6,6 +6,17 @@ describe('Dashboards', () => {
 
     it('Dashboards loaded', () => {
         cy.get('h1').should('contain', 'Dashboards')
+    })
+
+    it('Cannot see tags or description (non-FOSS feature)', () => {
+        cy.get('h1').should('contain', 'Dashboards')
+        cy.get('th.ant-table-cell').contains('Description').should('not.exist')
+        cy.get('th.ant-table-cell').contains('Tags').should('not.exist')
+
+        cy.get('[data-attr=dashboard-name]').contains('My App Dashboard').click()
+        cy.get('[data-attr=dashboard-item-0]').should('exist')
+        cy.get('.dashboard-description').should('not.exist')
+        cy.get('[data-attr=dashboard-tags]').should('not.exist')
     })
 
     it('Pinned dashboards on menu', () => {

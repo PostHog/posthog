@@ -10,7 +10,7 @@ import dayjs from 'dayjs'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
-export enum EventSource {
+export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
     DashboardHeader = 'dashboard_header',
@@ -18,10 +18,11 @@ export enum EventSource {
     InputEnter = 'input_enter',
     Toast = 'toast',
     Browser = 'browser',
+    AddDescription = 'add_description',
 }
 
 export const eventUsageLogic = kea<
-    eventUsageLogicType<AnnotationType, FilterType, DashboardType, PersonType, DashboardMode>
+    eventUsageLogicType<AnnotationType, FilterType, DashboardType, PersonType, DashboardMode, DashboardEventSource>
 >({
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
@@ -60,7 +61,7 @@ export const eventUsageLogic = kea<
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
         reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
-        reportDashboardModeToggled: (mode: DashboardMode, source: EventSource | null) => ({ mode, source }),
+        reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
         reportDashboardRefreshed: (lastRefreshed?: string | dayjs.Dayjs | null) => ({ lastRefreshed }),
         reportDashboardDateRangeChanged: (dateFrom?: string | dayjs.Dayjs, dateTo?: string | dayjs.Dayjs | null) => ({
             dateFrom,
@@ -71,7 +72,11 @@ export const eventUsageLogic = kea<
             source,
         }),
         reportDashboardDropdownNavigation: true,
-        reportDashboardRenamed: (originalLength: number, newLength: number) => ({ originalLength, newLength }),
+        reportDashboardFrontEndUpdate: (
+            attribute: 'name' | 'description' | 'tags',
+            originalLength: number,
+            newLength: number
+        ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportHotkeyNavigation: (scope: 'global' | 'insights', hotkey: HotKeys | GlobalHotKeys) => ({ scope, hotkey }),
@@ -285,8 +290,12 @@ export const eventUsageLogic = kea<
              */
             posthog.capture(`dashboard dropdown navigated`)
         },
-        reportDashboardRenamed: async ({ originalLength, newLength }) => {
-            posthog.capture(`dashboard renamed`, { original_length: originalLength, new_length: newLength })
+        reportDashboardFrontEndUpdate: async ({ attribute, originalLength, newLength }) => {
+            posthog.capture(`dashboard frontend updated`, {
+                attribute,
+                original_length: originalLength,
+                new_length: newLength,
+            })
         },
         reportDashboardShareToggled: async ({ isShared }) => {
             posthog.capture(`dashboard share toggled`, { is_shared: isShared })
