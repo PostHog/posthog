@@ -47,7 +47,7 @@ export class TeamManager {
     }
 
     public async shouldSendWebhooks(teamId: number): Promise<boolean> {
-        const cachedValue = this.getByAge(this.shouldSendWebhooksCache, teamId, 15_000)
+        const cachedValue = this.getByAge(this.shouldSendWebhooksCache, teamId)
         if (cachedValue !== undefined) {
             return cachedValue
         }
