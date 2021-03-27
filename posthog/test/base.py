@@ -1,7 +1,7 @@
 from typing import Dict, Optional
 
 from django.test import TestCase
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog.models import Organization, Team, User
 
@@ -21,6 +21,13 @@ class ErrorResponsesMixin:
         "attr": None,
     }
 
+    ERROR_INVALID_CREDENTIALS = {
+        "type": "validation_error",
+        "code": "invalid_credentials",
+        "detail": "Invalid email or password.",
+        "attr": None,
+    }
+
     def permission_denied_response(
         self, message: str = "You do not have permission to perform this action.",
     ) -> Dict[str, Optional[str]]:
@@ -33,11 +40,11 @@ class ErrorResponsesMixin:
 
 
 class TestMixin:
-    TESTS_ORGANIZATION_NAME: str = "Test"
-    TESTS_EMAIL: Optional[str] = "user1@posthog.com"
-    TESTS_PASSWORD: Optional[str] = "testpassword12345"
-    TESTS_API_TOKEN: str = "token123"
-    TESTS_AUTO_LOGIN: bool = True
+    CONFIG_ORGANIZATION_NAME: str = "Test"
+    CONFIG_EMAIL: Optional[str] = "user1@posthog.com"
+    CONFIG_PASSWORD: Optional[str] = "testpassword12345"
+    CONFIG_API_TOKEN: str = "token123"
+    CONFIG_AUTO_LOGIN: bool = True
     team: Team = None
     user: User = None
 
@@ -46,21 +53,21 @@ class TestMixin:
 
     def setUp(self):
         super().setUp()
-        if self.TESTS_AUTO_LOGIN and self.user:
+        if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
 
     @classmethod
     def setUpTestData(cls):
-        cls.organization: Organization = Organization.objects.create(name=cls.TESTS_ORGANIZATION_NAME)
+        cls.organization: Organization = Organization.objects.create(name=cls.CONFIG_ORGANIZATION_NAME)
         cls.team: Team = Team.objects.create(
             organization=cls.organization,
-            api_token=cls.TESTS_API_TOKEN,
+            api_token=cls.CONFIG_API_TOKEN,
             test_account_filters=[
                 {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
             ],
         )
-        if cls.TESTS_EMAIL:
-            cls.user = User.objects.create_and_join(cls.organization, cls.TESTS_EMAIL, cls.TESTS_PASSWORD)
+        if cls.CONFIG_EMAIL:
+            cls.user = User.objects.create_and_join(cls.organization, cls.CONFIG_EMAIL, cls.CONFIG_PASSWORD)
             cls.organization_membership = cls.user.organization_memberships.get()
 
 
@@ -74,7 +81,7 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     pass
 
 
-class APIBaseTest(TestMixin, ErrorResponsesMixin, APITestCase):
+class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     """
     Functional API tests using Django REST Framework test suite.
     """
