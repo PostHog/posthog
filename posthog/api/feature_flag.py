@@ -1,10 +1,13 @@
 from typing import Any, Dict, Optional
 
 import posthoganalytics
+from django.core import validators
 from django.db import IntegrityError
 from django.db.models import QuerySet
 from rest_framework import serializers, viewsets
+from rest_framework.fields import empty
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.validators import UniqueValidator
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
@@ -35,6 +38,15 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "rollout_percentage",
         ]
 
+    def __init__(self, instance: Optional[Any] = None, data: Any = empty, **kwargs: Any):
+        super().__init__(instance=instance, data=data, **kwargs)
+        self.fields["key"].validators = [
+            UniqueValidator(
+                queryset=FeatureFlag.objects.filter(team=self.context["request"].user.team, deleted=False),
+                message="There is already a feature flag with this key.",
+            )
+        ]
+
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
     def get_is_simple_flag(self, feature_flag: FeatureFlag) -> bool:
@@ -53,11 +65,9 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
         self._update_filters(validated_data)
-        try:
-            FeatureFlag.objects.filter(key=validated_data["key"], team=request.user.team, deleted=True).delete()
-            instance = super().create(validated_data)
-        except IntegrityError:
-            raise serializers.ValidationError("This key already exists.", code="key-exists")
+
+        FeatureFlag.objects.filter(key=validated_data["key"], team=request.user.team, deleted=True).delete()
+        instance = super().create(validated_data)
 
         posthoganalytics.capture(
             request.user.distinct_id, "feature flag created", instance.get_analytics_metadata(),
@@ -67,14 +77,11 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
 
     def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:  # type: ignore
         request = self.context["request"]
-        try:
-            validated_key = validated_data.get("key", None)
-            if validated_key:
-                FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
-            self._update_filters(validated_data)
-            instance = super().update(instance, validated_data)
-        except IntegrityError:
-            raise serializers.ValidationError("This key already exists.", code="key-exists")
+        validated_key = validated_data.get("key", None)
+        if validated_key:
+            FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
+        self._update_filters(validated_data)
+        instance = super().update(instance, validated_data)
 
         posthoganalytics.capture(
             request.user.distinct_id, "feature flag updated", instance.get_analytics_metadata(),

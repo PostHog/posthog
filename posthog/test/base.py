@@ -6,6 +6,20 @@ from rest_framework.test import APITestCase as DRFTestCase
 from posthog.models import Organization, Team, User
 
 
+def _setup_test_data(klass):
+    klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
+    klass.team = Team.objects.create(
+        organization=klass.organization,
+        api_token=klass.CONFIG_API_TOKEN,
+        test_account_filters=[
+            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+        ],
+    )
+    if klass.CONFIG_EMAIL:
+        klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
+        klass.organization_membership = klass.user.organization_memberships.get()
+
+
 class ErrorResponsesMixin:
     ERROR_RESPONSE_UNAUTHENTICATED: Dict[str, Optional[str]] = {
         "type": "authentication_error",
@@ -47,28 +61,22 @@ class TestMixin:
     CONFIG_AUTO_LOGIN: bool = True
     team: Team = None
     user: User = None
+    # Most test cases can run with class data level setup. This means that test data gets set up once per class,
+    # which can greatly speed up tests. Some tests will require test data to be set up on every test case, setting this
+    # to `False` will set up test data on every test case instead.
+    CLASS_DATA_LEVEL_SETUP = True
 
     def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
 
-    def setUp(self):
-        super().setUp()
-        if self.CONFIG_AUTO_LOGIN and self.user:
-            self.client.force_login(self.user)
-
     @classmethod
     def setUpTestData(cls):
-        cls.organization: Organization = Organization.objects.create(name=cls.CONFIG_ORGANIZATION_NAME)
-        cls.team: Team = Team.objects.create(
-            organization=cls.organization,
-            api_token=cls.CONFIG_API_TOKEN,
-            test_account_filters=[
-                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
-            ],
-        )
-        if cls.CONFIG_EMAIL:
-            cls.user = User.objects.create_and_join(cls.organization, cls.CONFIG_EMAIL, cls.CONFIG_PASSWORD)
-            cls.organization_membership = cls.user.organization_memberships.get()
+        if cls.CLASS_DATA_LEVEL_SETUP:
+            _setup_test_data(cls)
+
+    def setUp(self):
+        if not self.CLASS_DATA_LEVEL_SETUP:
+            _setup_test_data(self)
 
 
 class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
@@ -86,4 +94,7 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     Functional API tests using Django REST Framework test suite.
     """
 
-    pass
+    def setUp(self):
+        super().setUp()
+        if self.CONFIG_AUTO_LOGIN and self.user:
+            self.client.force_login(self.user)
