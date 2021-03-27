@@ -7,6 +7,8 @@ from posthog.test.base import APIBaseTest
 
 
 class TestFeatureFlag(APIBaseTest):
+    feature_flag: FeatureFlag = None  # type: ignore
+
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()

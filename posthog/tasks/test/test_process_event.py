@@ -37,7 +37,7 @@ def factory_test_process_event(
         CLASS_DATA_LEVEL_SETUP = False
 
         def test_capture_new_person(self) -> None:
-            user = self._create_user("tim")
+            self._create_user("tim")
             action1 = Action.objects.create(team=self.team)
             ActionStep.objects.create(action=action1, selector="a", event="$autocapture")
             action2 = Action.objects.create(team=self.team)

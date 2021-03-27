@@ -10,6 +10,8 @@ from posthog.test.base import APIBaseTest
 
 
 class TestAnnotation(APIBaseTest):
+    annotation: Annotation = None  # type: ignore
+
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()

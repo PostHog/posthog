@@ -4,6 +4,7 @@ from django.test import TestCase
 from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog.models import Organization, Team, User
+from posthog.models.organization import OrganizationMembership
 
 
 def _setup_test_data(klass):
@@ -59,12 +60,16 @@ class TestMixin:
     CONFIG_PASSWORD: Optional[str] = "testpassword12345"
     CONFIG_API_TOKEN: str = "token123"
     CONFIG_AUTO_LOGIN: bool = True
-    team: Team = None
-    user: User = None
     # Most test cases can run with class data level setup. This means that test data gets set up once per class,
     # which can greatly speed up tests. Some tests will require test data to be set up on every test case, setting this
     # to `False` will set up test data on every test case instead.
     CLASS_DATA_LEVEL_SETUP = True
+
+    # Test data definition stubs
+    organization: Organization = None  # type: ignore
+    team: Team = None  # type: ignore
+    user: User = None  # type: ignore
+    organization_membership: OrganizationMembership = None  # type: ignore
 
     def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)

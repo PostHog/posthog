@@ -12,6 +12,7 @@ class LicensedTestMixin:
     """
 
     CONFIG_LICENSE_PLAN: Optional[str] = "enterprise"
+    license: License = None  # type: ignore
 
     @classmethod
     def setUpTestData(cls):
