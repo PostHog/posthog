@@ -34,6 +34,8 @@ def factory_test_process_event(
     process_event: Callable, get_events: Callable, get_session_recording_events: Callable, get_elements: Callable
 ) -> Callable:
     class TestProcessEvent(BaseTest):
+        CLASS_DATA_LEVEL_SETUP = False
+
         def test_capture_new_person(self) -> None:
             user = self._create_user("tim")
             action1 = Action.objects.create(team=self.team)
