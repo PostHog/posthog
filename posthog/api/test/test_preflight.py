@@ -1,14 +1,12 @@
 from typing import cast
 
-import pytz
 from rest_framework import status
 
 from posthog.models import User
+from posthog.test.base import APIBaseTest
 
-from .base import BaseTest
 
-
-class TestPreflight(BaseTest):
+class TestPreflight(APIBaseTest):
     def test_preflight_request(self):
         with self.settings(MULTI_TENANCY=False):
             response = self.client.get("/_preflight/")
