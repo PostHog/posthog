@@ -180,11 +180,15 @@ def properties_to_Q(
         for item in cohort_properties:
             if item.key == "id":
                 cohort_id = int(cast(Union[str, int], item.value))
-                filters &= Q(
+                cohort_filter = Q(
                     Exists(
                         CohortPeople.objects.filter(cohort_id=cohort_id, person_id=OuterRef("person_id"),).only("id")
                     )
                 )
+                if item.operator == "not_belongs_to":
+                    filters &= ~cohort_filter
+                    continue
+                filters &= cohort_filter
 
     return filters
 

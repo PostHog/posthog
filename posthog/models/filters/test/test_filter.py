@@ -39,7 +39,7 @@ class TestFilter(BaseTest):
         )
 
 
-def property_to_Q_test_factory(filter_events: Callable, event_factory, person_factory):
+def property_to_Q_test_factory(filter_events: Callable, event_factory, person_factory, cohort_factory):
     class TestPropertiesToQ(BaseTest):
         def test_simple(self):
             event_factory(team=self.team, distinct_id="test", event="$pageview")
@@ -58,6 +58,95 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             filter = Filter(data={"properties": {"$current_url": "https://whatever.com"}})
             events = filter_events(filter, self.team)
             self.assertEqual(len(events), 1)
+
+        def test_cohort_inclusion_exclusion(self):
+            person1_distinct_id = "person1"
+            person1 = person_factory(
+                team=self.team, distinct_ids=[person1_distinct_id], properties={"$some_prop": "something"}
+            )
+
+            person2_distinct_id = "person2"
+            person2 = person_factory(
+                team=self.team, distinct_ids=[person2_distinct_id], properties={"$some_prop": "different"}
+            )
+
+            person3_distinct_id = "person3"
+            person3 = person_factory(
+                team=self.team, distinct_ids=[person3_distinct_id], properties={"$some_prop": "different"}
+            )
+
+            event_factory(team=self.team, distinct_id=person1_distinct_id, event="$pageview")
+            event_factory(team=self.team, distinct_id=person2_distinct_id, event="$pageview")
+            event_factory(team=self.team, distinct_id=person3_distinct_id, event="$pageview")
+            event_factory(team=self.team, distinct_id=person3_distinct_id, event="$pageview")
+            event_factory(team=self.team, distinct_id=person2_distinct_id, event="$pageview")
+            event_factory(team=self.team, distinct_id=person2_distinct_id, event="$pageview")
+            event_factory(team=self.team, distinct_id="test", event="$pageview")
+            event_factory(team=self.team, distinct_id="test", event="$pageview")
+
+            expected_event_count_cohort1 = 1
+            expected_event_count_cohort2 = 5
+            total_events_count = 8
+
+            cohort1 = cohort_factory(
+                team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1"
+            )
+            cohort2 = cohort_factory(
+                team=self.team, groups=[{"properties": {"$some_prop": "different"}}], name="cohort2"
+            )
+
+            filter = Filter(
+                data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort", "operator": "belongs_to"},],}
+            )
+            events = filter_events(filter, self.team, person_query=True)
+            self.assertEqual(len(events), expected_event_count_cohort1)
+
+            filter = Filter(
+                data={
+                    "properties": [{"key": "id", "value": cohort1.pk, "type": "cohort", "operator": "not_belongs_to"},],
+                }
+            )
+            events = filter_events(filter, self.team, person_query=True)
+            self.assertEqual(len(events), total_events_count - expected_event_count_cohort1)
+
+            filter = Filter(
+                data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort", "operator": "belongs_to"},],}
+            )
+            events = filter_events(filter, self.team, person_query=True)
+            self.assertEqual(len(events), expected_event_count_cohort2)
+
+            filter = Filter(
+                data={
+                    "properties": [{"key": "id", "value": cohort2.pk, "type": "cohort", "operator": "not_belongs_to"},],
+                }
+            )
+            events = filter_events(filter, self.team, person_query=True)
+            self.assertEqual(len(events), total_events_count - expected_event_count_cohort2)
+
+            filter = Filter(
+                data={
+                    "properties": [
+                        {"key": "id", "value": cohort2.pk, "type": "cohort", "operator": "belongs_to"},
+                        {"key": "id", "value": cohort1.pk, "type": "cohort", "operator": "belongs_to"},
+                    ],
+                }
+            )
+            events = filter_events(filter, self.team, person_query=True)
+            self.assertEqual(len(events), 0)
+
+            filter = Filter(
+                data={
+                    "properties": [
+                        {"key": "id", "value": cohort2.pk, "type": "cohort", "operator": "not_belongs_to"},
+                        {"key": "id", "value": cohort1.pk, "type": "cohort", "operator": "not_belongs_to"},
+                    ],
+                }
+            )
+
+            events = filter_events(filter, self.team, person_query=True)
+            self.assertEqual(
+                len(events), total_events_count - (expected_event_count_cohort1 + expected_event_count_cohort2)
+            )
 
         def test_multiple_equality(self):
             event_factory(team=self.team, distinct_id="test", event="$pageview")
@@ -435,7 +524,16 @@ def _filter_events(filter: Filter, team: Team, person_query: Optional[bool] = Fa
     return events.values()
 
 
-class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_events, Event.objects.create, Person.objects.create)):  # type: ignore
+def _create_cohort(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    groups = kwargs.pop("groups")
+    cohort = Cohort.objects.create(team=team, name=name, groups=groups)
+    cohort.calculate_people()
+    return cohort
+
+
+class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_events, Event.objects.create, Person.objects.create, _create_cohort)):  # type: ignore
     def test_person_cohort_properties(self):
         person1_distinct_id = "person1"
         person1 = Person.objects.create(
