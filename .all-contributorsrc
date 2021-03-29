@@ -1,0 +1,24 @@
+{
+  "files": [
+    "README.md"
+  ],
+  "imageSize": 100,
+  "commit": false,
+  "contributors": [
+    {
+      "login": "bard",
+      "name": "Massimiliano Mirra",
+      "avatar_url": "https://avatars.githubusercontent.com/u/19322?v=4",
+      "profile": "http://massimilianomirra.com/",
+      "contributions": [
+        "code"
+      ]
+    }
+  ],
+  "contributorsPerLine": 7,
+  "projectName": "posthog",
+  "projectOwner": "PostHog",
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "skipCi": true
+}
