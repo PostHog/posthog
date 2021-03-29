@@ -1,4 +1,7 @@
 <p align="center"><img src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/post-logo-800x156.svg" width="400px" /></p>
+<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
+<img src="https://img.shields.io/badge/all_contributors-100-orange.svg?style=flat-square" />
+<!-- ALL-CONTRIBUTORS-BADGE:END -->
 
 <br />
 
@@ -254,6 +257,7 @@ Premium features (contained in the `ee` directory) require a PostHog license. Co
 <a href="https://github.com/gmmorris"><img src="https://avatars.githubusercontent.com/u/386208?v=4" title="gmmorris" width="50" height="50"></a>
 <a href="https://github.com/bitdeli-chef"><img src="https://avatars.githubusercontent.com/u/3092978?v=4" title="bitdeli-chef" width="50" height="50"></a>
 <a href="https://github.com/nsidartha"><img src="https://avatars.githubusercontent.com/u/26918226?v=4" title="nsidartha" width="50" height="50"></a>
+<a href="http://massimilianomirra.com/"><img src="https://avatars.githubusercontent.com/u/19322?v=4" width="50" height="50" alt=""/></a>
 <!-- markdownlint-restore -->
 <!-- prettier-ignore-end -->
 

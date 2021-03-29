@@ -896,6 +896,15 @@
             "contributions": [
                 "code"
             ]
+        },
+        {
+            "login": "bard",
+            "name": "Massimiliano Mirra",
+            "avatar_url": "https://avatars.githubusercontent.com/u/19322?v=4",
+            "profile": "http://massimilianomirra.com/",
+            "contributions": [
+              "code"
+            ]
         }
     ],
     "contributorsPerLine": 7,
