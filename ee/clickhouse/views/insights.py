@@ -12,7 +12,6 @@ from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSession
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.api.insight import InsightViewSet
-from posthog.api.utils import format_next_url
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_SESSIONS, TRENDS_STICKINESS
 from posthog.decorators import cached_function
 from posthog.models import Event
@@ -28,7 +27,6 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     def calculate_trends(self, request: Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request)
-        has_more_breakdown_values = False
 
         if filter.shown_as == TRENDS_STICKINESS:
             stickiness_filter = StickinessFilter(
@@ -38,11 +36,9 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         else:
             trends_query = ClickhouseTrends()
             result = trends_query.run(filter, team)
-            has_more_breakdown_values = trends_query.has_more_values
 
         self._refresh_dashboard(request=request)
-        next = format_next_url(request, filter.offset, 20) if has_more_breakdown_values else None
-        return {"result": result, "next": next}
+        return {"result": result}
 
     @cached_function()
     def calculate_session(self, request: Request) -> Dict[str, Any]:
