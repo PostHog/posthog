@@ -6,6 +6,8 @@ on:
             - master
             - main
 
+if: ${{ github.actor != 'posthog-contributions-bot' }}
+
 jobs:
     build-push:
         name: Build Docker images and push them

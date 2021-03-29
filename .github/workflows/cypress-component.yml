@@ -3,6 +3,8 @@ name: Cypress Component
 on:
     - pull_request
 
+if: ${{ github.actor != 'posthog-contributions-bot' }}
+
 jobs:
     cypress-component:
         name: Cypress component tests
