@@ -4,6 +4,7 @@ import { teamLogicType } from './teamLogicType'
 import { TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { toast } from 'react-toastify'
+import React from 'react'
 
 export const teamLogic = kea<teamLogicType<TeamType>>({
     actions: {
@@ -40,16 +41,6 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
                     userLogic.actions.loadUser()
                     return patchedTeam
                 },
-                renameCurrentTeam: async (newName: string) => {
-                    if (!values.currentTeam) {
-                        throw new Error('Current team has not been loaded yet, so it cannot be renamed!')
-                    }
-                    const renamedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, {
-                        name: newName,
-                    })) as TeamType
-                    userLogic.actions.loadUser()
-                    return renamedTeam
-                },
                 createTeam: async (name: string): Promise<TeamType> => await api.create('api/projects/', { name }),
                 resetToken: async () => await api.update('api/projects/@current/reset_token', {}),
             },
@@ -68,11 +59,16 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
         deleteTeamSuccess: () => {
             toast.success('Project has been deleted')
         },
-        renameCurrentTeamSuccess: () => {
-            toast.success('Project has been renamed')
-        },
         createTeamSuccess: () => {
             window.location.href = '/ingestion'
+        },
+        patchCurrentTeamSuccess: () => {
+            toast.success(
+                <div>
+                    <h1>Project updated successfully!</h1>
+                    <p>Click here to dismiss.</p>
+                </div>
+            )
         },
     }),
     events: ({ actions }) => ({

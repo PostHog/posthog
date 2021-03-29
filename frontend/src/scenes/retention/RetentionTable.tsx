@@ -12,6 +12,9 @@ import {
 
 import './RetentionTable.scss'
 import dayjs from 'dayjs'
+import utc from 'dayjs/plugin/utc'
+dayjs.extend(utc)
+
 import { ColumnsType } from 'antd/lib/table'
 
 export function RetentionTable({
@@ -39,12 +42,12 @@ export function RetentionTable({
     useEffect(() => {
         setIsLatestPeriod(periodIsLatest(date_to, period))
     }, [date_to, period])
-
     const columns: ColumnsType<Record<string, any>> = [
         {
             title: 'Date',
             key: 'date',
-            render: (row) => dayjs(row.date).format(period === 'h' ? 'MMM D, h a' : 'MMM D'),
+            render: (row) =>
+                period === 'Hour' ? dayjs(row.date).format('MMM D, h a') : dayjs.utc(row.date).format('MMM D'),
             align: 'center',
         },
         {

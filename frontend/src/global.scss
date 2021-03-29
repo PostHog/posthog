@@ -238,6 +238,7 @@ code.code {
 }
 
 // Toasts
+
 .Toastify__toast-container {
     opacity: 1;
     transform: none;
@@ -259,7 +260,7 @@ code.code {
     }
 }
 
-.Toastify__progress-bar--default {
+.Toastify__progress-bar {
     background: $success;
 }
 
@@ -276,6 +277,9 @@ code.code {
     &.accent-border {
         border-color: $primary_alt;
     }
+    .Toastify__progress-bar {
+        background: $primary_alt;
+    }
 }
 
 .Toastify__toast--error {
@@ -291,11 +295,13 @@ code.code {
 }
 
 // Table styles
+
 .table-bordered td {
     border: 1px solid $border;
 }
 
 // Card styles
+
 .ant-card-body > :first-child {
     margin-top: 0;
 }
@@ -305,6 +311,7 @@ code.code {
 }
 
 // Form & input styles
+
 .input-set {
     padding-bottom: $default_spacing;
     color: $text_default;
@@ -342,7 +349,12 @@ code.code {
     }
 }
 
+.ant-form-item-label {
+    font-weight: bold;
+}
+
 // Button styles
+
 .btn-close {
     color: $text_muted;
 }
@@ -387,6 +399,7 @@ code.code {
 }
 
 // Overlays styles
+
 #bottom-notice {
     z-index: 10500;
     display: flex;
@@ -497,8 +510,45 @@ code.code {
         background-color: $blue_300;
     }
 
+    &.width-locked {
+        width: 40px;
+        text-align: center;
+    }
+
     &.and {
         background-color: $yellow_100;
         color: $primary_alt;
     }
+}
+
+// Simple tags
+
+.simple-tag {
+    border-radius: $radius;
+    font-weight: bold;
+    padding: 2px 6px;
+
+    &.tag-light-lilac {
+        background-color: $hc_light_lilac;
+        color: $hc_navy;
+    }
+}
+
+// Hotkey styles
+.hotkey {
+    width: 22px;
+    height: 22px;
+    border-radius: $radius;
+    font-weight: bold;
+    margin-left: 6px;
+    background-color: white;
+    color: $primary;
+    text-shadow: none;
+    text-transform: uppercase;
+    border: 1px solid $border_light;
+    margin-bottom: 2px;
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }

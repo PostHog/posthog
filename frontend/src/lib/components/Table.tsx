@@ -1,14 +1,14 @@
 import React from 'react'
 import { uniqueBy } from 'lib/utils'
-import { Created } from './Created'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
+import { TZLabel } from './TimezoneAware'
 
 export function createdAtColumn(): Record<string, any> {
     return {
         title: 'Created',
-        render: function RenderCreatedAt(_, item: Record<string, any>): JSX.Element | undefined | '' {
-            return item.created_at && <Created timestamp={item.created_at} />
+        render: function RenderCreatedAt(_: any, item: Record<string, any>): JSX.Element | undefined | '' {
+            return item.created_at && <TZLabel time={item.created_at} />
         },
         sorter: (a: Record<string, any>, b: Record<string, any>) =>
             new Date(a.created_at) > new Date(b.created_at) ? 1 : -1,

@@ -1,15 +1,11 @@
 import hashlib
 from typing import Any, Dict, List
 
-import posthoganalytics
-from django.conf import settings
 from django.contrib.postgres.fields import JSONField
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
-from django.db.models.query_utils import Q
-from django.dispatch import receiver
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
@@ -27,8 +23,10 @@ class FeatureFlag(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
 
-    name: models.CharField = models.CharField(max_length=400)
     key: models.CharField = models.CharField(max_length=400)
+    name: models.TextField = models.TextField(
+        blank=True,
+    )  # contains description for the FF (field name `name` is kept for backwards-compatibility)
 
     filters: JSONField = JSONField(default=dict)
     rollout_percentage: models.IntegerField = models.IntegerField(null=True, blank=True)
@@ -128,16 +126,6 @@ class FeatureFlagMatcher:
         hash_key = "%s.%s" % (self.feature_flag.key, self.distinct_id)
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
-
-
-@receiver(models.signals.post_save, sender=FeatureFlag)
-def feature_flag_created(sender, instance, created, raw, using, **kwargs):
-
-    if instance.created_by:
-        event_name: str = "feature flag created" if created else "feature flag updated"
-        posthoganalytics.capture(
-            instance.created_by.distinct_id, event_name, instance.get_analytics_metadata(),
-        )
 
 
 def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:

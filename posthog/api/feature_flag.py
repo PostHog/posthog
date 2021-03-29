@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional
 
+import posthoganalytics
 from django.db import IntegrityError
 from django.db.models import QuerySet
 from rest_framework import serializers, viewsets
@@ -54,21 +55,31 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         self._update_filters(validated_data)
         try:
             FeatureFlag.objects.filter(key=validated_data["key"], team=request.user.team, deleted=True).delete()
-            feature_flag = super().create(validated_data)
+            instance = super().create(validated_data)
         except IntegrityError:
             raise serializers.ValidationError("This key already exists.", code="key-exists")
 
-        return feature_flag
+        posthoganalytics.capture(
+            request.user.distinct_id, "feature flag created", instance.get_analytics_metadata(),
+        )
+
+        return instance
 
     def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:  # type: ignore
+        request = self.context["request"]
         try:
             validated_key = validated_data.get("key", None)
             if validated_key:
                 FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
             self._update_filters(validated_data)
-            return super().update(instance, validated_data)
+            instance = super().update(instance, validated_data)
         except IntegrityError:
             raise serializers.ValidationError("This key already exists.", code="key-exists")
+
+        posthoganalytics.capture(
+            request.user.distinct_id, "feature flag updated", instance.get_analytics_metadata(),
+        )
+        return instance
 
     def _update_filters(self, validated_data):
         if "get_filters" in validated_data:

@@ -330,6 +330,26 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
                 ["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
             )
 
+        def test_person_cohorts(self) -> None:
+            person_factory(team=self.team, distinct_ids=["1"], properties={"$some_prop": "something", "number": 1})
+            person2 = person_factory(
+                team=self.team, distinct_ids=["2"], properties={"$some_prop": "something", "number": 2}
+            )
+            cohort1 = Cohort.objects.create(
+                team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1"
+            )
+            cohort2 = Cohort.objects.create(team=self.team, groups=[{"properties": {"number": 1}}], name="cohort2")
+            cohort3 = Cohort.objects.create(team=self.team, groups=[{"properties": {"number": 2}}], name="cohort3")
+            cohort1.calculate_people()
+            cohort2.calculate_people()
+            cohort3.calculate_people()
+
+            response = self.client.get(f"/api/person/cohorts/?person_id={person2.id}").json()
+            response["results"].sort(key=lambda cohort: cohort["name"])
+            self.assertEqual(len(response["results"]), 2)
+            self.assertDictContainsSubset({"id": cohort1.id, "count": 2, "name": cohort1.name}, response["results"][0])
+            self.assertDictContainsSubset({"id": cohort3.id, "count": 1, "name": cohort3.name}, response["results"][1])
+
     return TestPerson
 
 

@@ -4,7 +4,7 @@ import json
 from collections import defaultdict
 from typing import Dict, Generator, List
 
-from sentry_sdk.api import capture_message
+from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
 
@@ -86,7 +86,15 @@ def chunk_string(string: str, chunk_length: int) -> List[str]:
 
 
 def is_unchunked_snapshot(event: Dict) -> bool:
-    return event["event"] == "$snapshot" and "chunk_id" not in event["properties"]["$snapshot_data"]
+    try:
+        is_snapshot = event["event"] == "$snapshot"
+    except KeyError:
+        raise ValueError('All events must have the event name field "event"!')
+    try:
+        return is_snapshot and "chunk_id" not in event["properties"]["$snapshot_data"]
+    except KeyError:
+        capture_exception()
+        raise ValueError('$snapshot events must contain property "$snapshot_data"!')
 
 
 def compress_to_string(json_string: str) -> str:

@@ -1,7 +1,7 @@
 from django.test import TestCase
 from freezegun import freeze_time
 
-from posthog.utils import mask_email_address, relative_date_parse
+from posthog.utils import get_available_timezones_with_offsets, mask_email_address, relative_date_parse
 
 
 class TestGeneralUtils(TestCase):
@@ -16,6 +16,10 @@ class TestGeneralUtils(TestCase):
         with self.assertRaises(ValueError) as e:
             mask_email_address("not an email")
         self.assertEqual(str(e.exception), "Please provide a valid email address.")
+
+    def test_available_timezones(self):
+        timezones = get_available_timezones_with_offsets()
+        self.assertEqual(timezones.get("Europe/Moscow"), 3)
 
 
 class TestRelativeDateParse(TestCase):

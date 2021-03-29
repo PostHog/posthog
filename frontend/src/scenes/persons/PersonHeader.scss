@@ -1,0 +1,27 @@
+@import '~/vars';
+
+.person-header {
+    display: flex;
+    align-items: center;
+    @extend .text-ellipsis;
+
+    svg {
+        height: 18px;
+        min-width: 18px;
+        margin-right: 2px;
+    }
+
+    &.anonymous {
+        color: $text_muted;
+        svg {
+            color: $purple_300;
+        }
+    }
+
+    &.identified {
+        color: $text_default;
+        svg {
+            color: $purple_700;
+        }
+    }
+}

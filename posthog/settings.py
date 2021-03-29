@@ -61,6 +61,9 @@ DEBUG = get_from_env("DEBUG", False, type_cast=strtobool)
 TEST = (
     "test" in sys.argv or sys.argv[0].endswith("pytest") or get_from_env("TEST", False, type_cast=strtobool)
 )  # type: bool
+E2E_TESTING = get_from_env(
+    "E2E_TESTING", False, type_cast=strtobool,
+)  # whether the app is currently running for E2E tests
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=strtobool)
 SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=strtobool)
 
@@ -111,11 +114,28 @@ if not TEST:
 if get_from_env("DISABLE_SECURE_SSL_REDIRECT", False, type_cast=strtobool):
     SECURE_SSL_REDIRECT = False
 
+
+# Proxy settings
 IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=strtobool)
+TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
+TRUST_ALL_PROXIES = os.getenv("TRUST_ALL_PROXIES", False)
+
+
 if IS_BEHIND_PROXY:
     USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
+    if not TRUST_ALL_PROXIES and not TRUSTED_PROXIES:
+        print_warning(
+            (
+                "️You indicated your instance is behind a proxy (IS_BEHIND_PROXY env var),",
+                " but you haven't configured any trusted proxies. See",
+                " https://posthog.com/docs/configuring-posthog/running-behind-proxy for details.",
+            )
+        )
+
+# IP Block settings
+ALLOWED_IP_BLOCKS = get_list(os.getenv("ALLOWED_IP_BLOCKS", ""))
 
 # Clickhouse Settings
 CLICKHOUSE_TEST_DB = "posthog_test"
@@ -161,12 +181,6 @@ ASYNC_EVENT_ACTION_MAPPING = PRIMARY_DB == RDBMS.POSTGRES and get_from_env(
 ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", False, type_cast=strtobool)
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
 
-# IP block settings
-ALLOWED_IP_BLOCKS = get_list(os.getenv("ALLOWED_IP_BLOCKS", ""))
-TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", False)
-TRUST_ALL_PROXIES = os.getenv("TRUST_ALL_PROXIES", False)
-
-
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 
@@ -186,7 +200,7 @@ STATSD_PREFIX = os.getenv("STATSD_PREFIX", "")
 AXES_ENABLED = get_from_env("AXES_ENABLED", True, type_cast=strtobool)
 AXES_FAILURE_LIMIT = int(os.getenv("AXES_FAILURE_LIMIT", 5))
 AXES_COOLOFF_TIME = timedelta(minutes=15)
-AXES_LOCKOUT_TEMPLATE = "too_many_failed_logins.html"
+AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axess_logout"
 AXES_META_PRECEDENCE_ORDER = [
     "HTTP_X_FORWARDED_FOR",
     "REMOTE_ADDR",

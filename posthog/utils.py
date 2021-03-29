@@ -1,5 +1,6 @@
 import base64
 import datetime
+import datetime as dt
 import gzip
 import hashlib
 import json
@@ -640,3 +641,18 @@ class GenericEmails:
         if at_location == -1:
             return False
         return self.emails.get(email[at_location + 1 :], False)
+
+
+def get_available_timezones_with_offsets() -> Dict[str, float]:
+    now = dt.datetime.now()
+    result = {}
+    for tz in pytz.common_timezones:
+        try:
+            offset = pytz.timezone(tz).utcoffset(now)
+        except:
+            offset = pytz.timezone(tz).utcoffset(now + dt.timedelta(hours=2))
+        if offset is None:
+            continue
+        offset_hours = int(offset.total_seconds()) / 3600
+        result[tz] = offset_hours
+    return result

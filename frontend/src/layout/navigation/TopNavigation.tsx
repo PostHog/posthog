@@ -164,6 +164,7 @@ export function TopNavigation(): JSX.Element {
                             showUpgradeModal,
                             'organizations_projects',
                             'multiple organizations',
+                            'Organizations group people building products together. An organization can then have multiple projects.',
                             () => {
                                 setOrganizationModalShown(true)
                             },
@@ -221,6 +222,7 @@ export function TopNavigation(): JSX.Element {
                             showUpgradeModal,
                             'organizations_projects',
                             'multiple projects',
+                            'Projects allow you to separate data and configuration for different products or environments.',
                             () => {
                                 setProjectModalShown(true)
                             }

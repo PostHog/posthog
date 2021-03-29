@@ -1,6 +1,7 @@
 import re
 from typing import Any, Dict, List, Optional
 
+import pytz
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.core.validators import MinLengthValidator
 from django.db import models
@@ -13,6 +14,8 @@ from .dashboard import Dashboard
 from .utils import UUIDT, generate_random_token, sane_repr
 
 TEAM_CACHE: Dict[str, "Team"] = {}
+
+TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
 
 
 class TeamManager(models.Manager):
@@ -94,8 +97,8 @@ class Team(models.Model):
     plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
-
     test_account_filters: JSONField = JSONField(default=list)
+    timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
 
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)

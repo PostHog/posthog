@@ -10,7 +10,14 @@ from django.utils.timezone import now
 
 from posthog.constants import SESSION_AVG
 from posthog.models import Event, Filter, Team
-from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter, properties_to_Q
+from posthog.queries.base import (
+    BaseQuery,
+    convert_to_comparison,
+    determine_compared_filter,
+    filter_events,
+    process_entity_for_events,
+    properties_to_Q,
+)
 from posthog.utils import append_data, friendly_time, get_daterange
 
 DIST_LABELS = [
@@ -32,12 +39,19 @@ QueryParams = Tuple[Any, ...]
 
 class Sessions(BaseQuery):
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        events = self.events_query(filter, team)
         calculated = []
+
+        events = Event.objects.none()
+        for entity in filter.entities:
+            events |= process_entity_for_events(entity, team_id=team.pk).filter(
+                filter_events(team_id=team.pk, filter=filter, entity=entity, include_dates=False)
+            )
+
+        if not len(events):
+            events = self.events_query(filter, team)
 
         # get compared period
         if filter.compare and filter._date_from != "all" and filter.session == SESSION_AVG:
-
             calculated = self.calculate_sessions(events.filter(filter.date_filter_Q), filter, team)
             calculated = convert_to_comparison(calculated, filter, "current")
 
@@ -74,6 +88,7 @@ class Sessions(BaseQuery):
         return (
             Event.objects.filter(team=team)
             .add_person_id(team.pk)
+            .filter(~Q(event="$feature_flag_called"))
             .filter(
                 properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
             )

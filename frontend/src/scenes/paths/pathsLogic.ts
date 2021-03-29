@@ -75,7 +75,7 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
                 try {
                     paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
                 } catch (e) {
-                    insightLogic.actions.endQuery(ViewType.PATHS, false, e)
+                    insightLogic.actions.endQuery(ViewType.PATHS, null, e)
                     return { paths: [], filter, error: true }
                 }
                 breakpoint()

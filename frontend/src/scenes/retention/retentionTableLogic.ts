@@ -75,7 +75,7 @@ export const retentionTableLogic = kea<
                 try {
                     res = await api.get(`api/insight/retention/?${urlParams}`)
                 } catch (e) {
-                    insightLogic.actions.endQuery(ViewType.RETENTION, false, e)
+                    insightLogic.actions.endQuery(ViewType.RETENTION, null, e)
                     return []
                 }
                 breakpoint()

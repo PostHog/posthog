@@ -1,4 +1,5 @@
 from ipaddress import ip_address, ip_network
+from typing import List
 
 from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
@@ -10,14 +11,17 @@ from .auth import PersonalAPIKeyAuthentication
 
 
 class AllowIP(object):
+
+    trusted_proxies: List[str] = []
+
     def __init__(self, get_response):
         if not settings.ALLOWED_IP_BLOCKS:
             # this will make Django skip this middleware for all future requests
             raise MiddlewareNotUsed()
         self.ip_blocks = settings.ALLOWED_IP_BLOCKS
 
-        if getattr(settings, "TRUSTED_PROXIES", False):
-            self.trusted_proxies = [item.strip() for item in getattr(settings, "TRUSTED_PROXIES").split(",")]
+        if settings.TRUSTED_PROXIES:
+            self.trusted_proxies = [item.strip() for item in settings.TRUSTED_PROXIES.split(",")]
         self.get_response = get_response
 
     def get_forwarded_for(self, request: HttpRequest):
@@ -34,7 +38,7 @@ class AllowIP(object):
             if forwarded_for:
                 closest_proxy = client_ip
                 client_ip = forwarded_for.pop(0)
-                if getattr(settings, "TRUST_ALL_PROXIES", False):
+                if settings.TRUST_ALL_PROXIES:
                     return client_ip
                 proxies = [closest_proxy] + forwarded_for
                 for proxy in proxies:

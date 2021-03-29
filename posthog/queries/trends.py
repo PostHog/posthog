@@ -284,10 +284,9 @@ def process_math(query: QuerySet, entity: Entity) -> QuerySet:
 def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optional[Union[str, int]]]:
     ret_dict: Dict[str, Optional[Union[str, int]]] = {}
     if not value or not isinstance(value, str) or "cohort_" not in value:
-        ret_dict["label"] = "{} - {}".format(
-            entity.name, value if value and value != "None" and value != "nan" else "Other",
-        )
-        ret_dict["breakdown_value"] = value if value else None
+        label = value if (value or type(value) == bool) and value != "None" and value != "nan" else "Other"
+        ret_dict["label"] = "{} - {}".format(entity.name, label,)
+        ret_dict["breakdown_value"] = label
     else:
         if value == "cohort_all":
             ret_dict["label"] = "{} - all users".format(entity.name)
