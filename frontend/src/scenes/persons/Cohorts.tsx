@@ -75,6 +75,13 @@ export function Cohorts(): JSX.Element {
             },
             sorter: (a: CohortType, b: CohortType) => (a.count || 0) - (b.count || 0),
         },
+        {
+            title: 'Match groups',
+            render: function RenderCount(_: any, cohort: CohortType) {
+                return cohort.groups.length
+            },
+            sorter: (a: CohortType, b: CohortType) => (a.count || 0) - (b.count || 0),
+        },
         createdAtColumn(),
         createdByColumn(cohorts),
         {
