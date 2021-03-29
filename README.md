@@ -1,4 +1,7 @@
 <p align="center"><img src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/post-logo-800x156.svg" width="400px" /></p>
+<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
+[![All Contributors](https://img.shields.io/badge/all_contributors-1-orange.svg?style=flat-square)](#contributors-)
+<!-- ALL-CONTRIBUTORS-BADGE:END -->
 
 <br />
 
@@ -153,6 +156,14 @@ Premium features (contained in the `ee` directory) require a PostHog license. Co
 ## Contributors 🦸
 
 [//]: contributor-faces
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+ <a href="http://massimilianomirra.com/"><img src="https://avatars.githubusercontent.com/u/19322?v=4" width="50" height="50" alt=""/></a>
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+
+<!-- ALL-CONTRIBUTORS-LIST:END -->
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable -->
