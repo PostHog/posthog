@@ -108,6 +108,7 @@ function Content({ breakdown, breakdown_type, onChange }) {
                     breakdown={(!breakdown_type || breakdown_type == 'property') && breakdown}
                     onChange={onChange}
                 />
+                <i>Note: We'll only show the 20 values with the most volume.</i>
             </TabPane>
             <TabPane tab="Cohort" key="cohort">
                 <CohortFilter breakdown={breakdown_type == 'cohort' && breakdown} onChange={onChange} />
