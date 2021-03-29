@@ -149,4 +149,71 @@ describe('transformCode', () => {
             }));
         `)
     })
+
+    it('replaces imports', () => {
+        const rawCode = code`
+            import { bla, bla2, bla3 as bla4 } from 'node-fetch'
+            import fetch1 from 'node-fetch'
+            import * as fetch2 from 'node-fetch'
+            console.log(bla, bla2, bla4, fetch1, fetch2);
+        `
+
+        const transformedCode = transformCode(rawCode, server, { 'node-fetch': { bla: () => true } })
+
+        expect(transformedCode).toStrictEqual(code`
+            "use strict";
+
+            const bla = __pluginHostImports["node-fetch"]["bla"],
+                  bla2 = __pluginHostImports["node-fetch"]["bla2"],
+                  bla4 = __pluginHostImports["node-fetch"]["bla3"];
+            const fetch1 = __pluginHostImports["node-fetch"];
+            const fetch2 = __pluginHostImports["node-fetch"];
+            console.log(bla, bla2, bla4, fetch1, fetch2);
+        `)
+    })
+
+    it('only replaces provided imports', () => {
+        const rawCode = code`
+            import { kea } from 'kea'
+            console.log(kea)
+        `
+
+        expect(() => {
+            transformCode(rawCode, server, { 'node-fetch': { default: () => true } })
+        }).toThrow("/index.ts: Cannot import 'kea'! This package is not provided by PostHog in plugins.")
+    })
+
+    it('replaces requires', () => {
+        const rawCode = code`
+            const fetch = require('node-fetch')
+            const { BigQuery } = require('@google-cloud/bigquery')
+            console.log(fetch, BigQuery);
+        `
+
+        const transformedCode = transformCode(rawCode, server, {
+            'node-fetch': { bla: () => true },
+            '@google-cloud/bigquery': { BigQuery: () => true },
+        })
+
+        expect(transformedCode).toStrictEqual(code`
+            "use strict";
+
+            const fetch = __pluginHostImports["node-fetch"];
+            const {
+              BigQuery
+            } = __pluginHostImports["@google-cloud/bigquery"];
+            console.log(fetch, BigQuery);
+        `)
+    })
+
+    it('only replaces provided requires', () => {
+        const rawCode = code`
+            const { kea } = require('kea')
+            console.log(kea)
+        `
+
+        expect(() => {
+            transformCode(rawCode, server, { 'node-fetch': { default: () => true } })
+        }).toThrow("/index.ts: Cannot import 'kea'! This package is not provided by PostHog in plugins.")
+    })
 })
