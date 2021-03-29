@@ -3,7 +3,7 @@
         "README.md"
     ],
     "imageSize": 50,
-    "badgeTemplate": "<a href="#contributors-"><img src="https://img.shields.io/badge/all_contributors-<%= contributors.length %>-orange.svg?style=flat-square" /></a>",
+    "badgeTemplate": "<a href='#contributors-'><img src='https://img.shields.io/badge/all_contributors-<%= contributors.length %>-orange.svg?style=flat-square' /></a>",
     "commit": false,
     "contributors": [
         {
@@ -75,7 +75,8 @@
             "avatar_url": "https://avatars.githubusercontent.com/u/38760734?v=4",
             "profile": "https://github.com/yakkomajuri",
             "contributions": [
-                "code"
+                "code",
+                "bug"
             ]
         },
         {
