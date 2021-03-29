@@ -135,6 +135,7 @@ export interface ActionType {
     deleted?: boolean
     id: number
     is_calculating?: boolean
+    last_calculated_at?: string
     name: string
     post_to_slack?: boolean
     steps?: ActionStepType[]

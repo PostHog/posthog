@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from rest_framework import status
+
 from posthog.models import Action, ActionStep, Element, Event
 from posthog.test.base import BaseTest
 
@@ -23,7 +25,10 @@ class TestCreateAction(BaseTest):
             },
             content_type="application/json",
             HTTP_ORIGIN="http://testserver",
-        ).json()
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["is_calculating"], False)
+        self.assertIn("last_calculated_at", response.json())
         action = Action.objects.get()
         self.assertEqual(action.name, "user signed up")
         self.assertEqual(action.team, self.team)

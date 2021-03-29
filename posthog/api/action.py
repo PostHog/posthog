@@ -83,6 +83,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
             "deleted",
             "count",
             "is_calculating",
+            "last_calculated_at",
             "created_by",
         ]
 
@@ -119,26 +120,6 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
         return get_actions(queryset, self.request.GET.dict(), self.team_id)
-
-    def create(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        action, created = Action.objects.get_or_create(
-            name=request.data["name"],
-            team_id=self.team_id,
-            deleted=False,
-            defaults={"post_to_slack": request.data.get("post_to_slack", False), "created_by": request.user},
-        )
-        if not created:
-            return Response(data={"detail": "action-exists", "id": action.pk}, status=400)
-
-        if request.data.get("steps"):
-            for step in request.data["steps"]:
-                ActionStep.objects.create(
-                    action=action, **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
-                )
-
-        self._calculate_action(action)
-        posthoganalytics.capture(request.user.distinct_id, "action created", action.get_analytics_metadata())
-        return Response(self.serializer_class(action, context={"request": request}).data)
 
     def _calculate_action(self, action: Action) -> None:
         calculate_action.delay(action_id=action.pk)
