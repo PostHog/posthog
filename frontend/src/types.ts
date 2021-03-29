@@ -600,6 +600,7 @@ export interface PreflightStatus {
     celery: boolean
     available_social_auth_providers: AuthBackends
     available_timezones: Record<string, number>
+    db_backend: 'postgres' | 'clickhouse'
 }
 
 export enum DashboardMode { // Default mode is null
