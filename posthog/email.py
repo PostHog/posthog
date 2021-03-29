@@ -97,7 +97,12 @@ def _send_email(
 
 class EmailMessage:
     def __init__(
-        self, campaign_key: str, subject: str, template_name: str, template_context: Optional[Dict] = None,
+        self,
+        campaign_key: str,
+        subject: str,
+        template_name: str,
+        template_context: Optional[Dict] = None,
+        headers: Optional[Dict] = None,
     ):
         if not is_email_available():
             raise exceptions.ImproperlyConfigured("Email is not enabled in this instance.",)
@@ -107,7 +112,7 @@ class EmailMessage:
         template = get_template(f"email/{template_name}.html")
         self.html_body = inline_css(template.render(template_context))
         self.txt_body = ""
-        self.headers: Dict = {}
+        self.headers = headers if headers else {}
         self.to: List[Dict[str, str]] = []
 
     def add_recipient(self, email: str, name: Optional[str] = None) -> None:
