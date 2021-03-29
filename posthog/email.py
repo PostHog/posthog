@@ -39,7 +39,13 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
 
 @app.task(ignore_result=True, max_retries=3)
 def _send_email(
-    campaign_key: str, to: List[Dict[str, str]], subject: str, headers: Dict, txt_body: str = "", html_body: str = "",
+    campaign_key: str,
+    to: List[Dict[str, str]],
+    subject: str,
+    headers: Dict,
+    txt_body: str = "",
+    html_body: str = "",
+    reply_to: str = "",
 ) -> None:
     """
     Sends built email message asynchronously.
@@ -67,7 +73,7 @@ def _send_email(
                 body=txt_body,
                 to=[dest["recipient"]],
                 headers=headers,
-                reply_to=settings.EMAIL_REPLY_TO,
+                reply_to=[reply_to or settings.EMAIL_REPLY_TO],
             )
 
             email_message.attach_alternative(html_body, "text/html")
@@ -103,6 +109,7 @@ class EmailMessage:
         template_name: str,
         template_context: Optional[Dict] = None,
         headers: Optional[Dict] = None,
+        reply_to: str = "",
     ):
         if not is_email_available():
             raise exceptions.ImproperlyConfigured("Email is not enabled in this instance.",)
@@ -114,6 +121,7 @@ class EmailMessage:
         self.txt_body = ""
         self.headers = headers if headers else {}
         self.to: List[Dict[str, str]] = []
+        self.reply_to = reply_to
 
     def add_recipient(self, email: str, name: Optional[str] = None) -> None:
         self.to.append({"recipient": f'"{name}" <{email}>' if name else email, "raw_email": email})
@@ -130,6 +138,7 @@ class EmailMessage:
             "headers": self.headers,
             "txt_body": self.txt_body,
             "html_body": self.html_body,
+            "reply_to": self.reply_to,
         }
 
         if send_async:
