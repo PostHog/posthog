@@ -1451,7 +1451,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
-            self.assertEqual(len(response), 20)
+            self.assertEqual(len(response), 21)
 
         def test_breakdown_user_props_with_filter(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
