@@ -3,12 +3,12 @@ name: E2E
 on:
     - pull_request
 
-if: ${{ github.actor != 'posthog-contributions-bot' }}
-
 jobs:
     cypress:
         name: Cypress E2E tests
         runs-on: ubuntu-18.04
+        if: ${{ github.actor != 'posthog-contributions-bot' }}
+
         strategy:
             # when one test fails, DO NOT cancel the other
             # containers, because this will kill Cypress processes

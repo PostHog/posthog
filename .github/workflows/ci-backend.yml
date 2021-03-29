@@ -6,12 +6,11 @@ env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: 'redis://localhost'
 
-if: ${{ github.actor != 'posthog-contributions-bot' }}
-
 jobs:
     backend-code-quality:
         name: Code quality checks
         runs-on: ubuntu-latest
+        if: ${{ github.actor != 'posthog-contributions-bot' }}
 
         services:
             postgres:
@@ -68,6 +67,8 @@ jobs:
     django:
         name: Django tests – Py ${{ matrix.python-version }}
         runs-on: ubuntu-latest
+        if: ${{ github.actor != 'posthog-contributions-bot' }}
+
         strategy:
             fail-fast: false
             matrix:
@@ -144,6 +145,7 @@ jobs:
     cloud:
         name: Django tests – Cloud
         runs-on: ubuntu-latest
+        if: ${{ github.actor != 'posthog-contributions-bot' }}
 
         services:
             postgres:
@@ -270,6 +272,7 @@ jobs:
     foss:
         name: Django tests – FOSS
         runs-on: ubuntu-latest
+        if: ${{ github.actor != 'posthog-contributions-bot' }}
 
         services:
             postgres:

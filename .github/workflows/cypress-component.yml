@@ -3,12 +3,12 @@ name: Cypress Component
 on:
     - pull_request
 
-if: ${{ github.actor != 'posthog-contributions-bot' }}
-
 jobs:
     cypress-component:
         name: Cypress component tests
         runs-on: ubuntu-18.04
+        if: ${{ github.actor != 'posthog-contributions-bot' }}
+
         steps:
             - name: Checkout
               uses: actions/checkout@v1
