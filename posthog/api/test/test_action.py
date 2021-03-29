@@ -33,7 +33,9 @@ class TestCreateAction(BaseTest):
         self.assertEqual(action.name, "user signed up")
         self.assertEqual(action.team, self.team)
         self.assertEqual(action.steps.get().selector, "div > button")
-        self.assertEqual(response["steps"][0]["text"], "sign up")
+        self.assertEqual(response.json()["steps"][0]["text"], "sign up")
+        self.assertEqual(response.json()["steps"][0]["url"], "/signup")
+        self.assertNotIn("isNew", response.json()["steps"][0])
 
         # Assert analytics are sent
         patch_capture.assert_called_once_with(
@@ -60,14 +62,29 @@ class TestCreateAction(BaseTest):
         user2 = self._create_user("tim2")
         self.client.force_login(user2)
 
+        count = Action.objects.count()
+        steps_count = ActionStep.objects.count()
+
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
             "/api/action",
             data={"name": "user signed up"},
             content_type="application/json",
             HTTP_ORIGIN="http://testserver",
-        ).json()
-        self.assertEqual(response["detail"], "action-exists")
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "unique",
+                "detail": "This project already has an action with that name.",
+                "attr": "name",
+            },
+        )
+
+        self.assertEqual(Action.objects.count(), count)
+        self.assertEqual(ActionStep.objects.count(), steps_count)
 
     @patch("posthoganalytics.capture")
     def test_update_action(self, patch_capture, *args):
@@ -177,7 +194,7 @@ class TestCreateAction(BaseTest):
             content_type="application/json",
             HTTP_ORIGIN="https://somewebsite.com",
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 201)
 
         response = self.client.post(
             "/api/action/?temporary_token=token123",
@@ -185,7 +202,7 @@ class TestCreateAction(BaseTest):
             content_type="application/json",
             HTTP_ORIGIN="https://somewebsite.com",
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["post_to_slack"], True)
 
         list_response = self.client.get(
@@ -215,7 +232,7 @@ class TestCreateAction(BaseTest):
             content_type="application/json",
             HTTP_ORIGIN="https://somewebsite.com",
         )
-        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.status_code, 201, response.json())
 
     # This case happens when someone is running behind a proxy, but hasn't set `IS_BEHIND_PROXY`
     def test_http_to_https(self, patch_delay):
@@ -225,4 +242,4 @@ class TestCreateAction(BaseTest):
             content_type="application/json",
             HTTP_ORIGIN="https://testserver/",
         )
-        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.status_code, 201, response.json())

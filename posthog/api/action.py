@@ -67,9 +67,9 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class ActionSerializer(serializers.HyperlinkedModelSerializer):
-    steps = serializers.SerializerMethodField()
+    steps = ActionStepSerializer(many=True, required=False)
     count = serializers.SerializerMethodField()
-    created_by = UserSerializer(required=False, read_only=True)
+    created_by = UserSerializer(read_only=True)
 
     class Meta:
         model = Action
@@ -85,16 +85,40 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
             "is_calculating",
             "last_calculated_at",
             "created_by",
+            "team_id",
         ]
-
-    def get_steps(self, action: Action):
-        steps = action.steps.all()
-        return ActionStepSerializer(steps, many=True).data
 
     def get_count(self, action: Action) -> Optional[int]:
         if hasattr(action, "count"):
             return action.count  # type: ignore
         return None
+
+    def validate(self, attrs):
+        attrs["created_by"] = self.context["request"].user
+        attrs["team_id"] = self.context["view"].team_id
+
+        if Action.objects.filter(name=attrs["name"], team_id=attrs["team_id"], deleted=False).exists():
+            raise serializers.ValidationError(
+                {"name": "This project already has an action with that name."}, code="unique"
+            )
+
+        return attrs
+
+    def create(self, validated_data: Any) -> Any:
+        steps = validated_data.pop("steps", [])
+        instance = super().create(validated_data)
+
+        for step in steps:
+            ActionStep.objects.create(
+                action=instance, **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
+            )
+
+        calculate_action.delay(action_id=instance.pk)
+        posthoganalytics.capture(
+            validated_data["created_by"].distinct_id, "action created", instance.get_analytics_metadata()
+        )
+
+        return instance
 
 
 def get_actions(queryset: QuerySet, params: dict, team_id: int) -> QuerySet:
@@ -125,6 +149,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         calculate_action.delay(action_id=action.pk)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        # TODO: This logic should be refactored to the serializer.
         action = Action.objects.get(pk=kwargs["pk"], team_id=self.team_id)
 
         # If there's no steps property at all we just ignore it
