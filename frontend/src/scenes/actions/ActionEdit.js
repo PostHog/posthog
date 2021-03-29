@@ -11,6 +11,8 @@ import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { actionsModel } from '~/models'
 import { AsyncActionMappingNotice } from 'scenes/project/Settings/WebhookIntegration'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import dayjs from 'dayjs'
 
 export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, user, simmer, temporaryToken }) {
     let logic = actionEditLogic({
@@ -23,6 +25,7 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, use
     const { action, errorActionId } = useValues(logic)
     const { setAction, saveAction } = useActions(logic)
     const { loadActions } = useActions(actionsModel)
+    const { preflight } = useValues(preflightLogic)
 
     const [edited, setEdited] = useState(false)
     const slackEnabled = user?.team?.slack_incoming_webhook
@@ -82,7 +85,19 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, use
                     />
                     {action.count > -1 && (
                         <div>
-                            <small className="text-muted">Matches {action.count} events</small>
+                            <small className="text-muted">
+                                Matches {action.count} events
+                                {preflight.db_backend !== 'clickhouse' && (
+                                    <>
+                                        {' '}
+                                        (last calculated{' '}
+                                        {action.last_calculated_at
+                                            ? dayjs(action.last_calculated_at).fromNow()
+                                            : 'a while ago'}
+                                        )
+                                    </>
+                                )}
+                            </small>
                         </div>
                     )}
                 </div>
