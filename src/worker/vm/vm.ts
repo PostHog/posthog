@@ -1,3 +1,4 @@
+import { BigQuery } from '@google-cloud/bigquery'
 import { randomBytes } from 'crypto'
 import fetch from 'node-fetch'
 import { VM } from 'vm2'
@@ -16,7 +17,11 @@ export async function createPluginConfigVM(
     pluginConfig: PluginConfig, // NB! might have team_id = 0
     indexJs: string
 ): Promise<PluginConfigVMReponse> {
-    const transformedCode = transformCode(indexJs, server)
+    const imports = {
+        'node-fetch': fetch,
+        '@google-cloud/bigquery': { BigQuery },
+    }
+    const transformedCode = transformCode(indexJs, server, imports)
 
     // Create virtual machine
     const vm = new VM({
@@ -31,6 +36,8 @@ export async function createPluginConfigVM(
     // Add non-PostHog utilities to virtual machine
     vm.freeze(fetch, 'fetch')
     vm.freeze(createGoogle(), 'google')
+
+    vm.freeze(imports, '__pluginHostImports')
 
     if (process.env.NODE_ENV === 'test') {
         vm.freeze(setTimeout, '__jestSetTimeout')
