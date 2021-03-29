@@ -58,7 +58,7 @@ class ClickhouseTrends(
 
         if filter.display == TRENDS_CUMULATIVE:
             serialized_data = self._handle_cumulative(serialized_data)
-
+        print(len(serialized_data), len(params["values"]))
         return serialized_data
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:

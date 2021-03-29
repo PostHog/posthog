@@ -245,8 +245,8 @@ class ClickhouseTrendsBreakdown:
             return str(value) or ""
 
     def _get_top_elements(self, query: str, filter: Filter, team_id: int, params: Dict = {}) -> List:
-        # use limit of 21 to determine if there are more than 20
-        element_params = {"key": filter.breakdown, "limit": 21, "team_id": team_id, "offset": filter.offset, **params}
+        # use limit of 25 to determine if there are more than 20
+        element_params = {"key": filter.breakdown, "limit": 25, "team_id": team_id, "offset": filter.offset, **params}
 
         try:
             top_elements_array_result = sync_execute(query, element_params)
