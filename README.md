@@ -1,6 +1,6 @@
 <p align="center"><img src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/post-logo-800x156.svg" width="400px" /></p>
 <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
-<img src="https://img.shields.io/badge/all_contributors-1-orange.svg?style=flat-square" />
+<img src="https://img.shields.io/badge/all_contributors-100-orange.svg?style=flat-square" />
 <!-- ALL-CONTRIBUTORS-BADGE:END -->
 
 <br />
