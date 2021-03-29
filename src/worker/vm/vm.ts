@@ -1,6 +1,7 @@
 import { BigQuery } from '@google-cloud/bigquery'
-import { randomBytes } from 'crypto'
+import * as crypto from 'crypto'
 import fetch from 'node-fetch'
+import snowflake from 'snowflake-sdk'
 import { VM } from 'vm2'
 
 import { PluginConfig, PluginConfigVMReponse, PluginsServer } from '../../types'
@@ -18,7 +19,9 @@ export async function createPluginConfigVM(
     indexJs: string
 ): Promise<PluginConfigVMReponse> {
     const imports = {
+        crypto: crypto,
         'node-fetch': fetch,
+        'snowflake-sdk': snowflake,
         '@google-cloud/bigquery': { BigQuery },
     }
     const transformedCode = transformCode(indexJs, server, imports)
@@ -83,7 +86,7 @@ export async function createPluginConfigVM(
         ${transformedCode};
     `)
 
-    const responseVar = `__pluginDetails${randomBytes(64).toString('hex')}`
+    const responseVar = `__pluginDetails${crypto.randomBytes(64).toString('hex')}`
 
     // Explicitly passing __asyncGuard to the returned function from `vm.run` in order
     // to make it harder to override the global `__asyncGuard = noop` inside plugins.
