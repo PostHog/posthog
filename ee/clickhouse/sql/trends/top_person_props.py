@@ -1,6 +1,6 @@
 TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL = """
 SELECT groupArray(value) FROM (
-    SELECT value, count(*) as count
+    SELECT value, {aggregate_operation} as count
     FROM
     events e 
     INNER JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid ON e.distinct_id = pid.distinct_id

@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EventDetails } from 'scenes/events/EventDetails'
-import { ExportOutlined, SearchOutlined } from '@ant-design/icons'
+import { ExportOutlined, ClearOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { Button, Spin, Table, Tooltip } from 'antd'
+import { Button, Row, Spin, Table, Tooltip, Col } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
@@ -58,39 +58,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                 }
                 let { event } = item
                 return eventToName(event)
-            },
-            filterIcon: function RenderFilterIcon() {
-                return (
-                    <SearchOutlined
-                        style={{ color: eventFilter && 'var(--primary)' }}
-                        data-attr="event-filter-trigger"
-                    />
-                )
-            },
-            filterDropdown: function RenderFilter({ confirm }) {
-                return (
-                    <div style={{ padding: '1rem' }}>
-                        <Button
-                            style={{ float: 'right', marginTop: -6, marginBottom: 8 }}
-                            onClick={() => {
-                                confirm()
-                                setEventFilter(false)
-                            }}
-                            type="primary"
-                            disabled={!eventFilter}
-                        >
-                            Reset
-                        </Button>
-                        Filter by event
-                        <EventName
-                            value={eventFilter}
-                            onChange={(value) => {
-                                confirm()
-                                setEventFilter(value)
-                            }}
-                        />
-                    </div>
-                )
             },
         },
         {
@@ -194,21 +161,40 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
     return (
         <div className="events" data-attr="events-table">
             {filtersEnabled ? <PropertyFilters pageKey={'EventsTable'} /> : null}
-            <Tooltip title="Up to 100,000 latest events.">
-                <Button
-                    type="default"
-                    icon={<ExportOutlined />}
-                    href={`/api/event.csv?${toParams({
-                        properties,
-                        ...(fixedFilters || {}),
-                        ...(eventFilter ? { event: eventFilter } : {}),
-                        orderBy: [orderBy],
-                    })}`}
-                    style={{ marginBottom: '1rem' }}
-                >
-                    Export
-                </Button>
-            </Tooltip>
+            <Row>
+                <Col span={pageKey === 'events' ? 22 : 20}>
+                    <EventName
+                        value={eventFilter}
+                        onChange={(value) => {
+                            setEventFilter(value)
+                        }}
+                    />
+                    <Button
+                        disabled={eventFilter === ''}
+                        onClick={() => setEventFilter('')}
+                        style={{ display: 'inline-block', marginLeft: 5 }}
+                    >
+                        <ClearOutlined />
+                    </Button>
+                </Col>
+                <Col span={pageKey === 'events' ? 2 : 4}>
+                    <Tooltip title="Up to 100,000 latest events.">
+                        <Button
+                            type="default"
+                            icon={<ExportOutlined />}
+                            href={`/api/event.csv?${toParams({
+                                properties,
+                                ...(fixedFilters || {}),
+                                ...(eventFilter ? { event: eventFilter } : {}),
+                                orderBy: [orderBy],
+                            })}`}
+                            style={{ marginBottom: '1rem' }}
+                        >
+                            Export
+                        </Button>
+                    </Tooltip>
+                </Col>
+            </Row>
             <div>
                 <Table
                     dataSource={eventsFormatted}
