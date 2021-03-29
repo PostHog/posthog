@@ -1456,8 +1456,8 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
         def test_breakdown_user_props_with_filter(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
             person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
-            event_factory(event="sign up", distinct_id="person1", team=self.team)
-            event_factory(event="sign up", distinct_id="person2", team=self.team)
+            event_factory(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
+            event_factory(event="sign up", distinct_id="person2", team=self.team, properties={"key": "val"})
             response = trends().run(
                 Filter(
                     data={
@@ -1466,7 +1466,8 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "breakdown_type": "person",
                         "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
                         "properties": [
-                            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                            {"key": "key", "value": "val"},
                         ],
                     }
                 ),

@@ -23,6 +23,7 @@ def parse_prop_clauses(
     table_name: str = "",
     allow_denormalized_props: bool = False,
     filter_test_accounts=False,
+    is_person_query=False,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -47,12 +48,17 @@ def parse_prop_clauses(
             filter_query, filter_params = prop_filter_json_extract(
                 prop, idx, "{}person".format(prepend), allow_denormalized_props=allow_denormalized_props
             )
-            final.append(
-                "AND {table_name}distinct_id IN ({filter_query})".format(
-                    filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query), table_name=table_name
+            if is_person_query:
+                final.append(filter_query)
+                params.update(filter_params)
+            else:
+                final.append(
+                    "AND {table_name}distinct_id IN ({filter_query})".format(
+                        filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query),
+                        table_name=table_name,
+                    )
                 )
-            )
-            params.update(filter_params)
+                params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element({prop.key: prop.value}, prepend="{}_".format(idx))
             final.append("AND {}".format(query[0]))
