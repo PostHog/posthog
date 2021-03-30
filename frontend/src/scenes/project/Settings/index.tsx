@@ -23,6 +23,7 @@ import { RestrictedArea } from '../../../lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from '../../../lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
+import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -176,6 +177,11 @@ export function ProjectSettings(): JSX.Element {
                     also where you'll be able to create Actions and record sessions.
                 </p>
                 <EditAppUrls />
+                <Divider />
+                <h2 className="subtitle" id="attributes">
+                    Data Attributes
+                </h2>
+                <DataAttributes />
                 <Divider />
                 <h2 className="subtitle" id="webhook">
                     Webhook Integration
