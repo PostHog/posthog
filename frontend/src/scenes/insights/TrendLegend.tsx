@@ -27,11 +27,15 @@ function formatBreakdownLabel(breakdown_value: string | number | undefined, coho
     }
 }
 
-export function TrendLegend(): JSX.Element {
+export function TrendLegend(): JSX.Element | null {
     const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
     const isSingleEntity = indexedResults.length === 1
+
+    if (indexedResults.length === 0) {
+        return null
+    }
 
     const columns = [
         {
