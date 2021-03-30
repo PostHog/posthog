@@ -280,7 +280,7 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/6112562?v=4",
       "profile": "https://github.com/FUSAKLA",
       "contributions": [
-      "code",
+        "code",
         "ideas",
         "bug",
         "test",
@@ -315,11 +315,11 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/70971917?v=4",
       "profile": "https://github.com/tapico-weyert",
       "contributions": [
-          "code",
-          "plugin",
-          "bug",
-          "test",
-          "ideas"
+        "code",
+        "plugin",
+        "bug",
+        "test",
+        "ideas"
       ]
     },
     {
@@ -969,6 +969,16 @@
       "profile": "https://github.com/joesaunderson",
       "contributions": [
         "ideas"
+      ]
+    },
+    {
+      "login": "MrSaints",
+      "name": "Ian L.",
+      "avatar_url": "https://avatars.githubusercontent.com/u/68859?v=4",
+      "profile": "https://www.ianlai.dev/",
+      "contributions": [
+        "ideas",
+        "userTesting"
       ]
     }
   ],
