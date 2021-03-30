@@ -990,6 +990,16 @@
       "contributions": [
         "ideas"
       ]
+    },
+    {
+      "login": "lharress",
+      "name": "Lleo Harress",
+      "avatar_url": "https://avatars.githubusercontent.com/u/13482930?v=4",
+      "profile": "https://github.com/lharress",
+      "contributions": [
+        "ideas",
+        "test"
+      ]
     }
   ],
   "contributorsPerLine": 7,
