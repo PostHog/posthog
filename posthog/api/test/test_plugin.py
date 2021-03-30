@@ -4,7 +4,7 @@ from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from posthog.models import Plugin, PluginAttachment, PluginConfig, organization
+from posthog.models import Plugin, PluginAttachment, PluginConfig
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.plugins.access import (
     can_configure_plugins,
@@ -28,6 +28,14 @@ def mocked_plugin_reload(*args, **kwargs):
 @mock.patch("posthog.api.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
 @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
 class TestPluginAPI(APIBaseTest):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+
+        # We make sure the org has permissions for these tests, particularly for tests on posthog-cloud
+        cls.organization.level = Organization.PluginsAccessLevel.ROOT
+        cls.organization.save()
+
     def test_create_plugin_auth(self, mock_get, mock_reload):
         repo_url = "https://github.com/PostHog/helloworldplugin"
 
