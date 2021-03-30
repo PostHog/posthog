@@ -24,9 +24,11 @@ export function Login(): JSX.Element {
                 <Col span={24} lg={14} className="image-showcase-container">
                     <div className="image-showcase ant-col-24 ant-col-lg-14">
                         <div className="the-mountains" />
-                        <div className="main-logo">
-                            <img src={logo} alt="" />
-                        </div>
+                        <a href={`https://posthog.com?${UTM_TAGS}`}>
+                            <div className="main-logo">
+                                <img src={logo} alt="" />
+                            </div>
+                        </a>
                         <div className="showcase-content">
                             <h1 className="page-title">Welcome back!</h1>
                         </div>
