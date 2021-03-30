@@ -49,9 +49,11 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 </div>
             )}
             {_filters.breakdown && loadMoreBreakdownUrl && (
-                <Button type="primary" onClick={() => loadMoreBreakdown()}>
-                    Show More
-                </Button>
+                <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10 }}>
+                    <Button style={{ textAlign: 'center' }} onClick={() => loadMoreBreakdown()}>
+                        Load more breakdown values
+                    </Button>
+                </div>
             )}
             <PersonModal
                 visible={showingPeople && !cohortModalVisible}
