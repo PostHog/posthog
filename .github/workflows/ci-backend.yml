@@ -10,7 +10,7 @@ jobs:
     backend-code-quality:
         name: Code quality checks
         runs-on: ubuntu-latest
-        if: ${{ github.actor != 'posthog-contributions-bot' }}
+        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
 
         services:
             postgres:
@@ -67,7 +67,7 @@ jobs:
     django:
         name: Django tests – Py ${{ matrix.python-version }}
         runs-on: ubuntu-latest
-        if: ${{ github.actor != 'posthog-contributions-bot' }}
+        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
 
         strategy:
             fail-fast: false
@@ -145,7 +145,7 @@ jobs:
     cloud:
         name: Django tests – Cloud
         runs-on: ubuntu-latest
-        if: ${{ github.actor != 'posthog-contributions-bot' }}
+        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
 
         services:
             postgres:
@@ -272,7 +272,7 @@ jobs:
     foss:
         name: Django tests – FOSS
         runs-on: ubuntu-latest
-        if: ${{ github.actor != 'posthog-contributions-bot' }}
+        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
 
         services:
             postgres:

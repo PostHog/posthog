@@ -7,7 +7,7 @@ jobs:
     cypress:
         name: Cypress E2E tests
         runs-on: ubuntu-18.04
-        if: ${{ github.actor != 'posthog-contributions-bot' }}
+        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
 
         strategy:
             # when one test fails, DO NOT cancel the other
