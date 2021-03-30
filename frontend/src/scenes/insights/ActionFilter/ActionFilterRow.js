@@ -257,7 +257,6 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
 }
 
 function MathPropertySelector(props) {
-    console.log(props.properties)
     const applicableProperties = props.properties
         .filter(({ value }) => (value[0] !== '$' || value === '$time') && value !== 'distinct_id' && value !== 'token')
         .sort((a, b) => (a.value + '').localeCompare(b.value))
