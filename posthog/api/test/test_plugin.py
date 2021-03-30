@@ -33,7 +33,7 @@ class TestPluginAPI(APIBaseTest):
         super().setUpTestData()
 
         # We make sure the org has permissions for these tests, particularly for tests on posthog-cloud
-        cls.organization.level = Organization.PluginsAccessLevel.ROOT
+        cls.organization.plugins_access_level = Organization.PluginsAccessLevel.ROOT
         cls.organization.save()
 
     def test_create_plugin_auth(self, mock_get, mock_reload):
