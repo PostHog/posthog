@@ -112,7 +112,9 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/14195048?v=4",
       "profile": "https://github.com/bhavish-agarwal",
       "contributions": [
-        "code"
+        "code",
+        "test",
+        "bug"
       ]
     },
     {
@@ -148,7 +150,9 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/1487006?v=4",
       "profile": "https://github.com/gzog",
       "contributions": [
-        "code"
+        "code",
+        "test",
+        "bug"
       ]
     },
     {
@@ -157,7 +161,9 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/19220113?v=4",
       "profile": "https://github.com/samcaspus",
       "contributions": [
-        "code"
+        "code",
+        "ideas",
+        "test"
       ]
     },
     {
@@ -166,7 +172,8 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/29887304?v=4",
       "profile": "https://github.com/Tmunayyer",
       "contributions": [
-        "code"
+        "code",
+        "bug"
       ]
     },
     {
@@ -175,7 +182,10 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/11885987?v=4",
       "profile": "https://github.com/adamb70",
       "contributions": [
-        "code"
+        "code",
+        "content",
+        "example",
+        "doc"
       ]
     },
     {
@@ -184,7 +194,9 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/8980971?v=4",
       "profile": "https://github.com/SanketDG",
       "contributions": [
-        "code"
+        "code",
+        "design",
+        "test"
       ]
     },
     {
@@ -211,7 +223,10 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/5824170?v=4",
       "profile": "https://github.com/14MR",
       "contributions": [
-        "code"
+        "code",
+        "doc",
+        "ideas",
+        "bug"
       ]
     },
     {
@@ -265,7 +280,11 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/6112562?v=4",
       "profile": "https://github.com/FUSAKLA",
       "contributions": [
-        "code"
+      "code",
+        "ideas",
+        "bug",
+        "test",
+        "doc"
       ]
     },
     {
@@ -283,7 +302,11 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/12955616?v=4",
       "profile": "https://github.com/stevenphaedonos",
       "contributions": [
-        "code"
+        "code",
+        "test",
+        "ideas",
+        "example",
+        "bug"
       ]
     },
     {
@@ -292,7 +315,11 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/70971917?v=4",
       "profile": "https://github.com/tapico-weyert",
       "contributions": [
-        "code"
+          "code",
+          "plugin",
+          "bug",
+          "test",
+          "ideas"
       ]
     },
     {
@@ -355,7 +382,11 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/7049?v=4",
       "profile": "https://github.com/weyert",
       "contributions": [
-        "code"
+        "code",
+        "plugin",
+        "bug",
+        "test",
+        "ideas"
       ]
     },
     {
@@ -463,7 +494,9 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/31478366?v=4",
       "profile": "https://github.com/athreyaanand",
       "contributions": [
-        "code"
+        "code",
+        "doc",
+        "content"
       ]
     },
     {
@@ -481,7 +514,8 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/39309699?v=4",
       "profile": "https://github.com/fakela",
       "contributions": [
-        "code"
+        "code",
+        "doc"
       ]
     },
     {
@@ -526,7 +560,8 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/30472479?v=4",
       "profile": "https://github.com/oshura3",
       "contributions": [
-        "code"
+        "code",
+        "doc"
       ]
     },
     {
@@ -904,7 +939,8 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/19322?v=4",
       "profile": "http://massimilianomirra.com/",
       "contributions": [
-        "code"
+        "code",
+        "doc"
       ]
     },
     {
@@ -924,6 +960,15 @@
       "profile": "https://github.com/apps/posthog-contributions-bot",
       "contributions": [
         "code"
+      ]
+    },
+    {
+      "login": "joesaunderson",
+      "name": "Joe Saunderson",
+      "avatar_url": "https://avatars.githubusercontent.com/u/11272509?v=4",
+      "profile": "https://github.com/joesaunderson",
+      "contributions": [
+        "ideas"
       ]
     }
   ],
