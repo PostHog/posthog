@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "0138_featureflag_name_optional"),
+        ("posthog", "0140_team_data_attributes"),
     ]
 
     operations = [

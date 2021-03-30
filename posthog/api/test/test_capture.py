@@ -560,3 +560,24 @@ class TestCapture(BaseTest):
         )
         arguments = self._to_arguments(patch_process_event_with_plugins)
         self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
+
+    def test_handle_lacking_event_name_field(self):
+        response = self.client.post(
+            "/e/",
+            data={"distinct_id": "abc", "properties": {"cost": 2}, "api_key": self.team.api_token},
+            content_type="application/json",
+        )
+        self.assertEqual(
+            response.json(), {"code": "validation", "message": 'All events must have the event name field "event"!'}
+        )
+
+    def test_handle_invalid_snapshot(self):
+        response = self.client.post(
+            "/e/",
+            data={"event": "$snapshot", "distinct_id": "abc", "api_key": self.team.api_token},
+            content_type="application/json",
+        )
+        self.assertEqual(
+            response.json(),
+            {"code": "validation", "message": '$snapshot events must contain property "$snapshot_data"!'},
+        )

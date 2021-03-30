@@ -23,6 +23,7 @@ import { RestrictedArea } from '../../../lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from '../../../lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
+import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -161,7 +162,10 @@ export function ProjectSettings(): JSX.Element {
                     and team members from queries. This way only <b>real user data</b> will be taken into account.
                 </p>
                 <p>
-                    <i>For best effectiveness, make sure to properly define internal users with the filters below.</i>
+                    <i>
+                        For best effectiveness, make sure to properly define <b>non-internal</b> users with the filters
+                        below.
+                    </i>
                 </p>
                 <TestAccountFiltersConfig />
                 <Divider />
@@ -173,6 +177,11 @@ export function ProjectSettings(): JSX.Element {
                     also where you'll be able to create Actions and record sessions.
                 </p>
                 <EditAppUrls />
+                <Divider />
+                <h2 className="subtitle" id="attributes">
+                    Data Attributes
+                </h2>
+                <DataAttributes />
                 <Divider />
                 <h2 className="subtitle" id="webhook">
                     Webhook Integration

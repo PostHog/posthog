@@ -1,6 +1,6 @@
 TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL = """
 SELECT groupArray(value) FROM (
-    SELECT value, count(*) as count
+    SELECT value, {aggregate_operation} as count
     FROM
     events e 
     INNER JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid ON e.distinct_id = pid.distinct_id
@@ -16,7 +16,7 @@ SELECT groupArray(value) FROM (
                         id,
                         arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
                         arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
-                    FROM ({latest_person_sql}) person WHERE team_id = %(team_id)s
+                    FROM ({latest_person_sql}) person WHERE team_id = %(team_id)s {person_prop_filters}
                 )
                 ARRAY JOIN array_property_keys, array_property_values
             ) ep

@@ -1,10 +1,10 @@
 from typing import List
 
 from dateutil.relativedelta import relativedelta
-from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.queries.sessions.util import entity_query_conditions
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.sessions.average_all import AVERAGE_SQL
@@ -29,8 +29,20 @@ class ClickhouseSessionsAvg:
             filter.interval or "day", filter.date_from, filter.date_to, team.pk
         )
 
+        entity_conditions, entity_params = entity_query_conditions(filter, team)
+        if not entity_conditions:
+            entity_conditions = ["event != '$feature_flag_called'"]  # default conditino
+
+        params = {**params, **entity_params}
+        entity_query = " OR ".join(entity_conditions)
+
         avg_query = SESSIONS_NO_EVENTS_SQL.format(
-            team_id=team.pk, date_from=parsed_date_from, date_to=parsed_date_to, filters=filters, sessions_limit="",
+            team_id=team.pk,
+            date_from=parsed_date_from,
+            date_to=parsed_date_to,
+            filters=filters,
+            sessions_limit="",
+            entity_filter=f"AND ({entity_query})",
         )
         per_period_query = AVERAGE_PER_PERIOD_SQL.format(sessions=avg_query, interval=interval_notation)
 

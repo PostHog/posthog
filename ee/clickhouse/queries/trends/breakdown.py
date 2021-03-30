@@ -90,11 +90,11 @@ class ClickhouseTrendsBreakdown:
             )
         elif filter.breakdown_type == "person":
             _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_person_params(
-                filter, team_id
+                "count(*)" if entity.math == "dau" else aggregate_operation, filter, team_id
             )
         else:
             _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_prop_params(
-                filter, team_id
+                "count(*)" if entity.math == "dau" else aggregate_operation, filter, team_id
             )
 
         if len(_params["values"]) == 0:
@@ -148,10 +148,17 @@ class ClickhouseTrendsBreakdown:
 
         return params, breakdown_filter, breakdown_filter_params, "value"
 
-    def _breakdown_person_params(self, filter: Filter, team_id: int):
+    def _breakdown_person_params(self, aggregate_operation: str, filter: Filter, team_id: int):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
         prop_filters, prop_filter_params = parse_prop_clauses(
             filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts
+        )
+        person_prop_filters, person_prop_params = parse_prop_clauses(
+            [prop for prop in filter.properties if prop.type == "person"],
+            team_id,
+            table_name="e",
+            filter_test_accounts=filter.filter_test_accounts,
+            is_person_query=True,
         )
 
         elements_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
@@ -159,8 +166,12 @@ class ClickhouseTrendsBreakdown:
             parsed_date_to=parsed_date_to,
             latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
             prop_filters=prop_filters,
+            person_prop_filters=person_prop_filters,
+            aggregate_operation=aggregate_operation,
         )
-        top_elements_array = self._get_top_elements(elements_query, filter, team_id, params=prop_filter_params)
+        top_elements_array = self._get_top_elements(
+            elements_query, filter, team_id, params={**prop_filter_params, **person_prop_params}
+        )
         params = {
             "values": top_elements_array,
         }
@@ -171,13 +182,16 @@ class ClickhouseTrendsBreakdown:
 
         return params, breakdown_filter, breakdown_filter_params, "value"
 
-    def _breakdown_prop_params(self, filter: Filter, team_id: int):
+    def _breakdown_prop_params(self, aggregate_operation: str, filter: Filter, team_id: int):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
         prop_filters, prop_filter_params = parse_prop_clauses(
             filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts
         )
         elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
-            parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to, prop_filters=prop_filters
+            parsed_date_from=parsed_date_from,
+            parsed_date_to=parsed_date_to,
+            prop_filters=prop_filters,
+            aggregate_operation=aggregate_operation,
         )
         top_elements_array = self._get_top_elements(elements_query, filter, team_id, params=prop_filter_params)
         params = {
