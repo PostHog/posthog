@@ -10,7 +10,6 @@ jobs:
     backend-code-quality:
         name: Code quality checks
         runs-on: ubuntu-latest
-        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
 
         services:
             postgres:
