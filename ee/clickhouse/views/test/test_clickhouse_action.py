@@ -1,6 +1,8 @@
 from unittest.mock import patch
 from uuid import uuid4
 
+from django.test.utils import override_settings
+
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_action_people import action_people_test_factory
@@ -38,7 +40,7 @@ class TestAction(
 ):
     @patch("posthog.tasks.calculate_action.calculate_action.delay")
     def test_is_calculating_always_false(self, patch_delay):
-        create = self.client.post("/api/action/", data={"name": "ooh",}).json()
+        create = self.client.post("/api/action/", data={"name": "ooh"}).json()
         self.assertEqual(create["is_calculating"], False)
         self.assertFalse(patch_delay.called)
 

@@ -5,7 +5,6 @@ import posthoganalytics
 from django.core.cache import cache
 from django.db.models import Count, Exists, OuterRef, Prefetch, QuerySet
 from django.db.models.signals import post_save
-from django.db.models.sql.query import Query
 from django.dispatch import receiver
 from django.utils.timezone import now
 from rest_framework import authentication, request, serializers, viewsets
@@ -19,13 +18,7 @@ from posthog.api.user import UserSerializer
 from posthog.api.utils import get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.celery import update_cache_item_task
-from posthog.constants import (
-    ENTITY_ID,
-    ENTITY_TYPE,
-    TREND_FILTER_TYPE_ACTIONS,
-    TREND_FILTER_TYPE_EVENTS,
-    TRENDS_STICKINESS,
-)
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_STICKINESS
 from posthog.decorators import CacheType, cached_function
 from posthog.models import (
     Action,
@@ -93,6 +86,9 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
             return action.count  # type: ignore
         return None
 
+    def _calculate_action(self, action: Action) -> None:
+        calculate_action.delay(action_id=action.pk)
+
     def validate(self, attrs):
         attrs["created_by"] = self.context["request"].user
         attrs["team_id"] = self.context["view"].team_id
@@ -112,8 +108,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
             ActionStep.objects.create(
                 action=instance, **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
             )
-
-        calculate_action.delay(action_id=instance.pk)
+        self._calculate_action(instance)
         posthoganalytics.capture(
             validated_data["created_by"].distinct_id, "action created", instance.get_analytics_metadata()
         )
@@ -146,6 +141,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return get_actions(queryset, self.request.GET.dict(), self.team_id)
 
     def _calculate_action(self, action: Action) -> None:
+        # TODO: DEPRECATED in favor of serializer method
         calculate_action.delay(action_id=action.pk)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
