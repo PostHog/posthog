@@ -26,6 +26,7 @@ class TestCreateAction(BaseTest):
             content_type="application/json",
             HTTP_ORIGIN="http://testserver",
         )
+        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["is_calculating"], False)
         self.assertIn("last_calculated_at", response.json())
@@ -100,14 +101,14 @@ class TestCreateAction(BaseTest):
             properties={"$browser": "Chrome"},
             elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div"),],
         )
-
+        action_id = action.steps.get().pk
         response = self.client.patch(
             "/api/action/%s/" % action.pk,
             data={
                 "name": "user signed up 2",
                 "steps": [
                     {
-                        "id": action.steps.get().pk,
+                        "id": action_id,
                         "isNew": "asdf",
                         "text": "sign up NOW",
                         "selector": "div > button",
@@ -125,8 +126,12 @@ class TestCreateAction(BaseTest):
             },
             content_type="application/json",
             HTTP_ORIGIN="http://testserver",
-        ).json()
-        self.assertEqual(response["name"], "user signed up 2")
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "user signed up 2")
+        self.assertEqual(response.json()["created_by"], None)
+        self.assertEqual(response.json()["steps"][0]["id"], str(action_id))
+        self.assertEqual(response.json()["steps"][1]["href"], "/a-new-link")
 
         action.refresh_from_db()
         action.calculate_events()
@@ -161,13 +166,19 @@ class TestCreateAction(BaseTest):
         with self.assertNumQueries(6):
             self.client.get("/api/action/")
 
-        # test remove steps
+    def test_update_action_remove_all_steps(self, *args):
+
+        action = Action.objects.create(name="user signed up", team=self.team)
+        ActionStep.objects.create(action=action, text="sign me up!")
+
         response = self.client.patch(
             "/api/action/%s/" % action.pk,
             data={"name": "user signed up 2", "steps": [],},
             content_type="application/json",
             HTTP_ORIGIN="http://testserver",
-        ).json()
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["steps"]), 0)
         self.assertEqual(ActionStep.objects.count(), 0)
 
     # When we send a user to their own site, we give them a token.

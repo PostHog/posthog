@@ -43,6 +43,8 @@ from .person import PersonSerializer, paginated_result
 
 
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
+    id = serializers.CharField(read_only=False, required=False)
+
     class Meta:
         model = ActionStep
         fields = [
@@ -91,15 +93,15 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         calculate_action.delay(action_id=action.pk)
 
     def validate(self, attrs):
-        attrs["created_by"] = self.context["request"].user
-        attrs["team_id"] = self.context["view"].team_id
+        exclude_args = {}
+        if self.instance:
+            include_args = {"team": self.instance.team}
+            exclude_args = {"id": self.instance.pk}
+        else:
+            attrs["team_id"] = self.context["view"].team_id
+            include_args = {"team_id": attrs["team_id"]}
 
-        exclude_args = {"id": self.instance.pk} if self.instance else {}
-        if (
-            Action.objects.filter(name=attrs["name"], team_id=attrs["team_id"], deleted=False)
-            .exclude(**exclude_args)
-            .exists()
-        ):
+        if Action.objects.filter(name=attrs["name"], deleted=False, **include_args).exclude(**exclude_args).exists():
             raise serializers.ValidationError(
                 {"name": "This project already has an action with that name."}, code="unique"
             )
@@ -108,12 +110,14 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
 
     def create(self, validated_data: Any) -> Any:
         steps = validated_data.pop("steps", [])
+        validated_data["created_by"] = self.context["request"].user
         instance = super().create(validated_data)
 
         for step in steps:
             ActionStep.objects.create(
                 action=instance, **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
             )
+
         self._calculate_action(instance)
         posthoganalytics.capture(
             validated_data["created_by"].distinct_id, "action created", instance.get_analytics_metadata()
@@ -121,12 +125,12 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
 
         return instance
 
-    def update(self, instance: Action, validated_data: Dict[str, Any]) -> Any:
+    def update(self, instance: Any, validated_data: Dict[str, Any]) -> Any:
 
         steps = validated_data.pop("steps", None)
         # If there's no steps property at all we just ignore it
         # If there is a step property but it's an empty array [], we'll delete all the steps
-        if steps:
+        if steps is not None:
             # remove steps not in the request
             step_ids = [step["id"] for step in steps if step.get("id")]
             instance.steps.exclude(pk__in=step_ids).delete()
@@ -144,6 +148,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
 
         instance = super().update(instance, validated_data)
         self._calculate_action(instance)
+        instance.refresh_from_db()
         posthoganalytics.capture(
             self.context["request"].user.distinct_id,
             "action updated",
