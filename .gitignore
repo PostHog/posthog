@@ -3,6 +3,6 @@
 node_modules/
 yarn-error.log
 dist/
-.yalc/
 yalc.lock
+.yalc/
 src/idl/protos.*
