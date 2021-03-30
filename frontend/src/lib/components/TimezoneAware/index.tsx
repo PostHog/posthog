@@ -112,9 +112,9 @@ export function TZIndicator({ style }: { style?: React.CSSProperties }): JSX.Ele
         <div className="tz-label-popover">
             <TZConversionHeader />
             <p style={{ maxWidth: 320 }}>
-                All graphs are calculated and presented in UTC.
+                All graphs are calculated and presented in UTC (GTM timezone).
                 <br />
-                Conversion of your local timezones are shown below.
+                Conversion to your local timezones are shown below.
             </p>
             <div className="divider" />
             <div className="timezones">

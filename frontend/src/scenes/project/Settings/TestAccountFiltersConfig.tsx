@@ -10,20 +10,22 @@ export function TestAccountFiltersConfig(): JSX.Element {
     const { reportTestAccountFiltersUpdated } = useActions(eventUsageLogic)
     const { user } = useValues(userLogic)
 
+    const handleChange = (filters: FilterType[]): void => {
+        userUpdateRequest({
+            team: {
+                test_account_filters: filters,
+            },
+        })
+        reportTestAccountFiltersUpdated(filters)
+    }
+
     return (
         <div style={{ marginBottom: 16 }}>
             <div style={{ marginBottom: 8 }}>
                 <PropertyFilters
                     pageKey="testaccountfilters"
                     propertyFilters={user?.team?.test_account_filters}
-                    onChange={(filters: FilterType[]) => {
-                        userUpdateRequest({
-                            team: {
-                                test_account_filters: filters,
-                            },
-                        })
-                        reportTestAccountFiltersUpdated(filters)
-                    }}
+                    onChange={handleChange}
                 />
             </div>
         </div>
