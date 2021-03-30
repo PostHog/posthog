@@ -2415,10 +2415,10 @@
     use-debounce "^5.2.1"
     use-local-storage-state "^6.0.0"
 
-"@posthog/simmerjs@0.7.2-posthog.2":
-  version "0.7.2-posthog.2"
-  resolved "https://registry.yarnpkg.com/@posthog/simmerjs/-/simmerjs-0.7.2-posthog.2.tgz#de10f796675a66e48ed3a7a2e076608fd27bf40c"
-  integrity sha512-eEI5SiI4jj68/LJK6kBZsQLwRd7sxuUDgHsonfCtLjTHpKFYa8BxueTA+8LBB4TTMGKuAxO1fKRRfnPdDedYIQ==
+"@posthog/simmerjs@0.7.4":
+  version "0.7.4"
+  resolved "https://registry.yarnpkg.com/@posthog/simmerjs/-/simmerjs-0.7.4.tgz#48778bee9ce5dc08cefded6e5b6721b7c9b85584"
+  integrity sha512-pEbDRbX/dUdbRiaHIlUl5dkqVFqSjzekcVmnTkZa8CNIVrJZ0OOH0msZx77XYqntgomPuJx01sTpwHdzeZv3zQ==
   dependencies:
     "@babel/runtime" "^7.11.2"
     lodash.difference "^4.5.0"

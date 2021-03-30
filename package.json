@@ -41,7 +41,7 @@
         "@papercups-io/chat-widget": "^1.1.5",
         "@posthog/plugin-scaffold": "0.2.12",
         "@posthog/react-rrweb-player": "^1.1.1",
-        "@posthog/simmerjs": "0.7.2-posthog.2",
+        "@posthog/simmerjs": "0.7.4",
         "@sentry/browser": "^6.0.4",
         "@types/crypto-js": "^4.0.1",
         "antd": "^4.11.2",

@@ -14,31 +14,57 @@ class TestDashboard(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def test_retrieve_dashboard(self):
-        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        dashboard = Dashboard.objects.create(
+            team=self.team, name="private dashboard", created_by=self.user, tags=["deprecated"]
+        )
         response = self.client.get(f"/api/dashboard/{dashboard.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_data = response.json()
         self.assertEqual(response_data["name"], "private dashboard")
+        self.assertEqual(response_data["description"], "")
+        self.assertEqual(response_data["tags"], ["deprecated"])
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["created_by"]["first_name"], self.user.first_name)
         self.assertEqual(response_data["creation_mode"], "default")
+
+    def test_create_basic_dashboard(self):
+        response = self.client.post("/api/dashboard/", {"name": "My new dashboard"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_data = response.json()
+        self.assertEqual(response_data["name"], "My new dashboard")
+        self.assertEqual(response_data["description"], "")
+        self.assertEqual(response_data["tags"], [])
+        self.assertEqual(response_data["creation_mode"], "default")
+
+        instance = Dashboard.objects.get(id=response_data["id"])
+        self.assertEqual(instance.name, "My new dashboard")
 
     def test_update_dashboard(self):
         dashboard = Dashboard.objects.create(
             team=self.team, name="private dashboard", created_by=self.user, creation_mode="template",
         )
         response = self.client.patch(
-            f"/api/dashboard/{dashboard.id}", {"name": "dashboard new name", "creation_mode": "duplicate"},
+            f"/api/dashboard/{dashboard.id}",
+            {
+                "name": "dashboard new name",
+                "creation_mode": "duplicate",
+                "tags": ["official", "engineering"],
+                "description": "Internal system metrics.",
+            },
         )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_data = response.json()
         self.assertEqual(response_data["name"], "dashboard new name")
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["creation_mode"], "template")
+        self.assertEqual(response_data["description"], "Internal system metrics.")
+        self.assertEqual(response_data["tags"], ["official", "engineering"])
 
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.name, "dashboard new name")
+        self.assertEqual(dashboard.tags, ["official", "engineering"])
 
     def test_create_dashboard_item(self):
         dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")

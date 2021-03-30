@@ -25,7 +25,7 @@ const determineFilterLabel = (visible, filter) => {
     return 'Add filters'
 }
 
-export function ActionFilterRow({ logic, filter, index, hideMathSelector, singleFilter }) {
+export function ActionFilterRow({ logic, filter, index, hideMathSelector, singleFilter, showOr }) {
     const node = useRef()
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
     const {
@@ -87,6 +87,15 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
     }
     return (
         <div>
+            {showOr && (
+                <Row align="center">
+                    {index > 0 && (
+                        <div className="stateful-badge mc-main or width-locked" style={{ marginTop: 12 }}>
+                            OR
+                        </div>
+                    )}
+                </Row>
+            )}
             <Row gutter={8} className="mt">
                 <Col style={{ maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}>
                     <Button

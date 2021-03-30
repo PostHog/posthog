@@ -7,6 +7,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.property import parse_prop_clauses, prop_filter_json_extract
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.models.property import Property
@@ -49,7 +50,6 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(self._run_query(filter)), 1)
 
     def test_prop_event(self):
-
         _create_event(
             event="$pageview", team=self.team, distinct_id="whatever", properties={"attr": "some_other_val"},
         )
@@ -60,6 +60,117 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
 
         filter = Filter(data={"properties": [{"key": "attr", "value": "some_val"}],})
         self.assertEqual(len(self._run_query(filter)), 1)
+
+    def test_prop_selector_tag_name(self):
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id="whatever",
+            properties={"attr": "some_other_val"},
+            elements=[
+                Element(
+                    tag_name="a",
+                    href="/a-url",
+                    attr_class=["small"],
+                    text="bla bla",
+                    attributes={},
+                    nth_child=1,
+                    nth_of_type=0,
+                ),
+                Element(tag_name="button", attr_class=["btn", "btn-primary"], nth_child=0, nth_of_type=0),
+                Element(tag_name="div", nth_child=0, nth_of_type=0),
+                Element(tag_name="label", nth_child=0, nth_of_type=0, attr_id="nested",),
+            ],
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="whatever",
+            properties={"attr": "some_val"},
+            elements=[
+                Element(
+                    tag_name="a",
+                    href="/a-url",
+                    attr_class=["small"],
+                    text="bla bla",
+                    attributes={},
+                    nth_child=1,
+                    nth_of_type=0,
+                ),
+                Element(tag_name="button", attr_class=["btn", "btn-secondary"], nth_child=0, nth_of_type=0),
+                Element(tag_name="div", nth_child=0, nth_of_type=0),
+                Element(tag_name="img", nth_child=0, nth_of_type=0, attr_id="nested",),
+            ],
+        )
+
+        # selector
+
+        filter = Filter(
+            data={"properties": [{"key": "selector", "value": [".btn"], "operator": "exact", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter)), 2)
+
+        filter = Filter(
+            data={"properties": [{"key": "selector", "value": ".btn", "operator": "exact", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter)), 2)
+
+        filter = Filter(
+            data={
+                "properties": [{"key": "selector", "value": [".btn-primary"], "operator": "exact", "type": "element"}]
+            }
+        )
+        self.assertEqual(len(self._run_query(filter)), 1)
+
+        filter = Filter(
+            data={
+                "properties": [{"key": "selector", "value": [".btn-secondary"], "operator": "exact", "type": "element"}]
+            }
+        )
+        self.assertEqual(len(self._run_query(filter)), 1)
+
+        filter = Filter(
+            data={
+                "properties": [
+                    {
+                        "key": "selector",
+                        "value": [".btn-primary", ".btn-secondary"],
+                        "operator": "exact",
+                        "type": "element",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(len(self._run_query(filter)), 2)
+
+        # tag_name
+
+        filter = Filter(
+            data={"properties": [{"key": "tag_name", "value": ["div"], "operator": "exact", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter)), 2)
+
+        filter = Filter(
+            data={"properties": [{"key": "tag_name", "value": "div", "operator": "exact", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter)), 2)
+
+        filter = Filter(
+            data={"properties": [{"key": "tag_name", "value": ["img"], "operator": "exact", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter)), 1)
+
+        filter = Filter(
+            data={"properties": [{"key": "tag_name", "value": ["label"], "operator": "exact", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter)), 1)
+
+        filter = Filter(
+            data={
+                "properties": [{"key": "tag_name", "value": ["img", "label"], "operator": "exact", "type": "element"}]
+            }
+        )
+        self.assertEqual(len(self._run_query(filter)), 2)
 
     def test_prop_ints_saved_as_strings(self):
         _create_event(

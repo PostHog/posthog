@@ -153,15 +153,25 @@ class ClickhouseTrendsBreakdown:
         prop_filters, prop_filter_params = parse_prop_clauses(
             filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts
         )
+        person_prop_filters, person_prop_params = parse_prop_clauses(
+            [prop for prop in filter.properties if prop.type == "person"],
+            team_id,
+            table_name="e",
+            filter_test_accounts=filter.filter_test_accounts,
+            is_person_query=True,
+        )
 
         elements_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
             latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
             prop_filters=prop_filters,
+            person_prop_filters=person_prop_filters,
             aggregate_operation=aggregate_operation,
         )
-        top_elements_array = self._get_top_elements(elements_query, filter, team_id, params=prop_filter_params)
+        top_elements_array = self._get_top_elements(
+            elements_query, filter, team_id, params={**prop_filter_params, **person_prop_params}
+        )
         params = {
             "values": top_elements_array,
         }

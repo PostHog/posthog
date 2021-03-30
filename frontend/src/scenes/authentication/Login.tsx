@@ -92,7 +92,7 @@ export function Login(): JSX.Element {
                             </Form.Item>
                         </Form>
                         <div className="text-center">
-                            <a href="https://app.posthog.com/accounts/password_reset/" data-attr="forgot-password">
+                            <a href="/accounts/password_reset/" data-attr="forgot-password">
                                 Forgot your password?
                             </a>
                         </div>

@@ -154,6 +154,7 @@ def user(request):
                 "is_demo": team.is_demo,
                 "test_account_filters": team.test_account_filters,
                 "timezone": team.timezone,
+                "data_attributes": team.data_attributes,
             },
             "teams": teams,
             "has_password": user.has_usable_password(),
@@ -190,6 +191,7 @@ def redirect_to_site(request):
         "actionId": request.GET.get("actionId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
+        "dataAttributes": team.data_attributes,
     }
 
     if settings.JS_URL:

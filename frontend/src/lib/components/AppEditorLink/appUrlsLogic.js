@@ -30,7 +30,7 @@ export const appUrlsLogic = kea({
                     return []
                 }
                 let domainsSeen = []
-                return data
+                return (data || [])
                     .filter((item) => {
                         try {
                             let domain = new URL(item.breakdown_value).hostname

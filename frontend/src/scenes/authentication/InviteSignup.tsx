@@ -315,7 +315,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                                         checked={formValues.emailOptIn}
                                         onChange={(e) => setFormValues({ ...formValues, emailOptIn: e.target.checked })}
                                         disabled={acceptedInviteLoading}
-                                        style={{ fontSize: 12, color: 'var(--text-muted)' }}
+                                        style={{ fontSize: 12, color: 'var(--muted)' }}
                                     >
                                         Send me product and security updates
                                     </Checkbox>
