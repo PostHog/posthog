@@ -97,7 +97,7 @@ def build_dataarray(
 
     # following finds top 20 breakdown in given queryset then removes other rows from data array
     if len(cohort_keys) > 20:
-        top20keys = [x[0] for x in sorted(cohort_dict.items(), key=lambda x: -x[1])[:21]]
+        top20keys = [x[0] for x in sorted(cohort_dict.items(), key=lambda x: -x[1])[:25]]
         cohort_keys = [key for key in top20keys if key in cohort_keys]
         data_array = list(filter(lambda d: d["breakdown"] in cohort_keys, data_array))
 
