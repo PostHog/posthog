@@ -359,7 +359,9 @@ export const dashboardLogic = kea({
         },
         addGraph: () => {
             router.actions.push(
-                `/insights?insight=TRENDS#backTo=${values.dashboard.name}&backToURL=/dashboard/${values.dashboard.id}`
+                `/insights?insight=TRENDS#backTo=${encodeURIComponent(values.dashboard.name)}&backToURL=/dashboard/${
+                    values.dashboard.id
+                }`
             )
         },
         saveNewTag: ({ tag }) => {
