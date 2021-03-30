@@ -22,6 +22,7 @@ export function TimezoneConfig(): JSX.Element {
                 loading={currentTeamLoading}
                 value={currentTeam.timezone}
                 onChange={(val) => patchCurrentTeam({ timezone: val })}
+                data-attr="timezone-select"
             >
                 {Object.entries(preflight.available_timezones).map(([tz, offset]) => {
                     const display = `${tz.replace(/\//g, ' / ').replace(/_/g, ' ')} (UTC${
