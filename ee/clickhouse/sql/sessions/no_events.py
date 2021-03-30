@@ -27,7 +27,7 @@ FROM
             FROM events
             WHERE 
                 team_id = %(team_id)s
-                AND event != '$feature_flag_called'
+                {entity_filter}
                 {date_from}
                 {date_to} 
                 {filters}

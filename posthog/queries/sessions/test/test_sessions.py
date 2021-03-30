@@ -34,7 +34,22 @@ def sessions_test_factory(sessions, event_factory, person_factory):
                 event_factory(team=self.team, event="4th action", distinct_id="2")
 
             with freeze_time("2012-01-21T04:01:34.000Z"):
-                response = sessions().run(SessionsFilter(data={"session": "avg"}), self.team)
+                response = sessions().run(
+                    SessionsFilter(
+                        data={
+                            "session": "avg",
+                            "events": [
+                                {"id": "1st action"},
+                                {"id": "2nd action"},
+                                {"id": "3rd action"},
+                                {"id": "4th action"},
+                            ],
+                        }
+                    ),
+                    self.team,
+                )
+                with freeze_time("2012-01-21T04:01:34.000Z"):
+                    no_entity_response = sessions().run(SessionsFilter(data={"session": "avg"}), self.team,)
 
             self.assertEqual(response[0]["count"], 3)  # average length of all sessions
             # time series
@@ -45,6 +60,7 @@ def sessions_test_factory(sessions, event_factory, person_factory):
             self.assertEqual(response[0]["days"][0], "2012-01-14")
             self.assertEqual(response[0]["days"][1], "2012-01-15")
             self.assertEqual(response[0]["chartLabel"], "Average Session Length (minutes)")
+            self.assertEqual(response, no_entity_response)
 
         def test_sessions_avg_length_interval(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):
@@ -72,7 +88,18 @@ def sessions_test_factory(sessions, event_factory, person_factory):
             # month
             month_response = sessions().run(
                 SessionsFilter(
-                    data={"date_from": "2012-01-01", "date_to": "2012-04-01", "interval": "month", "session": "avg"}
+                    data={
+                        "date_from": "2012-01-01",
+                        "date_to": "2012-04-01",
+                        "interval": "month",
+                        "session": "avg",
+                        "events": [
+                            {"id": "1st action"},
+                            {"id": "2nd action"},
+                            {"id": "3rd action"},
+                            {"id": "4th action"},
+                        ],
+                    }
                 ),
                 self.team,
             )
@@ -87,7 +114,18 @@ def sessions_test_factory(sessions, event_factory, person_factory):
             # # week
             week_response = sessions().run(
                 SessionsFilter(
-                    data={"date_from": "2012-01-01", "date_to": "2012-02-01", "interval": "week", "session": "avg"}
+                    data={
+                        "date_from": "2012-01-01",
+                        "date_to": "2012-02-01",
+                        "interval": "week",
+                        "session": "avg",
+                        "events": [
+                            {"id": "1st action"},
+                            {"id": "2nd action"},
+                            {"id": "3rd action"},
+                            {"id": "4th action"},
+                        ],
+                    }
                 ),
                 self.team,
             )
@@ -101,7 +139,18 @@ def sessions_test_factory(sessions, event_factory, person_factory):
             # # # hour
             hour_response = sessions().run(
                 SessionsFilter(
-                    data={"date_from": "2012-03-14", "date_to": "2012-03-16", "interval": "hour", "session": "avg"}
+                    data={
+                        "date_from": "2012-03-14",
+                        "date_to": "2012-03-16",
+                        "interval": "hour",
+                        "session": "avg",
+                        "events": [
+                            {"id": "1st action"},
+                            {"id": "2nd action"},
+                            {"id": "3rd action"},
+                            {"id": "4th action"},
+                        ],
+                    }
                 ),
                 self.team,
             )
@@ -115,7 +164,7 @@ def sessions_test_factory(sessions, event_factory, person_factory):
         def test_no_events(self):
             response = sessions().run(
                 SessionsFilter(
-                    data={"date_from": "2012-01-20", "date_to": "2012-01-30", "interval": "day", "session": "avg"}
+                    data={"date_from": "2012-01-20", "date_to": "2012-01-30", "interval": "day", "session": "avg",}
                 ),
                 self.team,
             )
@@ -141,6 +190,7 @@ def sessions_test_factory(sessions, event_factory, person_factory):
                     "interval": "day",
                     "compare": True,
                     "session": "avg",
+                    "events": [{"id": "1st action"}, {"id": "2nd action"}, {"id": "3rd action"}, {"id": "4th action"}],
                 }
             )
             # Run without anything to compare to
@@ -215,10 +265,38 @@ def sessions_test_factory(sessions, event_factory, person_factory):
             with freeze_time("2012-01-21T06:00:30.000Z"):
                 event_factory(team=self.team, event="3rd action", distinct_id="2")
 
-            response = sessions().run(SessionsFilter(data={"date_from": "all", "session": "dist"}), self.team)
-            compared_response = sessions().run(
-                SessionsFilter(data={"date_from": "all", "compare": True, "session": "dist"}), self.team
+            response = sessions().run(
+                SessionsFilter(
+                    data={
+                        "date_from": "all",
+                        "session": "dist",
+                        "events": [
+                            {"id": "1st action"},
+                            {"id": "2nd action"},
+                            {"id": "3rd action"},
+                            {"id": "4th action"},
+                        ],
+                    }
+                ),
+                self.team,
             )
+            compared_response = sessions().run(
+                SessionsFilter(
+                    data={
+                        "date_from": "all",
+                        "compare": True,
+                        "session": "dist",
+                        "events": [
+                            {"id": "1st action"},
+                            {"id": "2nd action"},
+                            {"id": "3rd action"},
+                            {"id": "4th action"},
+                        ],
+                    }
+                ),
+                self.team,
+            )
+            self.assertEqual(len(response), 10)
             for index, item in enumerate(response):
                 if item["label"] == "30-60 minutes" or item["label"] == "3-10 seconds":
                     self.assertEqual(item["count"], 2)
@@ -243,13 +321,29 @@ def sessions_test_factory(sessions, event_factory, person_factory):
 
             with freeze_time("2012-01-12T03:40:30.000Z"):
                 response = sessions().run(
-                    SessionsFilter(data={"date_from": "all", "session": "dist", FILTER_TEST_ACCOUNTS: True}), self.team
+                    SessionsFilter(
+                        data={
+                            "date_from": "all",
+                            "session": "dist",
+                            FILTER_TEST_ACCOUNTS: True,
+                            "events": [{"id": "1st action"},],
+                        }
+                    ),
+                    self.team,
                 )
                 self.assertEqual(response[6]["count"], 0)
                 self.assertEqual(response[7]["count"], 1)
 
                 response = sessions().run(
-                    SessionsFilter(data={"interval": "day", "session": "avg", FILTER_TEST_ACCOUNTS: True}), self.team
+                    SessionsFilter(
+                        data={
+                            "interval": "day",
+                            "session": "avg",
+                            FILTER_TEST_ACCOUNTS: True,
+                            "events": [{"id": "1st action"},],
+                        }
+                    ),
+                    self.team,
                 )
                 self.assertEqual(response[0]["data"][6], 26)
 
