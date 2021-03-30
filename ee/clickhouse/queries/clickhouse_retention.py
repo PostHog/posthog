@@ -142,7 +142,9 @@ class ClickhouseRetention(Retention):
         period = filter.period
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
         trunc_func = get_trunc_func_ch(period)
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+        )
 
         returning_entity = filter.returning_entity if filter.selected_interval > 0 else filter.target_entity
         target_query, target_params = self._get_condition(filter.target_entity, table="e")
