@@ -23,7 +23,8 @@ export function PersonHeader({ person }: { person: Partial<PersonType> }): JSX.E
                 </div>
             ) : (
                 <div className="person-header anonymous">
-                    <IconPerson /> Anonymous user {distinctId && distinctId.substr(distinctId.length - 5)}
+                    <IconPerson /> Anonymous{' '}
+                    {customIdentifier || <>user {distinctId && distinctId.substr(distinctId.length - 5)}</>}
                 </div>
             )}
         </>
