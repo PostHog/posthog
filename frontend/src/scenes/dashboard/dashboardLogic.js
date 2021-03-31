@@ -5,7 +5,7 @@ import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import React from 'react'
-import { clearDOMTextSelection, toParams, triggerResizeAfterADelay } from 'lib/utils'
+import { clearDOMTextSelection, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { ViewType } from 'scenes/insights/insightLogic'
@@ -355,16 +355,13 @@ export const dashboardLogic = kea({
                 }
             }
 
-            // Full screen mode special handling
-            if (mode === DashboardMode.Fullscreen) {
-                triggerResizeAfterADelay()
-            }
-
             eventUsageLogic.actions.reportDashboardModeToggled(mode, source)
         },
         addGraph: () => {
             router.actions.push(
-                `/insights?insight=TRENDS#backTo=${values.dashboard.name}&backToURL=/dashboard/${values.dashboard.id}`
+                `/insights?insight=TRENDS#backTo=${encodeURIComponent(values.dashboard.name)}&backToURL=/dashboard/${
+                    values.dashboard.id
+                }`
             )
         },
         saveNewTag: ({ tag }) => {
