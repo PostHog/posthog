@@ -52,7 +52,8 @@ interface TrendPeople {
 interface PeopleParamType {
     action: ActionFilter
     label: string
-    day?: string | number
+    date_to?: string | number
+    date_from?: string | number
     breakdown_value?: string
     target_date?: number
     lifecycle_type?: string
@@ -92,7 +93,7 @@ function filterClientSideParams(filters: Partial<FilterType>): Partial<FilterTyp
 }
 
 function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
-    const { action, day, breakdown_value, ...restParams } = peopleParams
+    const { action, date_from, date_to, breakdown_value, ...restParams } = peopleParams
     const params = filterClientSideParams({
         ...filters,
         entity_id: action.id,
@@ -102,15 +103,15 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
 
     // casting here is not the best
     if (filters.shown_as === ShownAsValue.STICKINESS) {
-        params.stickiness_days = day as number
+        params.stickiness_days = date_from as number
     } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
-        params.date_to = day as string
+        params.date_to = date_from as string
     } else if (filters.shown_as === ShownAsValue.LIFECYCLE) {
         params.date_from = filters.date_from
         params.date_to = filters.date_to
     } else {
-        params.date_from = day as string
-        params.date_to = day as string
+        params.date_from = date_from as string
+        params.date_to = date_to as string
     }
 
     // If breakdown type is cohort, we use breakdown_value
@@ -181,7 +182,13 @@ export const trendsLogic = kea<
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
 
-        loadPeople: (action, label, day, breakdown_value) => ({ action, label, day, breakdown_value }),
+        loadPeople: (action, label, date_from, date_to, breakdown_value) => ({
+            action,
+            label,
+            date_from,
+            date_to,
+            breakdown_value,
+        }),
         saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
         loadMorePeople: true,
         refreshCohort: true,
@@ -326,7 +333,10 @@ export const trendsLogic = kea<
         saveCohortWithFilters: ({ cohortName }) => {
             if (values.people) {
                 const { label, action, day, breakdown_value } = values.people
-                const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
+                const filterParams = parsePeopleParams(
+                    { label, action, date_from: day, date_to: day, breakdown_value },
+                    values.filters
+                )
                 const cohortParams = {
                     is_static: true,
                     name: cohortName,
@@ -341,22 +351,28 @@ export const trendsLogic = kea<
                 toast.error('Error creating cohort')
             }
         },
-        loadPeople: async ({ label, action, day, breakdown_value }, breakpoint) => {
+        loadPeople: async ({ label, action, date_from, date_to, breakdown_value }, breakpoint) => {
             let people = []
             if (values.filters.shown_as === ShownAsValue.LIFECYCLE) {
                 const filterParams = parsePeopleParams(
-                    { label, action, target_date: day, lifecycle_type: breakdown_value },
+                    { label, action, target_date: date_from, lifecycle_type: breakdown_value },
                     values.filters
                 )
-                actions.setPeople(null, null, action, label, day, breakdown_value, null)
+                actions.setPeople(null, null, action, label, date_from, breakdown_value, null)
                 people = await api.get(`api/person/lifecycle/?${filterParams}`)
             } else if (values.filters.shown_as === ShownAsValue.STICKINESS) {
-                const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
-                actions.setPeople(null, null, action, label, day, breakdown_value, null)
+                const filterParams = parsePeopleParams(
+                    { label, action, date_from, date_to, breakdown_value },
+                    values.filters
+                )
+                actions.setPeople(null, null, action, label, date_from, breakdown_value, null)
                 people = await api.get(`api/person/stickiness/?${filterParams}`)
             } else {
-                const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
-                actions.setPeople(null, null, action, label, day, breakdown_value, null)
+                const filterParams = parsePeopleParams(
+                    { label, action, date_from, date_to, breakdown_value },
+                    values.filters
+                )
+                actions.setPeople(null, null, action, label, date_from, breakdown_value, null)
                 people = await api.get(`api/action/people/?${filterParams}`)
             }
             breakpoint()
@@ -365,7 +381,7 @@ export const trendsLogic = kea<
                 people.results[0]?.count,
                 action,
                 label,
-                day,
+                date_from,
                 breakdown_value,
                 people.next
             )
