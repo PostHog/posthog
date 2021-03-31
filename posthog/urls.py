@@ -25,6 +25,7 @@ from posthog.api import (
     organization,
     projects_router,
     router,
+    signup,
     user,
 )
 from posthog.demo import demo
@@ -210,9 +211,9 @@ urlpatterns = [
     opt_slash_path("api/user/change_password", user.change_password),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/user", user.user),
-    opt_slash_path("api/signup", organization.OrganizationSignupViewset.as_view()),
-    opt_slash_path("api/social_signup", organization.OrganizationSocialSignupViewset.as_view()),
-    path("api/signup/<str:invite_id>/", organization.OrganizationInviteSignupViewset.as_view()),
+    opt_slash_path("api/signup", signup.SignupViewset.as_view()),
+    opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
+    path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
