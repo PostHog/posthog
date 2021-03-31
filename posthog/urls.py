@@ -22,17 +22,16 @@ from posthog.api import (
     capture,
     dashboard,
     decide,
-    organization,
     projects_router,
     router,
     signup,
     user,
 )
+from posthog.api.signup import SignupSerializer
 from posthog.demo import demo
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_signed_up
 
-from .api.organization import OrganizationSignupSerializer
 from .models import OrganizationInvite, Team, User
 from .utils import render_template
 from .views import health, login_required, preflight_check, stats, system_status
@@ -92,7 +91,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
         if not organization_name or email_opt_in is None:
             return redirect(finish_social_signup)
 
-        serializer = OrganizationSignupSerializer(
+        serializer = SignupSerializer(
             data={
                 "organization_name": organization_name,
                 "email_opt_in": email_opt_in,

@@ -11,7 +11,7 @@ from posthog.event_usage import report_user_logged_in
 from posthog.models import User
 
 
-def axess_logout(*args, **kwargs):
+def axess_lockout(*args, **kwargs):
     return JsonResponse(
         {
             "type": "authentication_error",
