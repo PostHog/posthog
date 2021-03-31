@@ -90,7 +90,7 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
     filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
     filter_query, filter_params = parse_prop_clauses(filters.properties, team.pk, table_name="pid")
 
-    results = sync_execute(GET_PERSON_IDS_BY_FILTER.format(distinct_query=filter_query, query=""), filter_params)
+    results = sync_execute(GET_PERSON_IDS_BY_FILTER.format(distinct_query=filter_query, query=""), filter_params,)
 
     return [str(row[0]) for row in results]
 
