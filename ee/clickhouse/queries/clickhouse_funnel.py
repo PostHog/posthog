@@ -92,6 +92,7 @@ class ClickhouseFunnel(Funnel):
             extra_select="",
             extra_groupby="",
             within_time="6048000000000000",
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         )
         return sync_execute(query, self.params)
 

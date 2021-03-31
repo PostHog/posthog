@@ -112,6 +112,7 @@ def _process_content_sql(target_entity: Entity, filter: StickinessFilter, team: 
         parsed_date_to=parsed_date_to,
         filters=prop_filters,
         trunc_func=trunc_func,
+        latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
     )
     return content_sql, params
 
