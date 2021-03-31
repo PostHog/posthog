@@ -13,6 +13,7 @@ from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.person import (
+    GET_LATEST_PERSON_DISTINCT_ID_SQL,
     GET_LATEST_PERSON_SQL,
     INSERT_COHORT_ALL_PEOPLE_SQL,
     PEOPLE_SQL,
@@ -53,6 +54,7 @@ class ClickhouseStickiness(Stickiness):
                 parsed_date_to=parsed_date_to,
                 filters=prop_filters,
                 trunc_func=trunc_func,
+                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
             )
         else:
             content_sql = STICKINESS_SQL.format(
@@ -62,6 +64,7 @@ class ClickhouseStickiness(Stickiness):
                 parsed_date_to=parsed_date_to,
                 filters=prop_filters,
                 trunc_func=trunc_func,
+                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
             )
 
         counts = sync_execute(content_sql, params)
@@ -118,7 +121,12 @@ def retrieve_stickiness_people(target_entity: Entity, filter: StickinessFilter, 
     content_sql, params = _process_content_sql(target_entity, filter, team)
 
     people = sync_execute(
-        PEOPLE_SQL.format(content_sql=content_sql, query="", latest_person_sql=GET_LATEST_PERSON_SQL.format(query="")),
+        PEOPLE_SQL.format(
+            content_sql=content_sql,
+            query="",
+            latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+        ),
         params,
     )
     return ClickhousePersonSerializer(people, many=True).data

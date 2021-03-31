@@ -65,6 +65,13 @@ WHERE team_id = %(team_id)s
 {query}
 """
 
+GET_LATEST_PERSON_DISTINCT_ID_SQL = """
+SELECT * FROM person_distinct_id JOIN (
+    SELECT distinct_id, max(_offset) as _offset FROM person_distinct_id WHERE team_id = %(team_id)s GROUP BY distinct_id
+) as person_max ON person_distinct_id.distinct_id = person_max.distinct_id AND person_distinct_id._offset = person_max._offset
+WHERE team_id = %(team_id)s
+"""
+
 GET_LATEST_PERSON_ID_SQL = """
 (select id from (
     {latest_person_sql}
