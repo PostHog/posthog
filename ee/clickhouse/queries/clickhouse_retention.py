@@ -4,13 +4,10 @@ from django.db.models.query import Prefetch
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.person import (
-    GET_LATEST_PERSON_DISTINCT_ID_SQL,
-    ClickhousePersonSerializer,
-    get_persons_by_uuids,
-)
+from ee.clickhouse.models.person import ClickhousePersonSerializer, get_persons_by_uuids
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 from ee.clickhouse.sql.retention.people_in_period import (
     DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL,
     DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL,
