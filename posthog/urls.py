@@ -9,9 +9,8 @@ from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import URLPattern, include, path, re_path, reverse
-from django.views.decorators.csrf import csrf_exempt, csrf_protect
+from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import TemplateView
-from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import exceptions
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
@@ -19,6 +18,7 @@ from social_django.strategy import DjangoStrategy
 
 from posthog.api import (
     api_not_found,
+    authentication,
     capture,
     dashboard,
     decide,
@@ -145,23 +145,6 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
     return {"is_new": True, "user": user}
 
 
-@csrf_protect
-def logout(request):
-    if request.user.is_authenticated:
-        request.user.temporary_token = None
-        request.user.save()
-
-    if is_impersonated_session(request):
-        restore_original_login(request)
-        return redirect("/")
-
-    restore_original_login(request)
-    response = auth_views.logout_then_login(request)
-    response.delete_cookie(settings.TOOLBAR_COOKIE_NAME, "/")
-
-    return response
-
-
 def authorize_and_redirect(request):
     if not request.GET.get("redirect"):
         return HttpResponse("You need to pass a url to ?redirect=", status=401)
@@ -196,39 +179,19 @@ def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> UR
 
 
 urlpatterns = [
-    # internals
+    # Internals
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
     opt_slash_path("_system_status", system_status),
-    # admin
-    path("admin/", admin.site.urls),
-    path("admin/", include("loginas.urls")),
-    # api
-    path("api/", include(router.urls)),
+    # Authentication
+    path("login", authentication.login, name="login"),
+    path("logout", authentication.logout, name="logout"),
+    path("", include("social_django.urls", namespace="social")),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/change_password", user.change_password),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/user", user.user),
-    opt_slash_path("api/signup", signup.SignupViewset.as_view()),
-    opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
-    path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
-    re_path(r"^api.+", api_not_found),
-    path("authorize_and_redirect/", login_required(authorize_and_redirect)),
-    path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
-    re_path(r"^demo.*", login_required(demo)),
-    # ingestion
-    opt_slash_path("decide", decide.get_decide),
-    opt_slash_path("e", capture.get_event),
-    opt_slash_path("engage", capture.get_event),
-    opt_slash_path("track", capture.get_event),
-    opt_slash_path("capture", capture.get_event),
-    opt_slash_path("batch", capture.get_event),
-    opt_slash_path("s", capture.get_event),  # session recordings
-    # auth
-    path("logout", logout, name="login"),
-    path("signup/finish/", finish_social_signup, name="signup_finish"),
-    path("", include("social_django.urls", namespace="social")),
     *(
         []
         if is_email_available()
@@ -245,6 +208,28 @@ urlpatterns = [
         ),
     ),
     path("accounts/", include("django.contrib.auth.urls")),
+    # Sign up
+    opt_slash_path("api/signup", signup.SignupViewset.as_view()),
+    opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
+    path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
+    path("signup/finish/", finish_social_signup, name="signup_finish"),
+    # API
+    path("api/", include(router.urls)),
+    re_path(r"^api.+", api_not_found),
+    path("authorize_and_redirect/", login_required(authorize_and_redirect)),
+    path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
+    re_path(r"^demo.*", login_required(demo)),
+    # Ingestion
+    opt_slash_path("decide", decide.get_decide),
+    opt_slash_path("e", capture.get_event),
+    opt_slash_path("engage", capture.get_event),
+    opt_slash_path("track", capture.get_event),
+    opt_slash_path("capture", capture.get_event),
+    opt_slash_path("batch", capture.get_event),
+    opt_slash_path("s", capture.get_event),  # session recordings
+    # Admin
+    path("admin/", admin.site.urls),
+    path("admin/", include("loginas.urls")),
 ]
 
 

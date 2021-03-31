@@ -2,7 +2,11 @@ from typing import Any, Dict, Optional, cast
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login
+from django.contrib.auth import views as auth_views
 from django.http import JsonResponse
+from django.shortcuts import redirect
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
+from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,6 +26,22 @@ def axess_lockout(*args, **kwargs):
         },
         status=status.HTTP_403_FORBIDDEN,
     )
+
+
+@csrf_protect
+def logout(request):
+    if request.user.is_authenticated:
+        request.user.temporary_token = None
+        request.user.save()
+
+    if is_impersonated_session(request):
+        restore_original_login(request)
+        return redirect("/")
+
+    response = auth_views.logout_then_login(request)
+    response.delete_cookie(settings.TOOLBAR_COOKIE_NAME, "/")
+
+    return response
 
 
 class LoginSerializer(serializers.Serializer):
