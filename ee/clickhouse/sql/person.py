@@ -59,8 +59,8 @@ FROM kafka_{table_name}
 
 GET_LATEST_PERSON_SQL = """
 SELECT * FROM person JOIN (
-    SELECT id, max(created_at) as created_at FROM person WHERE team_id = %(team_id)s GROUP BY id
-) as person_max ON person.id = person_max.id AND person.created_at = person_max.created_at
+    SELECT id, max(_timestamp) as _timestamp FROM person WHERE team_id = %(team_id)s GROUP BY id
+) as person_max ON person.id = person_max.id AND person._timestamp = person_max._timestamp
 WHERE team_id = %(team_id)s
 {query}
 """

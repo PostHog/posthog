@@ -209,12 +209,15 @@ export function Signup(): JSX.Element {
                         <h2 className="subtitle" style={{ justifyContent: 'center' }}>
                             Get started
                         </h2>
-                        <div className="text-center" style={{ marginBottom: 32 }}>
-                            Already have an account?{' '}
-                            <Link to="/login" data-attr="signup-login-link">
-                                Sign in
-                            </Link>
-                        </div>
+                        {(preflight?.cloud || preflight?.initiated) && ( // For now, if you're not on cloud, you wouldn't see
+                            // this page, but future-proofing this (with `preflight.initiated`) in case this changes.
+                            <div className="text-center" style={{ marginBottom: 32 }}>
+                                Already have an account?{' '}
+                                <Link to="/login" data-attr="signup-login-link">
+                                    Sign in
+                                </Link>
+                            </div>
+                        )}
                         {!signupResponseLoading &&
                             signupResponse?.errorCode &&
                             !['email', 'password'].includes(signupResponse?.errorAttribute || '') && (

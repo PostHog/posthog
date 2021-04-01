@@ -137,7 +137,9 @@ def _process_content_sql(team: Team, entity: Entity, filter: Filter):
         person_prop = Property(**{"key": filter.breakdown, "value": filter.breakdown_value, "type": "person"})
         filter.properties.append(person_prop)
 
-    prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+    prop_filters, prop_filter_params = parse_prop_clauses(
+        filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+    )
     params: Dict = {"team_id": team.pk, **prop_filter_params, **entity_params, "offset": filter.offset}
 
     content_sql = PERSON_TREND_SQL.format(

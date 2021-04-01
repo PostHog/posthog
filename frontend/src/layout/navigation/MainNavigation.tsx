@@ -13,7 +13,7 @@ import {
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { isMobile, triggerResizeAfterADelay } from 'lib/utils'
+import { isMobile } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import lgLogo from 'public/posthog-logo-white.svg'
 import smLogo from 'public/icon-white.svg'
@@ -245,7 +245,6 @@ export function MainNavigation(): JSX.Element {
                 trigger={null}
                 onCollapse={(collapsed) => {
                     setMenuCollapsed(collapsed)
-                    triggerResizeAfterADelay()
                 }}
                 className="navigation-main"
             >
