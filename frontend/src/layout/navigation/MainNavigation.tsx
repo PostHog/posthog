@@ -47,11 +47,10 @@ interface MenuItemProps {
     icon: JSX.Element
     identifier: string
     to: string
-    highlight?: boolean
     onClick?: () => void
 }
 
-const MenuItem = ({ title, icon, identifier, to, highlight = false, onClick }: MenuItemProps): JSX.Element => {
+const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.Element => {
     const { scene, loadingScene } = useValues(sceneLogic)
     const { collapseMenu } = useActions(navigationLogic)
 
@@ -67,8 +66,6 @@ const MenuItem = ({ title, icon, identifier, to, highlight = false, onClick }: M
         const classList = ['menu-item']
         if (identifier === activeScene) {
             classList.push('menu-item-active')
-        } else if (highlight) {
-            classList.push('menu-item-highlighted')
         }
         return classList.join(' ')
     }, [scene, loadingScene])
@@ -237,13 +234,7 @@ export function MainNavigation(): JSX.Element {
                     />
                     <div className="divider" />
                     {canViewPlugins(user?.organization) && (
-                        <MenuItem
-                            title="Plugins"
-                            icon={<ApiFilled />}
-                            identifier="plugins"
-                            to="/project/plugins"
-                            highlight={!user?.flags['has_checked_out_plugins']}
-                        />
+                        <MenuItem title="Plugins" icon={<ApiFilled />} identifier="plugins" to="/project/plugins" />
                     )}
                     <MenuItem
                         title="Annotations"

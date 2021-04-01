@@ -35,7 +35,6 @@ export interface UserType {
     is_impersonated: boolean
     ee_enabled: boolean
     email_service_available: boolean
-    flags: Record<string, any>
     realm: 'cloud' | 'hosted'
     billing?: OrganizationBilling
     is_event_property_usage_enabled: boolean

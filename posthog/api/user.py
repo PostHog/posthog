@@ -99,8 +99,6 @@ def user(request):
                     return JsonResponse({"detail": "Team ID must be an integer."}, status=400)
                 except ObjectDoesNotExist:
                     return JsonResponse({"detail": "Team not found for user's current organization."}, status=404)
-            if isinstance(data["user"].get("flags"), dict):
-                user.flags.update(data["user"]["flags"])
             user.email_opt_in = data["user"].get("email_opt_in", user.email_opt_in)
             user.anonymize_data = data["user"].get("anonymize_data", user.anonymize_data)
             user.toolbar_mode = data["user"].get("toolbar_mode", user.toolbar_mode)
@@ -162,7 +160,6 @@ def user(request):
             "is_debug": getattr(settings, "DEBUG", False),
             "is_staff": user.is_staff,
             "is_impersonated": is_impersonated_session(request),
-            "flags": user.flags,
             "is_event_property_usage_enabled": getattr(settings, "ASYNC_EVENT_PROPERTY_USAGE", False),
         }
     )
