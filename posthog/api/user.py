@@ -35,6 +35,8 @@ class UserSerializer(serializers.ModelSerializer):
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
+    set_current_organization = serializers.CharField(write_only=True, required=False)
+    set_current_team = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = User
@@ -51,7 +53,10 @@ class UserSerializer(serializers.ModelSerializer):
             "team",
             "organization",
             "organizations",
+            "set_current_organization",
+            "set_current_team",
         ]
+        extra_kwargs = {"is_staff": {"read_only": True}}
 
     def get_id(self, instance: User) -> str:
         return str(instance.uuid)
@@ -63,6 +68,45 @@ class UserSerializer(serializers.ModelSerializer):
         if "request" not in self.context:
             return None
         return is_impersonated_session(self.context["request"])
+
+    def validate_set_current_organization(self, value: str) -> Organization:
+        try:
+            organization = Organization.objects.get(id=value)
+            if organization.memberships.filter(user=self.context["request"].user).exists():
+                return organization
+        except Organization.DoesNotExist:
+            pass
+
+        raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
+
+    def validate_set_current_team(self, value: str) -> Team:
+        try:
+            team = Team.objects.get(pk=value)
+            if self.context["request"].user.teams.filter(pk=team.pk).exists():
+                return team
+        except Team.DoesNotExist:
+            pass
+
+        raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
+
+    def update(self, instance: User, validated_data: Any) -> Any:
+        current_organization = validated_data.pop("set_current_organization", None)
+        current_team = validated_data.pop("set_current_team", None)
+
+        if current_organization:
+            if current_team and not current_organization.teams.filter(pk=current_team.pk).exists():
+                raise serializers.ValidationError(
+                    {"set_current_team": ["Team must belong to the same organization in set_current_organization."]}
+                )
+
+            validated_data["current_organization"] = current_organization
+            validated_data["current_team"] = current_team if current_team else current_organization.teams.first()
+
+        elif current_team:
+            validated_data["current_team"] = current_team
+            validated_data["current_organization"] = current_team.organization
+
+        return super().update(instance, validated_data)
 
     def to_representation(self, instance: Any) -> Any:
         user_identify.identify_task.delay(user_id=instance.id)

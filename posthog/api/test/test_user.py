@@ -1,3 +1,4 @@
+import uuid
 from unittest.mock import patch
 
 from rest_framework import status
@@ -8,6 +9,11 @@ from posthog.test.base import APIBaseTest
 
 
 class TestUserAPI(APIBaseTest):
+    def _assert_current_org_and_team_unchanged(self):
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_team, self.team)
+        self.assertEqual(self.user.current_organization, self.organization)
+
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
@@ -83,7 +89,6 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response_data["email_opt_in"], False)
         self.assertEqual(response_data["is_staff"], False)
         self.assertEqual(response_data["organization"]["id"], str(self.organization.id))
-        self.assertEqual(response_data["team"]["id"], str(self.team.id))
         self.assertEqual(response_data["team"]["id"], self.team.id)
 
         user.refresh_from_db()
@@ -91,6 +96,123 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(user.first_name, "Cooper")
         self.assertEqual(user.email, "updated@posthog.com")
         self.assertEqual(user.anonymize_data, True)
+
+    def test_can_update_current_organization(self):
+        response = self.client.patch("/api/v2/user/", {"set_current_organization": str(self.new_org.id)},)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["organization"]["id"], str(self.new_org.id))
+        self.assertEqual(response_data["organization"]["name"], self.new_org.name)
+
+        # Team is set too
+        self.assertEqual(response_data["team"]["id"], self.new_project.id)
+        self.assertEqual(response_data["team"]["name"], self.new_project.name)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_organization, self.new_org)
+        self.assertEqual(self.user.current_team, self.new_project)
+
+    def test_can_update_current_project(self):
+        team = Team.objects.create(name="Local Team", organization=self.new_org)
+        response = self.client.patch("/api/v2/user/", {"set_current_team": team.id})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["team"]["id"], team.id)
+        self.assertEqual(response_data["team"]["name"], "Local Team")
+
+        # Org is updated too
+        self.assertEqual(response_data["organization"]["id"], str(self.new_org.id))
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_organization, self.new_org)
+        self.assertEqual(self.user.current_team, team)
+
+    def test_cannot_set_mismatching_org_and_team(self):
+        org = Organization.objects.create(name="Isolated Org")
+        first_team = Team.objects.create(name="Isolated Team", organization=org)
+        team = Team.objects.create(name="Isolated Team 2", organization=org)
+        self.user.join(organization=org)
+
+        response = self.client.patch(
+            "/api/v2/user/", {"set_current_team": team.id, "set_current_organization": self.organization.id}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Team must belong to the same organization in set_current_organization.",
+                "attr": "set_current_team",
+            },
+        )
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_team, first_team)
+        self.assertEqual(self.user.current_organization, org)
+
+    def test_cannot_set_an_organization_without_permissions(self):
+        org = Organization.objects.create(name="Isolated Org")
+
+        response = self.client.patch("/api/v2/user/", {"set_current_organization": org.id})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "does_not_exist",
+                "detail": f"Object with id={org.id} does not exist.",
+                "attr": "set_current_organization",
+            },
+        )
+
+        self._assert_current_org_and_team_unchanged()
+
+    def test_cannot_set_a_team_without_permissions(self):
+        org = Organization.objects.create(name="Isolated Org")
+        team = Team.objects.create(name="Isolated Team", organization=org)
+
+        response = self.client.patch("/api/v2/user/", {"set_current_team": team.id})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "does_not_exist",
+                "detail": f"Object with id={team.id} does not exist.",
+                "attr": "set_current_team",
+            },
+        )
+
+        self._assert_current_org_and_team_unchanged()
+
+    def test_cannot_set_a_non_existent_org_or_team(self):
+        response = self.client.patch("/api/v2/user/", {"set_current_team": 3983838})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "does_not_exist",
+                "detail": f"Object with id=3983838 does not exist.",
+                "attr": "set_current_team",
+            },
+        )
+
+        _uuid = str(uuid.uuid4())
+        response = self.client.patch("/api/v2/user/", {"set_current_organization": _uuid})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "does_not_exist",
+                "detail": f"Object with id={_uuid} does not exist.",
+                "attr": "set_current_organization",
+            },
+        )
+
+        self._assert_current_org_and_team_unchanged()
 
 
 class TestUserAPILegacy(APIBaseTest):
