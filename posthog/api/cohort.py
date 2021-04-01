@@ -10,7 +10,7 @@ from sentry_sdk.api import capture_exception
 
 from posthog.api.action import calculate_people, filter_by_type
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserBasicSerializer
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.constants import TRENDS_STICKINESS
 from posthog.models import Cohort, Entity

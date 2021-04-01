@@ -12,7 +12,8 @@ from rest_framework import exceptions, generics, permissions, response, serializ
 from rest_framework.request import Request
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserBasicSerializer
+from posthog.api.shared import UserBasicSerializer
+from posthog.api.team import TeamBasicSerializer
 from posthog.demo import create_demo_team
 from posthog.event_usage import report_onboarding_completed, report_user_joined_organization, report_user_signed_up
 from posthog.mixins import AnalyticsDestroyModelMixin
@@ -61,11 +62,26 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         return OrganizationMembership.objects.get(user=request.user, organization=organization).level >= min_level
 
 
+class OrganizationBasicSerializer(serializers.ModelSerializer):
+    """
+    Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
+    Also used for nested serializers.
+    """
+
+    class Meta:
+        model = Organization
+        fields = [
+            "id",
+            "name",
+        ]
+
+
 class OrganizationSerializer(serializers.ModelSerializer):
     membership_level = serializers.SerializerMethodField()
     setup = (
         serializers.SerializerMethodField()
     )  # Information related to the current state of the onboarding/setup process
+    teams = TeamBasicSerializer(many=True, read_only=True)
 
     class Meta:
         model = Organization
@@ -79,6 +95,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "setup",
             "setup_section_2_completed",
             "plugins_access_level",
+            "teams",
         ]
         read_only_fields = [
             "id",

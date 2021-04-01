@@ -10,7 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_hooks.signals import raw_hook_event
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserBasicSerializer
+from posthog.api.shared import UserBasicSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Annotation, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions

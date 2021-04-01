@@ -6,7 +6,7 @@ from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserBasicSerializer
+from posthog.api.shared import UserBasicSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
 from posthog.permissions import ProjectMembershipNecessaryPermissions
