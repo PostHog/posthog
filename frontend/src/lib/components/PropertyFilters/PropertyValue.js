@@ -64,11 +64,11 @@ export function PropertyValue({
                 showSearch
                 autoFocus={!value && !isMobile()}
                 style={{ width: '100%', ...style }}
-                onChange={(_, payload) => {
+                onChange={(value, payload) => {
                     if (isOperatorMulti(operator) && payload.length > 0) {
-                        onSet(payload.map(({ value: val }) => val))
+                        onSet(value)
                     } else {
-                        onSet((payload && payload.value) || null)
+                        onSet(payload?.value ?? null)
                     }
                 }}
                 value={value || placeholder}
