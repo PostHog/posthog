@@ -64,16 +64,16 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    function handleClick(): void {
-        onClick?.()
-        collapseMenu()
-        setHotkeyNavigationEngaged(false)
-    }
-
     function activeScene(): string {
         const nominalScene: Scene = loadingScene || scene
         // Scenes with special handling can go here
         return sceneOverride[nominalScene] || nominalScene
+    }
+
+    function handleClick(): void {
+        onClick?.()
+        collapseMenu()
+        setHotkeyNavigationEngaged(false)
     }
 
     useKeyboardHotkeys(
