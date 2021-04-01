@@ -155,16 +155,18 @@ export function ProjectSettings(): JSX.Element {
                 <TimezoneConfig />
                 <Divider />
                 <h2 className="subtitle" id="internal-users-filtering">
-                    Filter Out Events
+                    Filter Out Internal and Test Users
                 </h2>
                 <p>
-                    Increase the quality of your analytics results by filtering out events from team members, test
-                    accounts, and development environments. The events will still be captured and logged but will be
-                    excluded from queries, graphs, and other analyses.
+                    Increase the quality of your analytics results by filtering out events from internal sources, such
+                    as team members, test accounts, or development environments. The data be saved nonetheless, however
+                    you'll be able to exclude it from queries with the "Filter out internal and test users " setting
+                    during analysis.
                 </p>
                 <p>
-                    For example, <code>email ∌ example.com</code> to exclude all events from users on your team and{' '}
-                    <code>Host ≠ localhost:8000</code> to exclude all events from local development environments.
+                    Example filters to use below: <i>email ∌ yourcompany.com</i> to exclude all events from your
+                    company's employees, or <i>Host ∌ localhost</i> to exclude all events from local development
+                    environments.
                 </p>
                 <TestAccountFiltersConfig />
                 <Divider />
