@@ -7,13 +7,11 @@ from posthog.models.cohort import Cohort
 from posthog.models.event import Event
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import calculate_cohort_from_list
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest
 
 
 def calculate_cohort_test_factory(event_factory: Callable, person_factory: Callable):  # type: ignore
-    class TestCalculateCohort(BaseTest):
-        TESTS_API = True
-
+    class TestCalculateCohort(APIBaseTest):
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
         def test_create_stickiness_cohort(self, _calculate_cohort_from_list: MagicMock) -> None:
             person_factory(team_id=self.team.pk, distinct_ids=["blabla"])

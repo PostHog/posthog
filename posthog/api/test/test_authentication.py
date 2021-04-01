@@ -3,22 +3,15 @@ from unittest.mock import patch
 from rest_framework import status
 
 from posthog.models import User
-from posthog.test.base import APITransactionBaseTest
+from posthog.test.base import APIBaseTest
 
 
-class TestAuthenticationAPI(APITransactionBaseTest):
-
-    INVALID_CREDENTIALS_RESPONSE = {
-        "type": "validation_error",
-        "code": "invalid_credentials",
-        "detail": "Invalid email or password.",
-        "attr": None,
-    }
+class TestAuthenticationAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
     @patch("posthoganalytics.capture")
     def test_user_logs_in_with_email_and_password(self, mock_capture):
-        response = self.client.post("/api/login", {"email": self.CONFIG_USER_EMAIL, "password": self.CONFIG_PASSWORD})
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"success": True})
 
@@ -38,9 +31,9 @@ class TestAuthenticationAPI(APITransactionBaseTest):
         invalid_passwords = ["1234", "abcdefgh", "testpassword1234", "😈😈😈"]
 
         for password in invalid_passwords:
-            response = self.client.post("/api/login", {"email": self.CONFIG_USER_EMAIL, "password": password})
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": password})
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(response.json(), self.INVALID_CREDENTIALS_RESPONSE)
+            self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
 
             # Assert user is not logged in
             response = self.client.get("/api/user/")
@@ -55,7 +48,7 @@ class TestAuthenticationAPI(APITransactionBaseTest):
 
         response = self.client.post("/api/login", {"email": "user2@posthog.com", "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json(), self.INVALID_CREDENTIALS_RESPONSE)
+        self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
 
         # Assert user is not logged in
         response = self.client.get("/api/user/")
@@ -73,7 +66,7 @@ class TestAuthenticationAPI(APITransactionBaseTest):
 
         for attribute in required_attributes:
             body = {
-                "email": self.CONFIG_USER_EMAIL,
+                "email": self.CONFIG_EMAIL,
                 "password": self.CONFIG_PASSWORD,
             }
             body.pop(attribute)
@@ -102,7 +95,7 @@ class TestAuthenticationAPI(APITransactionBaseTest):
             for _ in range(0, 2):
                 response = self.client.post("/api/login", {"email": "new_user@posthog.com", "password": "invalid"})
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-                self.assertEqual(response.json(), self.INVALID_CREDENTIALS_RESPONSE)
+                self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
 
                 # Assert user is not logged in
                 response = self.client.get("/api/user/")

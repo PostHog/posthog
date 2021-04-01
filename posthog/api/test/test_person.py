@@ -1,7 +1,5 @@
 import json
-from uuid import uuid4
 
-from django.test.utils import freeze_time
 from django.utils import timezone
 from rest_framework import status
 
@@ -291,11 +289,7 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
             )
             person2 = person_factory(team=self.team, distinct_ids=["2"], properties={"random_prop": "asdf"})
 
-            response = self.client.post(
-                "/api/person/%s/merge/" % person1.pk,
-                data=json.dumps({"ids": [person2.pk, person3.pk]}),
-                content_type="application/json",
-            )
+            response = self.client.post("/api/person/%s/merge/" % person1.pk, {"ids": [person2.pk, person3.pk]},)
             self.assertEqual(response.status_code, 201)
             self.assertEqual(response.json()["created_at"].replace("Z", "+00:00"), person3.created_at.isoformat())
             self.assertEqual(response.json()["distinct_ids"], ["3", "1", "2"])

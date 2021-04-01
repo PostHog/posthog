@@ -11,7 +11,7 @@ import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Card, Button } from 'antd'
+import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -235,10 +235,25 @@ export function Insights(): JSX.Element {
                     {featureFlags['remove-shownas'] && (
                         <TabPane
                             tab={
-                                <span data-attr="insight-stickiness-tab">
+                                <Tooltip
+                                    placement="bottom"
+                                    title={
+                                        <>
+                                            Stickiness shows you how many days users performed an action repeteadely
+                                            within a timeframe.
+                                            <br />
+                                            <br />
+                                            <i>
+                                                Example: If a user performed an action on Monday and again on Friday, it
+                                                would be shown as "2 days".
+                                            </i>
+                                        </>
+                                    }
+                                    data-attr="insight-stickiness-tab"
+                                >
                                     Stickiness
                                     <InsightHotkey hotkey="k" />
-                                </span>
+                                </Tooltip>
                             }
                             key={ViewType.STICKINESS}
                         />
@@ -246,10 +261,20 @@ export function Insights(): JSX.Element {
                     {featureFlags['remove-shownas'] && (
                         <TabPane
                             tab={
-                                <span data-attr="insight-lifecycle-tab">
+                                <Tooltip
+                                    placement="bottom"
+                                    title={
+                                        <>
+                                            Lifecycle will show you new, resurrected, returning and dormant users so you
+                                            understand how your user base is composed. This can help you understand
+                                            where your user growth is coming from.
+                                        </>
+                                    }
+                                    data-attr="insight-lifecycle-tab"
+                                >
                                     Lifecycle
                                     <InsightHotkey hotkey="l" />
-                                </span>
+                                </Tooltip>
                             }
                             key={ViewType.LIFECYCLE}
                         />

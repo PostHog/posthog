@@ -4,14 +4,13 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog.api.test.base import APIBaseTest
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
-from posthog.models import Action, ActionStep, Event, Person, Team
+from posthog.models import Action, ActionStep, Event, Person
 from posthog.models.entity import Entity
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.abstract_test.test_compare import AbstractCompareTest
 from posthog.queries.stickiness import Stickiness
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest
 
 
 # parameterize tests to reuse in EE
