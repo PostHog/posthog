@@ -66,8 +66,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: Any) -> Any:
         user_identify.identify_task.delay(user_id=instance.id)
-        repr = super().to_representation(instance)
-        return repr
+        return super().to_representation(instance)
 
 
 class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):

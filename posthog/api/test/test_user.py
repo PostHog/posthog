@@ -8,10 +8,20 @@ from posthog.test.base import APIBaseTest
 
 
 class TestUserAPI(APIBaseTest):
-    def test_fetch_current_user(self):
-        new_org = Organization.objects.create(name="New Organization")
-        self.user.join(organization=new_org)
-        response = self.client.patch("/api/v2/user/")
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+
+        cls.new_org = Organization.objects.create(name="New Organization")
+        cls.new_project = Team.objects.create(name="New Project", organization=cls.new_org)
+        cls.user.join(organization=cls.new_org)
+        cls.user.current_organization = cls.organization
+        cls.user.current_team = cls.team
+        cls.user.save()
+
+    def test_retrieve_current_user(self):
+
+        response = self.client.get("/api/v2/user/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -21,15 +31,66 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response_data["email"], self.user.email)
         self.assertEqual(response_data["has_password"], True)
         self.assertEqual(response_data["is_staff"], False)
-        self.assertEqual(response_data["team"], "")
-        self.assertEqual(response_data["organization"], "")
+        self.assertEqual(response_data["team"]["id"], self.team.id)
+        self.assertEqual(response_data["team"]["name"], self.team.name)
+        self.assertEqual(response_data["team"]["api_token"], "token123")
+        self.assertNotIn("test_account_filters", response_data["team"])  # Ensure we're not returning the full `Team`
+        self.assertNotIn("event_names", response_data["team"])
+
+        self.assertEqual(response_data["organization"]["name"], self.organization.name)
+        self.assertEqual(response_data["organization"]["membership_level"], 1)
+        self.assertEqual(response_data["organization"]["teams"][0]["id"], self.team.id)
+        self.assertEqual(response_data["organization"]["teams"][0]["name"], self.team.name)
+        self.assertNotIn(
+            "test_account_filters", response_data["organization"]["teams"][0]
+        )  # Ensure we're not returning the full `Team`
+        self.assertNotIn("event_names", response_data["organization"]["teams"][0])
+
         self.assertEqual(
             response_data["organizations"],
             [
-                {"id": self.organization.id, "name": self.organization.name},
-                {"id": new_org.id, "name": "New Organization"},
+                {"id": str(self.organization.id), "name": self.organization.name},
+                {"id": str(self.new_org.id), "name": "New Organization"},
             ],
         )
+
+    def test_update_current_user(self):
+        another_org = Organization.objects.create(name="Another Org")
+        another_team = Team.objects.create(name="Another Team", organization=another_org)
+        user = self._create_user("old@posthog.com", password="12345678")
+        self.client.force_login(user)
+        response = self.client.patch(
+            "/api/v2/user/",
+            {
+                "first_name": "Cooper",
+                "email": "updated@posthog.com",
+                "anonymize_data": True,
+                "email_opt_in": False,
+                "id": 1,  # should be ignored
+                "is_staff": True,  # should be ignored
+                "organization": str(another_org.id),  # should be ignored
+                "team": str(another_team.id),  # should be ignored
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertNotEqual(response_data["id"], 1)
+        self.assertEqual(response_data["first_name"], "Cooper")
+        self.assertEqual(response_data["email"], "updated@posthog.com")
+        self.assertEqual(response_data["anonymize_data"], True)
+        self.assertEqual(response_data["email_opt_in"], False)
+        self.assertEqual(response_data["is_staff"], False)
+        self.assertEqual(response_data["organization"]["id"], str(self.organization.id))
+        self.assertEqual(response_data["team"]["id"], str(self.team.id))
+        self.assertEqual(response_data["team"]["id"], self.team.id)
+
+        user.refresh_from_db()
+        self.assertNotEqual(user.pk, 1)
+        self.assertEqual(user.first_name, "Cooper")
+        self.assertEqual(user.email, "updated@posthog.com")
+        self.assertEqual(user.anonymize_data, True)
 
 
 class TestUserAPILegacy(APIBaseTest):
