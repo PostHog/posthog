@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import List
 from uuid import UUID, uuid4
 
 import pytest
@@ -7,14 +7,11 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.property import parse_prop_clauses, prop_filter_json_extract
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.models.cohort import Cohort
 from posthog.models.element import Element
-from posthog.models.event import Event
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.models.property import Property
-from posthog.models.team import Team
-from posthog.test.base import BaseTest, TestMixin
+from posthog.test.base import BaseTest
 
 
 def _create_event(**kwargs) -> UUID:
@@ -30,6 +27,8 @@ def _create_person(**kwargs) -> Person:
 
 
 class TestPropFormat(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def _run_query(self, filter: Filter) -> List:
         query, params = parse_prop_clauses(filter.properties, self.team.pk, allow_denormalized_props=True)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -207,6 +206,8 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
 
 
 class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def _run_query(self, filter: Filter) -> List:
         query, params = parse_prop_clauses(filter.properties, self.team.pk, allow_denormalized_props=True)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)

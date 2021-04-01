@@ -8,13 +8,12 @@ from freezegun import freeze_time
 
 from posthog.constants import RDBMS
 from posthog.models import Action, ActionStep, Element, Event, Organization, Person, Team
-from posthog.test.base import TransactionBaseTest
+from posthog.test.base import APIBaseTest
 from posthog.utils import relative_date_parse
 
 
 def factory_test_event_api(event_factory, person_factory, _):
-    class TestEvents(TransactionBaseTest):
-        TESTS_API = True
+    class TestEvents(APIBaseTest):
         ENDPOINT = "event"
 
         def test_filter_events(self):

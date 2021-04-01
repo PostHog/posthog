@@ -1,13 +1,22 @@
 import base64
 import json
 
-from posthog.models import FeatureFlag, Person, PersonalAPIKey
+from django.test.client import Client
 
-from .base import BaseTest
+from posthog.models import FeatureFlag, Person, PersonalAPIKey
+from posthog.test.base import BaseTest
 
 
 class TestDecide(BaseTest):
-    TESTS_API = True
+    """
+    Tests the `/decide` endpoint.
+    We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.client.force_login(self.user)
 
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")

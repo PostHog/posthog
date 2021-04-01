@@ -5,8 +5,7 @@ from django.core import mail
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationInvite, OrganizationMembership
-
-from .base import APIBaseTest
+from posthog.test.base import APIBaseTest
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 

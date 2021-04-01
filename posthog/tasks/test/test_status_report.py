@@ -4,15 +4,13 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import datetime, now
 from freezegun import freeze_time
 
-from posthog.models import Dashboard, Event, Person
+from posthog.models import Event, Person
 from posthog.tasks.status_report import status_report
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
 
 
-class TestStatusReport(BaseTest):
-    TESTS_API = True
-
+class TestStatusReport(APIBaseTest):
     @patch("os.environ", {"DEPLOYMENT": "tests"})
     def test_status_report(self) -> None:
         report = status_report(dry_run=True)

@@ -1,12 +1,10 @@
 import random
 
 from posthog.models import Action, Dashboard, Event, Person, SessionRecordingEvent, Team
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest
 
 
-class TestDemo(BaseTest):
-    TESTS_API = True
-
+class TestDemo(APIBaseTest):
     def test_create_demo_data(self):
         random.seed(900)
 

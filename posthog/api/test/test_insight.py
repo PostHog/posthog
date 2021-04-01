@@ -10,14 +10,14 @@ from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.test.base import TransactionBaseTest
+from posthog.test.base import APIBaseTest
 
 # TODO: two tests below fail in EE
 
 
 def insight_test_factory(event_factory, person_factory):
-    class TestInsightApi(TransactionBaseTest):
-        TESTS_API = True
+    class TestInsight(APIBaseTest):
+        CLASS_DATA_LEVEL_SETUP = False
 
         def test_get_insight_items(self):
             filter_dict = {
@@ -69,7 +69,6 @@ def insight_test_factory(event_factory, person_factory):
                         "date_from": "-90d",
                     },
                 },
-                content_type="application/json",
             ).json()
 
             response = DashboardItem.objects.all()
@@ -93,7 +92,7 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
 
         def test_insight_paths_basic(self):
-            person1 = person_factory(team=self.team, distinct_ids=["person_1"])
+            person_factory(team=self.team, distinct_ids=["person_1"])
             event_factory(
                 properties={"$current_url": "/"}, distinct_id="person_1", event="$pageview", team=self.team,
             )
@@ -119,9 +118,7 @@ def insight_test_factory(event_factory, person_factory):
 
             # TODO: remove this check
             def test_insight_retention_basic(self):
-                person1 = person_factory(
-                    team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"}
-                )
+                person_factory(team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"})
                 event_factory(
                     team=self.team,
                     event="$pageview",
@@ -139,8 +136,8 @@ def insight_test_factory(event_factory, person_factory):
 
                 self.assertEqual(len(response["result"]), 11)
 
-    return TestInsightApi
+    return TestInsight
 
 
-class TestInsightApi(insight_test_factory(Event.objects.create, Person.objects.create)):  # type: ignore
+class TestInsight(insight_test_factory(Event.objects.create, Person.objects.create)):  # type: ignore
     pass

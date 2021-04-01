@@ -3,54 +3,60 @@ from unittest.mock import patch
 from rest_framework import status
 
 from posthog.models import FeatureFlag, User
-from posthog.test.base import APITransactionBaseTest, TransactionBaseTest
+from posthog.test.base import APIBaseTest
 
 
-class TestFeatureFlag(TransactionBaseTest):
-    TESTS_API = True
+class TestFeatureFlag(APIBaseTest):
+    feature_flag: FeatureFlag = None  # type: ignore
 
-    def test_key_exists(self):
-        feature_flag = self.client.post(
-            "/api/feature_flag/",
-            data={"name": "Beta feature", "key": "beta-feature", "filters": {"groups": [{"rollout_percentage": 50}]}},
-            content_type="application/json",
-        ).json()
-        self.assertEqual(FeatureFlag.objects.get(pk=feature_flag["id"]).name, "Beta feature")
-        self.assertTrue(feature_flag["is_simple_flag"])
-        self.assertEqual(feature_flag["rollout_percentage"], 50)
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.feature_flag = FeatureFlag.objects.create(team=cls.team, created_by=cls.user, key="red_button")
 
+    def test_cant_create_flag_with_duplicate_key(self):
+        count = FeatureFlag.objects.count()
         # Make sure the endpoint works with and without the trailing slash
-        response = self.client.post(
-            "/api/feature_flag", data={"name": "Beta feature", "key": "beta-feature"}, content_type="application/json",
-        ).json()
-
+        response = self.client.post("/api/feature_flag", {"name": "Beta feature", "key": "red_button"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response,
-            {"type": "validation_error", "code": "key-exists", "detail": "This key already exists.", "attr": None},
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "unique",
+                "detail": "There is already a feature flag with this key.",
+                "attr": "key",
+            },
         )
+        self.assertEqual(FeatureFlag.objects.count(), count)
 
+    def test_cant_update_flag_with_duplicate_key(self):
         another_feature_flag = FeatureFlag.objects.create(
             team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user,
         )
-        # try updating into an existing feature flag
         response = self.client.patch(
-            "/api/feature_flag/%s/" % another_feature_flag.pk,
-            data={"name": "Beta feature", "key": "beta-feature"},
-            content_type="application/json",
-        ).json()
-        self.assertEqual(
-            response,
-            {"type": "validation_error", "code": "key-exists", "detail": "This key already exists.", "attr": None},
+            f"/api/feature_flag/{another_feature_flag.pk}", {"name": "Beta feature", "key": "red_button"},
         )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "unique",
+                "detail": "There is already a feature flag with this key.",
+                "attr": "key",
+            },
+        )
+        another_feature_flag.refresh_from_db()
+        self.assertEqual(another_feature_flag.key, "some-feature")
 
-        # try updating the existing one
+        # Try updating the existing one
         response = self.client.patch(
-            "/api/feature_flag/%s/" % feature_flag["id"],
-            data={"name": "Beta feature 3", "key": "beta-feature"},
-            content_type="application/json",
+            f"/api/feature_flag/{self.feature_flag.id}/", {"name": "Beta feature 3", "key": "red_button"},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(FeatureFlag.objects.get(pk=feature_flag["id"]).name, "Beta feature 3")
+        self.feature_flag.refresh_from_db()
+        self.assertEqual(self.feature_flag.name, "Beta feature 3")
 
     def test_is_simple_flag(self):
         feature_flag = self.client.post(
@@ -69,17 +75,10 @@ class TestFeatureFlag(TransactionBaseTest):
                     ]
                 },
             },
-            content_type="application/json",
             format="json",
         ).json()
         self.assertFalse(feature_flag["is_simple_flag"])
         self.assertIsNone(feature_flag["rollout_percentage"])
-
-
-class TestAPIFeatureFlag(APITransactionBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
 
     @patch("posthoganalytics.capture")
     def test_create_feature_flag(self, mock_capture):
