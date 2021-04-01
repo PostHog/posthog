@@ -552,3 +552,12 @@ code.code {
     align-items: center;
     justify-content: center;
 }
+
+.hotkey-plus {
+    display: inline;
+    &::after {
+        content: '+';
+        margin-left: 6px;
+        font-size: 1rem;
+    }
+}

@@ -105,6 +105,7 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
                                 {hotkey && featureFlags['hotkeys-3740'] && (
                                     <>
                                         <span className="hotkey menu-tooltip-hotkey">G</span>
+                                        <span className="hotkey-plus" />
                                         <span className="hotkey menu-tooltip-hotkey">{hotkey.toUpperCase()}</span>
                                     </>
                                 )}
