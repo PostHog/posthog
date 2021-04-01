@@ -9,7 +9,7 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import parse_response, process_math
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL, NULL_BREAKDOWN_SQL, NULL_SQL
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL, GET_LATEST_PERSON_SQL
 from ee.clickhouse.sql.trends.breakdown import (
     BREAKDOWN_AGGREGATE_DEFAULT_SQL,
     BREAKDOWN_AGGREGATE_QUERY_SQL,
@@ -168,6 +168,7 @@ class ClickhouseTrendsBreakdown:
             prop_filters=prop_filters,
             person_prop_filters=person_prop_filters,
             aggregate_operation=aggregate_operation,
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         )
         top_elements_array = self._get_top_elements(
             elements_query, filter, team_id, params={**prop_filter_params, **person_prop_params}
