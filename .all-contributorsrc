@@ -1001,6 +1001,15 @@
         "test",
         "code"
       ]
+    },
+    {
+      "login": "adrienbrault",
+      "name": "Adrien Brault",
+      "avatar_url": "https://avatars.githubusercontent.com/u/611271?v=4",
+      "profile": "https://www.linkedin.com/in/adrien-brault-4b987426/",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
