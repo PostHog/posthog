@@ -107,13 +107,21 @@ export interface PropertyUsageType {
     volume: number
 }
 
-export interface TeamType {
+export interface BasicTeamType {
     id: number
+    uuid: string
+    organization: string
     name: string
-    anonymize_ips: boolean
     api_token: string
-    app_urls: string[]
     completed_snippet_onboarding: boolean
+    ingested_event: boolean
+    is_demo: boolean
+    timezone: string
+}
+
+export interface TeamType extends BasicTeamType {
+    anonymize_ips: boolean
+    app_urls: string[]
     event_names: string[]
     event_properties: string[]
     event_properties_numerical: string[]
@@ -123,10 +131,7 @@ export interface TeamType {
     session_recording_opt_in: boolean
     session_recording_retention_period_days: number | null
     plugins_opt_in: boolean
-    ingested_event: boolean
-    is_demo: boolean
     test_account_filters: FilterType[]
-    timezone: string
     data_attributes: string[]
 }
 

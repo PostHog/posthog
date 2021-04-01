@@ -34,9 +34,9 @@ class TestTeamAPI(APIBaseTest):
         self.assertIn("event_properties", response_data)
         self.assertIn("event_properties_numerical", response_data)
 
-    def test_retrieve_project_with_simple_data(self):
+    def test_retrieve_project_with_basic_data(self):
 
-        response = self.client.get("/api/projects/@current/?simple=1")
+        response = self.client.get("/api/projects/@current/?basic=1")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_data = response.json()
@@ -59,9 +59,9 @@ class TestTeamAPI(APIBaseTest):
             response = self.client.post("/api/projects/", {"name": "Test"})
             self.assertEqual(Team.objects.count(), 1)
 
-    def test_updating_project_with_simple_query_string_has_no_effect(self):
+    def test_updating_project_with_basic_query_string_has_no_effect(self):
         response = self.client.patch(
-            "/api/projects/@current/?simple=1", {"slack_incoming_webhook": "https://slack.posthog.com"}
+            "/api/projects/@current/?basic=1", {"slack_incoming_webhook": "https://slack.posthog.com"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 

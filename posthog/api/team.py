@@ -34,7 +34,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
         return True
 
 
-class TeamSimpleSerializer(serializers.ModelSerializer):
+class TeamBasicSerializer(serializers.ModelSerializer):
     """
     Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
     Also used for nested serializers.
@@ -122,8 +122,8 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         return super().get_queryset().filter(organization__in=self.request.user.organizations.all())
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
-        if self.action == "list" or (self.action == "retrieve" and self.request.query_params.get("simple")):
-            return TeamSimpleSerializer
+        if self.action == "list" or (self.action == "retrieve" and self.request.query_params.get("basic")):
+            return TeamBasicSerializer
         return super().get_serializer_class()
 
     def get_permissions(self) -> List[permissions.BasePermission]:

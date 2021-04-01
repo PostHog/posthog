@@ -23,9 +23,11 @@ function Toast(): JSX.Element {
 }
 
 export function App(): JSX.Element | null {
-    const { user } = useValues(userLogic)
+    const { user, userLoading } = useValues(userLogic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { basicCurrentTeam: currentTeam, basicCurrentTeamLoading: teamLoading } = useValues(
+        teamLogic({ basic: true })
+    )
     const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { preflight } = useValues(preflightLogic)
     const { location } = useValues(router)
@@ -54,7 +56,7 @@ export function App(): JSX.Element | null {
                         replace('/organization/create')
                     }
                     return
-                } else if (!currentTeamLoading && !currentTeam?.id) {
+                } else if (!teamLoading && !currentTeam?.id) {
                     if (location.pathname !== '/project/create') {
                         replace('/project/create')
                     }
@@ -73,7 +75,7 @@ export function App(): JSX.Element | null {
             replace('/ingestion')
             return
         }
-    }, [scene, user, currentOrganization, currentOrganizationLoading, currentTeam, currentTeamLoading])
+    }, [scene, user, currentOrganization, currentOrganizationLoading, currentTeam, teamLoading])
 
     const SceneComponent = loadedScenes[scene]?.component || (() => <SceneLoading />)
 
@@ -91,6 +93,8 @@ export function App(): JSX.Element | null {
                 <SceneComponent {...params} />
                 {essentialElements}
             </Layout>
+        ) : userLoading ? (
+            <SceneLoading />
         ) : null
     }
 
