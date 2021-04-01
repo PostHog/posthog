@@ -22,9 +22,13 @@ interface Props {
 
 export function TrendInsight({ view }: Props): JSX.Element {
     const [cohortModalVisible, setCohortModalVisible] = useState(false)
-    const { filters: _filters, showingPeople, loadMoreBreakdownUrl } = useValues(
-        trendsLogic({ dashboardItemId: null, view, filters: null })
-    )
+    const {
+        filters: _filters,
+        showingPeople,
+        loadMoreBreakdownUrl,
+        breakdownValuesLoading,
+        resultsLoading,
+    } = useValues(trendsLogic({ dashboardItemId: null, view, filters: null }))
     const { saveCohortWithFilters, refreshCohort, loadMoreBreakdownValues } = useActions(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
@@ -48,11 +52,29 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     )}
                 </div>
             )}
-            {_filters.breakdown && loadMoreBreakdownUrl && (
-                <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10 }}>
-                    <Button style={{ textAlign: 'center' }} onClick={loadMoreBreakdownValues}>
-                        Load more breakdown values
-                    </Button>
+            {_filters.breakdown && !resultsLoading && (
+                <div className="mt text-center">
+                    {loadMoreBreakdownUrl ? (
+                        <>
+                            <div className="text-muted mb">
+                                For readability, <b>not all breakdown values are displayed</b>. Click below to load
+                                them.
+                            </div>
+                            <div>
+                                <Button
+                                    style={{ textAlign: 'center' }}
+                                    onClick={loadMoreBreakdownValues}
+                                    loading={breakdownValuesLoading}
+                                >
+                                    Load more breakdown values
+                                </Button>
+                            </div>
+                        </>
+                    ) : (
+                        <span className="text-muted">
+                            Showing <b>all breakdown values</b>
+                        </span>
+                    )}
                 </div>
             )}
             <PersonModal

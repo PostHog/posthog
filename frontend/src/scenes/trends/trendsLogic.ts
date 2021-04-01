@@ -215,6 +215,7 @@ export const trendsLogic = kea<
         toggleVisibility: (index: number) => ({ index }),
         setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
         loadMoreBreakdownValues: true,
+        setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
     }),
 
     reducers: ({ props }) => ({
@@ -270,6 +271,12 @@ export const trendsLogic = kea<
                     ...state,
                     [`${index}`]: !state[index],
                 }),
+            },
+        ],
+        breakdownValuesLoading: [
+            false,
+            {
+                setBreakdownValuesLoading: (_, { loading }) => loading,
             },
         ],
     }),
@@ -434,11 +441,13 @@ export const trendsLogic = kea<
             if (!values.loadMoreBreakdownUrl) {
                 return
             }
+            actions.setBreakdownValuesLoading(true)
             const response = await api.get(values.loadMoreBreakdownUrl)
             actions.loadResultsSuccess({
                 result: [...values.results, ...response.result],
                 next: response.next,
             })
+            actions.setBreakdownValuesLoading(false)
         },
     }),
 
