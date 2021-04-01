@@ -1010,6 +1010,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "leggetter",
+      "name": "Phil Leggetter",
+      "avatar_url": "https://avatars.githubusercontent.com/u/328367?v=4",
+      "profile": "https://leggetter.co.uk",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
