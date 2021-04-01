@@ -12,7 +12,7 @@ export function PersonHeader({ person }: { person: Partial<PersonType> }): JSX.E
         if (!person?.distinct_ids?.length) {
             return null
         }
-        const baseId = person.distinct_ids[0]
+        const baseId = person.distinct_ids[0].replace(/\W/g, '')
         return baseId.substr(baseId.length - 5).toUpperCase()
     }, [person])
 
