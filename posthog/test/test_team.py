@@ -7,9 +7,10 @@ from .base import BaseTest
 
 
 class TestTeam(BaseTest):
-    def test_team_has_UTC_timezone_by_default(self):
-        team = Team.objects.create(name="New Team", organization=self.organization)
+    def test_team_has_expected_defaults(self):
+        team: Team = Team.objects.create(name="New Team", organization=self.organization)
         self.assertEqual(team.timezone, "UTC")
+        self.assertEqual(team.data_attributes, ["data-attr"])
 
     def test_create_team_with_test_account_filters(self):
         team = Team.objects.create_with_data(organization=self.organization)

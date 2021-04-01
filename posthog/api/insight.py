@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
+from posthog.api.utils import format_next_url
 from posthog.celery import update_cache_item_task
 from posthog.constants import FROM_DASHBOARD, INSIGHT, INSIGHT_FUNNELS, INSIGHT_PATHS, TRENDS_STICKINESS
 from posthog.decorators import CacheType, cached_function
@@ -149,7 +150,9 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_trends(request)
-        return Response(result)
+        filter = Filter(request=request)
+        next = format_next_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
+        return Response({**result, "next": next})
 
     @cached_function()
     def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
