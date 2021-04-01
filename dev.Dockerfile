@@ -1,5 +1,8 @@
 FROM python:3.8-slim
+
 ENV PYTHONUNBUFFERED 1
+ENV IS_DOCKER 1
+
 RUN mkdir /code
 WORKDIR /code
 
