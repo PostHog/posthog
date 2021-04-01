@@ -3,11 +3,40 @@ from unittest.mock import patch
 from rest_framework import status
 
 from posthog.models import Team, User
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.test.base import APIBaseTest
 
 
-class TestUser(APIBaseTest):
+class TestUserAPI(APIBaseTest):
+    def test_fetch_current_user(self):
+        new_org = Organization.objects.create(name="New Organization")
+        self.user.join(organization=new_org)
+        response = self.client.patch("/api/v2/user/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertEqual(response_data["id"], str(self.user.uuid))
+        self.assertEqual(response_data["first_name"], self.user.first_name)
+        self.assertEqual(response_data["email"], self.user.email)
+        self.assertEqual(response_data["has_password"], True)
+        self.assertEqual(response_data["is_staff"], False)
+        self.assertEqual(response_data["team"], "")
+        self.assertEqual(response_data["organization"], "")
+        self.assertEqual(
+            response_data["organizations"],
+            [
+                {"id": self.organization.id, "name": self.organization.name},
+                {"id": new_org.id, "name": "New Organization"},
+            ],
+        )
+
+
+class TestUserAPILegacy(APIBaseTest):
+    """
+    Tests for the legacy /api/user endpoint.
+    """
+
     def test_user_team_update(self):
         response = self.client.patch(
             "/api/user/", data={"team": {"anonymize_ips": False, "session_recording_opt_in": True}},

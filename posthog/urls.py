@@ -210,6 +210,7 @@ urlpatterns = [
     opt_slash_path("api/user/change_password", user.change_password),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/user", user.user),
+    opt_slash_path("api/v2/user", user.UserViewSet.as_view({"get": "retrieve", "patch": "partial_update"})),
     opt_slash_path("api/signup", organization.OrganizationSignupViewset.as_view()),
     opt_slash_path("api/social_signup", organization.OrganizationSocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", organization.OrganizationInviteSignupViewset.as_view()),

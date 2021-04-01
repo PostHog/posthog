@@ -2,7 +2,7 @@ import json
 import os
 import secrets
 import urllib.parse
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 import requests
 from django.conf import settings
@@ -13,8 +13,10 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
 from loginas.utils import is_impersonated_session
-from rest_framework import serializers
+from rest_framework import mixins, permissions, serializers, viewsets
 
+from posthog.api.organization import OrganizationBasicSerializer, OrganizationSerializer
+from posthog.api.team import TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
 from posthog.ee import is_ee_enabled
 from posthog.email import is_email_available
@@ -25,20 +27,59 @@ from posthog.tasks import user_identify
 from posthog.version import VERSION
 
 
-class UserBasicSerializer(serializers.ModelSerializer):
+class UserSerializer(serializers.ModelSerializer):
+
+    id = serializers.SerializerMethodField()
+    has_password = serializers.SerializerMethodField()
+    is_impersonated = serializers.SerializerMethodField()
+    team = TeamBasicSerializer(read_only=True)
+    organization = OrganizationSerializer(read_only=True)
+    organizations = OrganizationBasicSerializer(many=True, read_only=True)
+
     class Meta:
         model = User
-        fields = ["id", "distinct_id", "first_name", "email"]
+        fields = [
+            "id",
+            "first_name",
+            "email",
+            "email_opt_in",
+            "anonymize_data",
+            "toolbar_mode",
+            "has_password",
+            "is_staff",
+            "is_impersonated",
+            "team",
+            "organization",
+            "organizations",
+        ]
+
+    def get_id(self, instance: User) -> str:
+        return str(instance.uuid)
+
+    def get_has_password(self, instance: User) -> bool:
+        return instance.has_usable_password()
+
+    def get_is_impersonated(self, _) -> Optional[bool]:
+        if "request" not in self.context:
+            return None
+        return is_impersonated_session(self.context["request"])
+
+    def to_representation(self, instance: Any) -> Any:
+        user_identify.identify_task.delay(user_id=instance.id)
+        repr = super().to_representation(instance)
+        return repr
 
 
-def get_event_names_with_usage(team: Team):
-    def get_key(event: str, type: str):
-        return next((item.get(type) for item in team.event_names_with_usage if item["event"] == event), None)
-
-    return [
-        {"event": event, "volume": get_key(event, "volume"), "usage_count": get_key(event, "usage_count"),}
-        for event in team.event_names
+class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
+    serializer_class = UserSerializer
+    permission_classes = [
+        permissions.IsAuthenticated,
     ]
+    queryset = User.objects.none()
+    lookup_field = "uuid"
+
+    def get_object(self) -> Any:
+        return self.request.user
 
 
 @authenticate_secondarily
