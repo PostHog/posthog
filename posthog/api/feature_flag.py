@@ -1,13 +1,9 @@
 from typing import Any, Dict, Optional
 
 import posthoganalytics
-from django.core import validators
-from django.db import IntegrityError
 from django.db.models import QuerySet
 from rest_framework import serializers, viewsets
-from rest_framework.fields import empty
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.validators import UniqueValidator
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
@@ -38,15 +34,6 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "rollout_percentage",
         ]
 
-    def __init__(self, instance: Optional[Any] = None, data: Any = empty, **kwargs: Any):
-        super().__init__(instance=instance, data=data, **kwargs)
-        self.fields["key"].validators = [
-            UniqueValidator(
-                queryset=FeatureFlag.objects.filter(team=self.context["request"].user.team, deleted=False),
-                message="There is already a feature flag with this key.",
-            )
-        ]
-
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
     def get_is_simple_flag(self, feature_flag: FeatureFlag) -> bool:
@@ -59,6 +46,20 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             return feature_flag.groups[0].get("rollout_percentage")
         else:
             return None
+
+    def validate_key(self, value):
+        exclude_kwargs = {}
+        if self.instance:
+            exclude_kwargs = {"pk": self.instance.pk}
+
+        if (
+            FeatureFlag.objects.filter(key=value, team=self.context["request"].user.team, deleted=False)
+            .exclude(**exclude_kwargs)
+            .exists()
+        ):
+            raise serializers.ValidationError("There is already a feature flag with this key.", code="unique")
+
+        return value
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
