@@ -239,12 +239,14 @@ export function Insights(): JSX.Element {
                                     placement="bottom"
                                     title={
                                         <>
-                                            Stickiness shows you how many days users performed an action within the
-                                            timeframe.
+                                            Stickiness shows you how many days users performed an action repeteadely
+                                            within a timeframe.
                                             <br />
                                             <br />
-                                            If a user performed an action on Monday and again on Friday, it would be
-                                            shown as "2 days".
+                                            <i>
+                                                Example: If a user performed an action on Monday and again on Friday, it
+                                                would be shown as "2 days".
+                                            </i>
                                         </>
                                     }
                                     data-attr="insight-stickiness-tab"
@@ -264,7 +266,8 @@ export function Insights(): JSX.Element {
                                     title={
                                         <>
                                             Lifecycle will show you new, resurrected, returning and dormant users so you
-                                            know how your user bases is growing.
+                                            understand how your user base is composed. This can help you understand
+                                            where your user growth is coming from.
                                         </>
                                     }
                                     data-attr="insight-lifecycle-tab"
