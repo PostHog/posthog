@@ -55,6 +55,9 @@ class TeamBasicSerializer(serializers.ModelSerializer):
 
 
 class TeamSerializer(serializers.ModelSerializer):
+    event_names_with_usage = serializers.SerializerMethodField()
+    event_properties_with_usage = serializers.SerializerMethodField()
+
     class Meta:
         model = Team
         fields = (
@@ -77,6 +80,8 @@ class TeamSerializer(serializers.ModelSerializer):
             "event_names",
             "event_properties",
             "event_properties_numerical",
+            "event_names_with_usage",
+            "event_properties_with_usage",
         )
         read_only_fields = (
             "id",

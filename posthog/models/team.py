@@ -119,6 +119,24 @@ class Team(models.Model):
 
     __repr__ = sane_repr("uuid", "name", "api_token")
 
+    def get_event_names_with_usage(self):
+        def get_key(event: str, type: str):
+            return next((item.get(type) for item in self.event_names_with_usage if item["event"] == event), None)
+
+        return [
+            {"event": event, "volume": get_key(event, "volume"), "usage_count": get_key(event, "usage_count")}
+            for event in self.event_names
+        ]
+
+    def get_event_properties_with_usage(self):
+        def get_key(key: str, type: str):
+            return next((item.get(type) for item in self.event_properties_with_usage if item["key"] == key), None)
+
+        return [
+            {"key": key, "volume": get_key(key, "volume"), "usage_count": get_key(key, "usage_count")}
+            for key in self.event_properties
+        ]
+
 
 @receiver(models.signals.pre_delete, sender=Team)
 def team_deleted(sender, instance, **kwargs):
