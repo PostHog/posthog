@@ -1,9 +1,8 @@
 import secrets
 from distutils.util import strtobool
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, Optional
 
 import posthoganalytics
-from django.core.cache import cache
 from django.db.models import Model, Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpRequest
@@ -17,7 +16,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserSerializer
+from posthog.api.user import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Team
@@ -27,7 +26,7 @@ from posthog.utils import get_safe_cache, render_template
 
 class DashboardSerializer(serializers.ModelSerializer):
     items = serializers.SerializerMethodField()  # type: ignore
-    created_by = UserSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
 
     class Meta:

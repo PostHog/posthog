@@ -1,12 +1,11 @@
 from typing import Any, Dict, cast
 
-from django.db import models
 from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserSerializer
+from posthog.api.user import UserBasicSerializer
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.models import OrganizationInvite, OrganizationMembership
@@ -16,7 +15,7 @@ from posthog.tasks.email import send_invite
 
 
 class OrganizationInviteSerializer(serializers.ModelSerializer):
-    created_by = UserSerializer(many=False, read_only=True)
+    created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = OrganizationInvite

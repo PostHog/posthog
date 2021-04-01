@@ -12,7 +12,7 @@ from rest_framework import exceptions, generics, permissions, response, serializ
 from rest_framework.request import Request
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserSerializer
+from posthog.api.user import UserBasicSerializer
 from posthog.demo import create_demo_team
 from posthog.event_usage import report_onboarding_completed, report_user_joined_organization, report_user_signed_up
 from posthog.mixins import AnalyticsDestroyModelMixin
@@ -215,7 +215,7 @@ class OrganizationSignupSerializer(serializers.Serializer):
             return Team.objects.create_with_data(user=user, organization=organization)
 
     def to_representation(self, instance) -> Dict:
-        data = UserSerializer(instance=instance).data
+        data = UserBasicSerializer(instance=instance).data
         data["redirect_url"] = "/personalization" if self.enable_new_onboarding() else "/ingestion"
         return data
 
@@ -272,7 +272,7 @@ class OrganizationInviteSignupSerializer(serializers.Serializer):
         return value
 
     def to_representation(self, instance):
-        serializer = UserSerializer(instance=instance)
+        serializer = UserBasicSerializer(instance=instance)
         return serializer.data
 
     def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:

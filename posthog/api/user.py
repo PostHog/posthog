@@ -20,12 +20,12 @@ from posthog.ee import is_ee_enabled
 from posthog.email import is_email_available
 from posthog.models import Team, User
 from posthog.models.organization import Organization
-from posthog.plugins import can_configure_plugins, can_install_plugins, reload_plugins_on_workers
+from posthog.plugins import reload_plugins_on_workers
 from posthog.tasks import user_identify
 from posthog.version import VERSION
 
 
-class UserSerializer(serializers.ModelSerializer):
+class UserBasicSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["id", "distinct_id", "first_name", "email"]

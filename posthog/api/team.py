@@ -1,10 +1,9 @@
-from typing import Any, ClassVar, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.fields import empty
 
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team

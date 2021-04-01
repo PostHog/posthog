@@ -10,14 +10,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_hooks.signals import raw_hook_event
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserSerializer
+from posthog.api.user import UserBasicSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Annotation, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
-    created_by = UserSerializer(required=False, read_only=True)
+    created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = Annotation
