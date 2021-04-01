@@ -535,11 +535,6 @@ export interface ActionFilter {
     type: EntityType
 }
 
-export interface TrendResponse {
-    result: TrendResult[]
-    next?: string
-}
-
 export interface TrendResult {
     action: ActionFilter
     count: number

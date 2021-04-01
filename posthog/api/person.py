@@ -320,11 +320,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 
 def paginated_result(
-    entites: Union[List[Dict[str, Any]], ReturnDict], request: request.Request, offset: int = 0
+    entites: Union[List[Dict[str, Any]], ReturnDict], request: request.Request, offset: int = 0,
 ) -> Optional[str]:
-    next_url: Optional[str] = request.get_full_path()
-    if len(entites) > 99 and next_url:
-        next_url = format_next_url(request, offset, 100)
-    else:
-        next_url = None
-    return next_url
+    return format_next_url(request, offset, 100) if len(entites) > 99 else None

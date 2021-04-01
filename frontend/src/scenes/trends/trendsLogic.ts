@@ -18,11 +18,16 @@ import {
 import { ViewType, insightLogic, defaultFilterTestAccounts } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
-import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResponse, TrendResult } from '~/types'
+import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { toast, ToastId } from 'react-toastify'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+
+interface TrendResponse {
+    result: TrendResult[]
+    next?: string
+}
 
 export interface ActionFilter {
     id: number | string
@@ -209,7 +214,7 @@ export const trendsLogic = kea<
         setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
         toggleVisibility: (index: number) => ({ index }),
         setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
-        loadMoreBreakdown: true,
+        loadMoreBreakdownValues: true,
     }),
 
     reducers: ({ props }) => ({
@@ -425,7 +430,10 @@ export const trendsLogic = kea<
                 actions.setFilters(filters, true)
             }
         },
-        loadMoreBreakdown: async () => {
+        loadMoreBreakdownValues: async () => {
+            if (!values.loadMoreBreakdownUrl) {
+                return
+            }
             const response = await api.get(values.loadMoreBreakdownUrl)
             actions.loadResultsSuccess({
                 result: [...values.results, ...response.result],

@@ -25,7 +25,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
     const { filters: _filters, showingPeople, loadMoreBreakdownUrl } = useValues(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
-    const { saveCohortWithFilters, refreshCohort, loadMoreBreakdown } = useActions(
+    const { saveCohortWithFilters, refreshCohort, loadMoreBreakdownValues } = useActions(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
     return (
@@ -50,7 +50,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             )}
             {_filters.breakdown && loadMoreBreakdownUrl && (
                 <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10 }}>
-                    <Button style={{ textAlign: 'center' }} onClick={() => loadMoreBreakdown()}>
+                    <Button style={{ textAlign: 'center' }} onClick={loadMoreBreakdownValues}>
                         Load more breakdown values
                     </Button>
                 </div>
