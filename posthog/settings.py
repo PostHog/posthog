@@ -495,6 +495,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
+    "TEST_REQUEST_DEFAULT_FORMAT": "json",
 }
 
 EXCEPTIONS_HOG = {

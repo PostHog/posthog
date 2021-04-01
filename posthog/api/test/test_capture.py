@@ -7,17 +7,26 @@ from unittest.mock import patch
 from urllib.parse import quote
 
 import lzstring
+from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.models import PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag
-
-from .base import BaseTest
+from posthog.test.base import BaseTest
 
 
 class TestCapture(BaseTest):
-    TESTS_API = True
+    """
+    Tests all data capture endpoints (e.g. `/capture` `/track`).
+    We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.
+    """
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
 
     def _dict_to_json(self, data: dict) -> str:
         return json.dumps(data)
@@ -60,9 +69,7 @@ class TestCapture(BaseTest):
         with freeze_time(now):
             with self.assertNumQueries(2):
                 response = self.client.get(
-                    "/e/?data=%s" % quote(self._dict_to_json(data)),
-                    content_type="application/json",
-                    HTTP_ORIGIN="https://localhost",
+                    "/e/?data=%s" % quote(self._dict_to_json(data)), HTTP_ORIGIN="https://localhost",
                 )
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         arguments = self._to_arguments(patch_process_event_with_plugins)
@@ -100,9 +107,7 @@ class TestCapture(BaseTest):
         with freeze_time(now):
             with self.assertNumQueries(5):
                 response = self.client.get(
-                    "/e/?data=%s" % quote(self._dict_to_json(data)),
-                    content_type="application/json",
-                    HTTP_ORIGIN="https://localhost",
+                    "/e/?data=%s" % quote(self._dict_to_json(data)), HTTP_ORIGIN="https://localhost",
                 )
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         arguments = self._to_arguments(patch_process_event_with_plugins)
