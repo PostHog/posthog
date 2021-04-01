@@ -100,7 +100,7 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
                 title={
                     tooltip && !isMobile() ? (
                         <>
-                            <div className="mb-05">
+                            <div className="mb-025">
                                 <b>{title}</b>
                                 {hotkey && featureFlags['hotkeys-3740'] && (
                                     <>

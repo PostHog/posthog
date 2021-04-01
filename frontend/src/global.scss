@@ -139,8 +139,16 @@ code.code {
     margin-bottom: $default_spacing * 0.5;
 }
 
+.mb-025 {
+    margin-bottom: $default_spacing * 0.25;
+}
+
 .mt-05 {
     margin-top: $default_spacing * 0.5;
+}
+
+.mt-025 {
+    margin-top: $default_spacing * 0.25;
 }
 
 .mr {
@@ -155,8 +163,16 @@ code.code {
     margin-right: $default_spacing * 0.5;
 }
 
+.mr-025 {
+    margin-right: $default_spacing * 0.25;
+}
+
 .ml-05 {
     margin-left: $default_spacing * 0.5;
+}
+
+.ml-025 {
+    margin-left: $default_spacing * 0.25;
 }
 
 .pa {
