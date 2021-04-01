@@ -90,7 +90,7 @@ describe('<Insights /> trends', () => {
         cy.contains('Time').click()
         cy.get('body').click()
 
-        cy.wait(1000)
+        cy.wait(2000)
         cy.get('.graph-container').toMatchImageSnapshot()
     })
 
