@@ -76,6 +76,9 @@ export class EventsProcessor {
             event: JSON.stringify(data),
         })
 
+        // sanitize values, even though `sanitizeEvent` should have gotten to them
+        distinctId = distinctId?.toString()
+
         const properties: Properties = data.properties ?? {}
         if (data['$set']) {
             properties['$set'] = data['$set']

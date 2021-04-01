@@ -4,7 +4,7 @@ import * as Sentry from '@sentry/node'
 
 import Client from '../shared/celery/client'
 import { status } from '../shared/status'
-import { UUIDT } from '../shared/utils'
+import { sanitizeEvent, UUIDT } from '../shared/utils'
 import { IngestEventResponse, PluginsServer, Queue } from '../types'
 import CeleryQueueWorker from './ingestion/celery-queue-worker'
 import { KafkaQueue } from './ingestion/kafka-queue'
@@ -66,7 +66,7 @@ function startQueueRedis(server: PluginsServer, piscina: Piscina | undefined, wo
             now: string,
             sent_at?: string
         ) => {
-            const event = {
+            const event = sanitizeEvent({
                 distinct_id,
                 ip,
                 site_url,
@@ -75,7 +75,7 @@ function startQueueRedis(server: PluginsServer, piscina: Piscina | undefined, wo
                 sent_at,
                 uuid: new UUIDT().toString(),
                 ...data,
-            } as PluginEvent
+            } as PluginEvent)
             try {
                 pauseQueueIfWorkerFull(celeryQueue, server, piscina)
                 const processedEvent = await workerMethods.processEvent(event)

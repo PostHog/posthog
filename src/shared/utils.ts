@@ -1,3 +1,4 @@
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import AdmZip from 'adm-zip'
 import { randomBytes } from 'crypto'
@@ -414,4 +415,9 @@ export function createPostgresPool(serverConfig: PluginsServerConfig): Pool {
     })
 
     return postgres
+}
+
+export function sanitizeEvent(event: PluginEvent): PluginEvent {
+    event.distinct_id = event.distinct_id?.toString()
+    return event
 }

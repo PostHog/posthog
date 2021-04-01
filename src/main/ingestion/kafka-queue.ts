@@ -5,7 +5,7 @@ import { PluginsServer, Queue } from 'types'
 
 import { timeoutGuard } from '../../shared/ingestion/utils'
 import { status } from '../../shared/status'
-import { groupIntoBatches, killGracefully } from '../../shared/utils'
+import { groupIntoBatches, killGracefully, sanitizeEvent } from '../../shared/utils'
 
 export class KafkaQueue implements Queue {
     private pluginsServer: PluginsServer
@@ -45,11 +45,11 @@ export class KafkaQueue implements Queue {
             const event = { ...rawEvent, ...JSON.parse(dataStr) }
             uuidOrder.set(event.uuid, index)
             uuidOffset.set(event.uuid, message.offset)
-            return {
+            return sanitizeEvent({
                 ...event,
                 site_url: event.site_url || null,
                 ip: event.ip || null,
-            }
+            })
         })
 
         const maxBatchSize = Math.max(

@@ -128,6 +128,7 @@ export async function createUserTeamAndOrganization(
         api_token: `THIS IS NOT A TOKEN FOR TEAM ${teamId}`,
         test_account_filters: [],
         timezone: 'UTC',
+        data_attributes: JSON.stringify(['data-attr']),
     })
 }
 

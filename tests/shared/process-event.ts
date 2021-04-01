@@ -1392,5 +1392,24 @@ export const createProcessEventTests = (
         expect(person2.properties).toEqual({ a_prop: 'test-1', b_prop: 'test-2b', c_prop: 'test-1' })
     })
 
+    test('distinct_id wrong type (number)', async () => {
+        await createPerson(server, team, ['asdfasdfasdf'])
+        await processEvent(
+            (12345 as unknown) as string,
+            null,
+            '',
+            ({
+                event: '$pageview',
+                properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
+            } as any) as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+        const [event] = await server.db.fetchEvents()
+        expect(event.distinct_id).toEqual('12345')
+    })
+
     return returned
 }
