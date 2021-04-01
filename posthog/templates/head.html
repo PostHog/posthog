@@ -1,7 +1,18 @@
 <title>PostHog</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="/static/favicon-32x32.png" sizes="32x32"/>
-<link rel="icon" href="/static/favicon-192x192.png" sizes="192x192"/>
+
+<!-- Favicons & OS-theme configurations -->
+<link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png?v=20210330">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16.png">
+<link rel="manifest" href="/static/icons/site.webmanifest">
+<link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg" color="#1d274e">
+<meta name="application-name" content="PostHog">
+<meta name="msapplication-TileColor" content="#213ca8">
+<meta name="msapplication-config" content="/static/icons/browserconfig.xml">
+<meta name="theme-color" content="#ffffff">
+
+
 {% if not opt_out_capture and js_posthog_api_key %}
     <script>
     window.JS_POSTHOG_API_KEY = {{js_posthog_api_key | safe}};

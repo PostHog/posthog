@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EventDetails } from 'scenes/events/EventDetails'
-import { ExportOutlined, ClearOutlined } from '@ant-design/icons'
+import { ExportOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { Button, Row, Spin, Table, Tooltip, Col } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
@@ -166,16 +166,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                     <EventName
                         value={eventFilter}
                         onChange={(value) => {
-                            setEventFilter(value)
+                            setEventFilter(value || '')
                         }}
                     />
-                    <Button
-                        disabled={eventFilter === ''}
-                        onClick={() => setEventFilter('')}
-                        style={{ display: 'inline-block', marginLeft: 5 }}
-                    >
-                        <ClearOutlined />
-                    </Button>
                 </Col>
                 <Col span={pageKey === 'events' ? 2 : 4}>
                     <Tooltip title="Up to 100,000 latest events.">

@@ -226,13 +226,25 @@ def filter_element(filters: Dict, prepend: str = "") -> Tuple[List[str], Dict]:
     conditions = []
 
     if filters.get("selector"):
-        selector = Selector(filters["selector"], escape_slashes=False)
-        params["{}selector_regex".format(prepend)] = _create_regex(selector)
-        conditions.append("match(elements_chain, %({}selector_regex)s)".format(prepend))
+        or_conditions = []
+        selectors = filters["selector"] if isinstance(filters["selector"], list) else [filters["selector"]]
+        for idx, query in enumerate(selectors):
+            selector = Selector(query, escape_slashes=False)
+            key = "{}_{}_selector_regex".format(prepend, idx)
+            params[key] = _create_regex(selector)
+            or_conditions.append("match(elements_chain, %({})s)".format(key))
+        if len(or_conditions) > 0:
+            conditions.append("(" + (" OR ".join(or_conditions)) + ")")
 
     if filters.get("tag_name"):
-        params["{}tag_name_regex".format(prepend)] = r"(^|;){}(\.|$|;|:)".format(filters["tag_name"])
-        conditions.append("match(elements_chain, %({}tag_name_regex)s)".format(prepend))
+        or_conditions = []
+        tag_names = filters["tag_name"] if isinstance(filters["tag_name"], list) else [filters["tag_name"]]
+        for idx, tag_name in enumerate(tag_names):
+            key = "{}_{}_tag_name_regex".format(prepend, idx)
+            params[key] = r"(^|;){}(\.|$|;|:)".format(tag_name)
+            or_conditions.append("match(elements_chain, %({})s)".format(key))
+        if len(or_conditions) > 0:
+            conditions.append("(" + (" OR ".join(or_conditions)) + ")")
 
     attributes: Dict[str, List] = {}
 
@@ -249,7 +261,8 @@ def filter_element(filters: Dict, prepend: str = "") -> Tuple[List[str], Dict]:
                     ".*?".join(['{}="{}"'.format(key, value)])
                 )
                 or_conditions.append("match(elements_chain, %({}_{}_{}_attributes_regex)s)".format(prepend, key, idx))
-            conditions.append(" OR ".join(or_conditions))
+            if len(or_conditions) > 0:
+                conditions.append("(" + (" OR ".join(or_conditions)) + ")")
 
     return (conditions, params)
 

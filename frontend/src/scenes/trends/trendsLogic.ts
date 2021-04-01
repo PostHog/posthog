@@ -249,7 +249,7 @@ export const trendsLogic = kea<
             },
         ],
         indexedResults: [
-            [],
+            [] as IndexedTrendResult[],
             {
                 setIndexedResults: ({}, { results }) => results,
             },
