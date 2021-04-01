@@ -12,7 +12,7 @@ from posthog.utils import get_instance_realm
 from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey
 from .team import Team
-from .utils import generate_random_token, sane_repr
+from .utils import UUIDT, generate_random_token, sane_repr
 
 
 class UserManager(BaseUserManager):
@@ -95,6 +95,8 @@ class User(AbstractUser):
         (DISABLED, DISABLED),
         (TOOLBAR, TOOLBAR),
     ]
+
+    uuid: models.UUIDField = models.UUIDField(db_index=True, default=UUIDT, editable=False)
 
     username = None  # type: ignore
     current_organization = models.ForeignKey(
