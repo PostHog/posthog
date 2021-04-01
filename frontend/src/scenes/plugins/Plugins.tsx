@@ -4,27 +4,26 @@ import { PluginDrawer } from 'scenes/plugins/edit/PluginDrawer'
 import { RepositoryTab } from 'scenes/plugins/tabs/repository/RepositoryTab'
 import { InstalledTab } from 'scenes/plugins/tabs/installed/InstalledTab'
 import { useActions, useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { pluginsLogic } from './pluginsLogic'
 import { Tag, Tabs } from 'antd'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
 import { canGloballyManagePlugins, canInstallPlugins, canViewPlugins } from './access'
+import { UserType } from '../../types'
 
-export function Plugins(): JSX.Element | null {
-    const { user } = useValues(userLogic)
+export function Plugins({ user }: { user: UserType }): JSX.Element | null {
     const { pluginTab } = useValues(pluginsLogic)
     const { setPluginTab } = useActions(pluginsLogic)
     const { TabPane } = Tabs
 
     useEffect(() => {
-        if (user && !canViewPlugins(user.organization)) {
+        if (!canViewPlugins(user.organization)) {
             window.location.href = '/'
         }
     }, [user])
 
-    if (!user || !canViewPlugins(user.organization)) {
+    if (!canViewPlugins(user.organization)) {
         return null
     }
 
