@@ -1,4 +1,4 @@
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional, Type
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -37,6 +37,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
 class TeamSimpleSerializer(serializers.ModelSerializer):
     """
     Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
+    Also used for nested serializers.
     """
 
     class Meta:
@@ -83,6 +84,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "uuid",
             "organization",
             "api_token",
+            "is_demo",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -90,16 +92,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "event_properties",
             "event_properties_numerical",
         )
-
-    def __init__(self, instance: Optional[Any], data: Any = empty, **kwargs: Any):
-        event_metadata = kwargs.pop("event_metadata", False)
-
-        super().__init__(instance=instance, data=data, **kwargs)
-
-        if not event_metadata:
-            self.fields.pop("event_names")
-            self.fields.pop("event_properties")
-            self.fields.pop("event_properties_numerical")
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
@@ -127,8 +119,12 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     organization: Optional[Organization] = None
 
     def get_queryset(self):
-        queryset = super().get_queryset().filter(organization__in=self.request.user.organizations.all())
-        return queryset
+        return super().get_queryset().filter(organization__in=self.request.user.organizations.all())
+
+    def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
+        if self.action == "list" or (self.action == "retrieve" and self.request.query_params.get("simple")):
+            return TeamSimpleSerializer
+        return super().get_serializer_class()
 
     def get_permissions(self) -> List[permissions.BasePermission]:
         """
@@ -169,11 +165,6 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             raise exceptions.ValidationError(str(error))
         self.check_object_permissions(self.request, team)
         return team
-
-    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, event_metadata=bool(request.query_params.get("event_metadata")))
-        return response.Response(serializer.data)
 
     @action(methods=["PATCH"], detail=True)
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
