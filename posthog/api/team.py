@@ -4,6 +4,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.fields import empty
 
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team
@@ -33,42 +34,72 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
         return True
 
 
+class TeamSimpleSerializer(serializers.ModelSerializer):
+    """
+    Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
+    """
+
+    class Meta:
+        model = Team
+        fields = (
+            "id",
+            "uuid",
+            "organization",
+            "api_token",
+            "name",
+            "completed_snippet_onboarding",
+            "ingested_event",
+            "is_demo",
+            "timezone",
+        )
+
+
 class TeamSerializer(serializers.ModelSerializer):
     class Meta:
         model = Team
         fields = (
             "id",
+            "uuid",
             "organization",
             "api_token",
             "app_urls",
             "name",
             "slack_incoming_webhook",
-            "event_names",
-            "event_properties",
-            "event_properties_numerical",
             "created_at",
             "updated_at",
             "anonymize_ips",
             "completed_snippet_onboarding",
             "ingested_event",
             "test_account_filters",
-            "uuid",
             "is_demo",
             "timezone",
             "data_attributes",
+            "event_names",
+            "event_properties",
+            "event_properties_numerical",
         )
         read_only_fields = (
             "id",
             "uuid",
             "organization",
             "api_token",
-            "event_names",
-            "event_properties",
-            "event_properties_numerical",
             "created_at",
             "updated_at",
             "ingested_event",
+            "event_names",
+            "event_properties",
+            "event_properties_numerical",
         )
+
+    def __init__(self, instance: Optional[Any], data: Any = empty, **kwargs: Any):
+        event_metadata = kwargs.pop("event_metadata", False)
+
+        super().__init__(instance=instance, data=data, **kwargs)
+
+        if not event_metadata:
+            self.fields.pop("event_names")
+            self.fields.pop("event_properties")
+            self.fields.pop("event_properties_numerical")
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
@@ -138,6 +169,11 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             raise exceptions.ValidationError(str(error))
         self.check_object_permissions(self.request, team)
         return team
+
+    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, event_metadata=bool(request.query_params.get("event_metadata")))
+        return response.Response(serializer.data)
 
     @action(methods=["PATCH"], detail=True)
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
