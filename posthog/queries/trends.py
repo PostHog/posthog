@@ -95,10 +95,11 @@ def build_dataarray(
             )
         cohort_keys = list(dict.fromkeys(cohort_keys))  # getting unique breakdowns keeping their order
 
-    # following finds top 20 breakdown in given queryset then removes other rows from data array
+    # following finds top 25 breakdown in given queryset then removes other rows from data array
+    # only 20 will be returned in the payload but we find extra keys for paginating purposes
     if len(cohort_keys) > 20:
-        top20keys = [x[0] for x in sorted(cohort_dict.items(), key=lambda x: -x[1])[:20]]
-        cohort_keys = [key for key in top20keys if key in cohort_keys]
+        top25keys = [x[0] for x in sorted(cohort_dict.items(), key=lambda x: -x[1])[:25]]
+        cohort_keys = [key for key in top25keys if key in cohort_keys]
         data_array = list(filter(lambda d: d["breakdown"] in cohort_keys, data_array))
 
     if interval == "week":
