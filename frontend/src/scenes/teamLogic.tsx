@@ -89,13 +89,7 @@ export const teamLogic = kea<teamLogicType<TeamType, BasicTeamType>>({
             )
         },
     }),
-    events: ({ actions, props }) => ({
-        afterMount: () => {
-            actions.loadCurrentTeam()
-
-            if (props.basic) {
-                actions.loadBasicCurrentTeam()
-            }
-        },
+    events: ({ actions }) => ({
+        afterMount: [actions.loadBasicCurrentTeam, actions.loadCurrentTeam],
     }),
 })

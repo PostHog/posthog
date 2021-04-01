@@ -7,6 +7,7 @@ import { OrganizationType, SystemStatus, UserType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 type WarningType =
     | 'welcome'
@@ -95,9 +96,9 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
             },
         ],
         currentTeam: [
-            () => [userLogic.selectors.user],
-            (user) => {
-                return user?.team?.id
+            () => [teamLogic.selectors.basicCurrentTeam],
+            (team) => {
+                return team?.id
             },
         ],
         demoWarning: [

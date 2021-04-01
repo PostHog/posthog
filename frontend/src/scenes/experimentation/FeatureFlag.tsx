@@ -60,7 +60,7 @@ function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
 }
 
 function APISnippet(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { basicCurrentTeam: currentTeam } = useValues(teamLogic)
     return (
         <>
             <CodeSnippet language={Language.Bash} wrap>

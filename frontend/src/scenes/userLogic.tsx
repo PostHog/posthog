@@ -47,7 +47,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
         userLoading: [
             false,
             {
-                setUserLoading: (_, { userLoading }) => userLoading,
+                setUserLoading: (_, { loading }) => loading,
             },
         ],
     },
@@ -112,6 +112,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
 
     listeners: ({ actions }) => ({
         loadUser: async ({ resetOnFailure }) => {
+            actions.setUserLoading(true)
             try {
                 const user: UserType = await api.get('api/user')
                 actions.setUser(user)
@@ -166,7 +167,9 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                         }
                     }
                 }
+                actions.setUserLoading(false)
             } catch (e) {
+                actions.setUserLoading(false)
                 console.error(e)
                 if (resetOnFailure) {
                     actions.setUser(null)

@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function JSSnippet(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { basicCurrentTeam: currentTeam } = useValues(teamLogic)
 
     return (
         <CodeSnippet language={Language.HTML}>{`<script>

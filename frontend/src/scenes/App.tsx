@@ -25,9 +25,7 @@ function Toast(): JSX.Element {
 export function App(): JSX.Element | null {
     const { user, userLoading } = useValues(userLogic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
-    const { basicCurrentTeam: currentTeam, basicCurrentTeamLoading: teamLoading } = useValues(
-        teamLogic({ basic: true })
-    )
+    const { basicCurrentTeam: currentTeam, basicCurrentTeamLoading: teamLoading } = useValues(teamLogic)
     const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { preflight } = useValues(preflightLogic)
     const { location } = useValues(router)

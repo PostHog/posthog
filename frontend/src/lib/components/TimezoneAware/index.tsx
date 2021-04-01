@@ -36,7 +36,7 @@ function TZConversionHeader(): JSX.Element {
 /** Return a simple label component with timezone conversion UI. */
 export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; showSeconds?: boolean }): JSX.Element {
     const parsedTime = dayjs.isDayjs(time) ? time : dayjs(time)
-    const { currentTeam } = useValues(teamLogic)
+    const { basicCurrentTeam: currentTeam } = useValues(teamLogic)
 
     const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : `${BASE_OUTPUT_FORMAT}:ss`
     const timeStyle = showSeconds ? { minWidth: 192 } : undefined
@@ -98,7 +98,7 @@ export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; sho
 
 /** Return an explainer component for analytics visualization pages. */
 export function TZIndicator({ style }: { style?: React.CSSProperties }): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { basicCurrentTeam: currentTeam } = useValues(teamLogic)
 
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
 
