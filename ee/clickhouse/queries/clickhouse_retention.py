@@ -7,6 +7,7 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import ClickhousePersonSerializer, get_persons_by_uuids
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 from ee.clickhouse.sql.retention.people_in_period import (
     DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL,
     DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL,
@@ -53,7 +54,10 @@ class ClickhouseRetention(Retention):
         returning_query_formatted = "AND {returning_query}".format(returning_query=returning_query)
 
         reference_event_sql = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
-            target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,
+            target_query=target_query_formatted,
+            filters=prop_filters,
+            trunc_func=trunc_func,
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         )
 
         target_condition, _ = self._get_condition(target_entity, table="reference_event")
@@ -71,6 +75,7 @@ class ClickhouseRetention(Retention):
                 reference_event_sql=reference_event_sql,
                 target_condition=target_condition,
                 returning_condition=returning_condition,
+                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
             ),
             {
                 "team_id": team.pk,
@@ -94,7 +99,11 @@ class ClickhouseRetention(Retention):
         )
 
         initial_interval_result = sync_execute(
-            INITIAL_INTERVAL_SQL.format(reference_event_sql=reference_event_sql, trunc_func=trunc_func,),
+            INITIAL_INTERVAL_SQL.format(
+                reference_event_sql=reference_event_sql,
+                trunc_func=trunc_func,
+                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            ),
             {
                 "team_id": team.pk,
                 "start_date": date_from.strftime(
@@ -142,7 +151,9 @@ class ClickhouseRetention(Retention):
         period = filter.period
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
         trunc_func = get_trunc_func_ch(period)
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+        )
 
         returning_entity = filter.returning_entity if filter.selected_interval > 0 else filter.target_entity
         target_query, target_params = self._get_condition(filter.target_entity, table="e")
@@ -151,7 +162,10 @@ class ClickhouseRetention(Retention):
         return_query_formatted = "AND {return_query}".format(return_query=return_query)
 
         reference_event_query = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
-            target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,
+            target_query=target_query_formatted,
+            filters=prop_filters,
+            trunc_func=trunc_func,
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         )
         reference_date_from = filter.date_from
         reference_date_to = filter.date_from + filter.period_increment
@@ -160,7 +174,10 @@ class ClickhouseRetention(Retention):
 
         result = sync_execute(
             RETENTION_PEOPLE_SQL.format(
-                reference_event_query=reference_event_query, target_query=return_query_formatted, filters=prop_filters
+                reference_event_query=reference_event_query,
+                target_query=return_query_formatted,
+                filters=prop_filters,
+                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
             ),
             {
                 "team_id": team.pk,
@@ -203,12 +220,22 @@ class ClickhouseRetention(Retention):
             REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL
             if is_first_time_retention
             else REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL
-        ).format(target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,)
+        ).format(
+            target_query=target_query_formatted,
+            filters=prop_filters,
+            trunc_func=trunc_func,
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+        )
         default_event_query = (
             DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL
             if is_first_time_retention
             else DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL
-        ).format(target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,)
+        ).format(
+            target_query=target_query_formatted,
+            filters=prop_filters,
+            trunc_func=trunc_func,
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+        )
 
         date_from = filter.date_from + filter.selected_interval * filter.period_increment
         date_to = filter.date_to
@@ -222,6 +249,7 @@ class ClickhouseRetention(Retention):
                 first_event_sql=first_event_sql,
                 first_event_default_sql=default_event_query,
                 trunc_func=trunc_func,
+                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
             ),
             {
                 "team_id": team.pk,

@@ -17,6 +17,12 @@
     }
 }
 
+.menu-tooltip-hotkey {
+    background-color: rgba($primary, 0.5) !important;
+    color: white !important;
+    border-color: rgba($primary, 0.5) !important;
+}
+
 .navigation-main {
     // General navigation bar styles (defaults to wide 180px)
     background-color: $bg_menu !important;
@@ -27,7 +33,7 @@
         position: fixed;
         width: 180px;
         height: 100%;
-        overflow: auto;
+        overflow-y: auto;
         padding-bottom: 32px;
         scroll-behavior: smooth;
     }
@@ -59,6 +65,7 @@
         margin-top: 8px;
         margin-left: 6px;
         margin-right: 6px;
+        position: relative;
 
         .anticon {
             line-height: 0;
@@ -80,6 +87,18 @@
         &.menu-item-active {
             background-color: $primary;
             transition: background-color 300ms cubic-bezier(0.645, 0.045, 0.355, 1);
+        }
+
+        .hotkey {
+            position: absolute;
+            right: -4px;
+            bottom: -4px;
+            transform: scale(1);
+            transition: transform 0.2s ease-out;
+
+            &.hide {
+                transform: scale(0);
+            }
         }
     }
 

@@ -8,6 +8,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.sql.cohort import CALCULATE_COHORT_PEOPLE_SQL
 from ee.clickhouse.sql.person import (
+    GET_LATEST_PERSON_DISTINCT_ID_SQL,
     GET_LATEST_PERSON_ID_SQL,
     GET_PERSON_IDS_BY_FILTER,
     INSERT_PERSON_STATIC_COHORT,
@@ -77,7 +78,9 @@ def parse_action_timestamps(days: int) -> Tuple[str, Dict[str, str]]:
 
 def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
     person_query, params = format_person_query(cohort)
-    person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(query=person_query)
+    person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
+        query=person_query, latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
+    )
     return person_id_query, params
 
 
@@ -87,7 +90,7 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
     filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
     filter_query, filter_params = parse_prop_clauses(filters.properties, team.pk, table_name="pid")
 
-    results = sync_execute(GET_PERSON_IDS_BY_FILTER.format(distinct_query=filter_query, query=""), filter_params)
+    results = sync_execute(GET_PERSON_IDS_BY_FILTER.format(distinct_query=filter_query, query=""), filter_params,)
 
     return [str(row[0]) for row in results]
 

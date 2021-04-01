@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { delay, idToKey } from 'lib/utils'
+import { delay, idToKey, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { toast } from 'react-toastify'
@@ -20,9 +20,10 @@ export const dashboardsModel = kea({
         rawDashboards: [
             {},
             {
-                loadDashboards: async () => {
+                loadDashboards: async (shareToken = undefined, breakpoint) => {
+                    await breakpoint(50)
                     try {
-                        const { results } = await api.get('api/dashboard')
+                        const { results } = await api.get(`api/dashboard?${toParams({ share_token: shareToken })}`)
                         return idToKey(results)
                     } catch {
                         return {}
@@ -44,10 +45,18 @@ export const dashboardsModel = kea({
                 }
                 return result
             },
-            renameDashboard: async ({ id, name }, breakpoint) => {
+            updateDashboard: async ({ id, ...payload }, breakpoint) => {
+                if (!Object.entries(payload).length) {
+                    return
+                }
                 await breakpoint(700)
-                const response = await api.update(`api/dashboard/${id}`, { name })
-                eventUsageLogic.actions.reportDashboardRenamed(values.rawDashboards[id].name.length, name.length)
+                const response = await api.update(`api/dashboard/${id}`, payload)
+                const attribute = Object.keys(payload)[0]
+                eventUsageLogic.actions.reportDashboardFrontEndUpdate(
+                    attribute,
+                    values.rawDashboards[id][attribute].length,
+                    payload[attribute].length
+                )
                 return response
             },
             setIsSharedDashboard: async ({ id, isShared }) =>
@@ -78,7 +87,7 @@ export const dashboardsModel = kea({
         rawDashboards: {
             addDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
-            renameDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+            updateDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             setIsSharedDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             deleteDashboardSuccess: (state, { dashboard }) => ({
                 ...state,

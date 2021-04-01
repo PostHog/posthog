@@ -1,9 +1,6 @@
-from typing import cast
-
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from posthog.models import organization
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -34,6 +31,9 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
     def test_delete_last_organization(self):
         org_id = self.organization.id
         self.assertTrue(Organization.objects.filter(id=org_id).exists())
+
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
 
         response = self.client.delete(f"/api/organizations/{org_id}")
 

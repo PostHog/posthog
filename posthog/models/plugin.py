@@ -54,7 +54,7 @@ class PluginConfig(models.Model):
 
 class PluginAttachment(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
-    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
+    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE, null=True)
     key: models.CharField = models.CharField(max_length=200)
     content_type: models.CharField = models.CharField(max_length=200)
     file_name: models.CharField = models.CharField(max_length=200)

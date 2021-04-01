@@ -54,6 +54,8 @@ class TeamSerializer(serializers.ModelSerializer):
             "test_account_filters",
             "uuid",
             "is_demo",
+            "timezone",
+            "data_attributes",
         )
         read_only_fields = (
             "id",

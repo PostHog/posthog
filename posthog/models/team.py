@@ -1,6 +1,7 @@
 import re
 from typing import Any, Dict, List, Optional
 
+import pytz
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.core.validators import MinLengthValidator
 from django.db import models
@@ -14,6 +15,8 @@ from .utils import UUIDT, generate_random_token, sane_repr
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
+TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
+
 
 class TeamManager(models.Manager):
     def set_test_account_filters(self, organization: Optional[Any]) -> List:
@@ -21,7 +24,7 @@ class TeamManager(models.Manager):
             {
                 "key": "$host",
                 "operator": "is_not",
-                "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000"],
+                "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
             },
         ]
         if organization:
@@ -61,6 +64,10 @@ class TeamManager(models.Manager):
             return None
 
 
+def get_default_data_attributes() -> Any:
+    return ["data-attr"]
+
+
 class Team(models.Model):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
@@ -94,6 +101,8 @@ class Team(models.Model):
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     test_account_filters: JSONField = JSONField(default=list)
+    timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
+    data_attributes: JSONField = JSONField(default=get_default_data_attributes)
 
     # DEPRECATED, DISUSED: plugins are enabled for everyone now
     plugins_opt_in: models.BooleanField = models.BooleanField(default=False)

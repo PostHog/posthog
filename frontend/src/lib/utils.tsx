@@ -2,7 +2,7 @@ import React, { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
 import { toast } from 'react-toastify'
 import { Spin } from 'antd'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { EventType, FilterType } from '~/types'
 import { lightColors } from 'lib/colors'
 import { ActionFilter } from 'scenes/trends/trendsLogic'
@@ -26,7 +26,7 @@ export function uuid(): string {
 
 export function toParams(obj: Record<string, any>): string {
     function handleVal(val: any): string {
-        if (val._isAMomentObject) {
+        if (dayjs.isDayjs(val)) {
             return encodeURIComponent(val.format('YYYY-MM-DD'))
         }
         val = typeof val === 'object' ? JSON.stringify(val) : val
@@ -328,24 +328,25 @@ export function humanFriendlyDuration(d: string | number): string {
     return days > 0 ? dayDisplay + hDisplay : hDisplay + mDisplay + sDisplay
 }
 
-export function humanFriendlyDiff(from: moment.MomentInput, to: moment.MomentInput): string {
-    const diff = moment(to).diff(moment(from), 'seconds')
+export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string): string {
+    const diff = dayjs(to).diff(dayjs(from), 'seconds')
     return humanFriendlyDuration(diff)
 }
 
-export function humanFriendlyDetailedTime(date: moment.MomentInput | null, withSeconds: boolean = false): string {
+export function humanFriendlyDetailedTime(date: dayjs.Dayjs | string | null, withSeconds: boolean = false): string {
     if (!date) {
         return 'Never'
     }
+    const parsedDate = dayjs(date)
     let formatString = 'MMMM Do YYYY h:mm'
-    const today = moment().startOf('day')
+    const today = dayjs().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')
-    if (moment(date).isSame(moment(), 'm')) {
+    if (parsedDate.isSame(dayjs(), 'm')) {
         return 'Just now'
     }
-    if (moment(date).isSame(today, 'd')) {
+    if (parsedDate.isSame(today, 'd')) {
         formatString = '[Today] h:mm'
-    } else if (moment(date).isSame(yesterday, 'd')) {
+    } else if (parsedDate.isSame(yesterday, 'd')) {
         formatString = '[Yesterday] h:mm'
     }
     if (withSeconds) {
@@ -353,7 +354,7 @@ export function humanFriendlyDetailedTime(date: moment.MomentInput | null, withS
     } else {
         formatString += ' a'
     }
-    return moment(date).format(formatString)
+    return parsedDate.format(formatString)
 }
 
 export function stripHTTP(url: string): string {
@@ -411,11 +412,11 @@ export function eventToName(event: EventType): string {
 }
 
 export function determineDifferenceType(
-    firstDate: moment.MomentInput,
-    secondDate: moment.MomentInput
+    firstDate: dayjs.Dayjs,
+    secondDate: dayjs.Dayjs
 ): 'year' | 'month' | 'week' | 'day' | 'hour' | 'minute' | 'second' {
-    const first = moment(firstDate)
-    const second = moment(secondDate)
+    const first = dayjs(firstDate)
+    const second = dayjs(secondDate)
     if (first.diff(second, 'years') !== 0) {
         return 'year'
     } else if (first.diff(second, 'months') !== 0) {
@@ -450,11 +451,11 @@ export const dateMapping: Record<string, string[]> = {
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
 export function dateFilterToText(
-    dateFrom: string | moment.Moment | undefined,
-    dateTo: string | moment.Moment | undefined,
+    dateFrom: string | dayjs.Dayjs | undefined,
+    dateTo: string | dayjs.Dayjs | undefined,
     defaultValue: string
 ): string {
-    if (moment.isMoment(dateFrom) && moment.isMoment(dateTo)) {
+    if (dayjs.isDayjs(dateFrom) && dayjs.isDayjs(dateTo)) {
         return `${dateFrom.format('YYYY-MM-DD')} - ${dateTo.format('YYYY-MM-DD')}`
     }
     dateFrom = dateFrom as string
@@ -757,4 +758,25 @@ export function endWithPunctation(text?: string | null): string {
         trimmedText += '.'
     }
     return trimmedText
+}
+
+/**
+ * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
+ * @param timeZone E.g. 'America/New_York'
+ * @param atDate
+ */
+export function shortTimeZone(timeZone?: string, atDate: Date = new Date()): string {
+    const localeTimeString = new Date(atDate).toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
+    return localeTimeString.split(' ')[2]
+}
+
+export function humanTzOffset(timezone?: string): string {
+    const offset = dayjs().tz(timezone).utcOffset() / 60
+    if (!offset) {
+        return 'no offset'
+    }
+    const absoluteOffset = Math.abs(offset)
+    const hourForm = absoluteOffset === 1 ? 'hour' : 'hours'
+    const direction = offset > 0 ? 'ahead' : 'behind'
+    return `${absoluteOffset} ${hourForm} ${direction}`
 }

@@ -5,7 +5,6 @@ from unittest.mock import patch
 
 import pytest
 import pytz
-from django.test import tag
 from rest_framework import status
 
 from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User
@@ -71,17 +70,19 @@ class TestOrganizationAPI(APIBaseTest):
 
     # Updating organizations
 
-    def test_rename_organization_without_license_if_admin(self):
+    def test_rename_organization_if_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "QWERTY"})
         self.assertEqual(response.status_code, 200)
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "QWERTY")
 
-        # Member (non-admin, non-owner) cannot update organization's name
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
+    def test_cannot_rename_organization_if_not_owner_or_admin(self):
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "ASDFG"})
         self.assertEqual(response.status_code, 403)
+        self.organization.refresh_from_db()
+        self.assertNotEqual(self.organization.name, "ASDFG")
 
     @patch("posthoganalytics.capture")
     def test_member_can_complete_onboarding_setup(self, mock_capture):
@@ -146,7 +147,7 @@ class TestOrganizationAPI(APIBaseTest):
 
 
 class TestSignup(APIBaseTest):
-    CONFIG_USER_EMAIL = None
+    CONFIG_EMAIL = None
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
@@ -389,7 +390,7 @@ class TestInviteSignup(APIBaseTest):
     Tests the sign up process for users with an invite (i.e. existing organization).
     """
 
-    CONFIG_USER_EMAIL = None
+    CONFIG_EMAIL = None
 
     # Invite pre-validation
 

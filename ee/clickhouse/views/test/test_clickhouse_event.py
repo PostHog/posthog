@@ -1,13 +1,10 @@
-from datetime import timedelta
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.utils import timezone
-from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.api.test.base import TransactionBaseTest
 from posthog.api.test.test_event import factory_test_event_api
 from posthog.models import Action, ActionStep, Event, Person
 

@@ -8,7 +8,7 @@ from django.db import transaction
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 from django.urls.base import reverse
-from rest_framework import exceptions, generics, permissions, response, serializers, status, viewsets
+from rest_framework import exceptions, generics, permissions, response, serializers, validators, viewsets
 from rest_framework.request import Request
 
 from posthog.api.routing import StructuredViewSetMixin
@@ -101,7 +101,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
     def get_setup(self, instance: Organization) -> Dict[str, Union[bool, int, str, None]]:
 
         if not instance.is_onboarding_active:
-            # As Section 2 is the last one of the setup process (as of today), if it's completed it means the setup process is done
+            # As Section 2 is the last one of the setup process (as of today),
+            # if it's completed it means the setup process is done
             return {"is_active": False, "current_section": None}
 
         non_demo_team_id = next((team.pk for team in instance.teams.filter(is_demo=False)), None)
@@ -162,7 +163,13 @@ class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
 class OrganizationSignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128)
-    email: serializers.Field = serializers.EmailField()
+    email: serializers.Field = serializers.EmailField(
+        validators=[
+            validators.UniqueValidator(
+                queryset=User.objects.all(), message="There is already an account with this email address."
+            )
+        ]
+    )
     password: serializers.Field = serializers.CharField(allow_null=True)
     organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
@@ -246,7 +253,8 @@ class OrganizationSocialSignupSerializer(serializers.Serializer):
 
 class OrganizationSignupViewset(generics.CreateAPIView):
     serializer_class = OrganizationSignupSerializer
-    permission_classes = (UninitiatedOrCloudOnly,)
+    # Enables E2E testing of signup flow
+    permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (UninitiatedOrCloudOnly,)
 
 
 class OrganizationSocialSignupViewset(generics.CreateAPIView):

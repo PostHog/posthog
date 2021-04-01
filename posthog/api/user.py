@@ -69,12 +69,13 @@ def user(request):
             team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
             team.session_recording_opt_in = data["team"].get("session_recording_opt_in", team.session_recording_opt_in)
             team.session_recording_retention_period_days = data["team"].get(
-                "session_recording_retention_period_days", team.session_recording_retention_period_days
+                "session_recording_retention_period_days", team.session_recording_retention_period_days,
             )
             team.completed_snippet_onboarding = data["team"].get(
                 "completed_snippet_onboarding", team.completed_snippet_onboarding,
             )
             team.test_account_filters = data["team"].get("test_account_filters", team.test_account_filters)
+            team.timezone = data["team"].get("timezone", team.timezone)
             team.save()
 
         if "user" in data:
@@ -148,6 +149,8 @@ def user(request):
                 "ingested_event": team.ingested_event,
                 "is_demo": team.is_demo,
                 "test_account_filters": team.test_account_filters,
+                "timezone": team.timezone,
+                "data_attributes": team.data_attributes,
             },
             "teams": teams,
             "has_password": user.has_usable_password(),
@@ -161,6 +164,7 @@ def user(request):
             "is_staff": user.is_staff,
             "is_impersonated": is_impersonated_session(request),
             "is_event_property_usage_enabled": getattr(settings, "ASYNC_EVENT_PROPERTY_USAGE", False),
+            "is_async_event_action_mapping_enabled": getattr(settings, "ASYNC_EVENT_ACTION_MAPPING", False),
         }
     )
 
@@ -183,6 +187,7 @@ def redirect_to_site(request):
         "actionId": request.GET.get("actionId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
+        "dataAttributes": team.data_attributes,
     }
 
     if settings.JS_URL:

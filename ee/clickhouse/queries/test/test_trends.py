@@ -3,6 +3,7 @@ from uuid import uuid4
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.action import Action
@@ -101,7 +102,9 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             if response["breakdown_value"] == "person3":
                 self.assertEqual(response["count"], 3)
 
-        self.assertTrue(self._compare_entity_response(event_response, action_response,))
+        self.assertEntityResponseEqual(
+            event_response, action_response,
+        )
 
     def test_breakdown_filtering(self):
         self._create_events()
@@ -213,7 +216,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         self.assertEqual(sum(event_response[1]["data"]), 1)
         self.assertEqual(event_response[1]["data"][5], 1)
-        self.assertTrue(self._compare_entity_response(action_response, event_response))
+        self.assertEntityResponseEqual(action_response, event_response)
 
     def test_dau_with_breakdown_filtering_with_prop_filter(self):
         sign_up_action, _ = self._create_events()
@@ -246,13 +249,12 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 self.team,
             )
 
-        self.assertEqual(event_response[0]["label"], "sign up - value")
-        self.assertEqual(event_response[1]["label"], "sign up - other_value")
+        self.assertEqual(event_response[0]["label"], "sign up - other_value")
 
-        self.assertEqual(sum(event_response[1]["data"]), 1)
-        self.assertEqual(event_response[1]["data"][5], 1)  # property not defined
+        self.assertEqual(sum(event_response[0]["data"]), 1)
+        self.assertEqual(event_response[0]["data"][5], 1)  # property not defined
 
-        self.assertTrue(self._compare_entity_response(action_response, event_response))
+        self.assertEntityResponseEqual(action_response, event_response)
 
     # this ensures that the properties don't conflict when formatting params
     def test_action_with_prop(self):
@@ -302,3 +304,31 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             self.team,
         )
         self.assertEqual(action_response[0]["count"], 0)
+
+    def test_breakdown_user_props_with_filter(self):
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
+        person = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["person3"], properties={"email": "test@gmail.com"}
+        )
+        create_person_distinct_id(person.id, self.team.pk, "person1", str(person.uuid))
+
+        _create_event(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
+        _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "val"})
+        response = ClickhouseTrends().run(
+            Filter(
+                data={
+                    "date_from": "-14d",
+                    "breakdown": "email",
+                    "breakdown_type": "person",
+                    "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                    "properties": [
+                        {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                        {"key": "key", "value": "val"},
+                    ],
+                }
+            ),
+            self.team,
+        )
+        self.assertEqual(len(response), 1)
+        self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
