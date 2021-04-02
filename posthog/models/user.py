@@ -96,9 +96,7 @@ class User(AbstractUser):
         (TOOLBAR, TOOLBAR),
     ]
 
-    uuid: models.UUIDField = models.UUIDField(db_index=True, default=UUIDT, editable=False)
-
-    username = None  # type: ignore
+    uuid: models.UUIDField = models.UUIDField(db_index=True, default=UUIDT, unique=True, editable=False)
     current_organization = models.ForeignKey(
         "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+",
     )
@@ -111,6 +109,10 @@ class User(AbstractUser):
     toolbar_mode: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
     )
+
+    # Remove unused attributes from `AbstractUser`
+    username = None  # type: ignore
+    last_name = None  # type: ignore
 
     objects: UserManager = UserManager()  # type: ignore
 

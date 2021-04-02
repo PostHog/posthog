@@ -39,6 +39,7 @@ class TestUserAPI(APIBaseTest):
         response_data = response.json()
 
         self.assertEqual(response_data["id"], str(self.user.uuid))
+        self.assertEqual(response_data["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["first_name"], self.user.first_name)
         self.assertEqual(response_data["email"], self.user.email)
         self.assertEqual(response_data["has_password"], True)
