@@ -200,6 +200,37 @@ class TestCapture(BaseTest):
 
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
+    def test_invalid_gzip(self, patch_process_event_with_plugins):
+        self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
+        self.team.save()
+
+        response = self.client.post(
+            "/track?compression=gzip", data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03", content_type="text/plain",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["message"],
+            "Malformed request data. Failed to decompress data. Compressed file ended before the end-of-stream marker was reached",
+        )
+        self.assertEqual(patch_process_event_with_plugins.call_count, 0)
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_invalid_lz64(self, patch_process_event_with_plugins):
+        self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
+        self.team.save()
+
+        response = self.client.post("/track?compression=lz64", data="foo", content_type="text/plain",)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["message"], "Malformed request data. Failed to decompress data.",
+        )
+        self.assertEqual(patch_process_event_with_plugins.call_count, 0)
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_incorrect_padding(self, patch_process_event_with_plugins):
         response = self.client.get(
             "/e/?data=eyJldmVudCI6IndoYXRldmVmciIsInByb3BlcnRpZXMiOnsidG9rZW4iOiJ0b2tlbjEyMyIsImRpc3RpbmN0X2lkIjoiYXNkZiJ9fQ",
@@ -538,7 +569,12 @@ class TestCapture(BaseTest):
         response = self.client.post(
             "/capture/", '{"event": "incorrect json with trailing comma",}', content_type="application/json"
         )
+        self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "validation")
+        self.assertEqual(
+            response.json()["message"],
+            "Malformed request data. Invalid JSON: Expecting property name enclosed in double quotes: line 1 column 48 (char 47)",
+        )
 
     @patch("posthog.api.capture.celery_app.send_task")
     def test_nan(self, patch_process_event_with_plugins):

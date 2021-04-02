@@ -9,7 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
-from posthog.utils import cors_response, load_data_from_request
+from posthog.utils import RequestParsingError, cors_response, load_data_from_request
 
 from .capture import _get_project_id, _get_token
 
@@ -78,14 +78,12 @@ def get_decide(request: HttpRequest):
 
     if request.method == "POST":
         try:
-            data_from_request = load_data_from_request(request)
-            data = data_from_request["data"]
-        except (json.decoder.JSONDecodeError, TypeError):
+            data = load_data_from_request(request)
+        except RequestParsingError as error:
             return cors_response(
                 request,
                 JsonResponse(
-                    {"code": "validation", "message": "Malformed request data. Make sure you're sending valid JSON.",},
-                    status=400,
+                    {"code": "validation", "message": "Malformed request data. %s" % (str(error)),}, status=400,
                 ),
             )
         token = _get_token(data, request)
@@ -112,7 +110,7 @@ def get_decide(request: HttpRequest):
                 )
             team = user.teams.get(id=project_id)
         if team:
-            response["featureFlags"] = get_active_feature_flags(team, data_from_request["data"]["distinct_id"])
+            response["featureFlags"] = get_active_feature_flags(team, data["distinct_id"])
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
                 response["sessionRecording"] = {"endpoint": "/s/"}
     return cors_response(request, JsonResponse(response))

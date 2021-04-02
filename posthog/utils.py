@@ -342,25 +342,24 @@ def get_celery_heartbeat() -> Union[str, int]:
     return "offline"
 
 
-def base64_to_json(data) -> Dict:
-    return json.loads(
-        base64.b64decode(data.replace(" ", "+") + "===")
-        .decode("utf8", "surrogatepass")
-        .encode("utf-16", "surrogatepass")
-    )
+def base64_decode(data):
+    if not isinstance(data, str):
+        data = data.decode()
+
+    data = base64.b64decode(data.replace(" ", "+") + "===")
+
+    return data.decode("utf8", "surrogatepass").encode("utf-16", "surrogatepass")
+
+
+class RequestParsingError(Exception):
+    pass
 
 
 # Used by non-DRF endpoins from capture.py and decide.py (/decide, /batch, /capture, etc)
 def load_data_from_request(request):
-    data_res: Dict[str, Any] = {"data": {}, "body": None}
+    data = None
     if request.method == "POST":
-        if request.content_type == "application/json":
-            data = request.body
-            try:
-                data_res["body"] = {**json.loads(request.body)}
-            except:
-                pass
-        elif request.content_type == "text/plain" or request.content_type == "":
+        if request.content_type in ["", "text/plain", "application/json"]:
             data = request.body
         else:
             data = request.POST.get("data")
@@ -379,27 +378,42 @@ def load_data_from_request(request):
     compression = compression.lower()
 
     if compression == "gzip" or compression == "gzip-js":
-        data = gzip.decompress(data)
+        try:
+            data = gzip.decompress(data)
+        except (EOFError, OSError) as error:
+            raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
 
     if compression == "lz64":
-        if isinstance(data, str):
-            data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
-        else:
-            data = lzstring.LZString().decompressFromBase64(data.decode().replace(" ", "+"))
+        if not isinstance(data, str):
+            data = data.decode()
+        data = data.replace(" ", "+")
+
+        data = lzstring.LZString().decompressFromBase64(data)
+
+        if not data:
+            raise RequestParsingError("Failed to decompress data.")
+
         data = data.encode("utf-16", "surrogatepass").decode("utf-16")
 
-    #  Is it plain json?
+    base64_decoded = None
+    try:
+        base64_decoded = base64_decode(data)
+    except:
+        pass
+
+    if base64_decoded:
+        data = base64_decoded
+
     try:
         # parse_constant gets called in case of NaN, Infinity etc
         # default behaviour is to put those into the DB directly
         # but we just want it to return None
         data = json.loads(data, parse_constant=lambda x: None)
-    except json.JSONDecodeError:
-        # if not, it's probably base64 encoded from other libraries
-        data = base64_to_json(data)
-    data_res["data"] = data
+    except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
+        raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
+
     # FIXME: data can also be an array, function assumes it's either None or a dictionary.
-    return data_res
+    return data
 
 
 class SingletonDecorator:

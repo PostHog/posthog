@@ -16,7 +16,7 @@ from posthog.helpers.session_recording import preprocess_session_recording_event
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
-from posthog.utils import cors_response, get_ip_address, load_data_from_request
+from posthog.utils import RequestParsingError, cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
     from ee.clickhouse.process_event import log_event, process_event_ee
@@ -100,15 +100,11 @@ def get_event(request):
     timer.start()
     now = timezone.now()
     try:
-        data_from_request = load_data_from_request(request)
-        data = data_from_request["data"]
-    except TypeError:
+        data = load_data_from_request(request)
+    except RequestParsingError as error:
         return cors_response(
             request,
-            JsonResponse(
-                {"code": "validation", "message": "Malformed request data. Make sure you're sending valid JSON.",},
-                status=400,
-            ),
+            JsonResponse({"code": "validation", "message": "Malformed request data. %s" % (str(error)),}, status=400,),
         )
     if not data:
         return cors_response(
