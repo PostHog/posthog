@@ -20,6 +20,7 @@ from posthog.api.team import TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
 from posthog.ee import is_ee_enabled
 from posthog.email import is_email_available
+from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
 from posthog.models.organization import Organization
 from posthog.plugins import reload_plugins_on_workers
@@ -37,6 +38,7 @@ class UserSerializer(serializers.ModelSerializer):
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
     set_current_organization = serializers.CharField(write_only=True, required=False)
     set_current_team = serializers.CharField(write_only=True, required=False)
+    current_password = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = User
@@ -55,8 +57,13 @@ class UserSerializer(serializers.ModelSerializer):
             "organizations",
             "set_current_organization",
             "set_current_team",
+            "password",
+            "current_password",  # used when changing current password
         ]
-        extra_kwargs = {"is_staff": {"read_only": True}}
+        extra_kwargs = {
+            "is_staff": {"read_only": True},
+            "password": {"write_only": True},
+        }
 
     def get_id(self, instance: User) -> str:
         return str(instance.uuid)
@@ -89,10 +96,33 @@ class UserSerializer(serializers.ModelSerializer):
 
         raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
 
+    def validate_password_change(self, instance: User, current_password: Optional[str], password: Optional[str]) -> str:
+
+        if password:
+            if instance.password and instance.has_usable_password():
+                # If user has a password set, we check it's provided to allow updating it. We need to check that is both
+                # usable (properly hashed) and that a password actually exists.
+                if not current_password:
+                    raise serializers.ValidationError(
+                        {"current_password": ["This field is required when updating your password."]}, code="required"
+                    )
+
+                if not instance.check_password(current_password):
+                    raise serializers.ValidationError(
+                        {"current_password": ["Your current password is incorrect."]}, code="incorrect_password"
+                    )
+            try:
+                validate_password(password, instance)
+            except ValidationError as e:
+                raise serializers.ValidationError({"password": e.messages})
+
+        return password
+
     def update(self, instance: User, validated_data: Any) -> Any:
+
+        # Update current_organization and current_team
         current_organization = validated_data.pop("set_current_organization", None)
         current_team = validated_data.pop("set_current_team", None)
-
         if current_organization:
             if current_team and not current_organization.teams.filter(pk=current_team.pk).exists():
                 raise serializers.ValidationError(
@@ -101,12 +131,26 @@ class UserSerializer(serializers.ModelSerializer):
 
             validated_data["current_organization"] = current_organization
             validated_data["current_team"] = current_team if current_team else current_organization.teams.first()
-
         elif current_team:
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
 
-        return super().update(instance, validated_data)
+        # Update password
+        current_password = validated_data.pop("current_password", None)
+        password = self.validate_password_change(instance, current_password, validated_data.pop("password", None))
+
+        updated_attrs = list(validated_data.keys())
+        instance = super().update(instance, validated_data)
+
+        if password:
+            instance.set_password(password)
+            instance.save()
+            update_session_auth_hash(self.context["request"], instance)
+            updated_attrs.append("password")
+
+        report_user_updated(instance, updated_attrs)
+
+        return instance
 
     def to_representation(self, instance: Any) -> Any:
         user_identify.identify_task.delay(user_id=instance.id)
@@ -128,7 +172,8 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
 @authenticate_secondarily
 def user(request):
     """
-    DEPRECATED: This endpoint (/api/user/) has been deprecated and will be removed in PostHog V2.
+    DEPRECATED: This endpoint (/api/user/) has been deprecated in favor of /api/v2/user/ 
+    and will be removed in PostHog V2.
     """
     organization: Optional[Organization] = request.user.organization
     organizations = list(request.user.organizations.order_by("-created_at").values("name", "id"))
@@ -289,7 +334,10 @@ def redirect_to_site(request):
 @require_http_methods(["PATCH"])
 @authenticate_secondarily
 def change_password(request):
-    """Change the password of a regular User."""
+    """
+    DEPRECATED: This endpoint has been deprecated in favor of /api/v2/user/ 
+    and will be removed in PostHog V2.
+    """
     try:
         body = json.loads(request.body)
     except (TypeError, json.decoder.JSONDecodeError):
