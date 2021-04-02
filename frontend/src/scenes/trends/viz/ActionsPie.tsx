@@ -37,14 +37,14 @@ export function ActionsPie({
                 borderColor: colorList,
                 hoverBorderWidth: 10,
                 borderWidth: 1,
-                action: data.map((item) => item.action),
+                action: _data.map((item) => item.action),
             },
         ])
         setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
     }
 
     useEffect(() => {
-        updateData()
+        if (!resultsLoading) {updateData()}
     }, [results, color])
 
     return data && !resultsLoading ? (
