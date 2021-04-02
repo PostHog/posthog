@@ -22,7 +22,7 @@ services:
             dockerfile: dev.Dockerfile
         command: ./bin/docker-worker
         volumes:
-            - .:/code:cached
+            - .:/code
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             REDIS_URL: 'redis://redis:6379/'
