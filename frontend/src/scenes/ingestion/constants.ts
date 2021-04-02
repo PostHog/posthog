@@ -1,5 +1,19 @@
 import { Framework, PlatformType } from 'scenes/ingestion/types'
 
+import flutterLogo from './static/flutter_logo.png'
+import nodeJSLogo from './static/nodejs-logo.svg'
+import rubyLogo from './static/ruby-logo.png'
+import jsLogo from './static/js-logo.png'
+import pythonLogo from './static/python-logo.svg'
+import phpLogo from './static/php-logo.svg'
+import elixirLogo from './static/elixir-logo.svg'
+import goLogo from './static/go-logo-blue.svg'
+import reactLogo from './static/react-logo.svg'
+import androidLogo from './static/android-logo.svg'
+import appleLogo from './static/apple-logo.svg'
+import posthogLogo from './static/posthog-logo.svg'
+import bashLogo from './static/bash-logo.svg'
+
 export const PLATFORM_TYPE = 'PLATFORM_TYPE'
 export const AUTOCAPTURE = 'AUTOCAPTURE'
 export const FRAMEWORK = 'FRAMEWORK'
@@ -95,31 +109,11 @@ export const popularFrameworks = {
     [REACT_NATIVE]: mobileFrameworks[REACT_NATIVE],
     [API]: httpFrameworks[API],
 }
-
-import testLogo from './panels/test-logo.svg'
-import flutterLogo from './panels/flutter_logo.png'
-import nodeJSLogo from './panels/nodejs-logo.png'
-import nodeJSLogo2 from './panels/nodejs2.svg'
-import rubyLogo from './panels/ruby-logo.png'
-import jsLogo from './panels/js-logo.png'
-import pythonLogo from './panels/python-logo.svg'
-// import pythonLogo from './panels/python-logo.png'
-import phpLogo from './panels/php-logo.svg'
-import elixirLogo from './panels/elixir-logo.svg'
-import goLogo from './panels/go-logo-blue.svg'
-import reactLogo from './panels/react-logo.svg'
-import androidLogo from './panels/android-logo.svg'
-import appleLogo from './panels/apple-logo.svg'
-import posthogLogo from './panels/posthog-logo.svg'
-import bashLogo from './panels/bash-logo.svg'
-
 export const logos = {
-    [NODEJS]: nodeJSLogo2,
+    [NODEJS]: nodeJSLogo,
     [FLUTTER]: flutterLogo,
-    [PURE_JS]: testLogo,
     [RUBY]: rubyLogo,
     [PURE_JS]: jsLogo,
-    // todo: maybe it's fine to use the same logo since they both go to the same instructions.
     [AUTOCAPTURE]: posthogLogo,
     [PYTHON]: pythonLogo,
     [PHP]: phpLogo,
