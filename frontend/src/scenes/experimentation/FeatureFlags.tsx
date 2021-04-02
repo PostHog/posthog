@@ -82,6 +82,7 @@ export function FeatureFlags(): JSX.Element {
                             BackTo
                         }
                         data-attr="usage"
+                        onClick={(e) => e.stopPropagation()}
                     >
                         Insights <ExportOutlined />
                     </Link>

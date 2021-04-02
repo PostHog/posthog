@@ -33,6 +33,11 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-submit]').click()
         cy.get('.Toastify__toast-body').click() // clicking the toast gets you back to the list
         cy.get('[data-attr=feature-flag-table]').should('contain', 'beta-feature-updated')
+
+        cy.get('[data-attr=usage]').click()
+        cy.location().should((loc) => {
+            expect(loc.pathname.toString()).to.contain('/insight')
+        })
     })
 
     it('Delete feature flag', () => {
