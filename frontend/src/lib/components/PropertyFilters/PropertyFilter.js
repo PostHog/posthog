@@ -46,7 +46,7 @@ function PropertyPaneContents({
     return (
         <>
             <Row gutter={8} className="full-width" wrap={false}>
-                <Col flex={1} style={{ minWidth: '15vw' }}>
+                <Col flex={1} style={{ minWidth: '11rem' }}>
                     <PropertySelect
                         value={
                             type === 'cohort'
@@ -87,7 +87,7 @@ function PropertyPaneContents({
                         columnOptions={{
                             flex: 1,
                             style: {
-                                maxWidth: '33.3vw',
+                                maxWidth: '50vw',
                             },
                         }}
                     />
