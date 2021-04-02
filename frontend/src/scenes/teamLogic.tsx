@@ -1,12 +1,12 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { teamLogicType } from './teamLogicType'
-import { TeamType, BasicTeamType } from '~/types'
+import { TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { toast } from 'react-toastify'
 import React from 'react'
 
-export const teamLogic = kea<teamLogicType<TeamType, BasicTeamType>>({
+export const teamLogic = kea<teamLogicType<TeamType>>({
     actions: {
         deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,
@@ -23,30 +23,12 @@ export const teamLogic = kea<teamLogicType<TeamType, BasicTeamType>>({
         ],
     },
     loaders: ({ values }) => ({
-        /*
-        We use this request to load the current team object but with minimal data attributes
-        so the whole app isn't frozen when loading a team with a ton of event properties.
-        We store it separately to have a separate type and avoid having to do multiple checks everywhere
-        to see if the full team information has been loaded.
-        */
-        basicCurrentTeam: [
-            null as BasicTeamType | null,
-            {
-                loadBasicCurrentTeam: async () => {
-                    try {
-                        return await api.get('api/projects/@current/?basic=1')
-                    } catch {
-                        return null
-                    }
-                },
-            },
-        ],
         currentTeam: [
             null as TeamType | null,
             {
                 loadCurrentTeam: async () => {
                     try {
-                        return await api.get('api/projects/@current/')
+                        return await api.get('api/projects/@current')
                     } catch {
                         return null
                     }
@@ -90,6 +72,6 @@ export const teamLogic = kea<teamLogicType<TeamType, BasicTeamType>>({
         },
     }),
     events: ({ actions }) => ({
-        afterMount: [actions.loadBasicCurrentTeam, actions.loadCurrentTeam],
+        afterMount: [actions.loadCurrentTeam],
     }),
 })

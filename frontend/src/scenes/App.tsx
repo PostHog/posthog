@@ -13,6 +13,7 @@ import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
 import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { BackTo } from 'lib/components/BackTo'
 import { Papercups } from 'lib/components/Papercups'
@@ -22,10 +23,11 @@ function Toast(): JSX.Element {
 }
 
 export function App(): JSX.Element | null {
-    const { user, userLoading } = useValues(userLogic)
-    const { basicCurrentTeam: currentTeam, basicCurrentTeamLoading: teamLoading } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
+    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
-    const { preflight, preflightLoading } = useValues(preflightLogic)
+    const { preflight } = useValues(preflightLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -47,12 +49,12 @@ export function App(): JSX.Element | null {
             }
             // Redirect to org/project creation if there's no org/project respectively, unless using invite
             if (scene !== Scene.InviteSignup) {
-                if (!user.organization?.id) {
+                if (!currentOrganizationLoading && !currentOrganization?.id) {
                     if (location.pathname !== '/organization/create') {
                         replace('/organization/create')
                     }
                     return
-                } else if (!currentTeam?.id) {
+                } else if (!currentTeamLoading && !currentTeam?.id) {
                     if (location.pathname !== '/project/create') {
                         replace('/project/create')
                     }
@@ -63,7 +65,7 @@ export function App(): JSX.Element | null {
 
         // If ingestion tutorial not completed, redirect to it
         if (
-            currentTeam &&
+            currentTeam?.id &&
             !currentTeam.completed_snippet_onboarding &&
             !location.pathname.startsWith('/ingestion') &&
             !location.pathname.startsWith('/personalization')
@@ -71,7 +73,7 @@ export function App(): JSX.Element | null {
             replace('/ingestion')
             return
         }
-    }, [scene, user, currentTeam])
+    }, [scene, user, currentOrganization, currentOrganizationLoading, currentTeam, currentTeamLoading])
 
     const SceneComponent = loadedScenes[scene]?.component || (() => <SceneLoading />)
 
@@ -82,10 +84,6 @@ export function App(): JSX.Element | null {
             <Toast />
         </>
     )
-
-    if (userLoading || teamLoading || preflightLoading) {
-        return <SceneLoading />
-    }
 
     if (!user) {
         return sceneConfig.onlyUnauthenticated || sceneConfig.allowUnauthenticated ? (
@@ -106,8 +104,13 @@ export function App(): JSX.Element | null {
         )
     }
 
+    if (!currentOrganization?.id || !currentTeam?.id) {
+        return null
+    }
+
     return (
         <>
+            <UpgradeModal />
             <Layout>
                 <MainNavigation />
                 <Layout className={`${sceneConfig.dark ? 'bg-mid' : ''}`} style={{ minHeight: '100vh' }}>
@@ -124,7 +127,6 @@ export function App(): JSX.Element | null {
                 </Layout>
                 {essentialElements}
             </Layout>
-            <UpgradeModal />
             <CommandPalette />
         </>
     )
