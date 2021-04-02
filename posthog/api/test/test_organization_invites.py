@@ -85,6 +85,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
+        # Assert invite email is sent
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].reply_to, [self.user.email])  # Reply-To is set to the inviting user
+
     def test_can_create_invites_for_the_same_email_multiple_times(self):
         email = "x@posthog.com"
         count = OrganizationInvite.objects.count()

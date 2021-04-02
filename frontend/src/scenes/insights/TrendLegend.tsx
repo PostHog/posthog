@@ -7,6 +7,7 @@ import { getChartColors } from 'lib/colors'
 import { MATHS } from 'lib/constants'
 import { cohortsModel } from '~/models'
 import { CohortType } from '~/types'
+import { ColumnsType } from 'antd/lib/table'
 
 function formatLabel(item: IndexedTrendResult): string {
     const name = item.action?.name || item.label
@@ -37,7 +38,7 @@ export function TrendLegend(): JSX.Element | null {
         return null
     }
 
-    const columns = [
+    const columns: ColumnsType<IndexedTrendResult> = [
         {
             title: '',
             render: function RenderCheckbox({}, item: IndexedTrendResult, index: number) {
@@ -69,27 +70,29 @@ export function TrendLegend(): JSX.Element | null {
             fixed: 'left',
             width: 150,
         },
-        ...(filters.breakdown
-            ? [
-                  {
-                      title: 'Breakdown Value',
-                      render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
-                          return formatBreakdownLabel(item.breakdown_value, cohorts)
-                      },
-                      fixed: 'left',
-                      width: 150,
-                  },
-              ]
-            : []),
-        ...(indexedResults && indexedResults.length > 0
-            ? indexedResults[0].data.map(({}, index: number) => ({
-                  title: indexedResults[0].labels[index],
-                  render: function RenderPeriod({}, item: IndexedTrendResult) {
-                      return item.data[index]
-                  },
-              }))
-            : []),
     ]
+
+    if (filters.breakdown) {
+        columns.push({
+            title: 'Breakdown Value',
+            render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
+                return formatBreakdownLabel(item.breakdown_value, cohorts)
+            },
+            fixed: 'left',
+            width: 150,
+        })
+    }
+
+    if (indexedResults && indexedResults.length > 0) {
+        const valueColumns = indexedResults[0].data.map(({}, index: number) => ({
+            title: indexedResults[0].labels[index],
+            render: function RenderPeriod({}, item: IndexedTrendResult) {
+                return item.data[index]
+            },
+        }))
+
+        columns.push(...valueColumns)
+    }
 
     return (
         <Table

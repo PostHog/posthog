@@ -1,5 +1,4 @@
 import json
-from datetime import datetime
 from typing import List
 
 from freezegun import freeze_time
@@ -1446,12 +1445,12 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         data={
                             "date_from": "-14d",
                             "breakdown": "$some_property",
-                            "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                            "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
                         }
                     ),
                     self.team,
                 )
-            self.assertEqual(len(response), 20)
+            self.assertEqual(len(response), 25)  # We fetch 25 to see if there are more ethan 20 values
 
         def test_breakdown_user_props_with_filter(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
@@ -1464,7 +1463,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "date_from": "-14d",
                         "breakdown": "email",
                         "breakdown_type": "person",
-                        "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                        "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
                         "properties": [
                             {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
                             {"key": "key", "value": "val"},

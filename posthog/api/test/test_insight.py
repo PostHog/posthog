@@ -4,6 +4,7 @@ from datetime import timedelta
 from django.test.utils import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
+from rest_framework import status
 
 from posthog.ee import is_ee_enabled
 from posthog.models.dashboard_item import DashboardItem
@@ -90,6 +91,26 @@ def insight_test_factory(event_factory, person_factory):
 
             self.assertEqual(response["result"][0]["count"], 2)
             self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
+
+        def test_insight_trends_breakdown_pagination(self):
+            with freeze_time("2012-01-14T03:21:34.000Z"):
+                for i in range(25):
+
+                    event_factory(
+                        team=self.team, event="$pageview", distinct_id="1", properties={"$some_property": f"value{i}"},
+                    )
+
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                response = self.client.get(
+                    "/api/insight/trend/",
+                    data={
+                        "events": json.dumps([{"id": "$pageview"}]),
+                        "breakdown": "$some_property",
+                        "breakdown_type": "event",
+                    },
+                )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertIn("offset=20", response.json()["next"])
 
         def test_insight_paths_basic(self):
             person_factory(team=self.team, distinct_ids=["person_1"])

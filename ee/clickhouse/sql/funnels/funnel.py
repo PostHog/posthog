@@ -9,7 +9,7 @@ SELECT max_step {top_level_groupby}, count(1), groupArray(100)(id) FROM (
     FROM 
         events
     JOIN (
-        SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s
+        SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s
     ) as pid
     ON pid.distinct_id = events.distinct_id
     WHERE
