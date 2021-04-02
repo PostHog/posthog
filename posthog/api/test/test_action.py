@@ -64,12 +64,7 @@ class TestCreateAction(APIBaseTest):
         steps_count = ActionStep.objects.count()
 
         # Make sure the endpoint works with and without the trailing slash
-        response = self.client.post(
-            "/api/action",
-            data={"name": "user signed up"},
-            content_type="application/json",
-            HTTP_ORIGIN="http://testserver",
-        )
+        response = self.client.post("/api/action", {"name": "user signed up"}, HTTP_ORIGIN="http://testserver",)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
