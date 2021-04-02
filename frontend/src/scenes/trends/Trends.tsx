@@ -14,6 +14,7 @@ import { ActionsPie, ActionsTable, ActionsLineGraph, ActionsBarValueGraph } from
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { Button } from 'antd'
 
 interface Props {
     view: ViewType
@@ -21,8 +22,14 @@ interface Props {
 
 export function TrendInsight({ view }: Props): JSX.Element {
     const [cohortModalVisible, setCohortModalVisible] = useState(false)
-    const { filters: _filters, showingPeople } = useValues(trendsLogic({ dashboardItemId: null, view, filters: null }))
-    const { saveCohortWithFilters, refreshCohort } = useActions(
+    const {
+        filters: _filters,
+        showingPeople,
+        loadMoreBreakdownUrl,
+        breakdownValuesLoading,
+        resultsLoading,
+    } = useValues(trendsLogic({ dashboardItemId: null, view, filters: null }))
+    const { saveCohortWithFilters, refreshCohort, loadMoreBreakdownValues } = useActions(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
     return (
@@ -42,6 +49,31 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     {_filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={_filters} view={view} />}
                     {_filters.display === ACTIONS_BAR_CHART_VALUE && (
                         <ActionsBarValueGraph filters={_filters} view={view} />
+                    )}
+                </div>
+            )}
+            {_filters.breakdown && !resultsLoading && (
+                <div className="mt text-center">
+                    {loadMoreBreakdownUrl ? (
+                        <>
+                            <div className="text-muted mb">
+                                For readability, <b>not all breakdown values are displayed</b>. Click below to load
+                                them.
+                            </div>
+                            <div>
+                                <Button
+                                    style={{ textAlign: 'center' }}
+                                    onClick={loadMoreBreakdownValues}
+                                    loading={breakdownValuesLoading}
+                                >
+                                    Load more breakdown values
+                                </Button>
+                            </div>
+                        </>
+                    ) : (
+                        <span className="text-muted">
+                            Showing <b>all breakdown values</b>
+                        </span>
                     )}
                 </div>
             )}

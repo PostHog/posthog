@@ -1,5 +1,5 @@
 import { Button, Popover, Tag } from 'antd'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import React from 'react'
 import { ClearOutlined } from '@ant-design/icons'
 import { PluginErrorType } from '~/types'
@@ -11,7 +11,7 @@ export function PluginError({ error, reset }: { error: PluginErrorType; reset?: 
     }
     return (
         <Popover
-            title={<div style={{ textAlign: 'center' }}>{moment(error.time).format('YYYY-MM-DD - HH:mm:SS')}</div>}
+            title={<div style={{ textAlign: 'center' }}>{dayjs(error.time).format('YYYY-MM-DD - HH:mm:SS')}</div>}
             content={
                 <>
                     {reset ? (

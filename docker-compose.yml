@@ -18,7 +18,6 @@ services:
             - redis
         environment:
             DATABASE_URL: postgres://posthog:posthog@db:5432/posthog
-            IS_DOCKER: 'true'
             REDIS_URL: redis://redis:6379/
             SECRET_KEY: <randomly generated secret key>
         image: posthog/posthog:latest

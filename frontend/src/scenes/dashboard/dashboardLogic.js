@@ -5,11 +5,11 @@ import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import React from 'react'
-import { clearDOMTextSelection, toParams, triggerResizeAfterADelay } from 'lib/utils'
+import { clearDOMTextSelection, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { ViewType } from 'scenes/insights/insightLogic'
-import { EventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Button } from 'antd'
 import { DashboardMode } from '../../types'
 
@@ -20,7 +20,7 @@ export const dashboardLogic = kea({
 
     actions: () => ({
         addNewDashboard: true,
-        renameDashboard: (name) => ({ name }),
+        triggerDashboardUpdate: (payload) => ({ payload }),
         setIsSharedDashboard: (id, isShared) => ({ id, isShared }), // whether the dashboard is shared or not
         // dashboardMode represents the current state in which the dashboard is being viewed (:TODO: move definitions to TS)
         setDashboardMode: (mode, source) => ({ mode, source }), // see DashboardMode
@@ -32,6 +32,8 @@ export const dashboardLogic = kea({
         updateAndRefreshDashboard: true,
         setDates: (dateFrom, dateTo, reloadDashboard = true) => ({ dateFrom, dateTo, reloadDashboard }),
         addGraph: true, // takes the user to insights to add a graph
+        deleteTag: (tag) => ({ tag }),
+        saveNewTag: (tag) => ({ tag }),
     }),
 
     loaders: ({ actions, props }) => ({
@@ -116,6 +118,12 @@ export const dashboardLogic = kea({
             null,
             {
                 setDashboardMode: (_, { mode }) => mode,
+            },
+        ],
+        lastDashboardModeSource: [
+            null,
+            {
+                setDashboardMode: (_, { source }) => source, // used to determine what input to focus on edit mode
             },
         ],
     }),
@@ -249,7 +257,8 @@ export const dashboardLogic = kea({
         afterMount: () => {
             actions.loadDashboardItems()
             if (props.shareToken) {
-                actions.setDashboardMode(DashboardMode.Public, EventSource.Browser)
+                actions.setDashboardMode(DashboardMode.Public, DashboardEventSource.Browser)
+                dashboardsModel.actions.loadDashboards(props.shareToken)
             }
         },
         beforeUnmount: () => {
@@ -276,8 +285,8 @@ export const dashboardLogic = kea({
             dashboardsModel.actions.setIsSharedDashboard({ id, isShared })
             eventUsageLogic.actions.reportDashboardShareToggled(isShared)
         },
-        renameDashboard: ({ name }) => {
-            dashboardsModel.actions.renameDashboard({ id: values.dashboard.id, name })
+        triggerDashboardUpdate: ({ payload }) => {
+            dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
         },
         updateLayouts: () => {
             actions.saveLayouts()
@@ -299,8 +308,9 @@ export const dashboardLogic = kea({
             api.update(`api/insight/${id}`, { color })
         },
         refreshAllDashboardItems: async (_, breakpoint) => {
-            await breakpoint(200)
+            await breakpoint(100)
             dashboardItemsModel.actions.refreshAllDashboardItems({})
+
             eventUsageLogic.actions.reportDashboardRefreshed(values.lastRefreshed)
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
@@ -318,8 +328,6 @@ export const dashboardLogic = kea({
             // Edit mode special handling
             if (mode === DashboardMode.Edit) {
                 clearDOMTextSelection()
-                window.setTimeout(clearDOMTextSelection, 200)
-                window.setTimeout(clearDOMTextSelection, 1000)
 
                 if (!cache.draggingToastId) {
                     cache.draggingToastId = toast(
@@ -333,7 +341,7 @@ export const dashboardLogic = kea({
                         {
                             type: 'info',
                             autoClose: false,
-                            onClick: () => actions.setDashboardMode(null, EventSource.Toast),
+                            onClick: () => actions.setDashboardMode(null, DashboardEventSource.Toast),
                             closeButton: false,
                             className: 'drag-items-toast accent-border',
                         }
@@ -347,17 +355,31 @@ export const dashboardLogic = kea({
                 }
             }
 
-            // Full screen mode special handling
-            if (mode === DashboardMode.Fullscreen) {
-                triggerResizeAfterADelay()
-            }
-
             eventUsageLogic.actions.reportDashboardModeToggled(mode, source)
         },
         addGraph: () => {
             router.actions.push(
-                `/insights?insight=TRENDS#backTo=${values.dashboard.name}&backToURL=/dashboard/${values.dashboard.id}`
+                `/insights?insight=TRENDS#backTo=${encodeURIComponent(values.dashboard.name)}&backToURL=/dashboard/${
+                    values.dashboard.id
+                }`
             )
+        },
+        saveNewTag: ({ tag }) => {
+            if (values.dashboard.tags.includes(tag)) {
+                toast.error(
+                    // TODO: move to errorToast once #3561 is merged
+                    <div>
+                        <h1>Oops! Can't add that tag</h1>
+                        <p>Your dashboard already has that tag.</p>
+                    </div>
+                )
+                return
+            }
+            actions.triggerDashboardUpdate({ tags: [...values.dashboard.tags, tag] })
+        },
+        deleteTag: async ({ tag }, breakpoint) => {
+            await breakpoint(100)
+            actions.triggerDashboardUpdate({ tags: values.dashboard.tags.filter((_tag) => _tag !== tag) })
         },
     }),
 })

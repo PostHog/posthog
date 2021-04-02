@@ -1,13 +1,11 @@
 from typing import Type, cast
 
-from ee.api.test.base import APITransactionLicensedTest
+from ee.api.test.base import APILicensedTest
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models.hook import Hook
 
 
-class TestHooksAPI(ClickhouseTestMixin, APITransactionLicensedTest):
-    TESTS_API = True
-
+class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
     def test_create_hook(self):
         data = {"target": "https://hooks.example.com/abcd/", "event": "annotation_created"}
         response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)

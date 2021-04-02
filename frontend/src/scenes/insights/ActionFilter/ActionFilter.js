@@ -41,6 +41,7 @@ export function ActionFilter({
     singleFilter = false,
     sortable = false,
     showLetters = false,
+    showOr = false,
 }) {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
@@ -86,17 +87,16 @@ export function ActionFilter({
                     </SortableContainer>
                 ) : (
                     localFilters.map((filter, index) => (
-                        <>
-                            <ActionFilterRow
-                                logic={logic}
-                                filter={filter}
-                                index={index}
-                                key={index}
-                                letter={showLetters && (alphabet[index] || '-')}
-                                hideMathSelector={hideMathSelector}
-                                singleFilter={singleFilter}
-                            />
-                        </>
+                        <ActionFilterRow
+                            logic={logic}
+                            filter={filter}
+                            index={index}
+                            key={index}
+                            letter={showLetters && (alphabet[index] || '-')}
+                            hideMathSelector={hideMathSelector}
+                            singleFilter={singleFilter}
+                            showOr={showOr}
+                        />
                     ))
                 )
             ) : null}

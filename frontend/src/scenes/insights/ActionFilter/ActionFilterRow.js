@@ -25,7 +25,7 @@ const determineFilterLabel = (visible, filter) => {
     return 'Add filters'
 }
 
-export function ActionFilterRow({ logic, filter, index, hideMathSelector, singleFilter, letter }) {
+export function ActionFilterRow({ logic, filter, index, hideMathSelector, singleFilter, showOr, letter }) {
     const node = useRef()
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
     const {
@@ -87,6 +87,15 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
     }
     return (
         <div>
+            {showOr && (
+                <Row align="center">
+                    {index > 0 && (
+                        <div className="stateful-badge mc-main or width-locked" style={{ marginTop: 12 }}>
+                            OR
+                        </div>
+                    )}
+                </Row>
+            )}
             <Row gutter={8} className="mt">
                 {letter && <Col className="action-row-letter">{letter}</Col>}
                 <Col style={{ maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}>
@@ -250,7 +259,7 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
 
 function MathPropertySelector(props) {
     const applicableProperties = props.properties
-        .filter(({ value }) => value[0] !== '$' && value !== 'distinct_id' && value !== 'token')
+        .filter(({ value }) => (value[0] !== '$' || value === '$time') && value !== 'distinct_id' && value !== 'token')
         .sort((a, b) => (a.value + '').localeCompare(b.value))
 
     return (

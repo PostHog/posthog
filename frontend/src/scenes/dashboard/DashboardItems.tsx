@@ -9,7 +9,7 @@ import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
 import { DashboardItemType, DashboardMode } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { EventSource } from '../../lib/utils/eventUsageLogic'
+import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
 
 const ReactGridLayout = WidthProvider(Responsive)
 
@@ -99,7 +99,7 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
                         isDraggingRef={isDragging}
                         inSharedMode={inSharedMode}
                         isOnEditMode={dashboardMode === DashboardMode.Edit}
-                        setEditMode={() => setDashboardMode(DashboardMode.Edit, EventSource.LongPress)}
+                        setEditMode={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.LongPress)}
                         index={index}
                     />
                 </div>

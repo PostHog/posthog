@@ -1,13 +1,11 @@
 from datetime import datetime
 from uuid import uuid4
 
-import pytest
 import pytz
 from freezegun.api import freeze_time
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.util import get_earliest_timestamp
-from posthog.models.event import Event
 
 
 def _create_event(**kwargs):

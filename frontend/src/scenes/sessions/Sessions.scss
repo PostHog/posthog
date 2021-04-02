@@ -84,10 +84,6 @@
         position: relative;
     }
 
-    .tag-wrapper {
-        margin-top: $default_spacing / 2;
-    }
-
     .ant-row {
         > .ant-col {
             height: calc(100% - #{$default_spacing});

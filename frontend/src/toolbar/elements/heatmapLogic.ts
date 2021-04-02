@@ -158,8 +158,8 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
             },
         ],
         countedElements: [
-            (selectors) => [selectors.elements],
-            (elements) => {
+            (selectors) => [selectors.elements, toolbarLogic.selectors.dataAttributes],
+            (elements, dataAttributes) => {
                 const elementCounter = new Map<HTMLElement, number>()
                 const elementSelector = new Map<HTMLElement, string>()
 
@@ -181,7 +181,7 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                         count,
                         element,
                         selector,
-                        actionStep: elementToActionStep(element),
+                        actionStep: elementToActionStep(element, dataAttributes),
                     } as CountedHTMLElement)
                 })
 

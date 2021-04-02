@@ -1,14 +1,9 @@
-from typing import cast
-
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.test.base import APIBaseTest
 
-from .base import TransactionBaseTest
 
-
-class TestOrganizationMembersAPI(TransactionBaseTest):
-    TESTS_API = True
-
+class TestOrganizationMembersAPI(APIBaseTest):
     def test_delete_organization_member(self):
         user = User.objects.create_and_join(self.organization, "test@x.com", None, "X")
         membership_queryset = OrganizationMembership.objects.filter(user=user, organization=self.organization)
@@ -38,9 +33,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
         response = self.client.patch(
-            f"/api/organizations/@current/members/{user.id}",
-            {"level": OrganizationMembership.Level.ADMIN},
-            content_type="application/json",
+            f"/api/organizations/@current/members/{user.id}", {"level": OrganizationMembership.Level.ADMIN},
         )
         self.assertEqual(response.status_code, 200)
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
@@ -66,9 +59,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
         response = self.client.patch(
-            f"/api/organizations/@current/members/{user.id}",
-            {"level": OrganizationMembership.Level.ADMIN},
-            content_type="application/json",
+            f"/api/organizations/@current/members/{user.id}", {"level": OrganizationMembership.Level.ADMIN},
         )
         self.assertEqual(response.status_code, 200)
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
@@ -79,9 +70,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
         response = self.client.patch(
-            f"/api/organizations/@current/members/{user.id}/",
-            {"level": OrganizationMembership.Level.ADMIN},
-            content_type="application/json",
+            f"/api/organizations/@current/members/{user.id}/", {"level": OrganizationMembership.Level.ADMIN},
         )
 
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
@@ -101,9 +90,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         response = self.client.patch(
-            f"/api/organizations/@current/members/{self.user.id}",
-            {"level": OrganizationMembership.Level.MEMBER},
-            content_type="application/json",
+            f"/api/organizations/@current/members/{self.user.id}", {"level": OrganizationMembership.Level.MEMBER},
         )
         self.organization_membership.refresh_from_db()
         self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
@@ -126,9 +113,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
         response = self.client.patch(
-            f"/api/organizations/@current/members/{user.id}/",
-            {"level": OrganizationMembership.Level.OWNER},
-            content_type="application/json",
+            f"/api/organizations/@current/members/{user.id}/", {"level": OrganizationMembership.Level.OWNER},
         )
         self.organization_membership.refresh_from_db()
         membership.refresh_from_db()
@@ -150,9 +135,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         response = self.client.patch(
-            f"/api/organizations/@current/members/{user.id}/",
-            {"level": OrganizationMembership.Level.OWNER},
-            content_type="application/json",
+            f"/api/organizations/@current/members/{user.id}/", {"level": OrganizationMembership.Level.OWNER},
         )
         self.organization_membership.refresh_from_db()
         membership.refresh_from_db()

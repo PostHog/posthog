@@ -16,7 +16,7 @@ export function ActionsTable({
     const { filters, results, resultsLoading } = useValues(logic)
 
     let data = results as TrendResultWithAggregate[]
-    if (!filters.session) {
+    if (!filters.session && data) {
         data = data.sort((a, b) => b.aggregated_value - a.aggregated_value)
     }
     return data && !resultsLoading ? (

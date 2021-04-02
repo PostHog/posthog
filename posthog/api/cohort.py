@@ -131,7 +131,7 @@ class CohortSerializer(serializers.ModelSerializer):
             cohort.is_calculating = True
         cohort.save()
 
-        if not is_deletion_change:
+        if not deleted_state:
             if cohort.is_static:
                 self._handle_static(cohort, request)
             else:

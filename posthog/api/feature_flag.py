@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional
 
-from django.db import IntegrityError
+import posthoganalytics
 from django.db.models import QuerySet
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -47,28 +47,47 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         else:
             return None
 
+    def validate_key(self, value):
+        exclude_kwargs = {}
+        if self.instance:
+            exclude_kwargs = {"pk": self.instance.pk}
+
+        if (
+            FeatureFlag.objects.filter(key=value, team=self.context["request"].user.team, deleted=False)
+            .exclude(**exclude_kwargs)
+            .exists()
+        ):
+            raise serializers.ValidationError("There is already a feature flag with this key.", code="unique")
+
+        return value
+
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
         self._update_filters(validated_data)
-        try:
-            FeatureFlag.objects.filter(key=validated_data["key"], team=request.user.team, deleted=True).delete()
-            feature_flag = super().create(validated_data)
-        except IntegrityError:
-            raise serializers.ValidationError("This key already exists.", code="key-exists")
 
-        return feature_flag
+        FeatureFlag.objects.filter(key=validated_data["key"], team=request.user.team, deleted=True).delete()
+        instance = super().create(validated_data)
+
+        posthoganalytics.capture(
+            request.user.distinct_id, "feature flag created", instance.get_analytics_metadata(),
+        )
+
+        return instance
 
     def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:  # type: ignore
-        try:
-            validated_key = validated_data.get("key", None)
-            if validated_key:
-                FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
-            self._update_filters(validated_data)
-            return super().update(instance, validated_data)
-        except IntegrityError:
-            raise serializers.ValidationError("This key already exists.", code="key-exists")
+        request = self.context["request"]
+        validated_key = validated_data.get("key", None)
+        if validated_key:
+            FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
+        self._update_filters(validated_data)
+        instance = super().update(instance, validated_data)
+
+        posthoganalytics.capture(
+            request.user.distinct_id, "feature flag updated", instance.get_analytics_metadata(),
+        )
+        return instance
 
     def _update_filters(self, validated_data):
         if "get_filters" in validated_data:

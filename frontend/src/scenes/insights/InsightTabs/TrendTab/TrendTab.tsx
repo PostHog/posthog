@@ -48,6 +48,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     <hr />
                     <h4 className="secondary">Filters</h4>
                     <PropertyFilters pageKey="trends-filters" />
+                    <TestAccountFilter filters={filters} onChange={setFilters} />
                 </>
             )}
             {(!filters.insight || filters.insight === ViewType.TRENDS) &&
@@ -164,7 +165,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     placement="right"
                     title='
                                             Stickiness shows you how many days users performed an action within the timeframe. If a user
-                                            performed an action on Monday and again on Friday, it would be shown 
+                                            performed an action on Monday and again on Friday, it would be shown
                                             as "2 days".'
                 >
                     <InfoCircleOutlined className="info-indicator" />

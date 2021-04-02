@@ -170,6 +170,10 @@ class OffsetMixin(BaseParamMixin):
         _offset = self._data.get(OFFSET)
         return int(_offset or "0")
 
+    @include_dict
+    def offset_to_dict(self):
+        return {"offset": self.offset} if self.offset else {}
+
 
 class CompareMixin(BaseParamMixin):
     def _process_compare(self, compare: Optional[Union[str, bool]]) -> bool:

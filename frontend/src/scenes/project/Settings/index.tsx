@@ -22,10 +22,12 @@ import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { RestrictedArea } from '../../../lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from '../../../lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
+import { TimezoneConfig } from './TimezoneConfig'
+import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { renameCurrentTeam } = useActions(teamLogic)
+    const { patchCurrentTeam } = useActions(teamLogic)
 
     const [name, setName] = useState(currentTeam?.name || '')
 
@@ -50,7 +52,7 @@ function DisplayName(): JSX.Element {
                 type="primary"
                 onClick={(e) => {
                     e.preventDefault()
-                    renameCurrentTeam(name)
+                    patchCurrentTeam({ name })
                 }}
                 disabled={!name || !currentTeam || name === currentTeam.name}
                 loading={currentTeamLoading}
@@ -146,11 +148,23 @@ export function ProjectSettings(): JSX.Element {
                 Write-only means it can only create new events. It can't read events or any of your other data stored
                 with PostHog, so it's safe to use in public apps.
                 <Divider />
-                <h2 className="subtitle" id="testaccounts">
-                    Filter out test accounts and team members
+                <h2 className="subtitle" id="timezone">
+                    Timezone
+                </h2>
+                <p>Set the timezone for your project so that you can see relevant time conversions in PostHog.</p>
+                <TimezoneConfig />
+                <Divider />
+                <h2 className="subtitle" id="internal-users-filtering">
+                    Filter Out Events
                 </h2>
                 <p>
-                    Filter out test accounts and internal team members from all your queries for more accurate insights.
+                    Increase the quality of your analytics results by filtering out events from team members, test
+                    accounts, and development environments. The events will still be captured and logged but will be
+                    excluded from queries, graphs, and other analyses.
+                </p>
+                <p>
+                    For example, <code>email ∌ example.com</code> to exclude all events from users on your team and{' '}
+                    <code>Host ≠ localhost:8000</code> to exclude all events from local development environments.
                 </p>
                 <TestAccountFiltersConfig />
                 <Divider />
@@ -162,6 +176,11 @@ export function ProjectSettings(): JSX.Element {
                     also where you'll be able to create Actions and record sessions.
                 </p>
                 <EditAppUrls />
+                <Divider />
+                <h2 className="subtitle" id="attributes">
+                    Data Attributes
+                </h2>
+                <DataAttributes />
                 <Divider />
                 <h2 className="subtitle" id="webhook">
                     Webhook Integration

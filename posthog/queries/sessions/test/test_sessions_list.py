@@ -1,4 +1,3 @@
-import pytz
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -6,6 +5,7 @@ from freezegun import freeze_time
 from posthog.models import Action, ActionStep, Cohort, Event, Organization, Person, SessionRecordingEvent
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.sessions.sessions_list import SessionsList
+from posthog.tasks.calculate_action import calculate_action, calculate_actions_from_last_calculation
 from posthog.test.base import BaseTest
 
 
@@ -108,6 +108,10 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
             action3 = _create_action(name="another-event", team=self.team)
 
             self.create_test_data()
+
+            calculate_action(action1.id)
+            calculate_action(action2.id)
+            calculate_action(action3.id)
 
             self.assertLength(
                 self.run_query(
@@ -243,6 +247,7 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
             Person.objects.create(team=self.team, distinct_ids=["1", "3", "4"], properties={"email": "bla"})
             # Test team leakage
             Person.objects.create(team=team_2, distinct_ids=["1", "3", "4"], properties={"email": "bla"})
+            calculate_actions_from_last_calculation()
 
         def create_large_testset(self):
             for i in range(100):

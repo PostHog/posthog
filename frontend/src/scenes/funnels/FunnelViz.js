@@ -11,10 +11,10 @@ import { IllustrationDanger } from 'lib/components/icons'
 
 export function FunnelViz({
     steps: stepsParam,
-    filters: defaultFilters,
-    dashboardItemId,
-    cachedResults,
-    inSharedMode,
+    filters: defaultFilters = undefined,
+    dashboardItemId = undefined,
+    cachedResults = undefined,
+    inSharedMode = undefined,
     color = 'white',
 }) {
     const container = useRef(null)
@@ -93,9 +93,9 @@ export function FunnelViz({
                 </div>
             )
         }
-        return steps && steps.length > 0 ? (
+        return steps && steps.length > 0 && steps[0].labels ? (
             <>
-                <div style={{ position: 'absolute', right: 24, marginTop: -20 }}>
+                <div style={{ position: 'absolute', marginTop: -20, textAlign: 'center', width: '90%' }}>
                     % of users converted between first and last step
                 </div>
                 <LineGraph

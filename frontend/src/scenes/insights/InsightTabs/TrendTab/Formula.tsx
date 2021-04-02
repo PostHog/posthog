@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Input } from 'antd'
 import { FilterType } from '~/types'
-import { LIFECYCLE, STICKINESS } from 'lib/constants'
+import { ShownAsValue } from 'lib/constants'
 
 export function Formula({
     filters,
@@ -33,7 +33,7 @@ export function Formula({
                 }}
                 onFocus={() => onFocus(true, value)}
                 onBlur={() => !filters.formula && onFocus(false, value)}
-                disabled={filters.shown_as === STICKINESS || filters.shown_as === LIFECYCLE}
+                disabled={filters.shown_as === ShownAsValue.STICKINESS || filters.shown_as === ShownAsValue.LIFECYCLE}
                 enterButton="Apply"
                 onSearch={onChange}
             />

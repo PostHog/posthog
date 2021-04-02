@@ -24,10 +24,12 @@ import {
     DeliveredProcedureOutlined,
     BarChartOutlined,
     SaveOutlined,
+    ReloadOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
+import dayjs from 'dayjs'
 import { logicFromInsight, ViewType } from 'scenes/insights/insightLogic'
 import { dashboardsModel } from '~/models'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
@@ -35,6 +37,9 @@ import SaveModal from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { DashboardItemType, DashboardType, DisplayType } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
+
+import relativeTime from 'dayjs/plugin/relativeTime'
+dayjs.extend(relativeTime)
 
 interface Props {
     item: DashboardItemType
@@ -210,6 +215,7 @@ export function DashboardItem({
         preventLoading,
     }
 
+    const { loadResults } = useActions(logicFromInsight(item.filters.insight, logicProps))
     const { results, resultsLoading } = useValues(logicFromInsight(item.filters.insight, logicProps))
     const previousLoading = usePrevious(resultsLoading)
 
@@ -289,6 +295,20 @@ export function DashboardItem({
                                         />
                                     </Tooltip>
                                 ))}
+                            {/* :TODO: Remove individual refresh when addressing https://github.com/PostHog/posthog/issues/3609  */}
+                            <Tooltip
+                                title={
+                                    <i>
+                                        Last updated:{' '}
+                                        {item.last_refresh ? dayjs(item.last_refresh).fromNow() : 'recently'}
+                                    </i>
+                                }
+                            >
+                                <ReloadOutlined
+                                    style={{ cursor: 'pointer', marginTop: -3 }}
+                                    onClick={() => loadResults(true)}
+                                />
+                            </Tooltip>
                             <Dropdown
                                 placement="bottomRight"
                                 trigger={['click']}
