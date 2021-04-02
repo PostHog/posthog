@@ -38,6 +38,9 @@ export function InstructionsPanel(): JSX.Element {
     const { index, totalSteps, platform, framework } = useValues(ingestionLogic)
     const { setFramework, setVerify } = useActions(ingestionLogic)
 
+    console.log('rendering framework')
+    console.log(framework)
+    console.log(platform)
     if (!framework) {
         return <></>
     }
