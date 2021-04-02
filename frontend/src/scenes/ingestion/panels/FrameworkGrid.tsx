@@ -36,9 +36,6 @@ const getDisplayName = (frameworks: Record<string, string>, item: Framework | st
 const getDataSource = (frameworks: Record<string, string>, sorted?: boolean): string[] => {
     if (sorted) {
         return Object.keys(frameworks).sort((k1, k2) => {
-            if (k1 === API) {
-                return 1
-            }
             return getDisplayName(frameworks, k1).toString().localeCompare(getDisplayName(frameworks, k2).toString())
         }) as (keyof typeof frameworks)[]
     } else {
