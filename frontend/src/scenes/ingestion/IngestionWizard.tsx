@@ -8,7 +8,7 @@ import { MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { FrameworkPanel } from 'scenes/ingestion/panels/FrameworkPanel'
-import { FrameworkPanel2 } from 'scenes/ingestion/panels/FrameworkPanel2'
+import { FrameworkGrid } from 'scenes/ingestion/panels/FrameworkGrid'
 import { PlatformPanel } from 'scenes/ingestion/panels/PlatformPanel'
 
 export function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
@@ -31,18 +31,6 @@ export function IngestionContainer({ children }: { children: React.ReactNode }):
 export default function IngestionWizard(): JSX.Element {
     const { platform, framework, verify } = useValues(ingestionLogic)
 
-    // return (
-    //     <IngestionContainer>
-    //         <FrameworkPanel2/>
-    //     </IngestionContainer>
-    // )
-
-    console.log('in render')
-    console.log(platform)
-    console.log(framework)
-
-    const inExperiment = true
-
     if (verify) {
         return (
             <IngestionContainer>
@@ -51,11 +39,11 @@ export default function IngestionWizard(): JSX.Element {
         )
     }
 
+    const inExperiment = true
     if (inExperiment && !framework) {
         return (
             <IngestionContainer>
-                {/*<PlatformPanel />*/}
-                <FrameworkPanel2 />
+                <FrameworkGrid />
             </IngestionContainer>
         )
     }
@@ -72,7 +60,6 @@ export default function IngestionWizard(): JSX.Element {
         return (
             <IngestionContainer>
                 <PlatformPanel />
-                {/*<FrameworkPanel2/>*/}
             </IngestionContainer>
         )
     }

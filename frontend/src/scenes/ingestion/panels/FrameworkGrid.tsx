@@ -14,7 +14,7 @@ import {
     frameworkToPlatform,
     API,
 } from 'scenes/ingestion/constants'
-import './FrameworkPanel2.scss'
+import './FrameworkGrid.scss'
 
 const { TabPane } = Tabs
 const { Paragraph } = Typography
@@ -107,7 +107,7 @@ function MenuHeader(): JSX.Element {
     )
 }
 
-export function FrameworkPanel2(): JSX.Element {
+export function FrameworkGrid(): JSX.Element {
     const { setPlatform, setFramework } = useActions(ingestionLogic)
     const { index, totalSteps } = useValues(ingestionLogic)
 
