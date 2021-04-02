@@ -39,7 +39,7 @@ export function FrameworkPanel(): JSX.Element {
                     )}
                 />
             </Row>
-            <Row align="middle" style={{ float: 'right', marginTop: 8 }}>
+            <Row align="middle" style={{ float: 'right', marginTop: 5 }}>
                 Don't see a language/platform/framework here?
                 <b style={{ marginLeft: 5 }} className="button-border clickable" onClick={() => setFramework(API)}>
                     Continue with our HTTP API

@@ -12,6 +12,7 @@ import {
     popularFrameworks,
     webFrameworks,
     frameworkToPlatform,
+    API,
 } from 'scenes/ingestion/constants'
 import './FrameworkPanel2.scss'
 
@@ -51,7 +52,7 @@ function FrameworksContainer(frameworks: Framework[], sort?: boolean): JSX.Eleme
 
     return (
         <List
-            style={{ height: 350, maxHeight: 350, overflowY: 'scroll' }}
+            style={{ height: 325, maxHeight: 325, overflowY: 'scroll' }}
             grid={{}}
             size={'large'}
             dataSource={getDataSource(sort)}
@@ -72,14 +73,15 @@ function FrameworksContainer(frameworks: Framework[], sort?: boolean): JSX.Eleme
                         <div className={'logo-container'}>
                             <Avatar
                                 size={64}
-                                shape={
-                                    item === 'PURE_JS' ||
-                                    item === 'AUTOCAPTURE' ||
-                                    item === 'REACT_NATIVE' ||
-                                    item === 'PHP'
-                                        ? 'circle'
-                                        : 'square'
-                                }
+                                shape={'square'}
+                                // shape={
+                                //     item === 'PURE_JS' ||
+                                //     item === 'AUTOCAPTURE' ||
+                                //     item === 'REACT_NATIVE' ||
+                                //     item === 'PHP'
+                                //         ? 'circle'
+                                //         : 'square'
+                                // }
                                 className={'logo'}
                                 src={item in logos ? logos[item] : logos['default']}
                             />
@@ -105,7 +107,6 @@ function MenuHeader(): JSX.Element {
     //   },
     //   {}
     // );
-
     return (
         <Tabs defaultActiveKey="popular">
             <TabPane tab="Most Popular" key="popular">
@@ -140,12 +141,19 @@ export function FrameworkPanel2(): JSX.Element {
                 setFramework(null)
             }}
         >
-            <p className="prompt-text">
+            <h1>Welcome to PostHog</h1>
+            <h3>
                 Choose the framework your app is built in. We'll provide you with snippets that you can easily add to
                 your codebase to get started!
-            </p>
+            </h3>
 
             <Row>{MenuHeader()}</Row>
+            <Row align="middle" style={{ float: 'right', marginTop: 8 }}>
+                Don't see a language/platform/framework here?
+                <b style={{ marginLeft: 5 }} className="button-border clickable" onClick={() => setFramework(API)}>
+                    Continue with our HTTP API
+                </b>
+            </Row>
         </CardContainer>
     )
 }
