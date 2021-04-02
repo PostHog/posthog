@@ -8,7 +8,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0141_events_created_at_index"),
+        ("posthog", "0142_fix_team_data_attributes_default"),
     ]
 
     operations = [

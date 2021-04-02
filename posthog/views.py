@@ -1,3 +1,4 @@
+import os
 from functools import wraps
 from typing import Dict, List, Union
 
@@ -12,6 +13,7 @@ from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
 from posthog.ee import is_ee_enabled
+from posthog.email import is_email_available
 from posthog.models import User
 from posthog.utils import (
     get_redis_info,
@@ -183,7 +185,15 @@ def preflight_check(_):
             if not settings.E2E_TESTING
             else False,  # Enables E2E testing of signup flow
             "cloud": settings.MULTI_TENANCY,
+            "ee_available": settings.EE_AVAILABLE,
+            "ee_enabled": is_ee_enabled(),
             "available_social_auth_providers": get_available_social_auth_providers(),
             "available_timezones": get_available_timezones_with_offsets(),
+            "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE", False),
+            "posthog_version": VERSION,
+            "email_service_available": is_email_available(with_absolute_urls=True),
+            "is_debug": settings.DEBUG,
+            "is_event_property_usage_enabled": settings.ASYNC_EVENT_PROPERTY_USAGE,
+            "is_async_event_action_mapping_enabled": settings.ASYNC_EVENT_ACTION_MAPPING,
         }
     )

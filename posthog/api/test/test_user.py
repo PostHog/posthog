@@ -214,6 +214,18 @@ class TestUserAPI(APIBaseTest):
 
         self._assert_current_org_and_team_unchanged()
 
+    def test_user_can_update_password(self):
+        pass
+
+    def test_user_cant_update_password_without_current_password_or_incorrect_current_password(self):
+        pass
+
+    def test_deleting_current_user_is_not_supported(self):
+        """
+        Self-serve account deletion is currently not supported.
+        """
+        pass
+
 
 class TestUserAPILegacy(APIBaseTest):
     """
