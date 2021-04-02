@@ -122,5 +122,5 @@ export const logos = {
     [ANDROID]: androidLogo,
     [IOS]: appleLogo,
     [API]: bashLogo,
-    default: nodeJSLogo,
+    default: posthogLogo,
 }
