@@ -28,7 +28,7 @@ certifi==2019.11.28
     # via
     #   requests
     #   sentry-sdk
-cffi==1.14.0
+cffi==1.14.5
     # via cryptography
 chardet==3.0.4
     # via requests

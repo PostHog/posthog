@@ -31,6 +31,8 @@ jobs:
     jest:
         name: Jest tests
         runs-on: ubuntu-20.04
+        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
+
         steps:
             - uses: actions/checkout@v1
 

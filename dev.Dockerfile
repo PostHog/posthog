@@ -6,7 +6,7 @@ WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl=7.64.0-4+deb10u1 git=1:2.20.1-2+deb10u3 build-essential=12.6 \
+    && apt-get install -y --no-install-recommends curl=7.64.0-4+deb10u2 git=1:2.20.1-2+deb10u3 build-essential=12.6 \
     && curl -sL https://deb.nodesource.com/setup_14.x | bash - \
     && apt-get install -y --no-install-recommends nodejs=14.16.0-1nodesource1 \
     && rm -rf /var/lib/apt/lists/* \

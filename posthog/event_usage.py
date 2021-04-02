@@ -50,6 +50,16 @@ def report_user_joined_organization(organization: Organization, current_user: Us
     )
 
 
+def report_user_logged_in(
+    distinct_id: str,
+    social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)
+) -> None:
+    """
+    Reports that a user has logged in to PostHog.
+    """
+    posthoganalytics.capture(distinct_id, "user logged in", properties={"social_provider": social_provider})
+
+
 def report_onboarding_completed(organization: Organization, current_user: User) -> None:
     """
     Reports that the `new-onboarding-2822` has been completed.

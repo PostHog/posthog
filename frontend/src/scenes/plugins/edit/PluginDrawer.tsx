@@ -89,6 +89,7 @@ export function PluginDrawer(): JSX.Element {
                 onClose={() => editPlugin(null)}
                 width="min(90vw, 420px)"
                 title={editingPlugin?.name}
+                data-attr="plugin-drawer"
                 footer={
                     <div style={{ display: 'flex' }}>
                         <Space style={{ flexGrow: 1 }}>
@@ -106,6 +107,7 @@ export function PluginDrawer(): JSX.Element {
                                             style={{ color: 'var(--danger)', padding: 4 }}
                                             type="text"
                                             icon={<DeleteOutlined />}
+                                            data-attr="plugin-uninstall"
                                         >
                                             Uninstall
                                         </Button>
@@ -154,8 +156,15 @@ export function PluginDrawer(): JSX.Element {
                                 ))}
                         </Space>
                         <Space>
-                            <Button onClick={() => editPlugin(null)}>Cancel</Button>
-                            <Button type="primary" loading={loading} onClick={form.submit}>
+                            <Button onClick={() => editPlugin(null)} data-attr="plugin-drawer-cancel">
+                                Cancel
+                            </Button>
+                            <Button
+                                type="primary"
+                                loading={loading}
+                                onClick={form.submit}
+                                data-attr="plugin-drawer-save"
+                            >
                                 Save
                             </Button>
                         </Space>
@@ -186,6 +195,7 @@ export function PluginDrawer(): JSX.Element {
                                             fieldKey="__enabled"
                                             name="__enabled"
                                             style={{ display: 'inline-block', marginBottom: 0 }}
+                                            data-attr="plugin-enabled-switch"
                                         >
                                             <EnabledDisabledSwitch />
                                         </Form.Item>
@@ -199,6 +209,7 @@ export function PluginDrawer(): JSX.Element {
                                         type={editingSource ? 'default' : 'primary'}
                                         icon={<CodeOutlined />}
                                         onClick={() => setEditingSource(!editingSource)}
+                                        data-attr="plugin-edit-source"
                                     >
                                         Edit Source
                                     </Button>

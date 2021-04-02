@@ -61,6 +61,9 @@ DEBUG = get_from_env("DEBUG", False, type_cast=strtobool)
 TEST = (
     "test" in sys.argv or sys.argv[0].endswith("pytest") or get_from_env("TEST", False, type_cast=strtobool)
 )  # type: bool
+E2E_TESTING = get_from_env(
+    "E2E_TESTING", False, type_cast=strtobool,
+)  # whether the app is currently running for E2E tests
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=strtobool)
 SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=strtobool)
 
@@ -174,9 +177,16 @@ PLUGIN_SERVER_INGESTION = get_from_env("PLUGIN_SERVER_INGESTION", not TEST, type
 ASYNC_EVENT_ACTION_MAPPING = PRIMARY_DB == RDBMS.POSTGRES and get_from_env(
     "ASYNC_EVENT_ACTION_MAPPING", True, type_cast=strtobool
 )
+ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
 
 ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", False, type_cast=strtobool)
-ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
+EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = get_from_env(
+    "ASYNC_EVENT_PROPERTY_USAGE_INTERVAL_SECONDS", 60 * 60, type_cast=int
+)
+
+UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = get_from_env(
+    "UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS", 90, type_cast=int
+)
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
@@ -197,7 +207,7 @@ STATSD_PREFIX = os.getenv("STATSD_PREFIX", "")
 AXES_ENABLED = get_from_env("AXES_ENABLED", True, type_cast=strtobool)
 AXES_FAILURE_LIMIT = int(os.getenv("AXES_FAILURE_LIMIT", 5))
 AXES_COOLOFF_TIME = timedelta(minutes=15)
-AXES_LOCKOUT_TEMPLATE = "too_many_failed_logins.html"
+AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axess_logout"
 AXES_META_PRECEDENCE_ORDER = [
     "HTTP_X_FORWARDED_FOR",
     "REMOTE_ADDR",
@@ -489,6 +499,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
+    "TEST_REQUEST_DEFAULT_FORMAT": "json",
 }
 
 EXCEPTIONS_HOG = {
@@ -504,7 +515,7 @@ EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 EMAIL_USE_TLS = get_from_env("EMAIL_USE_TLS", False, type_cast=strtobool)
 EMAIL_USE_SSL = get_from_env("EMAIL_USE_SSL", False, type_cast=strtobool)
 DEFAULT_FROM_EMAIL = os.getenv("EMAIL_DEFAULT_FROM", os.getenv("DEFAULT_FROM_EMAIL", "root@localhost"))
-EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO")
+EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO", None)
 
 MULTI_TENANCY = False  # overriden by posthog-cloud
 

@@ -821,7 +821,7 @@ export function shortTimeZone(timeZone?: string, atDate: Date = new Date()): str
      * @param atDate
      */
     const localeTimeString = new Date(atDate).toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
-    return localeTimeString.split(' ')[2].replace('GMT', 'UTC')
+    return localeTimeString.split(' ')[2]
 }
 
 export function humanTzOffset(timezone?: string): string {

@@ -2415,10 +2415,10 @@
     use-debounce "^5.2.1"
     use-local-storage-state "^6.0.0"
 
-"@posthog/simmerjs@0.7.2-posthog.2":
-  version "0.7.2-posthog.2"
-  resolved "https://registry.yarnpkg.com/@posthog/simmerjs/-/simmerjs-0.7.2-posthog.2.tgz#de10f796675a66e48ed3a7a2e076608fd27bf40c"
-  integrity sha512-eEI5SiI4jj68/LJK6kBZsQLwRd7sxuUDgHsonfCtLjTHpKFYa8BxueTA+8LBB4TTMGKuAxO1fKRRfnPdDedYIQ==
+"@posthog/simmerjs@0.7.4":
+  version "0.7.4"
+  resolved "https://registry.yarnpkg.com/@posthog/simmerjs/-/simmerjs-0.7.4.tgz#48778bee9ce5dc08cefded6e5b6721b7c9b85584"
+  integrity sha512-pEbDRbX/dUdbRiaHIlUl5dkqVFqSjzekcVmnTkZa8CNIVrJZ0OOH0msZx77XYqntgomPuJx01sTpwHdzeZv3zQ==
   dependencies:
     "@babel/runtime" "^7.11.2"
     lodash.difference "^4.5.0"
@@ -10896,10 +10896,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.9.5:
-  version "1.9.5"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.9.5.tgz#b3bbf9efda17a4099058eb3590e996d5613cdfcb"
-  integrity sha512-+yLS5aTy383p8KDUNObteztY84hrLf2B/Bmkvj52SmEruyl3P32XPRUA08CLeUdLdSc8BxRNBY3MnW7+VSQVXQ==
+posthog-js@1.9.6:
+  version "1.9.6"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.9.6.tgz#af32b315992948366650a8f215ffbc26ffd4ed3e"
+  integrity sha512-+o/4pMEZS9s77y+1UCrhBQ+7V9+/0yZ8FHnAJ/2bRWiJbG0lSgliRIdKtFFtMjASs9GQoEfaod6preICz2Fxtw==
   dependencies:
     fflate "^0.4.1"
 
@@ -14425,9 +14425,9 @@ xtend@^4.0.0, xtend@^4.0.1, xtend@^4.0.2, xtend@~4.0.1:
   integrity sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==
 
 y18n@^4.0.0:
-  version "4.0.0"
-  resolved "https://registry.yarnpkg.com/y18n/-/y18n-4.0.0.tgz#95ef94f85ecc81d007c264e190a120f0a3c8566b"
-  integrity sha512-r9S/ZyXu/Xu9q1tYlpsLIsa3EeLXXk0VwlxqTcFRfg9EhMW+17kbt9G0NrgCmhGb5vT2hyhJZLfDGx+7+5Uj/w==
+  version "4.0.1"
+  resolved "https://registry.yarnpkg.com/y18n/-/y18n-4.0.1.tgz#8db2b83c31c5d75099bb890b23f3094891e247d4"
+  integrity sha512-wNcy4NvjMYL8gogWWYAO7ZFWFfHcbdbE57tZO8e4cbpj8tfUcwrwqSl3ad8HxpYWCdXcJUCeKKZS62Av1affwQ==
 
 yallist@^3.0.2:
   version "3.1.1"

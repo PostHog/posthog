@@ -23,6 +23,11 @@ import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
+interface TrendResponse {
+    result: TrendResult[]
+    next?: string
+}
+
 export interface ActionFilter {
     id: number | string
     math?: string
@@ -130,7 +135,9 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
 // props:
 // - dashboardItemId
 // - filters
-export const trendsLogic = kea<trendsLogicType<TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter>>({
+export const trendsLogic = kea<
+    trendsLogicType<TrendResponse, IndexedTrendResult, TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter>
+>({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
     },
@@ -140,11 +147,11 @@ export const trendsLogic = kea<trendsLogicType<TrendResult, FilterType, ActionTy
     },
 
     loaders: ({ values, props }) => ({
-        results: {
-            __default: [] as TrendResult[],
+        _results: {
+            __default: {} as TrendResponse,
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
-                    return props.cachedResults
+                    return { result: props.cachedResults } as TrendResponse
                 }
                 insightLogic.actions.startQuery()
                 let response
@@ -163,13 +170,15 @@ export const trendsLogic = kea<trendsLogicType<TrendResult, FilterType, ActionTy
                         )
                     }
                 } catch (e) {
+                    console.error(e)
                     breakpoint()
-                    insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, false, e)
+                    insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, null, e)
                     return []
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, response.last_refresh)
-                return response.result
+
+                return response
             },
         },
     }),
@@ -196,6 +205,8 @@ export const trendsLogic = kea<trendsLogicType<TrendResult, FilterType, ActionTy
         setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
         toggleVisibility: (index: number) => ({ index }),
         setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
+        loadMoreBreakdownValues: true,
+        setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
     }),
 
     reducers: ({ props }) => ({
@@ -235,7 +246,7 @@ export const trendsLogic = kea<trendsLogicType<TrendResult, FilterType, ActionTy
             },
         ],
         indexedResults: [
-            [],
+            [] as IndexedTrendResult[],
             {
                 setIndexedResults: ({}, { results }) => results,
             },
@@ -253,9 +264,18 @@ export const trendsLogic = kea<trendsLogicType<TrendResult, FilterType, ActionTy
                 }),
             },
         ],
+        breakdownValuesLoading: [
+            false,
+            {
+                setBreakdownValuesLoading: (_, { loading }) => loading,
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
+        results: [() => [selectors._results], (response) => response.result],
+        resultsLoading: [() => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
+        loadMoreBreakdownUrl: [() => [selectors._results], (response) => response.next],
         sessionsPageParams: [
             () => [selectors.filters, selectors.people],
             (filters, people) => {
@@ -407,6 +427,18 @@ export const trendsLogic = kea<trendsLogicType<TrendResult, FilterType, ActionTy
             if (props.dashboardItemId) {
                 actions.setFilters(filters, true)
             }
+        },
+        loadMoreBreakdownValues: async () => {
+            if (!values.loadMoreBreakdownUrl) {
+                return
+            }
+            actions.setBreakdownValuesLoading(true)
+            const response = await api.get(values.loadMoreBreakdownUrl)
+            actions.loadResultsSuccess({
+                result: [...values.results, ...response.result],
+                next: response.next,
+            })
+            actions.setBreakdownValuesLoading(false)
         },
     }),
 

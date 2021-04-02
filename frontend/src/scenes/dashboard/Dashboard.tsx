@@ -10,7 +10,7 @@ import { CalendarOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from '../../lib/hooks/useKeyboardHotkeys'
 import { DashboardMode } from '../../types'
-import { EventSource } from '../../lib/utils/eventUsageLogic'
+import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { Link } from 'lib/components/Link'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
@@ -41,7 +41,7 @@ function DashboardView(): JSX.Element {
                       action: () =>
                           setDashboardMode(
                               dashboardMode === DashboardMode.Edit ? null : DashboardMode.Edit,
-                              EventSource.Hotkey
+                              DashboardEventSource.Hotkey
                           ),
                       disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Edit,
                   },
@@ -49,7 +49,7 @@ function DashboardView(): JSX.Element {
                       action: () =>
                           setDashboardMode(
                               dashboardMode === DashboardMode.Fullscreen ? null : DashboardMode.Fullscreen,
-                              EventSource.Hotkey
+                              DashboardEventSource.Hotkey
                           ),
                       disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Fullscreen,
                   },
@@ -57,7 +57,7 @@ function DashboardView(): JSX.Element {
                       action: () =>
                           setDashboardMode(
                               dashboardMode === DashboardMode.Sharing ? null : DashboardMode.Sharing,
-                              EventSource.Hotkey
+                              DashboardEventSource.Hotkey
                           ),
                       disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Sharing,
                   },
@@ -67,7 +67,7 @@ function DashboardView(): JSX.Element {
                   },
                   escape: {
                       // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
-                      action: () => setDashboardMode(null, EventSource.Hotkey),
+                      action: () => setDashboardMode(null, DashboardEventSource.Hotkey),
                       disabled: dashboardMode !== DashboardMode.Edit,
                   },
               },
@@ -102,7 +102,7 @@ function DashboardView(): JSX.Element {
 
     return (
         <div className="dashboard">
-            {dashboardMode !== 'public' && <DashboardHeader />}
+            {dashboardMode !== DashboardMode.Public && <DashboardHeader />}
             {items && items.length ? (
                 <div>
                     <div className="dashboard-items-actions">
@@ -117,7 +117,14 @@ function DashboardView(): JSX.Element {
                         </div>
                          */}
                         {dashboardMode !== DashboardMode.Public && (
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'flex-end',
+                                    width: '100%',
+                                }}
+                            >
                                 <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />
                                 <DateFilter
                                     defaultValue="Custom"

@@ -27,7 +27,7 @@ const searchActions = (sources: ActionType[], search: string): ActionType[] => {
 export function ActionsTable(): JSX.Element {
     const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions } = useActions(actionsModel)
-    const [searchTerm, setSearchTerm] = useState(false)
+    const [searchTerm, setSearchTerm] = useState('')
     const [filterByMe, setFilterByMe] = useState(false)
     const { user } = useValues(userLogic)
 
@@ -37,7 +37,7 @@ export function ActionsTable(): JSX.Element {
             dataIndex: 'name',
             key: 'name',
             sorter: (a: ActionType, b: ActionType) => ('' + a.name).localeCompare(b.name),
-            render: function RenderName(_, action: ActionType, index: number) {
+            render: function RenderName(_: null, action: ActionType, index: number) {
                 return (
                     <Link
                         data-attr={'action-link-' + index}
@@ -52,7 +52,7 @@ export function ActionsTable(): JSX.Element {
             ? [
                   {
                       title: 'Volume',
-                      render: function RenderVolume(_, action: ActionType) {
+                      render: function RenderVolume(_: null, action: ActionType) {
                           return <span>{action.count}</span>
                       },
                       sorter: (a: ActionType, b: ActionType) => (a.count || 0) - (b.count || 0),
@@ -61,7 +61,7 @@ export function ActionsTable(): JSX.Element {
             : []),
         {
             title: 'Type',
-            render: function RenderType(_, action: ActionType) {
+            render: function RenderType(_: null, action: ActionType) {
                 return (
                     <span>
                         {action.steps?.map((step) => (
@@ -132,7 +132,7 @@ export function ActionsTable(): JSX.Element {
         },
     ]
     let data = actions
-    if (searchTerm) {
+    if (searchTerm && searchTerm !== '') {
         data = searchActions(data, searchTerm)
     }
     if (filterByMe) {

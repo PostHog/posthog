@@ -647,7 +647,10 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
     now = dt.datetime.now()
     result = {}
     for tz in pytz.common_timezones:
-        offset = pytz.timezone(tz).utcoffset(now)
+        try:
+            offset = pytz.timezone(tz).utcoffset(now)
+        except:
+            offset = pytz.timezone(tz).utcoffset(now + dt.timedelta(hours=2))
         if offset is None:
             continue
         offset_hours = int(offset.total_seconds()) / 3600

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 
-import { Loading } from 'lib/utils'
+import { isMobile, Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -11,7 +11,7 @@ import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Card, Button } from 'antd'
+import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -46,11 +46,14 @@ import { TrendLegend } from './TrendLegend'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
+import { DisplayType, FilterType, HotKeys } from '~/types'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
 
-const showIntervalFilter = function (activeView, filter) {
+const showIntervalFilter = function (activeView: ViewType, filter: FilterType): boolean {
     switch (activeView) {
         case ViewType.FUNNELS:
             return filter.display === ACTIONS_LINE_GRAPH_LINEAR
@@ -62,11 +65,11 @@ const showIntervalFilter = function (activeView, filter) {
         case ViewType.LIFECYCLE:
         case ViewType.SESSIONS:
         default:
-            return ![ACTIONS_PIE_CHART, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE].includes(filter.display) // sometimes insights aren't set for trends
+            return ![ACTIONS_PIE_CHART, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE].includes(filter.display || '') // sometimes insights aren't set for trends
     }
 }
 
-const showChartFilter = function (activeView, featureFlags) {
+const showChartFilter = function (activeView: ViewType, featureFlags: Record<string, boolean>): boolean {
     switch (activeView) {
         case ViewType.TRENDS:
         case ViewType.STICKINESS:
@@ -103,7 +106,13 @@ const showComparePrevious = {
     [`${ViewType.PATHS}`]: false,
 }
 
-export function Insights() {
+function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
+    /* Temporary element to only show hotkeys when feature flag is active */
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags['hotkeys-3740'] && !isMobile() ? <span className="hotkey">{hotkey}</span> : <></>
+}
+
+export function Insights(): JSX.Element {
     useMountedLogic(insightCommandLogic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
@@ -113,12 +122,48 @@ export function Insights() {
     )
     const { setActiveView } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { reportHotkeyNavigation } = useActions(eventUsageLogic)
 
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
     const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
 
+    const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
+        setActiveView(view)
+        reportHotkeyNavigation('insights', hotkey)
+    }
+
+    useKeyboardHotkeys(
+        featureFlags['hotkeys-3740']
+            ? {
+                  t: {
+                      action: () => handleHotkeyNavigation(ViewType.TRENDS, 't'),
+                  },
+                  f: {
+                      action: () => handleHotkeyNavigation(ViewType.FUNNELS, 'f'),
+                  },
+                  s: {
+                      action: () => handleHotkeyNavigation(ViewType.SESSIONS, 's'),
+                  },
+                  r: {
+                      action: () => handleHotkeyNavigation(ViewType.RETENTION, 'r'),
+                  },
+                  p: {
+                      action: () => handleHotkeyNavigation(ViewType.PATHS, 'p'),
+                  },
+                  k: {
+                      action: () => handleHotkeyNavigation(ViewType.STICKINESS, 'k'),
+                      disabled: !featureFlags['remove-shownas'],
+                  },
+                  l: {
+                      action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
+                      disabled: !featureFlags['remove-shownas'],
+                  },
+              }
+            : {}
+    )
+
     return (
-        <div className="actions-graph">
+        <div className="insights-page">
             <PageHeader title="Insights" />
             <Row justify="space-between" align="middle" className="top-bar">
                 <Tabs
@@ -133,7 +178,7 @@ export function Insights() {
                     tabBarExtraContent={{
                         right: (
                             <Button
-                                type={activeView === 'history' && 'primary'}
+                                type={activeView === 'history' ? 'primary' : undefined}
                                 data-attr="insight-history-button"
                                 onClick={() => setActiveView('history')}
                             >
@@ -142,20 +187,95 @@ export function Insights() {
                         ),
                     }}
                 >
-                    <TabPane tab={<span data-attr="insight-trends-tab">Trends</span>} key={ViewType.TRENDS} />
-                    <TabPane tab={<span data-attr="insight-funnels-tab">Funnels</span>} key={ViewType.FUNNELS} />
-                    <TabPane tab={<span data-attr="insight-sessions-tab">Sessions</span>} key={ViewType.SESSIONS} />
-                    <TabPane tab={<span data-attr="insight-retention-tab">Retention</span>} key={ViewType.RETENTION} />
-                    <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS} />
+                    <TabPane
+                        tab={
+                            <span data-attr="insight-trends-tab">
+                                Trends
+                                <InsightHotkey hotkey="t" />
+                            </span>
+                        }
+                        key={ViewType.TRENDS}
+                    />
+                    <TabPane
+                        tab={
+                            <span data-attr="insight-funnels-tab">
+                                Funnels
+                                <InsightHotkey hotkey="f" />
+                            </span>
+                        }
+                        key={ViewType.FUNNELS}
+                    />
+                    <TabPane
+                        tab={
+                            <span data-attr="insight-sessions-tab">
+                                Sessions
+                                <InsightHotkey hotkey="s" />
+                            </span>
+                        }
+                        key={ViewType.SESSIONS}
+                    />
+                    <TabPane
+                        tab={
+                            <span data-attr="insight-retention-tab">
+                                Retention
+                                <InsightHotkey hotkey="r" />
+                            </span>
+                        }
+                        key={ViewType.RETENTION}
+                    />
+                    <TabPane
+                        tab={
+                            <span data-attr="insight-path-tab">
+                                User Paths
+                                <InsightHotkey hotkey="p" />
+                            </span>
+                        }
+                        key={ViewType.PATHS}
+                    />
                     {featureFlags['remove-shownas'] && (
                         <TabPane
-                            tab={<span data-attr="insight-stickiness-tab">Stickiness</span>}
+                            tab={
+                                <Tooltip
+                                    placement="bottom"
+                                    title={
+                                        <>
+                                            Stickiness shows you how many days users performed an action repeteadely
+                                            within a timeframe.
+                                            <br />
+                                            <br />
+                                            <i>
+                                                Example: If a user performed an action on Monday and again on Friday, it
+                                                would be shown as "2 days".
+                                            </i>
+                                        </>
+                                    }
+                                    data-attr="insight-stickiness-tab"
+                                >
+                                    Stickiness
+                                    <InsightHotkey hotkey="k" />
+                                </Tooltip>
+                            }
                             key={ViewType.STICKINESS}
                         />
                     )}
                     {featureFlags['remove-shownas'] && (
                         <TabPane
-                            tab={<span data-attr="insight-lifecycle-tab">Lifecycle</span>}
+                            tab={
+                                <Tooltip
+                                    placement="bottom"
+                                    title={
+                                        <>
+                                            Lifecycle will show you new, resurrected, returning and dormant users so you
+                                            understand how your user base is composed. This can help you understand
+                                            where your user growth is coming from.
+                                        </>
+                                    }
+                                    data-attr="insight-lifecycle-tab"
+                                >
+                                    Lifecycle
+                                    <InsightHotkey hotkey="l" />
+                                </Tooltip>
+                            }
                             key={ViewType.LIFECYCLE}
                         />
                     )}
@@ -165,7 +285,7 @@ export function Insights() {
                 {activeView === 'history' ? (
                     <Col xs={24} xl={24}>
                         <Card className="" style={{ overflow: 'visible' }}>
-                            <InsightHistoryPanel onChange={() => setOpenHistory(false)} />
+                            <InsightHistoryPanel />
                         </Card>
                     </Col>
                 ) : (
@@ -182,14 +302,14 @@ export function Insights() {
                                               [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
                                               [`${ViewType.STICKINESS}`]: <TrendTab view={ViewType.STICKINESS} />,
                                               [`${ViewType.LIFECYCLE}`]: <TrendTab view={ViewType.LIFECYCLE} />,
-                                              [`${ViewType.SESSIONS}`]: <SessionTab view={ViewType.SESSIONS} />,
+                                              [`${ViewType.SESSIONS}`]: <SessionTab />,
                                               [`${ViewType.FUNNELS}`]: <FunnelTab />,
                                               [`${ViewType.RETENTION}`]: <RetentionTab />,
                                               [`${ViewType.PATHS}`]: <PathTab />,
                                           }[activeView]
                                         : {
                                               [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
-                                              [`${ViewType.SESSIONS}`]: <SessionTab view={ViewType.SESSIONS} />,
+                                              [`${ViewType.SESSIONS}`]: <SessionTab />,
                                               [`${ViewType.FUNNELS}`]: <FunnelTab />,
                                               [`${ViewType.RETENTION}`]: <RetentionTab />,
                                               [`${ViewType.PATHS}`]: <PathTab />,
@@ -216,11 +336,11 @@ export function Insights() {
                                         <TZIndicator style={{ float: 'left' }} />
                                         <div style={{ width: '100%', textAlign: 'right' }}>
                                             {showIntervalFilter(activeView, allFilters) && (
-                                                <IntervalFilter filters={allFilters} view={activeView} />
+                                                <IntervalFilter view={activeView} />
                                             )}
                                             {showChartFilter(activeView, featureFlags) && (
                                                 <ChartFilter
-                                                    onChange={(display) => {
+                                                    onChange={(display: DisplayType) => {
                                                         if (
                                                             display === ACTIONS_TABLE ||
                                                             display === ACTIONS_PIE_CHART
@@ -259,7 +379,7 @@ export function Insights() {
                                 <div>
                                     {lastRefresh && (
                                         <small style={{ position: 'absolute', marginTop: -21, right: 24 }}>
-                                            Computed {dayjs(lastRefresh).fromNow()}
+                                            Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
                                             <Button
                                                 size="small"
                                                 type="link"
@@ -339,11 +459,11 @@ export function Insights() {
     )
 }
 
-const isFunnelEmpty = (filters) => {
+const isFunnelEmpty = (filters: FilterType): boolean => {
     return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
 }
 
-function FunnelInsight() {
+function FunnelInsight(): JSX.Element {
     const { stepsWithCount, isValidFunnel, stepsWithCountLoading } = useValues(funnelLogic({}))
 
     return (
@@ -368,7 +488,7 @@ function FunnelInsight() {
     )
 }
 
-function FunnelPeople() {
+function FunnelPeople(): JSX.Element {
     const { stepsWithCount } = useValues(funnelLogic())
     if (stepsWithCount && stepsWithCount.length > 0) {
         return <People />

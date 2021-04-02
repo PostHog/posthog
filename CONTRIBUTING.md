@@ -1,4 +1,4 @@
-There are many ways to contribute to PosHog. We want to help developers know exactly how users are interacting with their stuff, in a way that doesn't send data to 3rd parties.
+There are many ways to contribute to PostHog. We want to help developers know exactly how users are interacting with their stuff, in a way that doesn't send data to 3rd parties.
 
 # Creating a PR
 

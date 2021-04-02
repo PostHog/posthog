@@ -23,6 +23,7 @@ import { RestrictedArea } from '../../../lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from '../../../lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
+import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -154,14 +155,16 @@ export function ProjectSettings(): JSX.Element {
                 <TimezoneConfig />
                 <Divider />
                 <h2 className="subtitle" id="internal-users-filtering">
-                    Filtering out internal and test users
+                    Filter Out Events
                 </h2>
                 <p>
-                    Increase the quality of your analytics results by filtering out internal users such as test accounts
-                    and team members from queries. This way only <b>real user data</b> will be taken into account.
+                    Increase the quality of your analytics results by filtering out events from team members, test
+                    accounts, and development environments. The events will still be captured and logged but will be
+                    excluded from queries, graphs, and other analyses.
                 </p>
                 <p>
-                    <i>For best effectiveness, make sure to properly define internal users with the filters below.</i>
+                    For example, <code>email ∌ example.com</code> to exclude all events from users on your team and{' '}
+                    <code>Host ≠ localhost:8000</code> to exclude all events from local development environments.
                 </p>
                 <TestAccountFiltersConfig />
                 <Divider />
@@ -173,6 +176,11 @@ export function ProjectSettings(): JSX.Element {
                     also where you'll be able to create Actions and record sessions.
                 </p>
                 <EditAppUrls />
+                <Divider />
+                <h2 className="subtitle" id="attributes">
+                    Data Attributes
+                </h2>
+                <DataAttributes />
                 <Divider />
                 <h2 className="subtitle" id="webhook">
                     Webhook Integration

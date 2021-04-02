@@ -1,14 +1,22 @@
 import json
-from datetime import datetime
 from typing import List
 
 from freezegun import freeze_time
 
-from posthog.constants import TRENDS_LIFECYCLE, TRENDS_TABLE
-from posthog.models import Action, ActionStep, Cohort, Event, Filter, Organization, Person
+from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LIFECYCLE, TRENDS_TABLE
+from posthog.models import (
+    Action,
+    ActionStep,
+    Cohort,
+    Entity,
+    Event,
+    Filter,
+    Organization,
+    Person,
+)
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.queries.abstract_test.test_timerange import AbstractTimerangeTest
-from posthog.queries.trends import Trends
+from posthog.queries.trends import Trends, breakdown_label
 from posthog.tasks.calculate_action import calculate_action, calculate_actions_from_last_calculation
 from posthog.test.base import APIBaseTest
 from posthog.utils import generate_cache_key, relative_date_parse
@@ -37,14 +45,22 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             with freeze_time(freeze_args[0]):
                 event_factory(
-                    team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": "value"},
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$bool_prop": True},
                 )
 
             with freeze_time(freeze_args[1]):
                 event_factory(
-                    team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": "value"},
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$bool_prop": False},
                 )
-                event_factory(team=self.team, event="sign up", distinct_id="anonymous_id")
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="anonymous_id", properties={"$bool_prop": False}
+                )
                 event_factory(team=self.team, event="sign up", distinct_id="blabla")
             with freeze_time(freeze_args[2]):
                 event_factory(
@@ -434,7 +450,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     Filter(
                         data={
                             "display": TRENDS_TABLE,
-                            "interval": "week",
+                            "interval": "day",
                             "breakdown": "$some_property",
                             "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
                         }
@@ -447,7 +463,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     Filter(
                         data={
                             "display": TRENDS_TABLE,
-                            "interval": "day",
+                            "interval": "week",
                             "breakdown": "$some_property",
                             "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
                         }
@@ -457,6 +473,48 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
             self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
+
+        def test_trends_breakdown_with_math_func(self):
+
+            with freeze_time("2020-01-01 00:06:34"):
+                for i in range(20):
+                    person = person_factory(team_id=self.team.pk, distinct_ids=[f"person{i}"])
+                    event_factory(
+                        team=self.team,
+                        event="sign up",
+                        distinct_id=f"person{i}",
+                        properties={"$some_property": f"value_{i}", "$math_prop": 1},
+                    )
+                    event_factory(
+                        team=self.team,
+                        event="sign up",
+                        distinct_id=f"person{i}",
+                        properties={"$some_property": f"value_{i}", "$math_prop": 1},
+                    )
+
+                person = person_factory(team_id=self.team.pk, distinct_ids=[f"person21"])
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id=f"person21",
+                    properties={"$some_property": "value_21", "$math_prop": 25},
+                )
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                daily_response = trends().run(
+                    Filter(
+                        data={
+                            "display": TRENDS_TABLE,
+                            "interval": "day",
+                            "breakdown": "$some_property",
+                            "events": [{"id": "sign up", "math": "p90", "math_property": "$math_prop"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            breakdown_vals = [val["breakdown_value"] for val in daily_response]
+            self.assertTrue("value_21" in breakdown_vals)
 
         def test_trends_compare(self):
             self._create_events()
@@ -1282,8 +1340,50 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(response[0]["labels"][23], "Thu. 2 January, 23:00")
             self.assertEqual(response[0]["data"][23], 1.0)
 
+        def test_breakdown_label(self):
+            entity = Entity({"id": "$pageview", "name": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
+            num_label = breakdown_label(entity, 1)
+            self.assertEqual(num_label, {"label": "$pageview - 1", "breakdown_value": 1})
+
+            string_label = breakdown_label(entity, "Chrome")
+            self.assertEqual(string_label, {"label": "$pageview - Chrome", "breakdown_value": "Chrome"})
+
+            nan_label = breakdown_label(entity, "nan")
+            self.assertEqual(nan_label, {"label": "$pageview - Other", "breakdown_value": "Other"})
+
+            none_label = breakdown_label(entity, "None")
+            self.assertEqual(none_label, {"label": "$pageview - Other", "breakdown_value": "Other"})
+
+            cohort_all_label = breakdown_label(entity, "cohort_all")
+            self.assertEqual(cohort_all_label, {"label": "$pageview - all users", "breakdown_value": "all"})
+
+            cohort = cohort_factory(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
+            cohort_label = breakdown_label(entity, f"cohort_{cohort.pk}")
+            self.assertEqual(cohort_label, {"label": f"$pageview - {cohort.name}", "breakdown_value": cohort.pk})
+
         def test_breakdown_filtering(self):
             self._create_events()
+
+            # test bool breakdown
+            with freeze_time("2020-01-04T13:01:01Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-14d",
+                            "breakdown": "$bool_prop",
+                            "events": [
+                                {"id": "sign up", "name": "sign up", "type": "events", "order": 0,},
+                                {"id": "no events"},
+                            ],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(response[0]["label"], "sign up - False")
+            self.assertEqual(response[1]["label"], "sign up - True")
+            self.assertEqual(response[2]["label"], "sign up - Other")
+
             # test breakdown filtering
             with freeze_time("2020-01-04T13:01:01Z"):
                 response = trends().run(
@@ -1307,7 +1407,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             self.assertEqual(sum(response[0]["data"]), 2)
             self.assertEqual(response[0]["data"][4 + 7], 2)
-            self.assertEqual(response[0]["breakdown_value"], "nan")
+            self.assertEqual(response[0]["breakdown_value"], "Other")
 
             self.assertEqual(sum(response[1]["data"]), 1)
             self.assertEqual(response[1]["data"][5 + 7], 1)
@@ -1345,27 +1445,28 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         data={
                             "date_from": "-14d",
                             "breakdown": "$some_property",
-                            "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                            "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
                         }
                     ),
                     self.team,
                 )
-            self.assertEqual(len(response), 20)
+            self.assertEqual(len(response), 25)  # We fetch 25 to see if there are more ethan 20 values
 
         def test_breakdown_user_props_with_filter(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
             person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
-            event_factory(event="sign up", distinct_id="person1", team=self.team)
-            event_factory(event="sign up", distinct_id="person2", team=self.team)
+            event_factory(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
+            event_factory(event="sign up", distinct_id="person2", team=self.team, properties={"key": "val"})
             response = trends().run(
                 Filter(
                     data={
                         "date_from": "-14d",
                         "breakdown": "email",
                         "breakdown_type": "person",
-                        "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                        "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
                         "properties": [
-                            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                            {"key": "key", "value": "val"},
                         ],
                     }
                 ),

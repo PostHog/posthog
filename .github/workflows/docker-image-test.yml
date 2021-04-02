@@ -7,6 +7,8 @@ jobs:
     build:
         name: Test Docker image build
         runs-on: ubuntu-20.04
+        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
+
         steps:
             - name: Checkout PR branch
               uses: actions/checkout@v2

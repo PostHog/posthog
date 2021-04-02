@@ -127,6 +127,7 @@ export interface TeamType {
     is_demo: boolean
     test_account_filters: FilterType[]
     timezone: string
+    data_attributes: string[]
 }
 
 export interface ActionType {
@@ -177,6 +178,7 @@ export type EditorProps = {
     instrument?: boolean
     distinctId?: string
     userEmail?: boolean
+    dataAttributes?: string[]
 }
 
 export interface PropertyFilter {
@@ -385,6 +387,7 @@ export interface DashboardItemType {
 export interface DashboardType {
     id: number
     name: string
+    description: string
     pinned: boolean
     items: DashboardItemType[]
     created_at: string
@@ -394,6 +397,7 @@ export interface DashboardType {
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
+    tags: string[]
 }
 
 export interface OrganizationInviteType {
@@ -606,14 +610,17 @@ export enum DashboardMode { // Default mode is null
     Public = 'public', // When viewing the dashboard publicly via a shareToken
 }
 
-export type Keys =
+// Reserved hotkeys globally available
+export type GlobalHotKeys = 'g'
+
+// Hotkeys for local (component) actions
+export type HotKeys =
     | 'a'
     | 'b'
     | 'c'
     | 'd'
     | 'e'
     | 'f'
-    | 'g'
     | 'h'
     | 'i'
     | 'j'
