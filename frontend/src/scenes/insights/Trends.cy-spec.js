@@ -84,14 +84,14 @@ describe('<Insights /> trends', () => {
         cy.get('body').click()
 
         cy.wait(1000)
-        cy.get('.graph-container').toMatchImageSnapshot()
+        cy.get('.graph-container').should('be.visible')
 
         cy.get('[data-attr=chart-filter]').click()
         cy.contains('Time').click()
         cy.get('body').click()
 
         cy.wait(1000)
-        cy.get('.graph-container').toMatchImageSnapshot()
+        cy.get('.graph-container').should('be.visible')
     })
 
     describe('filtered in url', () => {

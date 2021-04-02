@@ -6,7 +6,7 @@ import { userLogic } from 'scenes/userLogic'
 import { logicType } from './WebhookIntegrationType'
 import { UserType } from '~/types'
 import { toast } from 'react-toastify'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { errorToast } from 'lib/utils'
 
 const WEBHOOK_SERVICES: Record<string, string> = {
     Slack: 'slack.com',
@@ -90,15 +90,7 @@ const logic = kea<logicType<UserType>>({
             userLogic.actions.userUpdateRequest({ team: { slack_incoming_webhook: values.editedWebhook } }, 'webhook')
         },
         handleTestError: ({ error }) => {
-            toast.error(
-                <div>
-                    <h1>
-                        {capitalizeFirstLetter(resolveWebhookService(values.editedWebhook))} webhook validation returned
-                        error:
-                    </h1>
-                    <p>{error}</p>
-                </div>
-            )
+            errorToast('Error validating your webhook', 'Your webhook returned the following error response:', error)
         },
         [userLogic.actionTypes.userUpdateSuccess]: ({ updateKey }) => {
             if (updateKey === 'webhook') {
