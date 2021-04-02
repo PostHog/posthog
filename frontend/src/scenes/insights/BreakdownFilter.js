@@ -6,7 +6,7 @@ import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilt
 import { cohortsModel } from '../../models/cohortsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import { LIFECYCLE, STICKINESS } from 'lib/constants'
+import { ShownAsValue } from 'lib/constants'
 
 const { TabPane } = Tabs
 
@@ -97,12 +97,21 @@ function CohortFilter({ breakdown, onChange }) {
 
 function Content({ breakdown, breakdown_type, onChange }) {
     return (
-        <Tabs defaultActiveKey={breakdown_type} tabPosition="top" style={{ minWidth: 350 }}>
+        <Tabs
+            defaultActiveKey={breakdown_type}
+            tabPosition="top"
+            style={{ minWidth: 350 }}
+            data-attr="breakdown-filter-content"
+        >
             <TabPane tab="Property" key="property">
                 <PropertyFilter
                     breakdown={(!breakdown_type || breakdown_type == 'property') && breakdown}
                     onChange={onChange}
                 />
+                <span className="text-muted">
+                    Note: If there are more than 20 properties, <b>only the top 20</b> with the highest volume{' '}
+                    <b>will be shown</b>.
+                </span>
             </TabPane>
             <TabPane tab="Cohort" key="cohort">
                 <CohortFilter breakdown={breakdown_type == 'cohort' && breakdown} onChange={onChange} />
@@ -139,16 +148,19 @@ export function BreakdownFilter({ filters, onChange }) {
                     }}
                 />
             }
-            trigger={shown_as === STICKINESS || shown_as === LIFECYCLE ? 'none' : 'click'}
+            trigger={shown_as === ShownAsValue.STICKINESS || shown_as === ShownAsValue.LIFECYCLE ? 'none' : 'click'}
             placement="bottomLeft"
         >
             <Tooltip
-                title={shown_as === STICKINESS && 'Break down by is not yet available in combination with Stickiness'}
+                title={
+                    shown_as === ShownAsValue.STICKINESS &&
+                    'Break down by is not yet available in combination with Stickiness'
+                }
             >
                 <Button
                     shape="round"
                     type={breakdown ? 'primary' : 'default'}
-                    disabled={shown_as === STICKINESS || shown_as === LIFECYCLE}
+                    disabled={shown_as === ShownAsValue.STICKINESS || shown_as === ShownAsValue.LIFECYCLE}
                     data-attr="add-breakdown-button"
                 >
                     {label || 'Add breakdown'}

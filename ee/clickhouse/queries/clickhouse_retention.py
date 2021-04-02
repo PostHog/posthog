@@ -1,10 +1,13 @@
 from typing import Any, Dict, Tuple
 
+from django.db.models.query import Prefetch
+
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.person import ClickhousePersonSerializer
+from ee.clickhouse.models.person import ClickhousePersonSerializer, get_persons_by_uuids
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 from ee.clickhouse.sql.retention.people_in_period import (
     DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL,
     DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL,
@@ -23,6 +26,7 @@ from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, T
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter, RetentionFilter
+from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.retention import Retention
 
@@ -30,7 +34,9 @@ from posthog.queries.retention import Retention
 class ClickhouseRetention(Retention):
     def _execute_sql(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
         period = filter.period
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+        )
         target_entity = filter.target_entity
         returning_entity = filter.returning_entity
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
@@ -48,7 +54,10 @@ class ClickhouseRetention(Retention):
         returning_query_formatted = "AND {returning_query}".format(returning_query=returning_query)
 
         reference_event_sql = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
-            target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,
+            target_query=target_query_formatted,
+            filters=prop_filters,
+            trunc_func=trunc_func,
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         )
 
         target_condition, _ = self._get_condition(target_entity, table="reference_event")
@@ -66,6 +75,7 @@ class ClickhouseRetention(Retention):
                 reference_event_sql=reference_event_sql,
                 target_condition=target_condition,
                 returning_condition=returning_condition,
+                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
             ),
             {
                 "team_id": team.pk,
@@ -89,7 +99,11 @@ class ClickhouseRetention(Retention):
         )
 
         initial_interval_result = sync_execute(
-            INITIAL_INTERVAL_SQL.format(reference_event_sql=reference_event_sql),
+            INITIAL_INTERVAL_SQL.format(
+                reference_event_sql=reference_event_sql,
+                trunc_func=trunc_func,
+                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            ),
             {
                 "team_id": team.pk,
                 "start_date": date_from.strftime(
@@ -137,7 +151,9 @@ class ClickhouseRetention(Retention):
         period = filter.period
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
         trunc_func = get_trunc_func_ch(period)
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+        )
 
         returning_entity = filter.returning_entity if filter.selected_interval > 0 else filter.target_entity
         target_query, target_params = self._get_condition(filter.target_entity, table="e")
@@ -146,7 +162,10 @@ class ClickhouseRetention(Retention):
         return_query_formatted = "AND {return_query}".format(return_query=return_query)
 
         reference_event_query = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
-            target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,
+            target_query=target_query_formatted,
+            filters=prop_filters,
+            trunc_func=trunc_func,
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         )
         reference_date_from = filter.date_from
         reference_date_to = filter.date_from + filter.period_increment
@@ -155,7 +174,10 @@ class ClickhouseRetention(Retention):
 
         result = sync_execute(
             RETENTION_PEOPLE_SQL.format(
-                reference_event_query=reference_event_query, target_query=return_query_formatted, filters=prop_filters
+                reference_event_query=reference_event_query,
+                target_query=return_query_formatted,
+                filters=prop_filters,
+                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
             ),
             {
                 "team_id": team.pk,
@@ -177,8 +199,11 @@ class ClickhouseRetention(Retention):
                 **prop_filter_params,
             },
         )
-        serialized = ClickhousePersonSerializer(result, many=True).data
-        return serialized
+        people = Person.objects.filter(team_id=team.pk, uuid__in=[val[0] for val in result])
+
+        from posthog.api.person import PersonSerializer
+
+        return PersonSerializer(people, many=True).data
 
     def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
         period = filter.period
@@ -186,29 +211,36 @@ class ClickhouseRetention(Retention):
         trunc_func = get_trunc_func_ch(period)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
 
-        returning_entity = filter.returning_entity if filter.selected_interval > 0 else filter.target_entity
         target_query, target_params = self._get_condition(filter.target_entity, table="e")
         target_query_formatted = "AND {target_query}".format(target_query=target_query)
-        return_query, return_params = self._get_condition(returning_entity, table="e", prepend="returning")
+        return_query, return_params = self._get_condition(filter.returning_entity, table="e", prepend="returning")
         return_query_formatted = "AND {return_query}".format(return_query=return_query)
 
         first_event_sql = (
             REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL
             if is_first_time_retention
             else REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL
-        ).format(target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,)
+        ).format(
+            target_query=target_query_formatted,
+            filters=prop_filters,
+            trunc_func=trunc_func,
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+        )
         default_event_query = (
             DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL
             if is_first_time_retention
             else DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL
-        ).format(target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,)
+        ).format(
+            target_query=target_query_formatted,
+            filters=prop_filters,
+            trunc_func=trunc_func,
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+        )
 
         date_from = filter.date_from + filter.selected_interval * filter.period_increment
         date_to = filter.date_to
 
-        new_data = filter._data
-        new_data.update({"total_intervals": filter.total_intervals - filter.selected_interval})
-        filter = RetentionFilter(data=new_data)
+        filter = filter.with_data({"total_intervals": filter.total_intervals - filter.selected_interval})
 
         query_result = sync_execute(
             RETENTION_PEOPLE_PER_PERIOD_SQL.format(
@@ -217,6 +249,7 @@ class ClickhouseRetention(Retention):
                 first_event_sql=first_event_sql,
                 first_event_default_sql=default_event_query,
                 trunc_func=trunc_func,
+                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
             ),
             {
                 "team_id": team.pk,
@@ -235,12 +268,14 @@ class ClickhouseRetention(Retention):
             },
         )
         people_dict = {}
-        all_people = sync_execute(
-            "SELECT * FROM person WHERE id IN %(uuids)s", {"uuids": [val[0] for val in query_result]}
-        )
 
-        for person in all_people:
-            people_dict.update({person[0]: ClickhousePersonSerializer(person).data})
+        from posthog.api.person import PersonSerializer
+
+        people = get_persons_by_uuids(team_id=team.pk, uuids=[val[0] for val in query_result])
+        people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+
+        for person in people:
+            people_dict.update({str(person.uuid): PersonSerializer(person).data})
 
         result = self.process_people_in_period(filter, query_result, people_dict)
         return result

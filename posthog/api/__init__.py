@@ -6,6 +6,7 @@ from posthog.ee import is_ee_enabled
 from . import (
     action,
     annotation,
+    authentication,
     cohort,
     dashboard,
     element,
@@ -32,16 +33,16 @@ def api_not_found(request):
 
 
 router = DefaultRouterPlusPlus()
-# legacy endpoints (to be removed eventually)
+# Legacy endpoints (to be removed eventually)
 router.register(r"annotation", annotation.AnnotationsViewSet)
 router.register(r"feature_flag", feature_flag.FeatureFlagViewSet)
 router.register(r"dashboard", dashboard.DashboardsViewSet)
 router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
-router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"plugin_config", plugin.PluginConfigViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"sessions_filter", sessions_filter.SessionsFilterViewSet)
-# nested endpoints
+
+# Nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet)
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet)
 organizations_router.register(r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"])
@@ -51,10 +52,17 @@ organizations_router.register(
 organizations_router.register(
     r"invites", organization_invite.OrganizationInviteViewSet, "organization_invites", ["organization_id"],
 )
+organizations_router.register(
+    r"onboarding", organization.OrganizationOnboardingViewset, "organization_onboarding", ["organization_id"],
+)
+
+# General endpoints (shared across EE & FOSS)
+router.register(r"login", authentication.LoginViewSet)
 
 if is_ee_enabled():
     try:
         from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet
+        from ee.clickhouse.views.cohort import ClickhouseCohortViewSet
         from ee.clickhouse.views.element import ClickhouseElementViewSet
         from ee.clickhouse.views.events import ClickhouseEventsViewSet
         from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
@@ -71,6 +79,7 @@ if is_ee_enabled():
         router.register(r"person", ClickhousePersonViewSet, basename="person")
         router.register(r"paths", ClickhousePathsViewSet, basename="paths")
         router.register(r"element", ClickhouseElementViewSet, basename="element")
+        router.register(r"cohort", ClickhouseCohortViewSet, basename="cohort")
         # nested endpoints
         projects_router.register(r"actions", ClickhouseActionsViewSet, "project_actions", ["team_id"])
 else:
@@ -81,5 +90,6 @@ else:
     router.register(r"event", event.EventViewSet)
     router.register(r"paths", paths.PathsViewSet, basename="paths")
     router.register(r"element", element.ElementViewSet)
+    router.register(r"cohort", cohort.CohortViewSet)
     # nested endpoints
     projects_router.register(r"actions", action.ActionViewSet, "project_actions", ["team_id"])

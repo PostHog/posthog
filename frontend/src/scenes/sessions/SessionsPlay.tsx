@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Player, PlayerRef } from 'posthog-react-rrweb-player'
+import { Player, PlayerRef, findCurrent } from '@posthog/react-rrweb-player'
 import { Card, Col, Input, Row, Skeleton, Tag } from 'antd'
 import {
     UserOutlined,
@@ -10,14 +10,12 @@ import {
     MobileOutlined,
     TabletOutlined,
 } from '@ant-design/icons'
-import { hot } from 'react-hot-loader/root'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { colorForString } from 'lib/utils'
 import { Loading } from 'lib/utils'
 import { sessionsPlayLogic } from './sessionsPlayLogic'
 import { IconExternalLink } from 'lib/components/icons'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
 import './Sessions.scss'
@@ -46,9 +44,9 @@ function DeviceIcon({ width }: { width: number }): JSX.Element {
     return <LaptopOutlined />
 }
 
-export const SessionsPlay = hot(_SessionsPlay)
-function _SessionsPlay(): JSX.Element {
+export function SessionsPlay(): JSX.Element {
     const {
+        session,
         sessionPlayerData,
         sessionPlayerDataLoading,
         loadingNextRecording,
@@ -58,19 +56,24 @@ function _SessionsPlay(): JSX.Element {
         tags,
         tagsLoading,
         eventIndex,
-        pageVisitEvents,
         showNext,
         showPrev,
+        shownPlayerEvents,
+        shouldLoadSessionEvents,
     } = useValues(sessionsPlayLogic)
-    const { toggleAddingTagShown, setAddingTag, createTag, goToNext, goToPrevious } = useActions(sessionsPlayLogic)
+    const { toggleAddingTagShown, setAddingTag, createTag, goToNext, goToPrevious, loadSessionEvents } = useActions(
+        sessionsPlayLogic
+    )
     const addTagInput = useRef<Input>(null)
 
     const [playerTime, setCurrentPlayerTime] = useState(0)
     const playerRef = useRef<PlayerRef>(null)
-    const [pageEvent, atPageIndex] = useMemo(() => eventIndex.getPageMetadata(playerTime), [eventIndex, playerTime])
+    const [pageEvent] = useMemo(() => eventIndex.getPageMetadata(playerTime), [eventIndex, playerTime])
     const [recordingMetadata] = useMemo(() => eventIndex.getRecordingMetadata(playerTime), [eventIndex, playerTime])
+    const activeIndex = useMemo(() => findCurrent(playerTime, shownPlayerEvents), [shownPlayerEvents, playerTime])[1]
 
-    const isLoading = sessionPlayerDataLoading || loadingNextRecording
+    const isLoadingSession = sessionPlayerDataLoading || loadingNextRecording
+    const isLoadingEvents = isLoadingSession || shouldLoadSessionEvents
 
     useEffect(() => {
         if (addingTagShown && addTagInput.current) {
@@ -78,9 +81,15 @@ function _SessionsPlay(): JSX.Element {
         }
     }, [addingTagShown])
 
-    const seekEvent = (playerTime: number): void => {
-        setCurrentPlayerTime(playerTime)
-        playerRef.current?.seek(playerTime)
+    useEffect(() => {
+        if (shouldLoadSessionEvents && session) {
+            loadSessionEvents(session)
+        }
+    }, [session])
+
+    const seekEvent = (time: number): void => {
+        setCurrentPlayerTime(time)
+        playerRef.current?.seek(time)
     }
 
     return (
@@ -88,7 +97,7 @@ function _SessionsPlay(): JSX.Element {
             <Row gutter={16} style={{ height: '100%' }}>
                 <Col span={18} style={{ paddingRight: 0 }}>
                     <div className="mb-05" style={{ display: 'flex' }}>
-                        {isLoading ? (
+                        {isLoadingSession ? (
                             <Skeleton paragraph={{ rows: 0 }} active />
                         ) : (
                             <>
@@ -110,24 +119,26 @@ function _SessionsPlay(): JSX.Element {
                             </>
                         )}
                     </div>
-                    <div className="ph-no-capture player-container">
-                        {isLoading ? (
+                    <div className="player-container">
+                        {isLoadingSession ? (
                             <Loading />
                         ) : (
-                            <Player
-                                ref={playerRef}
-                                events={sessionPlayerData?.snapshots || []}
-                                onPlayerTimeChange={setCurrentPlayerTime}
-                                onNext={showNext ? goToNext : undefined}
-                                onPrevious={showPrev ? goToPrevious : undefined}
-                            />
+                            <span className="ph-no-capture">
+                                <Player
+                                    ref={playerRef}
+                                    events={sessionPlayerData?.snapshots || []}
+                                    onPlayerTimeChange={setCurrentPlayerTime}
+                                    onNext={showNext ? goToNext : undefined}
+                                    onPrevious={showPrev ? goToPrevious : undefined}
+                                />
+                            </span>
                         )}
                     </div>
                 </Col>
                 <Col span={6} className="sidebar" style={{ paddingLeft: 16 }}>
                     <Card className="card-elevated">
                         <h3 className="l3">Session Information</h3>
-                        {isLoading ? (
+                        {isLoadingSession ? (
                             <div>
                                 <Skeleton paragraph={{ rows: 3 }} active />
                             </div>
@@ -143,7 +154,7 @@ function _SessionsPlay(): JSX.Element {
                                         to={`/person/${encodeURIComponent(
                                             sessionPlayerData?.person?.distinct_ids[0] || ''
                                         )}`}
-                                        className={rrwebBlockClass + ' ph-no-capture'}
+                                        className="ph-no-capture"
                                         target="_blank"
                                         style={{ display: 'inline-flex', alignItems: 'center' }}
                                     >
@@ -203,7 +214,7 @@ function _SessionsPlay(): JSX.Element {
                         <p className="text-muted text-small">
                             Click on an item to jump to that point in the recording.
                         </p>
-                        {isLoading ? (
+                        {isLoadingEvents ? (
                             <div>
                                 <Skeleton paragraph={{ rows: 6 }} active />
                             </div>
@@ -211,9 +222,11 @@ function _SessionsPlay(): JSX.Element {
                             <div className="timeline">
                                 <div className="line" />
                                 <div className="timeline-items">
-                                    {pageVisitEvents.map(({ href, playerTime }, index) => (
-                                        <div className={index === atPageIndex ? 'current' : undefined} key={index}>
-                                            <Tag onClick={() => seekEvent(playerTime)}>{href}</Tag>
+                                    {shownPlayerEvents.map(({ playerTime: time, color, text }, index) => (
+                                        <div className={index == activeIndex ? 'current' : undefined} key={index}>
+                                            <Tag onClick={() => seekEvent(time)} color={color}>
+                                                {text}
+                                            </Tag>
                                         </div>
                                     ))}
                                 </div>

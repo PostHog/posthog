@@ -1,20 +1,18 @@
-from typing import Any, Callable, Optional, Union, cast
+from typing import Any, Callable, Optional, Union
 from urllib.parse import urlparse
 
-import posthoganalytics
 from django import forms
 from django.conf import settings
 from django.contrib import admin
-from django.contrib.auth import authenticate, decorators, login
 from django.contrib.auth import views as auth_views
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
-from django.template.loader import render_to_string
 from django.urls import URLPattern, include, path, re_path, reverse
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
 from loginas.utils import is_impersonated_session, restore_original_login
+from rest_framework import exceptions
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
@@ -31,46 +29,16 @@ from posthog.api import (
 )
 from posthog.demo import demo
 from posthog.email import is_email_available
-from posthog.models.organization import Organization
+from posthog.event_usage import report_user_signed_up
 
+from .api.organization import OrganizationSignupSerializer
 from .models import OrganizationInvite, Team, User
 from .utils import render_template
-from .views import health, preflight_check, stats, system_status
+from .views import health, login_required, preflight_check, stats, system_status
 
 
-def home(request, **kwargs):
+def home(request, *args, **kwargs):
     return render_template("index.html", request)
-
-
-def login_view(request):
-    if request.user.is_authenticated:
-        return redirect("/")
-
-    if not User.objects.exists():
-        return redirect("/preflight")
-    if request.method == "POST":
-        email = request.POST["email"]
-        password = request.POST["password"]
-        user = cast(Optional[User], authenticate(request, email=email, password=password))
-        next_url = request.GET.get("next")
-        if user is not None:
-            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-            if user.distinct_id:
-                posthoganalytics.capture(user.distinct_id, "user logged in")
-            if next_url:
-                return redirect(next_url)
-            return redirect("/")
-        else:
-            return render_template(
-                "login.html",
-                request=request,
-                context={
-                    "email": email,
-                    "error": True,
-                    "action": "/login" if not next_url else f"/login?next={next_url}",
-                },
-            )
-    return render_template("login.html", request)
 
 
 class TeamInviteSurrogate:
@@ -87,98 +55,19 @@ class TeamInviteSurrogate:
         user.join(organization=self.organization)
 
 
-def signup_to_organization_view(request, invite_id):
-    if not invite_id:
-        return redirect("/")
-    if not User.objects.exists():
-        return redirect("/preflight")
-    try:
-        invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
-            "organization"
-        ).get(id=invite_id)
-    except (OrganizationInvite.DoesNotExist, ValidationError):
-        try:
-            invite = TeamInviteSurrogate(invite_id)
-        except Team.DoesNotExist:
-            return redirect("/")
-
-    organization = cast(Organization, invite.organization)
-    user = request.user
-    if request.method == "POST":
-        if request.user.is_authenticated:
-            user = cast(User, request.user)
-            try:
-                invite.use(user)
-            except ValueError as e:
-                return render_template(
-                    "signup_to_organization.html",
-                    request=request,
-                    context={
-                        "user": user,
-                        "custom_error": str(e),
-                        "organization": organization,
-                        "invite_id": invite_id,
-                    },
-                )
-            else:
-                posthoganalytics.capture(
-                    user.distinct_id, "user joined from invite", properties={"organization_id": organization.id},
-                )
-                return redirect("/")
-        else:
-            email = request.POST["email"]
-            password = request.POST["password"]
-            first_name = request.POST.get("name")
-            email_opt_in = request.POST.get("emailOptIn") == "on"
-            valid_inputs = (
-                is_input_valid("name", first_name)
-                and is_input_valid("email", email)
-                and is_input_valid("password", password)
-            )
-            already_exists = User.objects.filter(email=email).exists()
-            custom_error = None
-            try:
-                invite.validate(user=None, email=email)
-            except ValueError as e:
-                custom_error = str(e)
-            if already_exists or not valid_inputs or custom_error:
-                return render_template(
-                    "signup_to_organization.html",
-                    request=request,
-                    context={
-                        "email": email,
-                        "name": first_name,
-                        "already_exists": already_exists,
-                        "custom_error": custom_error,
-                        "invalid_input": not valid_inputs,
-                        "organization": organization,
-                        "invite_id": invite_id,
-                    },
-                )
-            user = User.objects.create_user(email, password, first_name=first_name, email_opt_in=email_opt_in)
-            invite.use(user, prevalidated=True)
-            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-            posthoganalytics.capture(
-                user.distinct_id, "user signed up", properties={"is_first_user": False, "first_team_user": False},
-            )
-            return redirect("/")
-    return render_template(
-        "signup_to_organization.html",
-        request,
-        context={"organization": organization, "user": user, "invite_id": invite_id},
-    )
-
-
 class CompanyNameForm(forms.Form):
     companyName = forms.CharField(max_length=64)
     emailOptIn = forms.BooleanField(required=False)
 
 
 def finish_social_signup(request):
+    """
+    TODO: DEPRECATED in favor of posthog.api.organization.OrganizationSocialSignupSerializer
+    """
     if request.method == "POST":
         form = CompanyNameForm(request.POST)
         if form.is_valid():
-            request.session["company_name"] = form.cleaned_data["companyName"]
+            request.session["organization_name"] = form.cleaned_data["companyName"]
             request.session["email_opt_in"] = bool(form.cleaned_data["emailOptIn"])
             return redirect(reverse("social:complete", args=[request.session["backend"]]))
     else:
@@ -187,7 +76,7 @@ def finish_social_signup(request):
 
 
 @partial
-def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *args, **kwargs):
+def social_create_user(strategy: DjangoStrategy, details, backend, request, user=None, *args, **kwargs):
     if user:
         return {"is_new": False}
     user_email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
@@ -197,53 +86,60 @@ def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *a
     from_invite = False
     invite_id = strategy.session_get("invite_id")
     if not invite_id:
-        company_name = strategy.session_get("company_name", None)
+        organization_name = strategy.session_get("organization_name", None)
         email_opt_in = strategy.session_get("email_opt_in", None)
-        if not company_name or email_opt_in is None:
+        if not organization_name or email_opt_in is None:
             return redirect(finish_social_signup)
-        _, _, user = User.objects.bootstrap(
-            company_name=company_name, first_name=user_name, email=user_email, email_opt_in=email_opt_in, password=None
+
+        serializer = OrganizationSignupSerializer(
+            data={
+                "organization_name": organization_name,
+                "email_opt_in": email_opt_in,
+                "first_name": user_name,
+                "email": user_email,
+                "password": None,
+            },
+            context={"request": request},
         )
+
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
     else:
         from_invite = True
         try:
             invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
-                "organization"
+                "organization",
             ).get(id=invite_id)
         except (OrganizationInvite.DoesNotExist, ValidationError):
             try:
                 invite = TeamInviteSurrogate(invite_id)
             except Team.DoesNotExist:
-                processed = render_to_string("auth_error.html", {"message": "Invalid invite link!"},)
-                return HttpResponse(processed, status=401)
+                return redirect(f"/signup/{invite_id}?error_code=invalid_invite&source=social_create_user")
 
         try:
             invite.validate(user=None, email=user_email)
-        except ValueError as e:
-            processed = render_to_string("auth_error.html", {"message": str(e)},)
-            return HttpResponse(processed, status=401)
+        except exceptions.ValidationError as e:
+            return redirect(
+                f"/signup/{invite_id}?error_code={e.get_codes()[0]}&error_detail={e.args[0]}&source=social_create_user"
+            )
 
         try:
             user = strategy.create_user(email=user_email, first_name=user_name, password=None)
         except Exception as e:
             capture_exception(e)
-            processed = render_to_string(
-                "auth_error.html",
-                {
-                    "message": "Account unable to be created. This account may already exist. Please try again or use different credentials!"
-                },
-            )
-            return HttpResponse(processed, status=401)
+            message = "Account unable to be created. This account may already exist. Please try again"
+            " or use different credentials."
+            return redirect(f"/signup/{invite_id}?error_code=unknown&error_detail={message}&source=social_create_user")
+
         invite.use(user, prevalidated=True)
 
-    posthoganalytics.capture(
-        user.distinct_id,
-        "user signed up",
-        properties={
-            "is_first_user": User.objects.count() == 1,
-            "is_first_team_user": not from_invite,
-            "login_provider": backend.name,
-        },
+    report_user_signed_up(
+        distinct_id=user.distinct_id,
+        is_instance_first_user=User.objects.count() == 1,
+        is_organization_first_user=not from_invite,
+        new_onboarding_enabled=False,
+        backend_processor="social_create_user",
+        social_provider=backend.name,
     )
 
     return {"is_new": True, "user": user}
@@ -315,10 +211,12 @@ urlpatterns = [
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/user", user.user),
     opt_slash_path("api/signup", organization.OrganizationSignupViewset.as_view()),
+    opt_slash_path("api/social_signup", organization.OrganizationSocialSignupViewset.as_view()),
+    path("api/signup/<str:invite_id>/", organization.OrganizationInviteSignupViewset.as_view()),
     re_path(r"^api.+", api_not_found),
-    path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
+    path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
-    re_path(r"^demo.*", decorators.login_required(demo)),
+    re_path(r"^demo.*", login_required(demo)),
     # ingestion
     opt_slash_path("decide", decide.get_decide),
     opt_slash_path("e", capture.get_event),
@@ -329,9 +227,7 @@ urlpatterns = [
     opt_slash_path("s", capture.get_event),  # session recordings
     # auth
     path("logout", logout, name="login"),
-    path("login", login_view, name="login"),
     path("signup/finish/", finish_social_signup, name="signup_finish"),
-    path("signup/<str:invite_id>", signup_to_organization_view, name="signup"),
     path("", include("social_django.urls", namespace="social")),
     *(
         []
@@ -366,11 +262,22 @@ if settings.DEBUG:
 
     urlpatterns.append(path("debug/", debug))
 
+if settings.TEST:
+
+    @csrf_exempt
+    def delete_events(request):
+        from posthog.models import Event
+
+        Event.objects.all().delete()
+        return HttpResponse()
+
+    urlpatterns.append(path("delete_events/", delete_events))
+
 # Routes added individually to remove login requirement
-frontend_unauthenticated_routes = ["preflight", "signup"]
+frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*", "login"]
 for route in frontend_unauthenticated_routes:
-    urlpatterns.append(path(route, home))
+    urlpatterns.append(re_path(route, home))
 
 urlpatterns += [
-    re_path(r"^.*", decorators.login_required(home)),
+    re_path(r"^.*", login_required(home)),
 ]

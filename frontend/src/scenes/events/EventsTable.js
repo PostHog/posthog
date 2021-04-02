@@ -1,22 +1,26 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EventDetails } from 'scenes/events/EventDetails'
-import { ExportOutlined, SearchOutlined } from '@ant-design/icons'
+import { ExportOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { Button, Spin, Table, Tooltip } from 'antd'
+import { Button, Row, Spin, Table, Tooltip, Col } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
 import { eventToName, toParams } from 'lib/utils'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
-import { hot } from 'react-hot-loader/root'
+import { PersonHeader } from 'scenes/persons/PersonHeader'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import LocalizedFormat from 'dayjs/plugin/localizedFormat'
+import { TZLabel } from 'lib/components/TimezoneAware'
 
-export const EventsTable = hot(_EventsTable)
-function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
+dayjs.extend(LocalizedFormat)
+dayjs.extend(relativeTime)
+
+export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
     const logic = eventsTableLogic({ fixedFilters, key: pageKey })
     const {
         properties,
@@ -35,6 +39,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
         {
             title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
             key: 'event',
+            rowKey: 'id',
             render: function renderEvent(item) {
                 if (!item.event) {
                     return {
@@ -54,39 +59,6 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                 let { event } = item
                 return eventToName(event)
             },
-            filterIcon: function RenderFilterIcon() {
-                return (
-                    <SearchOutlined
-                        style={{ color: eventFilter && 'var(--primary)' }}
-                        data-attr="event-filter-trigger"
-                    />
-                )
-            },
-            filterDropdown: function RenderFilter({ confirm }) {
-                return (
-                    <div style={{ padding: '1rem' }}>
-                        <Button
-                            style={{ float: 'right', marginTop: -6, marginBottom: 8 }}
-                            onClick={() => {
-                                confirm()
-                                setEventFilter(false)
-                            }}
-                            type="primary"
-                            disabled={!eventFilter}
-                        >
-                            Reset
-                        </Button>
-                        Filter by event
-                        <EventName
-                            value={eventFilter}
-                            onChange={(value) => {
-                                confirm()
-                                setEventFilter(value)
-                            }}
-                        />
-                    </div>
-                )
-            },
         },
         {
             title: 'Person',
@@ -96,15 +68,12 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
                 }
-                return showLinkToPerson ? (
-                    <Link
-                        to={`/person/${encodeURIComponent(event.distinct_id)}`}
-                        className={'ph-no-capture ' + rrwebBlockClass}
-                    >
-                        {event.person}
+                return showLinkToPerson && event.person?.distinct_ids?.length ? (
+                    <Link to={`/person/${encodeURIComponent(event.person.distinct_ids[0])}`}>
+                        <PersonHeader person={event.person} />
                     </Link>
                 ) : (
-                    event.person
+                    <PersonHeader person={event.person} />
                 )
             },
         },
@@ -119,7 +88,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                 if (filtersEnabled) {
                     return (
                         <FilterPropertyLink
-                            className={'ph-no-capture ' + rrwebBlockClass}
+                            className="ph-no-capture"
                             property={param}
                             value={event.properties[param]}
                             filters={{ properties }}
@@ -152,9 +121,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
                 }
-                return (
-                    <Tooltip title={moment(event.timestamp).format('LLL')}>{moment(event.timestamp).fromNow()}</Tooltip>
-                )
+                return <TZLabel time={event.timestamp} showSeconds />
             },
         },
         {
@@ -194,28 +161,40 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
     return (
         <div className="events" data-attr="events-table">
             {filtersEnabled ? <PropertyFilters pageKey={'EventsTable'} /> : null}
-            <Tooltip title="Up to 100,000 latest events.">
-                <Button
-                    type="default"
-                    icon={<ExportOutlined />}
-                    href={`/api/event.csv?${toParams({
-                        properties,
-                        ...(fixedFilters || {}),
-                        ...(eventFilter ? { event: eventFilter } : {}),
-                        orderBy: [orderBy],
-                    })}`}
-                    style={{ marginBottom: '1rem' }}
-                >
-                    Export
-                </Button>
-            </Tooltip>
+            <Row>
+                <Col span={pageKey === 'events' ? 22 : 20}>
+                    <EventName
+                        value={eventFilter}
+                        onChange={(value) => {
+                            setEventFilter(value || '')
+                        }}
+                    />
+                </Col>
+                <Col span={pageKey === 'events' ? 2 : 4}>
+                    <Tooltip title="Up to 100,000 latest events.">
+                        <Button
+                            type="default"
+                            icon={<ExportOutlined />}
+                            href={`/api/event.csv?${toParams({
+                                properties,
+                                ...(fixedFilters || {}),
+                                ...(eventFilter ? { event: eventFilter } : {}),
+                                orderBy: [orderBy],
+                            })}`}
+                            style={{ marginBottom: '1rem' }}
+                        >
+                            Export
+                        </Button>
+                    </Tooltip>
+                </Col>
+            </Row>
             <div>
                 <Table
                     dataSource={eventsFormatted}
                     loading={isLoading}
                     columns={columns}
                     size="small"
-                    className={rrwebBlockClass + ' ph-no-capture'}
+                    className="ph-no-capture"
                     locale={{
                         emptyText: (
                             <span>

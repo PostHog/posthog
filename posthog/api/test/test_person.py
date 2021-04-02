@@ -1,6 +1,5 @@
 import json
 
-from django.test.utils import freeze_time
 from django.utils import timezone
 from rest_framework import status
 
@@ -9,7 +8,7 @@ from posthog.tasks.process_event import process_event
 from posthog.test.base import APIBaseTest
 
 
-def test_person_factory(event_factory, person_factory, get_events, get_people):
+def factory_test_person(event_factory, person_factory, get_events, get_people):
     class TestPerson(APIBaseTest):
         def test_search(self) -> None:
             person_factory(
@@ -245,6 +244,9 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             self.assertEqual(len(get_people()), 0)
             self.assertEqual(len(get_events()), 1)
 
+            response = self.client.delete(f"/api/person/{person.pk}/")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
         def test_filters_by_endpoints_are_deprecated(self):
             person_factory(
                 team=self.team, distinct_ids=["person_1"], properties={"email": "someone@gmail.com"},
@@ -287,11 +289,7 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             )
             person2 = person_factory(team=self.team, distinct_ids=["2"], properties={"random_prop": "asdf"})
 
-            response = self.client.post(
-                "/api/person/%s/merge/" % person1.pk,
-                data=json.dumps({"ids": [person2.pk, person3.pk]}),
-                content_type="application/json",
-            )
+            response = self.client.post("/api/person/%s/merge/" % person1.pk, {"ids": [person2.pk, person3.pk]},)
             self.assertEqual(response.status_code, 201)
             self.assertEqual(response.json()["created_at"].replace("Z", "+00:00"), person3.created_at.isoformat())
             self.assertEqual(response.json()["distinct_ids"], ["3", "1", "2"])
@@ -303,10 +301,53 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             )
             self.assertEqual(person[0].created_at, person3.created_at)
 
+        def test_return_non_anonymous_name(self) -> None:
+            person_factory(
+                team=self.team,
+                distinct_ids=["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
+            )
+            person_factory(
+                team=self.team, distinct_ids=["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"],
+            )
+
+            response = self.client.get("/api/person/").json()
+
+            self.assertEqual(response["results"][0]["name"], "distinct_id2")
+            self.assertEqual(response["results"][1]["name"], "distinct_id1")
+
+            self.assertEqual(
+                response["results"][0]["distinct_ids"],
+                ["distinct_id2", "17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c"],
+            )
+            self.assertEqual(
+                response["results"][1]["distinct_ids"],
+                ["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
+            )
+
+        def test_person_cohorts(self) -> None:
+            person_factory(team=self.team, distinct_ids=["1"], properties={"$some_prop": "something", "number": 1})
+            person2 = person_factory(
+                team=self.team, distinct_ids=["2"], properties={"$some_prop": "something", "number": 2}
+            )
+            cohort1 = Cohort.objects.create(
+                team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1"
+            )
+            cohort2 = Cohort.objects.create(team=self.team, groups=[{"properties": {"number": 1}}], name="cohort2")
+            cohort3 = Cohort.objects.create(team=self.team, groups=[{"properties": {"number": 2}}], name="cohort3")
+            cohort1.calculate_people()
+            cohort2.calculate_people()
+            cohort3.calculate_people()
+
+            response = self.client.get(f"/api/person/cohorts/?person_id={person2.id}").json()
+            response["results"].sort(key=lambda cohort: cohort["name"])
+            self.assertEqual(len(response["results"]), 2)
+            self.assertDictContainsSubset({"id": cohort1.id, "count": 2, "name": cohort1.name}, response["results"][0])
+            self.assertDictContainsSubset({"id": cohort3.id, "count": 1, "name": cohort3.name}, response["results"][1])
+
     return TestPerson
 
 
 class TestPerson(
-    test_person_factory(Event.objects.create, Person.objects.create, Event.objects.all, Person.objects.all)  # type: ignore
+    factory_test_person(Event.objects.create, Person.objects.create, Event.objects.all, Person.objects.all)  # type: ignore
 ):
     pass

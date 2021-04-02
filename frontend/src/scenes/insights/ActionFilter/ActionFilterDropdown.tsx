@@ -2,7 +2,7 @@ import React, { RefObject } from 'react'
 import { useActions, useValues } from 'kea'
 import { ActionType } from '~/types'
 import { EventUsageType } from '~/types'
-import { EntityTypes } from '../trendsLogic'
+import { EntityTypes } from '../../trends/trendsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
@@ -10,7 +10,7 @@ import { Tooltip } from 'antd'
 import { ActionSelectInfo } from '../ActionSelectInfo'
 import { SelectBox, SelectedItem } from '../../../lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
-import { entityFilterLogicType } from 'types/scenes/insights/ActionFilter/entityFilterLogicType'
+import { entityFilterLogicType } from './entityFilterLogicType'
 
 interface FilterType {
     filter: {

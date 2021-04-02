@@ -1,33 +1,34 @@
 import React, { CSSProperties, useMemo, useState } from 'react'
-import moment from 'moment'
-import PropTypes from 'prop-types'
+
+import dayjs from 'dayjs'
 import { keyMapping, PropertyKeyInfo } from './PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm, Table, Tooltip } from 'antd'
 import { NumberOutlined, CalendarOutlined, BulbOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons'
 import { isURL } from 'lib/utils'
 import { IconExternalLink, IconText } from 'lib/components/icons'
 import './PropertiesTable.scss'
+import stringWithWBR from 'lib/utils/stringWithWBR'
 
 type HandledType = 'string' | 'string, parsable as datetime' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
-const iconStyle: CSSProperties = { marginRight: '0.5rem', opacity: 0.75 }
+const iconStyle: CSSProperties = { display: 'inline-block', marginRight: '0.5rem', opacity: 0.75 }
 
-const typeToIcon: Record<string, JSX.Element> = {
-    string: <IconText style={iconStyle} />,
-    'string, parsable as datetime': <CalendarOutlined style={iconStyle} />,
-    number: <NumberOutlined style={iconStyle} />,
-    bigint: <NumberOutlined style={iconStyle} />,
-    boolean: <BulbOutlined style={iconStyle} />,
-    undefined: <StopOutlined style={iconStyle} />,
-    null: <StopOutlined style={iconStyle} />,
+const typeToIcon: Record<HandledType | string, JSX.Element> = {
+    string: <IconText />,
+    'string, parsable as datetime': <CalendarOutlined />,
+    number: <NumberOutlined />,
+    bigint: <NumberOutlined />,
+    boolean: <BulbOutlined />,
+    undefined: <StopOutlined />,
+    null: <StopOutlined />,
 }
 
 interface BasePropertyType {
     rootKey?: string // The key name of the object if it's nested
-    onEdit?: (key: string | undefined, newValue: any, oldValue?: any) => void // If set, it will allow inline editing
+    onEdit?: (key: string, newValue: any, oldValue?: any) => void // If set, it will allow inline editing
     nestingLevel?: number
 }
 
@@ -62,8 +63,9 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
 
     let valueType: Type = typeof value
     if (value === null) {
+        // typeof null returns 'object' ¯\_(ツ)_/¯
         valueType = 'null'
-    } else if (valueType === 'string' && moment(value).isValid()) {
+    } else if (valueType === 'string' && dayjs(value).isValid()) {
         valueType = 'string, parsable as datetime'
     }
 
@@ -89,17 +91,17 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
 
     const handleValueChange = (newValue: any, save: boolean): void => {
         setEditing(false)
-        if (save && onEdit && newValue != value) {
+        if (rootKey !== undefined && save && onEdit && newValue != value) {
             onEdit(rootKey, newValue, value)
         }
     }
 
     const valueComponent = (
         <span
-            className={canEdit ? `editable` : ''}
+            className={canEdit ? 'editable ph-no-capture' : 'ph-no-capture'}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
-            {String(value)}
+            {stringWithWBR(String(value))}
         </span>
     )
 
@@ -109,11 +111,15 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
                 <>
                     {!editing ? (
                         <>
-                            <Tooltip title={`Property of type ${valueType}.`}>{typeToIcon[valueType]}</Tooltip>
+                            <div style={iconStyle}>
+                                <Tooltip title={`Property of type ${valueType}.`}>
+                                    <span>{typeToIcon[valueType]}</span>
+                                </Tooltip>
+                            </div>
                             {canEdit && boolNullTypes.includes(valueType) ? (
                                 <Dropdown overlay={boolNullSelect}>{valueComponent}</Dropdown>
                             ) : (
-                                <> {valueComponent}</>
+                                <>{valueComponent}</>
                             )}
 
                             {isURL(value) && (
@@ -132,11 +138,11 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
         </div>
     )
 }
-
 interface PropertiesTableType extends BasePropertyType {
     properties: any
     sortProperties?: boolean
     onDelete?: (key: string) => void
+    className?: string
 }
 
 export function PropertiesTable({
@@ -146,6 +152,7 @@ export function PropertiesTable({
     sortProperties = false,
     nestingLevel = 0,
     onDelete,
+    className = '',
 }: PropertiesTableType): JSX.Element {
     const objectProperties = useMemo(() => {
         if (!(properties instanceof Object)) {
@@ -224,13 +231,10 @@ export function PropertiesTable({
                 size="small"
                 pagination={false}
                 dataSource={objectProperties}
+                className={className}
             />
         )
     }
     // if none of above, it's a value
     return <ValueDisplay value={properties} rootKey={rootKey} onEdit={onEdit} nestingLevel={nestingLevel} />
-}
-
-PropertiesTable.propTypes = {
-    properties: PropTypes.any,
 }

@@ -4,163 +4,36 @@ import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
-import { Card, Checkbox, Col, Input, Radio } from 'antd'
+import { Card, Col, Input, Radio } from 'antd'
 import { ExportOutlined } from '@ant-design/icons'
-
-let getSafeText = (el) => {
-    if (!el.childNodes || !el.childNodes.length) {
-        return
-    }
-    let elText = ''
-    el.childNodes.forEach((child) => {
-        if (child.nodeType !== 3 || !child.textContent) {
-            return
-        }
-        elText += child.textContent
-            .trim()
-            .replace(/[\r\n]/g, ' ')
-            .replace(/[ ]+/g, ' ') // normalize whitespace
-            .substring(0, 255)
-    })
-    return elText
-}
 
 export class ActionStep extends Component {
     constructor(props) {
         super(props)
         this.state = {
             step: props.step,
-            selection: Object.keys(props.step).filter((key) => key !== 'id' && key !== 'isNew' && props.step[key]),
-            inspecting: false,
         }
         this.AutocaptureFields = this.AutocaptureFields.bind(this)
-
-        this.box = document.createElement('div')
-        document.body.appendChild(this.box)
-    }
-    drawBox(element) {
-        let rect = element.getBoundingClientRect()
-        this.box.style.display = 'block'
-        this.box.style.position = 'absolute'
-        this.box.style.top = `${rect.top + window.pageYOffset}px`
-        this.box.style.left = `${rect.left + window.pageXOffset}px`
-        this.box.style.width = `${rect.right - rect.left}px`
-        this.box.style.height = `${rect.bottom - rect.top}px`
-        this.box.style.background = '#007bff'
-        this.box.style.opacity = '0.5'
-        this.box.style.zIndex = '9999999999'
-    }
-    onMouseOver = (event) => {
-        let el = event.currentTarget
-        this.drawBox(el)
-        let query = this.props.simmer(el)
-        // Turn tags into lower cases
-        query = query.replace(/(^[A-Z]+| [A-Z]+)/g, (d) => d.toLowerCase())
-        let tagName = el.tagName.toLowerCase()
-
-        let selection = ['selector']
-        if (tagName === 'a') {
-            selection = ['href', 'selector']
-        } else if (tagName === 'button') {
-            selection = ['text', 'selector']
-        } else if (el.getAttribute('name')) {
-            selection = ['name', 'selector']
-        }
-        let step = {
-            ...this.props.step,
-            event: '$autocapture',
-            tag_name: tagName,
-            href: el.getAttribute('href') || '',
-            name: el.getAttribute('name') || '',
-            text: getSafeText(el) || '',
-            selector: query || '',
-            url: window.location.protocol + '//' + window.location.host + window.location.pathname,
-        }
-        this.setState(
-            {
-                element: el,
-                selection,
-            },
-            () => this.sendStep(step)
-        )
-    }
-    onKeyDown = (event) => {
-        // stop selecting if esc key was pressed
-        if (event.keyCode === 27) {
-            this.stop()
-        }
-    }
-    start() {
-        this.setState({ inspecting: true })
-        document.querySelectorAll('a, button, input, select, textarea, label').forEach((element) => {
-            element.addEventListener('mouseover', this.onMouseOver, {
-                capture: true,
-            })
-        })
-        document.addEventListener('keydown', this.onKeyDown)
-        document.body.style.transition = '0.7s box-shadow'
-        // document.body.style.boxShadow = 'inset 0 0px 13px -2px #dc3545';
-        document.body.style.boxShadow = 'inset 0 0px 30px -5px #007bff'
-        this.box.addEventListener('click', this.stop)
-    }
-    stop = () => {
-        this.setState({ inspecting: false })
-        this.box.style.display = 'none'
-        document.body.style.boxShadow = 'none'
-        document.querySelectorAll('a, button, input, select, textarea, label').forEach((element) => {
-            element.removeEventListener('mouseover', this.onMouseOver, {
-                capture: true,
-            })
-        })
-        document.removeEventListener('keydown', this.onKeyDown)
     }
     sendStep = (step) => {
-        step.selection = this.state.selection
         this.props.onChange(step)
     }
     Option = (props) => {
         let onChange = (e) => {
-            this.props.step[props.item] = e.target.value
-
-            if (e.target.value && this.state.selection.indexOf(props.item) === -1) {
-                this.setState({ selection: this.state.selection.concat([props.item]) }, () =>
-                    this.sendStep(this.props.step)
-                )
-            } else if (!e.target.value && this.state.selection.indexOf(props.item) > -1) {
-                this.setState(
-                    {
-                        selection: this.state.selection.filter((i) => i !== props.item),
-                    },
-                    () => this.sendStep(this.props.step)
-                )
-            } else {
-                this.sendStep(this.props.step)
-            }
+            this.sendStep({ ...this.props.step, [props.item]: e.target.value })
         }
 
         return (
-            <div className={'mb ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
+            <div className="mb">
                 <label>
-                    <Checkbox
-                        checked={this.state.selection.indexOf(props.item) > -1}
-                        value={props.item}
-                        onChange={(e) => {
-                            let { selection } = this.state
-                            if (e.target.checked) {
-                                selection.push(props.item)
-                            } else {
-                                selection = selection.filter((i) => i !== props.item)
-                            }
-                            this.setState({ selection }, () => this.sendStep(this.props.step))
-                        }}
-                    />{' '}
                     {props.label} {props.extra_options}
                 </label>
                 {props.item === 'selector' ? (
-                    <Input.TextArea onChange={onChange} value={this.props.step[props.item] || ''} />
+                    <Input.TextArea allowClear onChange={onChange} value={this.props.step[props.item] || ''} />
                 ) : (
                     <Input
                         data-attr="edit-action-url-input"
+                        allowClear
                         onChange={onChange}
                         value={this.props.step[props.item] || ''}
                     />
@@ -173,22 +46,15 @@ export class ActionStep extends Component {
         const handleChange = (e) => {
             const type = e.target.value
             if (type === '$autocapture') {
-                this.setState(
-                    {
-                        selection: Object.keys(step).filter((key) => key !== 'id' && key !== 'isNew' && step[key]),
-                    },
-                    () => this.sendStep({ ...step, event: '$autocapture' })
-                )
+                this.sendStep({ ...step, event: '$autocapture' })
             } else if (type === 'event') {
-                this.setState({ selection: [] }, () => this.sendStep({ ...step, event: '' }))
+                this.sendStep({ ...step, event: '' })
             } else if (type === '$pageview') {
-                this.setState({ selection: ['url'] }, () =>
-                    this.sendStep({
-                        ...step,
-                        event: '$pageview',
-                        url: step.url,
-                    })
-                )
+                this.sendStep({
+                    ...step,
+                    event: '$pageview',
+                    url: step.url,
+                })
             }
         }
 
@@ -214,7 +80,7 @@ export class ActionStep extends Component {
         const AndC = () => {
             return (
                 <div className="text-center">
-                    <span className="match-condition-badge mc-and">AND</span>
+                    <span className="stateful-badge and">AND</span>
                 </div>
             )
         }
@@ -276,7 +142,7 @@ export class ActionStep extends Component {
         return (
             <Col span={24} md={12}>
                 <Card className="action-step" style={{ overflow: 'visible' }}>
-                    {index > 0 && <div className="match-condition-badge mc-main mc-or">OR</div>}
+                    {index > 0 && <div className="stateful-badge mc-main or">OR</div>}
                     <div>
                         {!isOnlyStep && (
                             <div className="remove-wrapper">
@@ -356,6 +222,5 @@ export class ActionStep extends Component {
 }
 ActionStep.propTypes = {
     step: PropTypes.object,
-    simmer: PropTypes.func,
     index: PropTypes.number.isRequired,
 }

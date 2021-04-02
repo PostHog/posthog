@@ -4,11 +4,17 @@ import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import { Moment } from 'moment'
-import { retentionTableLogicType } from 'types/scenes/retention/retentionTableLogicType'
+import { retentionTableLogicType } from './retentionTableLogicType'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from 'lib/constants'
 import { actionsModel } from '~/models'
 import { ActionType } from '~/types'
+import {
+    RetentionTablePayload,
+    RetentionTrendPayload,
+    RetentionTablePeoplePayload,
+    RetentionTrendPeoplePayload,
+} from 'scenes/retention/types'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -38,61 +44,77 @@ function defaultFilters(filters: Record<string, any>): Record<string, any> {
         period: filters.period || 'Day',
         retention_type: filters.retention_type || RETENTION_FIRST_TIME,
         display: filters.display || ACTIONS_TABLE,
+        properties: filters.properties || [],
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        insight: ViewType.RETENTION,
     }
 }
 
-export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
+export const retentionTableLogic = kea<
+    retentionTableLogicType<
+        RetentionTablePayload,
+        RetentionTrendPayload,
+        RetentionTablePeoplePayload,
+        RetentionTrendPeoplePayload,
+        ActionType
+    >
+>({
     key: (props) => {
         return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },
     loaders: ({ values, props }) => ({
         results: {
-            __default: [],
+            __default: [] as RetentionTablePayload[] | RetentionTrendPayload[],
             loadResults: async (refresh = false, breakpoint) => {
-                if (!refresh && (props.cachedResults || props.preventLoading)) {
+                if (!refresh && (props.cachedResults || props.preventLoading) && values.filters === props.filters) {
                     return props.cachedResults
                 }
-                const urlParams = toParams(values.filters)
-                const res = await api.get(`api/insight/retention/?${urlParams}`)
+                insightLogic.actions.startQuery()
+                let res
+                const urlParams = toParams({ ...values.filters, ...(refresh ? { refresh: true } : {}) })
+                try {
+                    res = await api.get(`api/insight/retention/?${urlParams}`)
+                } catch (e) {
+                    insightLogic.actions.endQuery(ViewType.RETENTION, null, e)
+                    return []
+                }
                 breakpoint()
-                return res.data
+                insightLogic.actions.endQuery(ViewType.RETENTION, res.last_refresh)
+                return res.result
             },
         },
         people: {
-            __default: {} as Record<string, unknown>,
+            __default: {} as RetentionTablePeoplePayload | RetentionTrendPeoplePayload,
             loadPeople: async (rowIndex) => {
                 if (values.filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
                     const urlParams = toParams({ ...values.filters, selected_interval: rowIndex })
                     const res = await api.get(`api/person/retention/?${urlParams}`)
-
                     return res
                 } else {
                     const urlParams = toParams({ ...values.filters, selected_interval: rowIndex })
                     const res = await api.get(`api/person/retention/?${urlParams}`)
-
                     return res
                 }
             },
         },
     }),
     connect: {
-        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
+        actions: [insightHistoryLogic, ['createInsight']],
         values: [actionsModel, ['actions']],
     },
     actions: () => ({
-        setFilters: (filters) => ({ filters }),
+        setFilters: (filters: Record<string, any>) => ({ filters }),
         loadMorePeople: true,
         updatePeople: (people) => ({ people }),
-        updateRetention: (retention) => ({ retention }),
+        updateRetention: (retention: RetentionTablePayload[] | RetentionTrendPayload[]) => ({ retention }),
         clearPeople: true,
         clearRetention: true,
     }),
     reducers: ({ props }) => ({
-        initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
         filters: [
             props.filters
-                ? defaultFilters(props.filters)
-                : (state) => defaultFilters(router.selectors.searchParams(state)),
+                ? defaultFilters(props.filters as Record<string, any>)
+                : (state: Record<string, any>) => defaultFilters(router.selectors.searchParams(state)),
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
@@ -115,7 +137,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     }),
     selectors: {
         actionsLookup: [
-            (selectors) => [selectors.actions],
+            (selectors) => [(selectors as any).actions],
             (actions: ActionType[]) => Object.assign({}, ...actions.map((action) => ({ [action.id]: action.name }))),
         ],
     },
@@ -137,7 +159,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         },
     }),
     urlToAction: ({ actions, values, key }) => ({
-        '/insights': (_, searchParams: Record<string, any>) => {
+        '/insights': ({}, searchParams: Record<string, any>) => {
             if (searchParams.insight === ViewType.RETENTION) {
                 if (key != DEFAULT_RETENTION_LOGIC_KEY) {
                     return
@@ -158,14 +180,14 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     }),
     listeners: ({ actions, values, props }) => ({
         setProperties: () => {
-            actions.loadResults(true)
+            actions.loadResults()
         },
         setFilters: () => {
-            actions.loadResults(true)
+            actions.loadResults()
         },
         loadResults: () => {
             actions.clearPeople()
-            actions.setAllFilters(values.filters)
+            insightLogic.actions.setAllFilters(values.filters)
             if (!props.dashboardItemId) {
                 actions.createInsight(values.filters)
             }
@@ -174,10 +196,15 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             if (values.people.next) {
                 const peopleResult = await api.get(values.people.next)
                 const newPeople = {
-                    result: [...values.people.result, ...peopleResult['result']],
+                    result: [...(values.people.result as Record<string, any>[]), ...peopleResult['result']],
                     next: peopleResult['next'],
                 }
                 actions.updatePeople(newPeople)
+            }
+        },
+        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
+            if (props.dashboardItemId) {
+                actions.setFilters(filters)
             }
         },
     }),

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Callable, Dict, List, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db.models.query import Prefetch
@@ -33,8 +33,7 @@ class ClickhouseLifecycle(LifecycleTrend):
         else:
             raise ValueError("{interval} not supported")
 
-    def _serialize_lifecycle(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
-
+    def _format_lifecycle_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
         date_from = filter.date_from
 
         if not date_from:
@@ -48,7 +47,9 @@ class ClickhouseLifecycle(LifecycleTrend):
         event_params: Dict[str, Any] = {}
 
         props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            props_to_filter, team_id, filter_test_accounts=filter.filter_test_accounts
+        )
 
         _, _, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
@@ -57,12 +58,12 @@ class ClickhouseLifecycle(LifecycleTrend):
                 action = Action.objects.get(pk=entity.id)
                 event_query, event_params = format_action_filter(action)
             except:
-                return []
+                return "", {}, self._parse_result(filter, entity)
         else:
             event_query = "event = %(event)s"
             event_params = {"event": entity.id}
 
-        result = sync_execute(
+        return (
             LIFECYCLE_SQL.format(
                 interval=interval_string,
                 trunc_func=trunc_func,
@@ -83,16 +84,21 @@ class ClickhouseLifecycle(LifecycleTrend):
                 **date_params,
                 **prop_filter_params,
             },
+            self._parse_result(filter, entity),
         )
 
-        res = []
-        for val in result:
-            label = "{} - {}".format(entity.name, val[2])
-            additional_values = {"label": label, "status": val[2]}
-            parsed_result = parse_response(val, filter, additional_values)
-            res.append(parsed_result)
+    def _parse_result(self, filter: Filter, entity: Entity) -> Callable:
+        def _parse(result: List) -> List:
+            res = []
+            for val in result:
+                label = "{} - {}".format(entity.name, val[2])
+                additional_values = {"label": label, "status": val[2]}
+                parsed_result = parse_response(val, filter, additional_values)
+                res.append(parsed_result)
 
-        return res
+            return res
+
+        return _parse
 
     def get_people(
         self, filter: Filter, team_id: int, target_date: datetime, lifecycle_type: str, limit: int = 100,
@@ -125,7 +131,9 @@ class ClickhouseLifecycle(LifecycleTrend):
             event_params = {"event": entity.id}
 
         props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            props_to_filter, team_id, filter_test_accounts=filter.filter_test_accounts
+        )
 
         result = sync_execute(
             LIFECYCLE_PEOPLE_SQL.format(

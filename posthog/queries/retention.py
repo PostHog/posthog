@@ -7,6 +7,7 @@ from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth,
 from django.db.models.query import Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from rest_framework.utils.serializer_helpers import ReturnDict
+from sentry_sdk.api import capture_exception
 
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models import Event, Filter, Team
@@ -84,7 +85,9 @@ class Retention(BaseQuery):
         trunc, fields = self._get_trunc_func("timestamp", period)
 
         if is_first_time_retention:
-            filtered_events = events.filter(properties_to_Q(filter.properties, team_id=team.pk))
+            filtered_events = events.filter(
+                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
+            )
             first_date = (
                 filtered_events.filter(entity_condition)
                 .values("person_id", "event", "action")
@@ -100,7 +103,7 @@ class Retention(BaseQuery):
             )
         else:
             filtered_events = events.filter(filter.date_filter_Q).filter(
-                properties_to_Q(filter.properties, team_id=team.pk)
+                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
             )
             first_date = (
                 filtered_events.filter(entity_condition)
@@ -188,12 +191,14 @@ class Retention(BaseQuery):
         events = Event.objects.filter(team_id=team.pk).add_person_id(team.pk)
 
         filtered_events = events.filter(filter.recurring_date_filter_Q()).filter(
-            properties_to_Q(filter.properties, team_id=team.pk)
+            properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
         )
 
         inner_events = (
             Event.objects.filter(team_id=team.pk)
-            .filter(properties_to_Q(filter.properties, team_id=team.pk))
+            .filter(
+                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
+            )
             .add_person_id(team.pk)
             .filter(**{"person_id": OuterRef("id")})
             .filter(entity_condition)
@@ -204,7 +209,9 @@ class Retention(BaseQuery):
             if is_first_time_retention
             else Event.objects.filter(team_id=team.pk)
             .filter(filter.reference_date_filter_Q())
-            .filter(properties_to_Q(filter.properties, team_id=team.pk))
+            .filter(
+                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
+            )
             .add_person_id(team.pk)
             .filter(**{"person_id": OuterRef("id")})
             .filter(entity_condition)
@@ -234,10 +241,7 @@ class Retention(BaseQuery):
         return results
 
     def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
-
-        new_data = filter._data
-        new_data.update({"total_intervals": filter.total_intervals - filter.selected_interval})
-        filter = RetentionFilter(data=new_data)
+        filter = filter.with_data({"total_intervals": filter.total_intervals - filter.selected_interval})
 
         format_fields, params = self._determine_query_params(filter, team)
 
@@ -284,9 +288,15 @@ class Retention(BaseQuery):
         marker_length = filter.total_intervals
         result = []
         for val in vals:
-            result.append(
-                {"person": people_dict[val[0]], "appearances": appearance_to_markers(sorted(val[2]), marker_length)}
-            )
+            # NOTE: This try/except shouldn't be necessary but there do seem to be a handful of missing persons that can't be looked up
+            try:
+                result.append(
+                    {"person": people_dict[val[0]], "appearances": appearance_to_markers(sorted(val[2]), marker_length)}
+                )
+            except Exception as e:
+                capture_exception(e)
+                continue
+
         return result
 
     def get_entity_condition(self, entity: Entity, table: str) -> Tuple[Q, str]:

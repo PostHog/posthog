@@ -39,6 +39,7 @@ export function ActionFilter({
     disabled = false,
     singleFilter = false,
     sortable = false,
+    showOr = false,
 }) {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
@@ -67,7 +68,7 @@ export function ActionFilter({
         <div>
             {localFilters ? (
                 sortable ? (
-                    <SortableContainer onSortEnd={onSortEnd} useDragHandle lockAxis="y">
+                    <SortableContainer onSortEnd={onSortEnd} lockAxis="y" distance={5}>
                         {localFilters.map((filter, index) => (
                             <SortableActionFilterRow
                                 key={index}
@@ -89,6 +90,7 @@ export function ActionFilter({
                             key={index}
                             hideMathSelector={hideMathSelector}
                             singleFilter={singleFilter}
+                            showOr={showOr}
                         />
                     ))
                 )

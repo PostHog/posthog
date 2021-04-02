@@ -1,13 +1,15 @@
 # NOTE: bad django practice but /ee specifically depends on /posthog so it should be fine
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
+from django.db.models.expressions import F
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter, format_entity_filter
@@ -15,10 +17,19 @@ from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, PEOPLE_SQL, PEOPLE_THROUGH_DISTINCT_SQL, PERSON_TREND_SQL
+from ee.clickhouse.sql.person import (
+    GET_LATEST_PERSON_DISTINCT_ID_SQL,
+    GET_LATEST_PERSON_SQL,
+    INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL,
+    PEOPLE_SQL,
+    PEOPLE_THROUGH_DISTINCT_SQL,
+    PERSON_STATIC_COHORT_TABLE,
+    PERSON_TREND_SQL,
+)
 from ee.clickhouse.sql.stickiness.stickiness_people import STICKINESS_PEOPLE_SQL
 from posthog.api.action import ActionSerializer, ActionViewSet
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.api.utils import get_target_entity
+from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
@@ -62,32 +73,10 @@ class ClickhouseActionsViewSet(ActionViewSet):
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
         filter = Filter(request=request)
-        shown_as = request.GET.get("shown_as")
-
-        if len(filter.entities) >= 1:
-            entity = filter.entities[0]
-        else:
-            entity = Entity({"id": request.GET["entityId"], "type": request.GET["type"]})
-
-        # adhoc date handling. parsed differently with django orm
-        date_from = filter.date_from or timezone.now()
-        data = {}
-        if filter.interval == "month":
-            data.update(
-                {"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
-            )
-        elif filter.interval == "week":
-            data.update(
-                {"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
-            )
-        elif filter.interval == "hour":
-            data.update({"date_to": date_from + timedelta(hours=1)})
-        elif filter.interval == "minute":
-            data.update({"date_to": date_from + timedelta(minutes=1)})
-        filter = Filter(data={**filter._data, **data})
+        entity = get_target_entity(request)
 
         current_url = request.get_full_path()
-        serialized_people = self._calculate_entity_people(team, entity, filter)
+        serialized_people = calculate_entity_people(team, entity, filter)
 
         current_url = request.get_full_path()
         next_url: Optional[str] = request.get_full_path()
@@ -110,45 +99,88 @@ class ClickhouseActionsViewSet(ActionViewSet):
             }
         )
 
-    def _calculate_entity_people(self, team: Team, entity: Entity, filter: Filter):
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
-        entity_sql, entity_params = format_entity_filter(entity=entity)
-        person_filter = ""
-        person_filter_params: Dict[str, Any] = {}
 
-        if filter.breakdown_type == "cohort" and filter.breakdown_value != "all":
-            cohort = Cohort.objects.get(pk=filter.breakdown_value)
-            person_filter, person_filter_params = format_filter_query(cohort)
-            person_filter = "AND distinct_id IN ({})".format(person_filter)
-        elif (
-            filter.breakdown_type == "person"
-            and isinstance(filter.breakdown, str)
-            and isinstance(filter.breakdown_value, str)
-        ):
-            person_prop = Property(**{"key": filter.breakdown, "value": filter.breakdown_value, "type": "person"})
-            filter.properties.append(person_prop)
-
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
-        params: Dict = {"team_id": team.pk, **prop_filter_params, **entity_params, "offset": filter.offset}
-
-        content_sql = PERSON_TREND_SQL.format(
-            entity_filter=f"AND {entity_sql}",
-            parsed_date_from=parsed_date_from,
-            parsed_date_to=parsed_date_to,
-            filters=prop_filters,
-            breakdown_filter="",
-            person_filter=person_filter,
+def _handle_date_interval(filter: Filter) -> Filter:
+    # adhoc date handling. parsed differently with django orm
+    date_from = filter.date_from or timezone.now()
+    data = {}
+    if filter.interval == "month":
+        data.update(
+            {"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
         )
+    elif filter.interval == "week":
+        data.update({"date_to": (date_from + relativedelta(weeks=1)).strftime("%Y-%m-%d %H:%M:%S")})
+    elif filter.interval == "hour":
+        data.update({"date_to": date_from + timedelta(hours=1)})
+    elif filter.interval == "minute":
+        data.update({"date_to": date_from + timedelta(minutes=1)})
+    return Filter(data={**filter._data, **data})
 
-        people = sync_execute(
-            PEOPLE_THROUGH_DISTINCT_SQL.format(
-                content_sql=content_sql, latest_person_sql=GET_LATEST_PERSON_SQL.format(query="")
-            ),
-            {**params, **person_filter_params},
-        )
-        serialized_people = ClickhousePersonSerializer(people, many=True).data
 
-        return serialized_people
+def _process_content_sql(team: Team, entity: Entity, filter: Filter):
+
+    filter = _handle_date_interval(filter)
+
+    parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
+    entity_sql, entity_params = format_entity_filter(entity=entity)
+    person_filter = ""
+    person_filter_params: Dict[str, Any] = {}
+
+    if filter.breakdown_type == "cohort" and filter.breakdown_value != "all":
+        cohort = Cohort.objects.get(pk=filter.breakdown_value)
+        person_filter, person_filter_params = format_filter_query(cohort)
+        person_filter = "AND distinct_id IN ({})".format(person_filter)
+    elif (
+        filter.breakdown_type == "person"
+        and isinstance(filter.breakdown, str)
+        and isinstance(filter.breakdown_value, str)
+    ):
+        person_prop = Property(**{"key": filter.breakdown, "value": filter.breakdown_value, "type": "person"})
+        filter.properties.append(person_prop)
+
+    prop_filters, prop_filter_params = parse_prop_clauses(
+        filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+    )
+    params: Dict = {"team_id": team.pk, **prop_filter_params, **entity_params, "offset": filter.offset}
+
+    content_sql = PERSON_TREND_SQL.format(
+        entity_filter=f"AND {entity_sql}",
+        parsed_date_from=parsed_date_from,
+        parsed_date_to=parsed_date_to,
+        filters=prop_filters,
+        breakdown_filter="",
+        person_filter=person_filter,
+    )
+    return content_sql, {**params, **person_filter_params}
+
+
+def calculate_entity_people(team: Team, entity: Entity, filter: Filter):
+    content_sql, params = _process_content_sql(team, entity, filter)
+
+    people = sync_execute(
+        PEOPLE_THROUGH_DISTINCT_SQL.format(
+            content_sql=content_sql,
+            latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+        ),
+        params,
+    )
+    serialized_people = ClickhousePersonSerializer(people, many=True).data
+
+    return serialized_people
+
+
+def insert_entity_people_into_cohort(cohort: Cohort, entity: Entity, filter: Filter):
+    content_sql, params = _process_content_sql(cohort.team, entity, filter)
+    sync_execute(
+        INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL.format(
+            cohort_table=PERSON_STATIC_COHORT_TABLE,
+            content_sql=content_sql,
+            latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+        ),
+        {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},
+    )
 
 
 class LegacyClickhouseActionsViewSet(ClickhouseActionsViewSet):

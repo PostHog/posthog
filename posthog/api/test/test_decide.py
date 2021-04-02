@@ -1,13 +1,22 @@
 import base64
 import json
 
-from posthog.models import FeatureFlag, Person, PersonalAPIKey
+from django.test.client import Client
 
-from .base import BaseTest
+from posthog.models import FeatureFlag, Person, PersonalAPIKey
+from posthog.test.base import BaseTest
 
 
 class TestDecide(BaseTest):
-    TESTS_API = True
+    """
+    Tests the `/decide` endpoint.
+    We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.client.force_login(self.user)
 
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
@@ -17,7 +26,7 @@ class TestDecide(BaseTest):
             "/decide/",
             {"data": self._dict_to_b64(data or {"token": self.team.api_token, "distinct_id": "example_id"})},
             HTTP_ORIGIN=origin,
-        ).json()
+        )
 
     def test_user_on_own_site_enabled(self):
         user = self.organization.members.first()
@@ -70,13 +79,13 @@ class TestDecide(BaseTest):
 
     def test_user_session_recording_opt_in(self):
         # :TRICKY: Test for regression around caching
-        response = self._post_decide()
+        response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"], False)
 
         self.team.session_recording_opt_in = True
         self.team.save()
 
-        response = self._post_decide()
+        response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"], {"endpoint": "/s/"})
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
@@ -85,10 +94,10 @@ class TestDecide(BaseTest):
         self.team.session_recording_opt_in = True
         self.team.save()
 
-        response = self._post_decide(origin="evil.site.com")
+        response = self._post_decide(origin="evil.site.com").json()
         self.assertEqual(response["sessionRecording"], False)
 
-        response = self._post_decide(origin="https://example.com")
+        response = self._post_decide(origin="https://example.com").json()
         self.assertEqual(response["sessionRecording"], {"endpoint": "/s/"})
 
     def test_feature_flags(self):
@@ -118,11 +127,11 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
         with self.assertNumQueries(5):
-            response = self._post_decide()
+            response = self._post_decide().json()
         self.assertEqual(response["featureFlags"][0], "beta-feature")
 
         with self.assertNumQueries(5):
-            response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"})
+            response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"}).json()
         self.assertEqual(len(response["featureFlags"]), 0)
 
     def test_feature_flags_with_personal_api_key(self):
@@ -132,5 +141,19 @@ class TestDecide(BaseTest):
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user,
         )
-        response = self._post_decide({"distinct_id": "example_id", "api_key": key.value, "project_id": self.team.id})
+        response = self._post_decide(
+            {"distinct_id": "example_id", "api_key": key.value, "project_id": self.team.id}
+        ).json()
         self.assertEqual(len(response["featureFlags"]), 1)
+
+    def test_personal_api_key_without_project_id(self):
+        key = PersonalAPIKey(label="X", user=self.user)
+        key.save()
+        Person.objects.create(team=self.team, distinct_ids=["example_id"])
+
+        response = self._post_decide({"distinct_id": "example_id", "api_key": key.value})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.json()["message"],
+            "Project API key invalid. You can find your project API key in PostHog project settings.",
+        )

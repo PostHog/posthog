@@ -2,9 +2,12 @@ name: Backend CI
 
 on:
     - pull_request
+env:
+    SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+    REDIS_URL: 'redis://localhost'
 
 jobs:
-    code-quality:
+    backend-code-quality:
         name: Code quality checks
         runs-on: ubuntu-latest
 
@@ -56,15 +59,15 @@ jobs:
 
             - name: Typecheck
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
               run: |
                   mypy .
 
     django:
         name: Django tests – Py ${{ matrix.python-version }}
         runs-on: ubuntu-latest
+        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
+
         strategy:
             fail-fast: false
             matrix:
@@ -106,29 +109,25 @@ jobs:
               run: |
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis
+                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
               if: steps.cache.outputs.cache-hit != 'true'
 
             - name: Check migrations
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
               run: python manage.py makemigrations --check --dry-run
 
             - name: Run posthog tests
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python manage.py test posthog -v 2
+                  pytest posthog/
             - name: Run EE tests
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   PRIMARY_DB: 'clickhouse'
                   CLICKHOUSE_HOST: 'localhost'
@@ -140,11 +139,12 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python manage.py test ee --testrunner="ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner"
+                  pytest ee/
 
     cloud:
         name: Django tests – Cloud
         runs-on: ubuntu-latest
+        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
 
         services:
             postgres:
@@ -164,9 +164,9 @@ jobs:
                     - '9009:9009'
 
         steps:
-            - name: Fetch posthog-production
+            - name: Fetch posthog-cloud
               run: |
-                  curl -L https://github.com/posthog/posthog-production/tarball/master | tar --strip-components=1 -xz --
+                  curl -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
                   mkdir deploy/
 
             - name: Checkout master
@@ -175,7 +175,7 @@ jobs:
                   ref: 'master'
                   path: 'deploy/'
 
-            - name: Link posthog-production at master
+            - name: Link posthog-cloud at master
               run: |
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
@@ -199,16 +199,14 @@ jobs:
                   cd deploy
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis
+                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
               if: steps.cache.outputs.cache-hit != 'true'
 
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
             - name: Migrate initially at master, then remove master deploy code
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
               run: |
                   python deploy/manage.py migrate
                   rm -rf deploy
@@ -218,8 +216,10 @@ jobs:
               with:
                   path: 'deploy/'
 
-            - name: Link posthog-production at current branch
+            - name: Link posthog-cloud at current branch
               run: |
+                  cp deploy/ee/conftest.py multi_tenancy/conftest.py
+                  cp deploy/ee/conftest.py messaging/conftest.py
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
                   cat multi_tenancy_settings.py >> deploy/posthog/settings.py
@@ -227,9 +227,7 @@ jobs:
 
             - name: Check migrations
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
               run: |
                   cd deploy
                   python manage.py makemigrations --check --dry-run
@@ -237,47 +235,43 @@ jobs:
 
             - name: Run posthog tests
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
               run: |
                   cd deploy
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python manage.py test posthog --keepdb -v 2 --exclude-tag=skip_on_multitenancy
+                  pytest posthog --reuse-db -m "not skip_on_multitenancy"
 
-            - name: Run cloud tests (posthog-production)
+            - name: Run cloud tests (posthog-cloud)
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
                   PRIMARY_DB: 'clickhouse'
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_DATABASE: 'posthog_test'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
               run: |
+                  source .env.template
                   cd deploy
-                  python manage.py test multi_tenancy messaging --keepdb -v 2 --exclude-tag=skip_on_multitenancy
+                  pytest multi_tenancy messaging -m "not skip_on_multitenancy"
             - name: Run EE tests
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
                   PRIMARY_DB: 'clickhouse'
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_DATABASE: 'posthog_test'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
               run: |
-                  cd deploy
-                  python manage.py test ee --keepdb
+                  cd deploy/
+                  pytest ee
 
     foss:
         name: Django tests – FOSS
         runs-on: ubuntu-latest
+        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
 
         services:
             postgres:
@@ -310,7 +304,7 @@ jobs:
               run: |
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis
+                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
               if: steps.cache.outputs.cache-hit != 'true'
 
             - name: Remove ee
@@ -319,18 +313,15 @@ jobs:
 
             - name: Check migrations
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
               run: python manage.py makemigrations --check --dry-run
 
             - name: Run tests
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python manage.py test -v 2 --exclude-tag=ee
+                  pytest -m "not ee"

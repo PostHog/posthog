@@ -2,19 +2,32 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { userLogic } from 'scenes/userLogic'
-import { navigationLogicType } from 'types/layout/navigation/navigationLogicType'
-import { UserType } from '~/types'
+import { navigationLogicType } from './navigationLogicType'
+import { OrganizationType, SystemStatus, UserType } from '~/types'
+import { organizationLogic } from 'scenes/organizationLogic'
+import dayjs from 'dayjs'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-export const navigationLogic = kea<navigationLogicType<UserType>>({
+type WarningType =
+    | 'welcome'
+    | 'incomplete_setup_on_demo_project'
+    | 'incomplete_setup_on_real_project'
+    | 'demo_project'
+    | 'real_project_with_no_events'
+    | null
+
+export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, WarningType>>({
     actions: {
-        setMenuCollapsed: (collapsed) => ({ collapsed }),
+        setMenuCollapsed: (collapsed: boolean) => ({ collapsed }),
         collapseMenu: () => {},
-        setSystemStatus: (status) => ({ status }),
-        setChangelogModalOpen: (isOpen) => ({ isOpen }),
-        updateCurrentOrganization: (id) => ({ id }),
-        updateCurrentProject: (id, dest) => ({ id, dest }),
-        setToolbarModalOpen: (isOpen) => ({ isOpen }),
-        setPinnedDashboardsVisible: (visible) => ({ visible }),
+        setSystemStatus: (status: SystemStatus) => ({ status }),
+        setChangelogModalOpen: (isOpen: boolean) => ({ isOpen }),
+        updateCurrentOrganization: (id: string) => ({ id }),
+        updateCurrentProject: (id: number, dest: string) => ({ id, dest }),
+        setToolbarModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
+        setInviteMembersModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setHotkeyNavigationEngaged: (hotkeyNavigationEngaged: boolean) => ({ hotkeyNavigationEngaged }),
     },
     reducers: {
         menuCollapsed: [
@@ -35,10 +48,22 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
                 setToolbarModalOpen: (_, { isOpen }) => isOpen,
             },
         ],
+        inviteMembersModalOpen: [
+            false,
+            {
+                setInviteMembersModalOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
         pinnedDashboardsVisible: [
             false,
             {
                 setPinnedDashboardsVisible: (_, { visible }) => visible,
+            },
+        ],
+        hotkeyNavigationEngaged: [
+            false,
+            {
+                setHotkeyNavigationEngaged: (_, { hotkeyNavigationEngaged }) => hotkeyNavigationEngaged,
             },
         ],
     },
@@ -49,10 +74,10 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
                 if (statusLoading) {
                     return true
                 }
-                const aliveMetrics = ['redis_alive', 'db_alive']
+                const aliveMetrics = ['redis_alive', 'db_alive', 'plugin_sever_alive']
                 let aliveSignals = 0
                 for (const metric of statusMetrics) {
-                    if (aliveMetrics.includes(metric.key) && metric.value) {
+                    if (metric.key && aliveMetrics.includes(metric.key) && metric.value) {
                         aliveSignals = aliveSignals + 1
                     }
                     if (aliveSignals >= aliveMetrics.length) {
@@ -72,7 +97,28 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
         currentTeam: [
             () => [userLogic.selectors.user],
             (user) => {
-                return user?.team.id
+                return user?.team?.id
+            },
+        ],
+        demoWarning: [
+            () => [userLogic.selectors.user, organizationLogic.selectors.currentOrganization],
+            (user: UserType, organization: OrganizationType): WarningType => {
+                if (
+                    organization.setup.is_active &&
+                    dayjs(organization.created_at) >= dayjs().subtract(1, 'days') &&
+                    user.team?.is_demo
+                ) {
+                    return 'welcome'
+                } else if (organization.setup.is_active && user.team?.is_demo) {
+                    return 'incomplete_setup_on_demo_project'
+                } else if (organization.setup.is_active) {
+                    return 'incomplete_setup_on_real_project'
+                } else if (user.team?.is_demo) {
+                    return 'demo_project'
+                } else if (user.team && !user.team.ingested_event) {
+                    return 'real_project_with_no_events'
+                }
+                return null
             },
         ],
     },
@@ -107,6 +153,13 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
                 user: { current_team_id: id },
             })
             location.href = dest
+        },
+        setHotkeyNavigationEngaged: async ({ hotkeyNavigationEngaged }, breakpoint) => {
+            if (hotkeyNavigationEngaged) {
+                eventUsageLogic.actions.reportHotkeyNavigation('global', 'g')
+                await breakpoint(3000)
+                actions.setHotkeyNavigationEngaged(false)
+            }
         },
     }),
     events: ({ actions }) => ({

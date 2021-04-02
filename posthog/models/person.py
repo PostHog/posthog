@@ -27,7 +27,12 @@ class Person(models.Model):
     def distinct_ids(self) -> List[str]:
         if hasattr(self, "distinct_ids_cache"):
             return [id.distinct_id for id in self.distinct_ids_cache]  # type: ignore
-        return [id[0] for id in PersonDistinctId.objects.filter(person=self).order_by("id").values_list("distinct_id")]
+        return [
+            id[0]
+            for id in PersonDistinctId.objects.filter(person=self, team_id=self.team_id)
+            .order_by("id")
+            .values_list("distinct_id")
+        ]
 
     def add_distinct_id(self, distinct_id: str) -> None:
         PersonDistinctId.objects.create(person=self, distinct_id=distinct_id, team_id=self.team_id)
@@ -71,6 +76,9 @@ class Person(models.Model):
     is_user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
     is_identified: models.BooleanField = models.BooleanField(default=False)
     uuid = models.UUIDField(db_index=True, default=UUIDT, editable=False)
+
+    # Has an index on properties -> email, built concurrently
+    # See migration 0121
 
 
 class PersonDistinctId(models.Model):

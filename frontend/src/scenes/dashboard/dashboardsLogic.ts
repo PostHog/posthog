@@ -1,8 +1,9 @@
 import { kea } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router } from 'kea-router'
-import { dashboardsLogicType } from 'types/scenes/dashboard/dashboardsLogicType'
+import { dashboardsLogicType } from './dashboardsLogicType'
 import { DashboardType } from '~/types'
+import { uniqueBy } from 'lib/utils'
 
 export const dashboardsLogic = kea<dashboardsLogicType>({
     actions: () => ({
@@ -24,6 +25,14 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
                 dashboards
                     .filter((d) => !d.deleted)
                     .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')),
+        ],
+        dashboardTags: [
+            () => [dashboardsModel.selectors.dashboards],
+            (dashboards: DashboardType[]): string[] =>
+                uniqueBy(
+                    dashboards.flatMap(({ tags }) => tags),
+                    (item) => item
+                ).sort(),
         ],
     }),
     listeners: () => ({

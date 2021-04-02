@@ -1,6 +1,7 @@
 from ee.kafka_client.topics import KAFKA_EVENTS
 
 from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine
+from .person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 
 DROP_EVENTS_TABLE_SQL = """
 DROP TABLE events
@@ -9,6 +10,7 @@ DROP TABLE events
 DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL = """
 DROP TABLE events_with_array_props_view
 """
+
 
 EVENTS_TABLE = "events"
 
@@ -23,8 +25,16 @@ CREATE TABLE {table_name}
     distinct_id VARCHAR,
     elements_chain VARCHAR,
     created_at DateTime64(6, 'UTC')
+    {materialized_columns}
     {extra_fields}
 ) ENGINE = {engine} 
+"""
+
+EVENTS_TABLE_MATERIALIZED_COLUMNS = """
+    , properties_issampledevent VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'isSampledEvent'))
+    , properties_currentscreen VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'currentScreen'))
+    , properties_objectname VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'objectName'))
+    , properties_test_prop VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'test_prop'))
 """
 
 EVENTS_TABLE_SQL = (
@@ -38,6 +48,7 @@ SAMPLE BY uuid
     table_name=EVENTS_TABLE,
     engine=table_engine(EVENTS_TABLE, "_timestamp"),
     extra_fields=KAFKA_COLUMNS,
+    materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
 
@@ -45,6 +56,7 @@ KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_" + EVENTS_TABLE,
     engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
     extra_fields="",
+    materialized_columns="",
 )
 
 EVENTS_TABLE_MV_SQL = """
@@ -183,8 +195,10 @@ SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seco
 """
 
 EVENT_JOIN_PERSON_SQL = """
-INNER JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid ON events.distinct_id = pid.distinct_id
-"""
+INNER JOIN (SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) as pid ON events.distinct_id = pid.distinct_id
+""".format(
+    latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
+)
 
 GET_EVENTS_WITH_PROPERTIES = """
 SELECT * FROM events WHERE 

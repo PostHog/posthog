@@ -1,4 +1,21 @@
-import { formatLabel, identifierToHuman, midEllipsis, isURL } from './utils'
+import {
+    formatLabel,
+    identifierToHuman,
+    midEllipsis,
+    isURL,
+    capitalizeFirstLetter,
+    compactNumber,
+    pluralize,
+    endWithPunctation,
+} from './utils'
+
+describe('capitalizeFirstLetter()', () => {
+    it('returns the capitalized string', () => {
+        expect(capitalizeFirstLetter('jane')).toEqual('Jane')
+        expect(capitalizeFirstLetter('hello there!')).toEqual('Hello there!')
+        expect(capitalizeFirstLetter('underscores_make_no_difference')).toEqual('Underscores_make_no_difference')
+    })
+})
 
 describe('identifierToHuman()', () => {
     it('humanizes properly', () => {
@@ -21,25 +38,31 @@ describe('formatLabel()', () => {
     given('action', () => ({}))
 
     it('formats the label', () => {
-        expect(given.subject).toEqual('some_event (Total) ')
+        expect(given.subject).toEqual('some_event')
     })
 
-    it('handles DAU queries', () => {
+    describe('DAU queries', () => {
         given('action', () => ({ math: 'dau' }))
 
-        expect(given.subject).toEqual('some_event (DAU) ')
+        it('is formatted', () => {
+            expect(given.subject).toEqual('some_event (Active Users) ')
+        })
     })
 
-    it('handles summing by property', () => {
+    describe('summing by property', () => {
         given('action', () => ({ math: 'sum', math_property: 'event_property' }))
 
-        expect(given.subject).toEqual('some_event (sum of event_property) ')
+        it('is formatted', () => {
+            expect(given.subject).toEqual('some_event (sum of event_property) ')
+        })
     })
 
-    it('handles action with properties', () => {
+    describe('action with properties', () => {
         given('action', () => ({ properties: [{ value: 'hello' }, { operator: 'gt', value: 5 }] }))
 
-        expect(given.subject).toEqual('some_event (Total)  (= hello, > 5)')
+        it('is formatted', () => {
+            expect(given.subject).toEqual('some_event (= hello, > 5)')
+        })
     })
 })
 
@@ -73,5 +96,40 @@ describe('isURL()', () => {
         expect(isURL(1)).toEqual(false)
         expect(isURL(true)).toEqual(false)
         expect(isURL(null)).toEqual(false)
+    })
+})
+
+describe('compactNumber()', () => {
+    it('formats number correctly', () => {
+        expect(compactNumber(10)).toEqual('10')
+        expect(compactNumber(293)).toEqual('293')
+        expect(compactNumber(5001)).toEqual('5K')
+        expect(compactNumber(5312)).toEqual('5.3K')
+        expect(compactNumber(5392)).toEqual('5.4K')
+        expect(compactNumber(2833102, 2)).toEqual('2.83M')
+        expect(compactNumber(8283310234)).toEqual('8.3B')
+    })
+})
+describe('pluralize()', () => {
+    it('handles singular cases', () => {
+        expect(pluralize(1, 'member')).toEqual('1 member')
+        expect(pluralize(1, 'bacterium', 'bacteria', true)).toEqual('1 bacterium')
+        expect(pluralize(1, 'word', null, false)).toEqual('word')
+    })
+    it('handles plural cases', () => {
+        expect(pluralize(28321, 'member')).toEqual('28321 members')
+        expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
+        expect(pluralize(3, 'word', null, false)).toEqual('words')
+    })
+})
+
+describe('endWithPunctation()', () => {
+    it('adds period at the end when needed', () => {
+        expect(endWithPunctation('Hello')).toEqual('Hello.')
+        expect(endWithPunctation('Learn more! ')).toEqual('Learn more!')
+        expect(endWithPunctation('Stop.')).toEqual('Stop.')
+        expect(endWithPunctation(null)).toEqual('')
+        expect(endWithPunctation('   ')).toEqual('')
+        expect(endWithPunctation('  Why? ')).toEqual('Why?')
     })
 })

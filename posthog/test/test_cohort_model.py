@@ -1,32 +1,22 @@
 from unittest.mock import patch
 
-from django.test import tag
-from freezegun import freeze_time
+import pytest
 
-from posthog.models import (
-    Action,
-    ActionStep,
-    Cohort,
-    Element,
-    Event,
-    Person,
-    Team,
-    organization,
-)
+from posthog.models import Action, ActionStep, Cohort, Event, Person, Team
 from posthog.test.base import BaseTest
 
 
 class TestCohort(BaseTest):
     def test_postgres_get_distinct_ids_from_cohort(self):
         person1 = Person.objects.create(distinct_ids=["person_1"], team=self.team)
-        event1 = Event.objects.create(event="user signed up", team=self.team, distinct_id="person_1")
+        Event.objects.create(event="user signed up", team=self.team, distinct_id="person_1")
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action, event="user signed up")
         action.calculate_events()
 
         person2 = Person.objects.create(distinct_ids=["person_2"], team=self.team, properties={"$os": "Chrome"})
-        person3 = Person.objects.create(distinct_ids=["person_3"], team=self.team)
-        person4 = Person.objects.create(distinct_ids=["person_4"], team=self.team)
+        Person.objects.create(distinct_ids=["person_3"], team=self.team)
+        Person.objects.create(distinct_ids=["person_4"], team=self.team)
 
         cohort = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": "7"}])
         cohort.calculate_people(use_clickhouse=False)
@@ -50,15 +40,15 @@ class TestCohort(BaseTest):
         self.assertCountEqual([p for p in cohort.people.all()], [person1, person2])
 
     def test_insert_by_distinct_id_or_email(self):
-        Person.objects.create(team=self.team, properties={"email": "email@example.org"})
+        Person.objects.create(team=self.team, distinct_ids=["000"])
         Person.objects.create(team=self.team, distinct_ids=["123"])
         Person.objects.create(team=self.team)
         # Team leakage
         team2 = Team.objects.create(organization=self.organization)
-        Person.objects.create(team=team2, properties={"email": "email@example.org"})
+        Person.objects.create(team=team2, distinct_ids=["123"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
-        cohort.insert_users_by_list(["email@example.org", "123", "123", "email@example.org"])
+        cohort.insert_users_by_list(["a header or something", "123", "000", "email@example.org"])
         cohort = Cohort.objects.get()
         self.assertEqual(cohort.people.count(), 2)
         self.assertEqual(cohort.is_calculating, False)
@@ -73,7 +63,7 @@ class TestCohort(BaseTest):
         self.assertEqual(cohort.people.count(), 2)
         self.assertEqual(cohort.is_calculating, False)
 
-    @tag("ee")
+    @pytest.mark.ee
     @patch("ee.clickhouse.models.cohort.get_person_ids_by_cohort_id")
     def test_calculating_cohort_clickhouse(self, get_person_ids_by_cohort_id):
         person1 = Person.objects.create(
@@ -93,7 +83,7 @@ class TestCohort(BaseTest):
 
         self.assertCountEqual(list(cohort.people.all()), [person1, person2])
 
-    @tag("ee")
+    @pytest.mark.ee
     def test_clickhouse_empty_query(self):
         cohort2 = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",

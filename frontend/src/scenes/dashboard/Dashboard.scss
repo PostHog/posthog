@@ -1,0 +1,187 @@
+@import '~/vars';
+
+$dashboard-title-size: 32px;
+
+.dashboard {
+    margin-top: $default_spacing * 2;
+
+    .dashboard-items-actions {
+        margin-bottom: $default_spacing;
+        display: flex;
+
+        .left-item {
+            flex-grow: 1;
+        }
+
+        .ant-btn {
+            padding-left: 4px !important;
+        }
+    }
+
+    &.not-found {
+        text-align: center;
+        .graphic {
+            background: url('../../../public/not-found-rocket.svg') no-repeat center center;
+            height: 270px;
+            width: 100%;
+        }
+        p {
+            margin: 0 auto;
+            max-width: 600px;
+        }
+    }
+
+    .dashboard-description {
+        margin-bottom: $default_spacing;
+
+        .ant-card-body {
+            padding: $default_spacing / 2 $default_spacing;
+        }
+    }
+
+    .empty-state {
+        position: relative;
+
+        .skeleton-actions {
+            text-align: right;
+            .ant-skeleton-avatar {
+                margin-right: 8px;
+            }
+        }
+
+        .pie-chart {
+            height: 200px;
+            width: 200px;
+            max-width: 100%;
+            margin-top: $default_spacing;
+
+            @media (max-width: 992px) {
+                height: 140px;
+                width: 140px;
+            }
+        }
+
+        .bar-chart {
+            display: flex;
+            margin-top: $default_spacing;
+            align-items: flex-end;
+            .bar-el {
+                background-color: rgba(190, 190, 190, 0.2);
+                border-radius: $radius;
+                width: 12.5%;
+                margin-left: 4px;
+                height: 100px;
+            }
+        }
+
+        .ant-col {
+            flex-grow: 1;
+            .ant-card {
+                height: 100%;
+            }
+        }
+
+        .fade-out-graphs {
+            margin-top: $default_spacing;
+            height: 150px;
+            overflow: hidden;
+            position: relative;
+
+            &::after {
+                @extend .mixin-gradient-overlay;
+                width: calc(100% - 16px); // .ant-row gutter
+                left: 8px;
+                height: 150px;
+            }
+        }
+
+        .cta {
+            width: 360px;
+            max-width: calc(100% - 32px);
+            position: absolute;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: $z_content_overlay;
+        }
+    }
+}
+
+.dashboard-header {
+    display: flex;
+    justify-content: space-between;
+
+    margin-top: -1rem;
+    margin-bottom: $default_spacing / 2;
+
+    width: 100%;
+
+    &.full-screen {
+        margin-top: 1rem;
+    }
+
+    .dashboard-select {
+        flex: 1;
+        @extend .text-ellipsis;
+        padding-right: $default_spacing * 2;
+
+        .ant-select-single {
+            max-width: 100%;
+            line-height: $dashboard-title-size;
+
+            .ant-select-selector {
+                padding-left: 0;
+                padding-right: 8px;
+                line-height: $dashboard-title-size;
+                height: $dashboard-title-size;
+
+                .ant-select-selection-item {
+                    font-size: $dashboard-title-size;
+                    line-height: $dashboard-title-size;
+                    width: 100%;
+                    height: 35px;
+                    display: block;
+
+                    .anticon-share-alt {
+                        font-size: $dashboard-title-size * 0.65;
+                        color: $success;
+                        margin-left: 6px !important;
+                        margin-right: 4px;
+                        margin-top: $default_spacing / 2;
+                    }
+                }
+            }
+            &.ant-select-open {
+                .ant-select-arrow {
+                    color: rgba($text_default, 0.4);
+                }
+            }
+            .ant-select-arrow {
+                color: $text_default;
+                font-size: 0.5 * $dashboard-title-size;
+            }
+        }
+    }
+    .dashboard-meta {
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        .ant-btn {
+            .anticon {
+                vertical-align: baseline;
+            }
+            margin-left: 10px;
+            &.button-box {
+                padding: 4px 8px;
+            }
+        }
+    }
+
+    @media (max-width: 768px) {
+        flex-direction: column;
+        .dashboard-meta {
+            padding-top: $default_spacing;
+            justify-content: flex-end;
+        }
+    }
+}

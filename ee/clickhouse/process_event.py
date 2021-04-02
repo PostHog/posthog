@@ -1,6 +1,6 @@
 import datetime
 import json
-from typing import Dict, Optional
+from typing import Dict, Optional, Sequence
 from uuid import UUID
 
 import statsd
@@ -13,17 +13,16 @@ from sentry_sdk import capture_exception
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.kafka_client.client import KafkaProducer
-from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 from posthog.ee import is_ee_enabled
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.tasks.process_event import (
-    _add_missing_feature_flags,
     handle_identify_or_alias,
     sanitize_event_name,
     store_names_and_properties,
+    update_person_properties,
 )
 
 if settings.STATSD_HOST is not None:
@@ -33,7 +32,7 @@ if settings.STATSD_HOST is not None:
 def _capture_ee(
     event_uuid: UUID,
     person_uuid: UUID,
-    ip: str,
+    ip: Optional[str],
     site_url: str,
     team_id: int,
     event: str,
@@ -61,11 +60,10 @@ def _capture_ee(
 
     team = Team.objects.select_related("organization").get(pk=team_id)
 
-    if not team.anonymize_ips and "$ip" not in properties:
+    if ip and not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
 
     event = sanitize_event_name(event)
-    _add_missing_feature_flags(properties, team, distinct_id)
     store_names_and_properties(team=team, event=event, properties=properties)
 
     if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
@@ -75,6 +73,13 @@ def _capture_ee(
             Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
         except IntegrityError:
             pass
+
+    if properties.get("$set"):
+        update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=properties["$set"])
+    if properties.get("$set_once"):
+        update_person_properties(
+            team_id=team_id, distinct_id=distinct_id, properties=properties["$set_once"], set_once=True
+        )
 
     # # determine create events
     create_event(
@@ -111,7 +116,7 @@ if is_ee_enabled():
 
     def process_event_ee(
         distinct_id: str,
-        ip: str,
+        ip: Optional[str],
         site_url: str,
         data: dict,
         team_id: int,
@@ -124,6 +129,8 @@ if is_ee_enabled():
         properties = data.get("properties", {})
         if data.get("$set"):
             properties["$set"] = data["$set"]
+        if data.get("$set_once"):
+            properties["$set_once"] = data["$set_once"]
 
         person_uuid = UUIDT()
         ts = handle_timestamp(data, now, sent_at)
@@ -158,7 +165,7 @@ else:
 
     def process_event_ee(
         distinct_id: str,
-        ip: str,
+        ip: Optional[str],
         site_url: str,
         data: dict,
         team_id: int,
@@ -172,26 +179,28 @@ else:
 
 def log_event(
     distinct_id: str,
-    ip: str,
+    ip: Optional[str],
     site_url: str,
     data: dict,
     team_id: int,
     now: datetime.datetime,
     sent_at: Optional[datetime.datetime],
     event_uuid: UUIDT,
+    *,
+    topics: Sequence[str],
 ) -> None:
     if settings.DEBUG:
-        print(f'Logging event {data["event"]} to WAL')
-    KafkaProducer().produce(
-        topic=KAFKA_EVENTS_WAL,
-        data={
-            "uuid": str(event_uuid),
-            "distinct_id": distinct_id,
-            "ip": ip,
-            "site_url": site_url,
-            "data": json.dumps(data),
-            "team_id": team_id,
-            "now": now.isoformat(),
-            "sent_at": sent_at.isoformat() if sent_at else "",
-        },
-    )
+        print(f'Logging event {data["event"]} to Kafka topics {" and ".join(topics)}')
+    producer = KafkaProducer()
+    data = {
+        "uuid": str(event_uuid),
+        "distinct_id": distinct_id,
+        "ip": ip,
+        "site_url": site_url,
+        "data": json.dumps(data),
+        "team_id": team_id,
+        "now": now.isoformat(),
+        "sent_at": sent_at.isoformat() if sent_at else "",
+    }
+    for topic in topics:
+        producer.produce(topic=topic, data=data)

@@ -1,7 +1,7 @@
 import datetime
 import json
 from numbers import Number
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 import posthoganalytics
 from celery import shared_task
@@ -11,7 +11,6 @@ from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
 from posthog.models import Element, Event, Person, SessionRecordingEvent, Team
-from posthog.models.feature_flag import FeatureFlag, get_active_feature_flags
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
@@ -102,15 +101,8 @@ def store_names_and_properties(team: Team, event: str, properties: Dict) -> None
         team.save()
 
 
-def _add_missing_feature_flags(properties: Dict, team: Team, distinct_id: str) -> None:
-    # Only add missing feature flags on web
-    if not properties.get("$lib") == "web" or properties.get("$active_feature_flags"):
-        return
-    properties["$active_feature_flags"] = get_active_feature_flags(team, distinct_id)
-
-
 def _capture(
-    ip: str,
+    ip: Optional[str],
     site_url: str,
     team_id: int,
     event: str,
@@ -146,11 +138,10 @@ def _capture(
         "ingested_event",
     ).get(pk=team_id)
 
-    if not team.anonymize_ips and "$ip" not in properties:
+    if ip and not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
 
     event = sanitize_event_name(event)
-    _add_missing_feature_flags(properties, team, distinct_id)
 
     Event.objects.create(
         event=event,
@@ -170,30 +161,18 @@ def _capture(
         except IntegrityError:
             pass
 
-
-def get_or_create_person(team_id: int, distinct_id: str) -> Tuple[Person, bool]:
-    person: Person
-    created = False
-
-    if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
-        try:
-            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-            created = True
-        except IntegrityError:
-            person = Person.objects.get(
-                team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
-            )
-            created = False
-    else:
-        person = Person.objects.get(
-            team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+    if properties.get("$set"):
+        update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=properties["$set"])
+    if properties.get("$set_once"):
+        update_person_properties(
+            team_id=team_id, distinct_id=distinct_id, properties=properties["$set_once"], set_once=True
         )
-        created = False
-
-    return person, created
 
 
-def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
+def update_person_properties(team_id: int, distinct_id: str, properties: Dict, set_once: bool = False) -> None:
+    if type(properties) != type({}):
+        return
+
     try:
         person = Person.objects.get(
             team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
@@ -202,11 +181,18 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
         try:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
         # Catch race condition where in between getting and creating, another request already created this person
-        except:
+        except Exception:
             person = Person.objects.get(
                 team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
             )
-    person.properties.update(properties)
+    if set_once:
+        # Set properties on a user record, only if they do not yet exist.
+        # Unlike $set, this will not overwrite existing people property values.
+        new_properties = properties.copy()
+        new_properties.update(person.properties)
+        person.properties = new_properties
+    else:
+        person.properties.update(properties)
     person.save()
 
 
@@ -268,18 +254,18 @@ def handle_identify_or_alias(event: str, properties: dict, distinct_id: str, tea
             _alias(
                 previous_distinct_id=properties["$anon_distinct_id"], distinct_id=distinct_id, team_id=team_id,
             )
-        if properties.get("$set"):
-            _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=properties["$set"])
         _set_is_identified(team_id=team_id, distinct_id=distinct_id)
 
 
 @shared_task(name="posthog.tasks.process_event.process_event", ignore_result=True)
 def process_event(
-    distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
+    distinct_id: str, ip: Optional[str], site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
 ) -> None:
     properties = data.get("properties", {})
     if data.get("$set"):
         properties["$set"] = data["$set"]
+    if data.get("$set_once"):
+        properties["$set_once"] = data["$set_once"]
 
     handle_identify_or_alias(data["event"], properties, distinct_id, team_id)
 

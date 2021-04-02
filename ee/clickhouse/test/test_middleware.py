@@ -1,10 +1,8 @@
-from posthog.api.test.base import APIBaseTest
+from ee.api.test.base import APILicensedTest
 from posthog.models import User
 
 
-class TestQueryMiddleware(APIBaseTest):
-    TESTS_API = True
-
+class TestQueryMiddleware(APILicensedTest):
     def test_query(self):
         self.user.is_staff = True
         self.user.save()

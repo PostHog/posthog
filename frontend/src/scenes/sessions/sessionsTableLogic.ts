@@ -1,15 +1,16 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import moment from 'moment'
+import dayjs from 'dayjs'
+import equal from 'fast-deep-equal'
 import { toParams } from 'lib/utils'
-import { sessionsTableLogicType } from 'types/scenes/sessions/sessionsTableLogicType'
-import { PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
+import { sessionsTableLogicType } from './sessionsTableLogicType'
+import { EventType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 
-type Moment = moment.Moment
-
 type SessionRecordingId = string
+
+type Dayjs = dayjs.Dayjs
 
 interface Params {
     date?: string
@@ -19,7 +20,7 @@ interface Params {
 }
 
 export const sessionsTableLogic = kea<
-    sessionsTableLogicType<Moment, SessionType, SessionRecordingId, PropertyFilter, SessionsPropertyFilter>
+    sessionsTableLogicType<Dayjs, SessionType, SessionRecordingId, PropertyFilter, SessionsPropertyFilter, EventType>
 >({
     props: {} as {
         personIds?: string[]
@@ -56,9 +57,15 @@ export const sessionsTableLogic = kea<
         previousDay: true,
         nextDay: true,
         applyFilters: true,
-        setFilters: (properties: Array<PropertyFilter>, selectedDate: Moment | null) => ({ properties, selectedDate }),
+        setFilters: (properties: Array<PropertyFilter>, selectedDate: Dayjs | null) => ({
+            properties,
+            selectedDate,
+        }),
         setSessionRecordingId: (sessionRecordingId: SessionRecordingId) => ({ sessionRecordingId }),
         closeSessionPlayer: true,
+        loadSessionEvents: (session: SessionType) => ({ session }),
+        addSessionEvents: (session: SessionType, events: EventType[]) => ({ session, events }),
+        setLastAppliedFilters: (filters: SessionsPropertyFilter[]) => ({ filters }),
     }),
     reducers: {
         sessions: {
@@ -73,7 +80,7 @@ export const sessionsTableLogic = kea<
                 loadSessionsFailure: () => null,
             },
         ],
-        selectedDate: [null as null | Moment, { setFilters: (_, { selectedDate }) => selectedDate }],
+        selectedDate: [null as null | dayjs.Dayjs, { setFilters: (_, { selectedDate }) => selectedDate }],
         properties: [
             [] as PropertyFilter[],
             {
@@ -87,17 +94,36 @@ export const sessionsTableLogic = kea<
                 closeSessionPlayer: () => null,
             },
         ],
+        loadedSessionEvents: [
+            {} as Record<string, EventType[] | undefined>,
+            {
+                addSessionEvents: (state, { session, events }) => ({
+                    ...state,
+                    [session.global_session_id]: events,
+                }),
+            },
+        ],
+        lastAppliedFilters: [
+            [] as SessionsPropertyFilter[],
+            {
+                setLastAppliedFilters: (_, { filters }) => filters,
+            },
+        ],
     },
     selectors: {
         selectedDateURLparam: [(s) => [s.selectedDate], (selectedDate) => selectedDate?.format('YYYY-MM-DD')],
         orderedSessionRecordingIds: [
             (selectors) => [selectors.sessions],
             (sessions: SessionType[]): SessionRecordingId[] =>
-                Array.from(new Set(sessions.flatMap((session) => session.session_recording_ids))),
+                Array.from(new Set(sessions.flatMap((session) => session.session_recordings.map(({ id }) => id)))),
         ],
         firstRecordingId: [
             (selectors) => [selectors.orderedSessionRecordingIds],
             (ids: SessionRecordingId[]): SessionRecordingId | null => ids[0] || null,
+        ],
+        filtersDirty: [
+            (selectors) => [selectors.filters, selectors.lastAppliedFilters],
+            (filters, lastFilters): boolean => !equal(filters, lastFilters),
         ],
     },
     listeners: ({ values, actions, props }) => ({
@@ -107,6 +133,7 @@ export const sessionsTableLogic = kea<
                 date_to: values.selectedDateURLparam,
                 pagination: values.pagination,
                 distinct_id: props.personIds ? props.personIds[0] : '',
+                filters: values.filters,
                 properties: values.properties,
             })
             const response = await api.get(`api/event/sessions/?${params}`)
@@ -117,21 +144,36 @@ export const sessionsTableLogic = kea<
         applyFilters: () => {
             actions.setPagination(null)
             actions.loadSessions(true)
+            actions.setLastAppliedFilters(values.filters)
         },
         setFilters: () => {
             actions.setPagination(null)
             actions.loadSessions(true)
         },
         previousDay: () => {
-            actions.setFilters(values.properties, moment(values.selectedDate).add(-1, 'day'))
+            actions.setFilters(values.properties, dayjs(values.selectedDate).add(-1, 'day'))
         },
         nextDay: () => {
-            actions.setFilters(values.properties, moment(values.selectedDate).add(1, 'day'))
+            actions.setFilters(values.properties, dayjs(values.selectedDate).add(1, 'day'))
+        },
+        loadSessionEvents: async ({ session }, breakpoint) => {
+            if (!values.loadedSessionEvents[session.global_session_id]) {
+                const params = {
+                    distinct_id: session.distinct_id,
+                    date_from: session.start_time,
+                    date_to: session.end_time,
+                }
+
+                await breakpoint(200)
+
+                const response = await api.get(`api/event/session_events?${toParams(params)}`)
+                actions.addSessionEvents(session, response.result)
+            }
         },
     }),
     actionToUrl: ({ values }) => {
         const buildURL = (overrides: Partial<Params> = {}): [string, Params] => {
-            const today = moment().startOf('day').format('YYYY-MM-DD')
+            const today = dayjs().startOf('day').format('YYYY-MM-DD')
 
             const { properties } = router.values.searchParams // eslint-disable-line
 
@@ -153,9 +195,9 @@ export const sessionsTableLogic = kea<
             closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),
         }
     },
-    urlToAction: ({ actions, values }) => ({
-        '*': (_: any, params: Params) => {
-            const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
+    urlToAction: ({ actions, values }) => {
+        const urlToAction = (_: any, params: Params): void => {
+            const newDate = params.date ? dayjs(params.date).startOf('day') : dayjs().startOf('day')
 
             if (
                 JSON.stringify(params.properties || []) !== JSON.stringify(values.properties) ||
@@ -163,7 +205,7 @@ export const sessionsTableLogic = kea<
                 values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD')
             ) {
                 actions.setFilters(params.properties || [], newDate)
-            } else if (values.sessions.length === 0) {
+            } else if (values.sessions.length === 0 && !values.sessionsLoading) {
                 actions.loadSessions(true)
             }
 
@@ -175,6 +217,11 @@ export const sessionsTableLogic = kea<
                 actions.setAllFilters(params.filters || [])
                 actions.applyFilters()
             }
-        },
-    }),
+        }
+
+        return {
+            '/sessions': urlToAction,
+            '/person/*': urlToAction,
+        }
+    },
 })

@@ -6,8 +6,14 @@ style files without adding already imported styles. */
 @import 'node_modules/react-toastify/dist/ReactToastify';
 @import './vars';
 
+@font-face {
+    font-family: 'GoshaSans-Bold';
+    src: url('../public/GoshaSans-Bold.woff2') format('woff2'), url('../public/GoshaSans-Bold.woff') format('woff');
+}
+
 :root {
     --primary: #{$primary};
+    --primary-alt: #{$primary_alt};
     --success: #{$success};
     --danger: #{$danger};
     --warning: #{$warning};
@@ -55,6 +61,7 @@ style files without adding already imported styles. */
     margin-top: 0.5em;
     font-weight: 700;
     color: $text_default;
+    font-family: $gosha_sans;
 }
 
 .page-caption {
@@ -74,6 +81,10 @@ style files without adding already imported styles. */
     font-size: 22px;
     line-height: 26px;
     font-weight: 700;
+
+    &.highlighted {
+        padding: $default_spacing $default_spacing $default_spacing $default_spacing / 2;
+    }
 }
 
 .l3 {
@@ -99,6 +110,14 @@ style files without adding already imported styles. */
     color: $text_muted;
 }
 
+code.code {
+    // Temporary: .code class to transition legacy elements
+    color: $danger;
+    background-color: $bg_mid;
+    border-radius: $radius;
+    padding: 2px 6px;
+}
+
 // Spacing & layout
 .mb {
     margin-bottom: $default_spacing;
@@ -120,8 +139,16 @@ style files without adding already imported styles. */
     margin-bottom: $default_spacing * 0.5;
 }
 
+.mb-025 {
+    margin-bottom: $default_spacing * 0.25;
+}
+
 .mt-05 {
     margin-top: $default_spacing * 0.5;
+}
+
+.mt-025 {
+    margin-top: $default_spacing * 0.25;
 }
 
 .mr {
@@ -136,8 +163,16 @@ style files without adding already imported styles. */
     margin-right: $default_spacing * 0.5;
 }
 
+.mr-025 {
+    margin-right: $default_spacing * 0.25;
+}
+
 .ml-05 {
     margin-left: $default_spacing * 0.5;
+}
+
+.ml-025 {
+    margin-left: $default_spacing * 0.25;
 }
 
 .pa {
@@ -171,6 +206,11 @@ style files without adding already imported styles. */
 
 .float-left {
     float: left;
+}
+
+.space-between-items {
+    display: flex;
+    justify-content: space-between;
 }
 
 .main-app-content {
@@ -208,7 +248,13 @@ style files without adding already imported styles. */
     cursor: pointer;
 }
 
+.highlighted {
+    background-color: $yellow_50;
+    border-radius: $radius;
+}
+
 // Toasts
+
 .Toastify__toast-container {
     opacity: 1;
     transform: none;
@@ -220,19 +266,36 @@ style files without adding already imported styles. */
     color: $text_default;
     font-family: inherit;
     background-color: $bg_light;
-}
+    border: 1px solid $border;
+    @extend .text-default;
+    color: $text_default;
 
-.Toastify__toast-body {
-    @extend .l3;
-    color: $success;
-    p {
-        @extend .text-default;
-        color: $text_default;
+    h1 {
+        font-size: 1.14rem;
+        font-weight: bold;
     }
 }
 
-.Toastify__progress-bar--default {
+.Toastify__progress-bar {
     background: $success;
+}
+
+.Toastify__toast--success {
+    h1 {
+        color: $success;
+    }
+}
+
+.Toastify__toast--info {
+    h1 {
+        color: $primary_alt;
+    }
+    &.accent-border {
+        border-color: $primary_alt;
+    }
+    .Toastify__progress-bar {
+        background: $primary_alt;
+    }
 }
 
 .Toastify__toast--error {
@@ -248,11 +311,13 @@ style files without adding already imported styles. */
 }
 
 // Table styles
+
 .table-bordered td {
     border: 1px solid $border;
 }
 
 // Card styles
+
 .ant-card-body > :first-child {
     margin-top: 0;
 }
@@ -262,6 +327,7 @@ style files without adding already imported styles. */
 }
 
 // Form & input styles
+
 .input-set {
     padding-bottom: $default_spacing;
     color: $text_default;
@@ -276,18 +342,35 @@ style files without adding already imported styles. */
         @extend .text-small;
     }
 
+    .ant-radio-button-wrapper {
+        // To properly handle label styles above
+        font-weight: normal !important;
+        line-height: 30px !important;
+    }
+
     &.errored {
         .caption {
             color: $danger;
         }
-        .ant-input-password,
+        input[type='password'],
         input[type='text'] {
             border-color: $danger !important;
         }
     }
 }
 
+.error-on-blur {
+    &.errored:not(:focus) {
+        border-color: $danger !important;
+    }
+}
+
+.ant-form-item-label {
+    font-weight: bold;
+}
+
 // Button styles
+
 .btn-close {
     color: $text_muted;
 }
@@ -309,6 +392,15 @@ style files without adding already imported styles. */
     margin-left: 5px;
 }
 
+.btn-lg-2x {
+    font-size: 1.5rem !important;
+    line-height: 1 !important;
+    svg {
+        width: 1.5rem !important;
+        height: 1.5rem !important;
+    }
+}
+
 // Badges styles
 .badge {
     border-radius: 50%;
@@ -323,6 +415,7 @@ style files without adding already imported styles. */
 }
 
 // Overlays styles
+
 #bottom-notice {
     z-index: 10500;
     display: flex;
@@ -419,5 +512,68 @@ style files without adding already imported styles. */
     cursor: pointer;
     &:hover {
         border-color: $primary;
+    }
+}
+
+// Stateful badges
+
+.stateful-badge {
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-weight: bold;
+
+    &.or {
+        background-color: $blue_300;
+    }
+
+    &.width-locked {
+        width: 40px;
+        text-align: center;
+    }
+
+    &.and {
+        background-color: $yellow_100;
+        color: $primary_alt;
+    }
+}
+
+// Simple tags
+
+.simple-tag {
+    border-radius: $radius;
+    font-weight: bold;
+    padding: 2px 6px;
+
+    &.tag-light-lilac {
+        background-color: $hc_light_lilac;
+        color: $hc_navy;
+    }
+}
+
+// Hotkey styles
+.hotkey {
+    width: 22px;
+    height: 22px;
+    border-radius: $radius;
+    font-weight: bold;
+    margin-left: 6px;
+    background-color: white;
+    color: $primary;
+    text-shadow: none;
+    text-transform: uppercase;
+    border: 1px solid $border_light;
+    margin-bottom: 2px;
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.hotkey-plus {
+    display: inline;
+    &::after {
+        content: '+';
+        margin-left: 6px;
+        font-size: 1rem;
     }
 }

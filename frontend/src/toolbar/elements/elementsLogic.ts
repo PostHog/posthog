@@ -5,7 +5,7 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '~/toolbar/utils'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import { elementsLogicType } from 'types/toolbar/elements/elementsLogicType'
+import { elementsLogicType } from './elementsLogicType'
 import { ActionStepType, ActionType } from '~/types'
 import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
@@ -269,15 +269,15 @@ export const elementsLogic = kea<
         ],
 
         selectedElementMeta: [
-            (s) => [s.selectedElement, s.elementMap, s.actionsForElementMap],
-            (selectedElement, elementMap, actionsForElementMap) => {
+            (s) => [s.selectedElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
+            (selectedElement, elementMap, actionsForElementMap, dataAttributes) => {
                 if (selectedElement) {
                     const meta = elementMap.get(selectedElement)
                     if (meta) {
                         const actions = actionsForElementMap.get(selectedElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element),
+                            actionStep: elementToActionStep(meta.element, dataAttributes),
                             actions: actions || [],
                         }
                     }
@@ -287,15 +287,15 @@ export const elementsLogic = kea<
         ],
 
         hoverElementMeta: [
-            (s) => [s.hoverElement, s.elementMap, s.actionsForElementMap],
-            (hoverElement, elementMap, actionsForElementMap) => {
+            (s) => [s.hoverElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
+            (hoverElement, elementMap, actionsForElementMap, dataAttributes) => {
                 if (hoverElement) {
                     const meta = elementMap.get(hoverElement)
                     if (meta) {
                         const actions = actionsForElementMap.get(hoverElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element),
+                            actionStep: elementToActionStep(meta.element, dataAttributes),
                             actions: actions || [],
                         }
                     }
@@ -305,15 +305,15 @@ export const elementsLogic = kea<
         ],
 
         highlightElementMeta: [
-            (s) => [s.highlightElement, s.elementMap, s.actionsForElementMap],
-            (highlightElement, elementMap, actionsForElementMap) => {
+            (s) => [s.highlightElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
+            (highlightElement, elementMap, actionsForElementMap, dataAttributes) => {
                 if (highlightElement) {
                     const meta = elementMap.get(highlightElement)
                     if (meta) {
                         const actions = actionsForElementMap.get(highlightElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element),
+                            actionStep: elementToActionStep(meta.element, dataAttributes),
                             actions: actions || [],
                         }
                     }
@@ -397,7 +397,6 @@ export const elementsLogic = kea<
             if (element?.attributes) {
                 for (let i = 0; i < element.attributes.length; i++) {
                     const name = element.attributes.item(i)?.nodeName
-                    console.log(element.attributes.item(i), name)
                     if (name && name.indexOf('data-') > -1) {
                         data_attributes.push(name)
                     }

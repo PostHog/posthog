@@ -1,11 +1,17 @@
+from rest_framework import status
+
 from ee.api.test.base import APILicensedTest
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
 
-class TestTeamEnterpriseAPI(APILicensedTest):
-    def test_create_team(self):
+class TestProjectEnterpriseAPI(APILicensedTest):
+
+    # Creating Projects
+    def test_create_project(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         response = self.client.post("/api/projects/", {"name": "Test"})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 2)
@@ -13,15 +19,42 @@ class TestTeamEnterpriseAPI(APILicensedTest):
         self.assertEqual(response_data.get("name"), "Test")
         self.assertEqual(self.organization.teams.count(), 2)
 
+    def test_non_admin_cannot_create_project(self):
+        count = Team.objects.count()
+        response = self.client.post("/api/projects/", {"name": "Test"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(Team.objects.count(), count)
+        self.assertEqual(
+            response.json(), self.permission_denied_response("Your organization access level is insufficient.")
+        )
+
+    def test_user_that_does_not_belong_to_an_org_cannot_create_a_project(self):
+        user = User.objects.create(email="no_org@posthog.com")
+        self.client.force_login(user)
+
+        response = self.client.post("/api/projects/", {"name": "Test"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "You need to belong to an organization.",
+                "attr": None,
+            },
+        )
+
+    # Deleting projects
+
     def test_delete_team_own_second(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         team = Team.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/projects/{team.id}")
         self.assertEqual(response.status_code, 204)
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
 
     def test_no_delete_team_not_administrating_organization(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
         team = Team.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/projects/{team.id}")
         self.assertEqual(response.status_code, 403)

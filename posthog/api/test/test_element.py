@@ -5,13 +5,11 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
 from posthog.models import Element, ElementGroup, Event, Organization
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest
 
 
-def test_element_factory(create_event: Callable) -> Callable:
-    class TestElement(BaseTest):
-        TESTS_API = True
-
+def factory_test_element(create_event: Callable) -> Callable:
+    class TestElement(APIBaseTest):
         def test_element_automatic_order(self):
             elements = [
                 Element(tag_name="a", href="https://posthog.com/about", text="click here"),
@@ -94,5 +92,5 @@ def test_element_factory(create_event: Callable) -> Callable:
     return TestElement
 
 
-class TestElement(test_element_factory(Event.objects.create)):  # type: ignore
+class TestElement(factory_test_element(Event.objects.create)):  # type: ignore
     pass

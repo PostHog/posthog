@@ -24,7 +24,6 @@ services:
             - '8000:8000'
             - '8234:8234'
         environment:
-            IS_DOCKER: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             CLICKHOUSE_HOST: 'clickhouse'
             CLICKHOUSE_DATABASE: 'posthog'
@@ -43,6 +42,7 @@ services:
         links:
             - db:db
             - redis:redis
+            - kafka:kafka
     worker:
         build:
             context: ../
@@ -51,7 +51,6 @@ services:
         volumes:
             - ..:/code
         environment:
-            IS_DOCKER: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             CLICKHOUSE_HOST: 'clickhouse'
             CLICKHOUSE_DATABASE: 'posthog'
@@ -59,7 +58,7 @@ services:
             CLICKHOUSE_VERIFY: 'false'
             KAFKA_URL: 'kafka://kafka'
             REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: 'asdflaisdjkfalsdkjf'
+            SECRET_KEY: 'alsdfjiosdajfklalsdjkf'
             DEBUG: 'true'
             PRIMARY_DB: 'clickhouse'
         depends_on:
@@ -68,27 +67,30 @@ services:
         links:
             - db:db
             - redis:redis
+            - kafka:kafka
     plugins:
-        build:
-            context: ../
-            dockerfile: production.Dockerfile
-        command: ./bin/plugin-server
-        volumes:
-            - ..:/code
+        image: posthog/plugin-server:0.11.3
+        restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_ENABLED: 'true'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
+            CLICKHOUSE_HOST: 'clickhouse'
         depends_on:
             - db
             - redis
+            - clickhouse
+            - kafka
         links:
             - db:db
             - redis:redis
-
+            - clickhouse:clickhouse
+            - kafka:kafka
     clickhouse:
         image: yandex/clickhouse-server
+        depends_on:
+            - kafka
         ports:
             - '8123:8123'
             - '9000:9000'
@@ -97,10 +99,13 @@ services:
         volumes:
             - ./idl:/idl
             - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
     zookeeper:
         image: wurstmeister/zookeeper
     kafka:
         image: wurstmeister/kafka
+        depends_on:
+            - zookeeper
         ports:
             - '9092:9092'
         environment:

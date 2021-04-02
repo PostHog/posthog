@@ -64,7 +64,7 @@ describe('Trends actions & events', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
-    it('Apply chart filter', () => {
+    it('Apply pie filter', () => {
         cy.get('[data-attr=chart-filter]').click()
         cy.contains('Pie').click()
 
@@ -109,7 +109,7 @@ describe('Trends actions & events', () => {
 
     it('Apply all users cohort breakdown', () => {
         cy.get('[data-attr=add-breakdown-button]').click()
-        cy.contains('Cohort').click()
+        cy.get('[data-attr=breakdown-filter-content]').contains('Cohort').click()
         cy.get('[data-attr=cohort-breakdown-select]').click()
         cy.get('[data-attr=cohort-breakdown-all-users]').click()
 

@@ -1,11 +1,12 @@
 import React, { useState } from 'react'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { EventElements } from 'scenes/events/EventElements'
 import { Tabs, Button } from 'antd'
 
 import { createActionFromEvent } from './createActionFromEvent'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { EventJSON } from 'scenes/events/EventJSON'
 const { TabPane } = Tabs
 
 export function EventDetails({ event }) {
@@ -45,7 +46,7 @@ export function EventDetails({ event }) {
                 <TabPane tab="Properties" key="properties">
                     <PropertiesTable
                         properties={{
-                            $timestamp: moment(event.timestamp).toISOString(),
+                            $timestamp: dayjs(event.timestamp).toISOString(),
                             ...displayedEventProperties,
                             ...visibleHiddenProperties,
                         }}
@@ -61,6 +62,9 @@ export function EventDetails({ event }) {
                             </Button>
                         </small>
                     )}
+                </TabPane>
+                <TabPane tab="JSON" key="json">
+                    <EventJSON event={event} />
                 </TabPane>
                 {event.elements && event.elements.length > 0 && (
                     <TabPane tab="Elements" key="elements">

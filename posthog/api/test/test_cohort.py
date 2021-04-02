@@ -5,12 +5,10 @@ from rest_framework.test import APIClient
 
 from posthog.models import Person
 from posthog.models.cohort import Cohort
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest
 
 
-class TestCohort(BaseTest):
-    TESTS_API = True
-
+class TestCohort(APIBaseTest):
     @patch("posthoganalytics.capture")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort.delay")
     def test_creating_update_and_calculating(self, patch_calculate_cohort, patch_capture):
@@ -21,9 +19,7 @@ class TestCohort(BaseTest):
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
-            "/api/cohort",
-            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
-            content_type="application/json",
+            "/api/cohort", data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
         )
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
@@ -45,8 +41,14 @@ class TestCohort(BaseTest):
 
         response = self.client.patch(
             "/api/cohort/%s/" % response.json()["id"],
-            data={"name": "whatever2", "groups": [{"properties": {"team_id": 6}}]},
-            content_type="application/json",
+            data={
+                "name": "whatever2",
+                "groups": [{"properties": {"team_id": 6}}],
+                "created_by": "something something",
+                "last_calculation": "some random date",
+                "errors_calculating": 100,
+                "deleted": False,
+            },
         )
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["name"], "whatever2")
@@ -67,8 +69,8 @@ class TestCohort(BaseTest):
             },
         )
 
-    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_csv.delay")
-    def test_static_cohort_csv_upload(self, patch_calculate_cohort_from_csv):
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload(self, patch_calculate_cohort_from_list):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
         Person.objects.create(team=self.team, properties={"email": "email@example.org"})
@@ -87,9 +89,11 @@ email@example.org,
             content_type="application/csv",
         )
 
-        response = self.client.post("/api/cohort/", {"name": "test", "csv": csv, "is_static": True},)
-        self.assertEqual(response.status_code, 201, response.content)
-        self.assertEqual(patch_calculate_cohort_from_csv.call_count, 1)
+        response = self.client.post("/api/cohort/", {"name": "test", "csv": csv, "is_static": True}, format="multipart")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        self.assertFalse(response.json()["is_calculating"], False)
+        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
 
         csv = SimpleUploadedFile(
             "example.csv",
@@ -106,6 +110,10 @@ User ID,
         #  see https://stackoverflow.com/questions/39906956/patch-and-put-dont-work-as-expected-when-pytest-is-interacting-with-rest-framew
         client = APIClient()
         client.force_login(self.user)
-        response = client.patch("/api/cohort/%s/" % response.json()["id"], {"name": "test", "csv": csv,})
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(patch_calculate_cohort_from_csv.call_count, 2)
+        response = client.patch(
+            "/api/cohort/%s/" % response.json()["id"], {"name": "test", "csv": csv}, format="multipart"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 2)
+        self.assertFalse(response.json()["is_calculating"], False)
+        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)

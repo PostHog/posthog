@@ -62,43 +62,49 @@ function PreflightItem({ name, status, caption, failedState }) {
 }
 
 function PreflightCheck() {
-    const [state, setState] = useState({})
+    const [state, setState] = useState({ mode: null })
     const { preflight, preflightLoading } = useValues(preflightLogic)
     const { resetPreflight } = useActions(preflightLogic)
-    const isReady = preflight.django && preflight.db && preflight.redis && preflight.celery
+    const isReady =
+        preflight &&
+        preflight.django &&
+        preflight.db &&
+        preflight.redis &&
+        preflight.celery &&
+        (state.mode === 'Experimentation' || preflight.plugins)
 
     const checks = [
         {
             id: 'database',
             name: 'Database (Postgres)',
-            status: preflight.db,
+            status: preflight?.db,
         },
         {
             id: 'backend',
             name: 'Backend server (Django)',
-            status: preflight.django,
+            status: preflight?.django,
         },
         {
             id: 'redis',
-            name: 'Cache & Queue (Redis)',
-            status: preflight.redis,
+            name: 'Cache & queue (Redis)',
+            status: preflight?.redis,
         },
         {
-            id: 'redis',
-            name: 'Background Jobs (Celery)',
-            status: preflight.celery,
+            id: 'celery',
+            name: 'Background jobs (Celery)',
+            status: preflight?.celery,
         },
         {
-            id: 'redis',
-            name: 'Posthog Plugin Server',
-            status: preflight.plugins,
-            caption: 'Not required if not using plugins',
-            failedState: 'not-required',
+            id: 'plugins',
+            name: 'Plugin server (Node)',
+            status: preflight?.plugins,
+            caption: state.mode === 'Experimentation' ? 'Required in production environments' : '',
+            failedState: state.mode === 'Experimentation' ? 'warning' : 'error',
         },
         {
             id: 'frontend',
-            name: 'Frontend built (Webpack)',
-            status: true, // If this code is run, the front-end is already built
+            name: 'Frontend build (Webpack)',
+            status: true, // If this code is ran, the front-end is already built
         },
         {
             id: 'tls',
@@ -186,7 +192,7 @@ function PreflightCheck() {
                                         data-attr="preflight-refresh"
                                         icon={<SyncOutlined />}
                                         onClick={() => window.location.reload()}
-                                        disabled={preflightLoading || Object.keys(preflight).length === 0}
+                                        disabled={preflightLoading || !preflight}
                                     >
                                         Refresh
                                     </Button>

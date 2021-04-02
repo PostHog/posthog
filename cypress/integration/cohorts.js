@@ -1,8 +1,8 @@
 describe('Cohorts', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-people]').click() // TODO: Remove when releasing navigation-1775
         cy.get('[data-attr=menu-item-cohorts]').click()
     })
+
     it('Cohorts new and list', () => {
         // load an empty page
         cy.get('h1').should('contain', 'Cohorts')
@@ -23,6 +23,7 @@ describe('Cohorts', () => {
 
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
+        cy.get('[data-attr="cohort-name"]').click()
 
         // save
         cy.get('[data-attr="save-cohort"]').click()
@@ -31,5 +32,18 @@ describe('Cohorts', () => {
         // back to cohorts
         cy.get('.ant-drawer-close').click({ force: true })
         cy.get('.ant-table-tbody').contains('Test Cohort')
+
+        // Navigate to person and back again
+        cy.log('Can navigate to person and back again')
+
+        cy.get('[data-test-cohort-row]').first().click()
+        cy.get('[data-test-goto-person]').first().click()
+        cy.url().should('include', '/person/')
+
+        cy.get('[data-attr="persons-cohorts-tab"]').click()
+        cy.get('[data-test-cohort-row]').first().click()
+
+        cy.url().should('include', '/cohorts/')
+        cy.get('[data-attr="cohort-name"]').should('have.value', 'Test Cohort')
     })
 })

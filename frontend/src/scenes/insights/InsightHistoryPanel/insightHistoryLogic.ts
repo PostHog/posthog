@@ -3,13 +3,13 @@ import api from 'lib/api'
 import { toParams, deleteWithUndo } from 'lib/utils'
 import { toast } from 'react-toastify'
 import { DashboardItemType } from '~/types'
-import { insightHistoryLogicType } from 'types/scenes/insights/InsightHistoryPanel/insightHistoryLogicType'
+import { insightHistoryLogicType } from './insightHistoryLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 const updateInsightState = (
-    state,
+    state: DashboardItemType[],
     { item, insight }: { item?: DashboardItemType; insight?: DashboardItemType },
-    isSaved: boolean
+    isSaved?: boolean
 ): DashboardItemType[] => {
     item = item || insight
     if (!item) {
@@ -17,7 +17,7 @@ const updateInsightState = (
     }
     let found = false
     const map = state.map((i) => {
-        if (i.id === item.id) {
+        if (i.id === item?.id) {
             found = true
             return item
         }
@@ -83,16 +83,19 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
         insights: {
             updateInsights: (state, { insights }) => [...state, ...insights],
             updateInsightSuccess: updateInsightState,
+            // @ts-expect-error - kea.js typing issue
             [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
         },
         savedInsights: {
             updateSavedInsights: (state, { insights }) => [...state, ...insights],
             updateInsightSuccess: (state, itemOrInsight) => updateInsightState(state, itemOrInsight, true),
+            // @ts-expect-error - kea.js typing issue
             [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
         },
         teamInsights: {
             updateTeamInsights: (state, { insights }) => [...state, ...insights],
             updateInsightSuccess: (state, itemOrInsight) => updateInsightState(state, itemOrInsight, true),
+            // @ts-expect-error - kea.js typing issue
             [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
         },
         insightsNext: [

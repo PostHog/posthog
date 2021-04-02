@@ -6,7 +6,8 @@ export const VERIFICATION = 'VERIFICATION'
 
 export const WEB = 'Web'
 export const MOBILE = 'Mobile'
-export const platforms = [WEB, MOBILE]
+export const BACKEND = 'Backend'
+export const platforms = [WEB, MOBILE, BACKEND]
 
 export const PURE_JS = 'PURE_JS'
 export const NODEJS = 'NODEJS'
@@ -23,7 +24,6 @@ export const REACT_NATIVE = 'REACT_NATIVE'
 export const FLUTTER = 'FLUTTER'
 
 export const webFrameworks = {
-    [PURE_JS]: 'JavaScript',
     [NODEJS]: 'Node.js',
     [GO]: 'Go',
     [RUBY]: 'Ruby',

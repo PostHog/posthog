@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { posthogEvents } from 'lib/utils'
-import { userLogicType } from 'types/scenes/userLogicType'
+import { userLogicType } from './userLogicType'
 import { UserType, UserUpdateType } from '~/types'
 import posthog from 'posthog-js'
 
@@ -20,6 +20,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
         userUpdateRequest: (update: UserUpdateType, updateKey?: string) => ({ update, updateKey }),
         userUpdateSuccess: (user: UserType, updateKey?: string) => ({ user, updateKey }),
         userUpdateFailure: (error: string, updateKey?: string) => ({ updateKey, error }),
+        userUpdateLoading: (loading: boolean) => ({ loading }),
         currentTeamUpdateRequest: (teamId: number) => ({ teamId }),
         currentOrganizationUpdateRequest: (organizationId: string) => ({ organizationId }),
         completedOnboarding: true,
@@ -34,10 +35,20 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                 userUpdateSuccess: (_, payload) => payload.user,
             },
         ],
+        userUpdateLoading: [
+            false,
+            {
+                userUpdateRequest: () => true,
+                userUpdateSuccess: () => false,
+                userUpdateFailure: () => false,
+            },
+        ],
     },
 
     events: ({ actions }) => ({
-        afterMount: () => actions.loadUser(true),
+        afterMount: () => {
+            actions.loadUser(true)
+        },
     }),
 
     selectors: ({ selectors }) => ({
@@ -85,6 +96,11 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                 return data
             },
         ],
+        demoOnlyProject: [
+            () => [selectors.user],
+            (user): boolean =>
+                (user?.team?.is_demo && user?.organization?.teams && user.organization.teams.length == 1) || false,
+        ],
     }),
 
     listeners: ({ actions }) => ({
@@ -115,7 +131,32 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                         posthog.register({
                             posthog_version: user.posthog_version,
                             has_slack_webhook: !!user.team?.slack_incoming_webhook,
+                            is_demo_project: user.team?.is_demo,
+                            realm: user.realm,
                         })
+
+                        if (user.realm === 'cloud') {
+                            // Billing-related properties
+                            // :TODO: Temporary support for legacy `FormattedNumber` type
+                            const current_usage =
+                                typeof user.billing?.current_usage === 'number'
+                                    ? user.billing.current_usage
+                                    : user.billing?.current_usage?.value
+                            const event_allocation =
+                                typeof user.billing?.event_allocation === 'number'
+                                    ? user.billing.event_allocation
+                                    : user.billing?.event_allocation?.value
+
+                            posthog.register({
+                                has_billing_plan: !!user.billing?.plan,
+                                metered_billing: user.billing?.plan?.is_metered_billing,
+                                event_allocation: event_allocation,
+                                allocation_used:
+                                    event_allocation && current_usage !== undefined
+                                        ? current_usage / event_allocation
+                                        : undefined,
+                            })
+                        }
                     }
                 }
             } catch (e) {

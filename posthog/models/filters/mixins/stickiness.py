@@ -1,11 +1,8 @@
 from datetime import datetime
 from typing import Callable, Optional, Union
 
-from django.utils import timezone
-
 from posthog.constants import DATE_FROM, DATE_TO, STICKINESS_DAYS
-from posthog.models.entity import Entity
-from posthog.models.filters.mixins.common import BaseParamMixin, DateMixin, EntitiesMixin, IntervalMixin
+from posthog.models.filters.mixins.common import BaseParamMixin, DateMixin, IntervalMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
@@ -14,7 +11,7 @@ from posthog.utils import relative_date_parse
 class SelectedIntervalMixin(BaseParamMixin):
     @cached_property
     def selected_interval(self) -> int:
-        return int(self._data.get(STICKINESS_DAYS, "0"))
+        return int(self._data.get(STICKINESS_DAYS, "0")) or int(self._data.get("selected_interval", "0"))
 
     @include_dict
     def selected_interval_to_dict(self):
@@ -71,45 +68,3 @@ class TotalIntervalsDerivedMixin(IntervalMixin, StickinessDateMixin):
             raise ValueError(f"{self.interval} not supported")
         _num_intervals += 2
         return _num_intervals
-
-
-class EntityIdMixin(BaseParamMixin):
-    @cached_property
-    def target_entity_id(self) -> Optional[str]:
-        return self._data.get("entityId", None)
-
-    @include_dict
-    def entity_id_to_dict(self):
-        return {"entity_id": self.target_entity_id} if self.target_entity_id else {}
-
-
-class EntityTypeMixin(BaseParamMixin):
-    @cached_property
-    def target_entity_type(self) -> Optional[str]:
-        return self._data.get("type", None)
-
-    @include_dict
-    def entity_type_to_dict(self):
-        return {"entity_type": self.target_entity_type} if self.target_entity_type else {}
-
-
-class TargetEntityDerivedMixin(EntitiesMixin, EntityTypeMixin, EntityIdMixin):
-    """
-    Properties
-    -----------
-    - target_entity
-    - entity_type (inherited)
-    - entity_id (inherited)
-    - entities (inherited)
-    - actions (inherited)
-    - events (inherited)
-    """
-
-    @cached_property
-    def target_entity(self) -> Entity:
-        if self.entities:
-            return self.entities[0]
-        elif self.target_entity_id and self.target_entity_type:
-            return Entity({"id": self.target_entity_id, "type": self.target_entity_type})
-        else:
-            raise ValueError("An entity must be provided for stickiness target entity to be determined")

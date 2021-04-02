@@ -12,21 +12,22 @@ from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import authentication, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.user import UserSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
-from posthog.constants import TRENDS_FUNNEL
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.utils import render_template
+from posthog.utils import get_safe_cache, render_template
 
 
 class DashboardSerializer(serializers.ModelSerializer):
     items = serializers.SerializerMethodField()  # type: ignore
+    created_by = UserSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
 
     class Meta:
@@ -34,6 +35,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "description",
             "pinned",
             "items",
             "created_at",
@@ -41,15 +43,20 @@ class DashboardSerializer(serializers.ModelSerializer):
             "is_shared",
             "share_token",
             "deleted",
+            "creation_mode",
             "use_template",
+            "filters",
+            "tags",
         ]
+        read_only_fields = ("creation_mode",)
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         team = Team.objects.get(id=self.context["team_id"])
         use_template: str = validated_data.pop("use_template", None)
-        dashboard = Dashboard.objects.create(team=team, **validated_data)
+        creation_mode = "template" if use_template else "default"
+        dashboard = Dashboard.objects.create(team=team, creation_mode=creation_mode, **validated_data)
 
         if use_template:
             try:
@@ -93,7 +100,8 @@ class DashboardSerializer(serializers.ModelSerializer):
         if self.context["view"].action == "list":
             return None
         items = dashboard.items.filter(deleted=False).order_by("order").all()
-        return DashboardItemSerializer(items, many=True).data
+        self.context.update({"dashboard": dashboard})
+        return DashboardItemSerializer(items, many=True, context=self.context).data
 
 
 class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -119,6 +127,8 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
         if self.request.GET.get("share_token"):
             return queryset.filter(share_token=self.request.GET["share_token"])
+        elif self.request.user.is_authenticated and not self.request.user.team:
+            raise NotFound()
         elif not self.request.user.is_authenticated or "team_id" not in self.get_parents_query_dict():
             raise AuthenticationFailed(detail="You're not logged in, but also not using add share_token.")
 
@@ -134,8 +144,7 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return response.Response(serializer.data)
 
     def get_parents_query_dict(self) -> Dict[str, Any]:  # to be moved to a separate Legacy*ViewSet Class
-
-        if not self.request.user.is_authenticated or "share_token" in self.request.GET:
+        if not self.request.user.is_authenticated or "share_token" in self.request.GET or not self.request.user.team:
             return {}
         return {"team_id": self.request.user.team.id}
 
@@ -168,7 +177,6 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
-
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
@@ -186,7 +194,6 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Dashboard not found")
 
     def update(self, instance: Model, validated_data: Dict, **kwargs) -> DashboardItem:
-
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data.setdefault("is_sample", False)
         return super().update(instance, validated_data)
@@ -199,10 +206,10 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         if not dashboard_item.filters_hash:
             return None
 
-        result = cache.get(dashboard_item.filters_hash)
+        result = get_safe_cache(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
-        return result["result"]
+        return result.get("result")
 
     def get_last_refresh(self, dashboard_item: DashboardItem):
         if self.get_result(dashboard_item):
@@ -210,6 +217,11 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         dashboard_item.last_refresh = None
         dashboard_item.save()
         return None
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
+        return representation
 
 
 class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

@@ -1,29 +1,31 @@
 import React, { useState } from 'react'
-import { uuid, Loading } from 'lib/utils'
+import { uuid, deleteWithUndo } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
 import './Actions.scss'
 import { ActionStep } from './ActionStep'
 import { Button, Col, Input, Row } from 'antd'
-import { InfoCircleOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, PlusOutlined, SaveOutlined, DeleteOutlined } from '@ant-design/icons'
+import { router } from 'kea-router'
+import { PageHeader } from 'lib/components/PageHeader'
+import { actionsModel } from '~/models'
+import { AsyncActionMappingNotice } from 'scenes/project/Settings/WebhookIntegration'
 
-export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryToken }) {
+export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, user, temporaryToken }) {
     let logic = actionEditLogic({
         id: actionId,
         apiURL,
+        action: loadedAction,
         onSave: (action, createNew) => onSave(action, !actionId, createNew),
         temporaryToken,
     })
-    const { action, actionLoading, errorActionId } = useValues(logic)
+    const { action, errorActionId } = useValues(logic)
     const { setAction, saveAction } = useActions(logic)
+    const { loadActions } = useActions(actionsModel)
 
     const [edited, setEdited] = useState(false)
     const slackEnabled = user?.team?.slack_incoming_webhook
-
-    if (actionLoading || !action) {
-        return <Loading />
-    }
 
     const newAction = () => {
         setAction({ ...action, steps: [...action.steps, { isNew: uuid() }] })
@@ -35,30 +37,55 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
         </Button>
     )
 
+    const deleteAction = actionId ? (
+        <Button
+            data-attr="delete-action"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => {
+                deleteWithUndo({
+                    endpoint: 'action',
+                    object: action,
+                    callback: () => {
+                        router.actions.push('/events/actions')
+                        loadActions()
+                    },
+                })
+            }}
+        >
+            Delete
+        </Button>
+    ) : undefined
+
     return (
         <div className="action-edit-container">
+            <PageHeader title={actionId ? 'Editing action' : 'Creating action'} buttons={deleteAction} />
             <form
                 onSubmit={(e) => {
                     e.preventDefault()
                     saveAction()
                 }}
             >
-                <label>Action name:</label>
-                <Input
-                    required
-                    placeholder="e.g. user account created, purchase completed, movie watched"
-                    value={action.name}
-                    onChange={(e) => {
-                        setAction({ ...action, name: e.target.value })
-                        setEdited(e.target.value ? true : false)
-                    }}
-                    data-attr="edit-action-input"
-                />
-                {action.count > -1 && (
-                    <div>
-                        <small className="text-muted">Matches {action.count} events</small>
-                    </div>
-                )}
+                <div className="input-set">
+                    <label htmlFor="actionName">Action name</label>
+                    <Input
+                        required
+                        placeholder="e.g. user account created, purchase completed, movie watched"
+                        value={action.name}
+                        style={{ maxWidth: 500, display: 'block' }}
+                        onChange={(e) => {
+                            setAction({ ...action, name: e.target.value })
+                            setEdited(e.target.value ? true : false)
+                        }}
+                        data-attr="edit-action-input"
+                        id="actionName"
+                    />
+                    {action.count > -1 && (
+                        <div>
+                            <small className="text-muted">Matches {action.count} events</small>
+                        </div>
+                    )}
+                </div>
 
                 <div className="match-group-section" style={{ overflow: 'visible' }}>
                     <h2 className="subtitle">Match groups</h2>
@@ -79,7 +106,6 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                                 step={step}
                                 isEditor={false}
                                 actionId={action.id}
-                                simmer={simmer}
                                 isOnlyStep={action.steps.length === 1}
                                 onDelete={() => {
                                     const identifier = step.id ? 'id' : 'isNew'
@@ -137,6 +163,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                             </Link>
                         </p>
+                        {user?.is_async_event_action_mapping_enabled && <AsyncActionMappingNotice />}
                         {action.post_to_slack && (
                             <>
                                 <Input
@@ -169,14 +196,15 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                         <a href={apiURL + 'action/' + errorActionId}>Click here to edit.</a>
                     </p>
                 )}
-                <div>
+                <div className="float-right">
+                    <span data-attr="delete-action-bottom">{deleteAction}</span>
                     <Button
                         disabled={!edited}
                         data-attr="save-action-button"
-                        className="float-right"
                         type="primary"
                         icon={<SaveOutlined />}
                         onClick={saveAction}
+                        style={{ marginLeft: 16 }}
                     >
                         Save action
                     </Button>

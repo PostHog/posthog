@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { objectsEqual, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import moment from 'moment'
+import dayjs from 'dayjs'
 
 const POLL_TIMEOUT = 5000
 
@@ -21,9 +21,9 @@ const formatEvents = (events, newEvents, apiUrl) => {
         if (
             index > 0 &&
             eventsFormatted[index - 1].event &&
-            !moment(event.event.timestamp).isSame(eventsFormatted[index - 1].event.timestamp, 'day')
+            !dayjs(event.event.timestamp).isSame(eventsFormatted[index - 1].event.timestamp, 'day')
         ) {
-            eventsFormatted.splice(index, 0, { date_break: moment(event.event.timestamp).format('LL') })
+            eventsFormatted.splice(index, 0, { date_break: dayjs(event.event.timestamp).format('LL') })
         }
     })
     if (newEvents.length > 0) {
@@ -71,7 +71,7 @@ export const eventsTableLogic = kea({
             },
         ],
         eventFilter: [
-            false,
+            '',
             {
                 setEventFilter: (_, { event }) => event,
             },
@@ -185,10 +185,7 @@ export const eventsTableLogic = kea({
                 return
             }
 
-            if (
-                !objectsEqual(searchParams?.properties, []) &&
-                !objectsEqual(searchParams.properties || {}, values.properties)
-            ) {
+            if (!objectsEqual(searchParams.properties || {}, values.properties)) {
                 actions.setProperties(searchParams.properties || {})
             }
         },

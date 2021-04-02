@@ -1,6 +1,9 @@
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
 
+// Keep this in sync with: posthog/api/plugin.py
+export const SECRET_FIELD_VALUE = '**************** POSTHOG SECRET FIELD ****************'
+
 export function getConfigSchemaArray(
     configSchema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
 ): PluginConfigSchema[] {
@@ -29,6 +32,16 @@ export function getConfigSchemaObject(
     }
 }
 
+export function defaultConfigForPlugin(plugin: PluginTypeWithConfig): Record<string, any> {
+    const config: Record<string, any> = {}
+    for (const field of getConfigSchemaArray(plugin.config_schema)) {
+        if (field.key && typeof field.default !== 'undefined') {
+            config[field.key] = field.default
+        }
+    }
+    return config
+}
+
 export function getPluginConfigFormData(
     editingPlugin: PluginTypeWithConfig,
     pluginConfigChanges: Record<string, any>
@@ -39,7 +52,7 @@ export function getPluginConfigFormData(
 
     const formData = new FormData()
     const otherConfig: Record<string, any> = {}
-    formData.append('enabled', enabled)
+    formData.append('enabled', Boolean(enabled).toString())
     for (const [key, value] of Object.entries(config)) {
         if (configSchema[key]?.type === 'attachment') {
             if (value && !value.saved) {
@@ -48,7 +61,8 @@ export function getPluginConfigFormData(
             if (!value && editingPlugin.pluginConfig.config[key]) {
                 formData.append(`remove_attachment[${key}]`, 'true')
             }
-        } else {
+        } else if (!configSchema[key]?.secret || value !== SECRET_FIELD_VALUE) {
+            // Omit the field from formData if it's a filled yet unchanged secret field
             otherConfig[key] = value
         }
     }

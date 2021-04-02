@@ -1,5 +1,6 @@
 from unittest.mock import Mock, patch
 
+import pytest
 from dateutil.relativedelta import relativedelta
 from django.test import tag
 from django.utils.timezone import now
@@ -10,7 +11,7 @@ from posthog.test.base import BaseTest
 
 
 class TestUser(BaseTest):
-    @tag("ee")
+    @pytest.mark.ee
     @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     @patch("ee.models.license.requests.post")
     def test_feature_available_self_hosted_has_license(self, patch_post):
@@ -24,13 +25,13 @@ class TestUser(BaseTest):
             self.assertTrue(self.organization.is_feature_available("whatever"))
             self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
 
-    @tag("ee")
+    @pytest.mark.ee
     @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     def test_feature_available_self_hosted_no_license(self):
         self.assertFalse(self.organization.is_feature_available("whatever"))
         self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
 
-    @tag("ee")
+    @pytest.mark.ee
     @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     @patch("ee.models.license.requests.post")
     def test_feature_available_self_hosted_license_expired(self, patch_post):
@@ -54,7 +55,7 @@ class TestUser(BaseTest):
 
         # One org, one team, anonymized
         organization, team, user = User.objects.bootstrap(
-            company_name="Test Org", email="test_org@posthog.com", password="12345678", anonymize_data=True,
+            organization_name="Test Org", email="test_org@posthog.com", password="12345678", anonymize_data=True,
         )
 
         with self.settings(EE_AVAILABLE=True, MULTI_TENANCY=True):
@@ -75,6 +76,10 @@ class TestUser(BaseTest):
                     "organization_id": str(organization.id),
                     "project_id": str(team.uuid),
                     "project_setup_complete": False,
+                    "has_password_set": True,
+                    "joined_at": user.date_joined,
+                    "has_social_auth": False,
+                    "social_providers": [],
                 },
             )
 
@@ -104,5 +109,9 @@ class TestUser(BaseTest):
                     "organization_id": str(self.organization.id),
                     "project_id": str(self.team.uuid),
                     "project_setup_complete": True,
+                    "has_password_set": True,
+                    "joined_at": user.date_joined,
+                    "has_social_auth": False,
+                    "social_providers": [],
                 },
             )

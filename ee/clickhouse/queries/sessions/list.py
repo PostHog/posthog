@@ -1,3 +1,4 @@
+from collections import namedtuple
 from typing import Dict, List, Optional, Tuple
 
 from ee.clickhouse.client import sync_execute
@@ -8,56 +9,84 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_session_recording import filter_sessions_by_recordings
 from ee.clickhouse.queries.sessions.clickhouse_sessions import set_default_dates
 from ee.clickhouse.queries.util import parse_timestamps
-from ee.clickhouse.sql.sessions.list import SESSION_SQL
-from posthog.models import Entity, Person, Team
+from ee.clickhouse.sql.sessions.list import SESSION_SQL, SESSIONS_DISTINCT_ID_SQL
+from posthog.models import Entity, Person
 from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.queries.sessions.sessions_list import SessionsList
+from posthog.utils import flatten
 
 Session = Dict
-SESSIONS_LIST_DEFAULT_LIMIT = 50
+ActionFiltersSQL = namedtuple(
+    "ActionFiltersSQL", ["select_clause", "matches_action_clauses", "filters_having", "matches_any_clause", "params"]
+)
 
 
-class ClickhouseSessionsList:
-    def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
-        limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT) + 1
-        offset = filter.pagination.get("offset", 0)
-        filter = set_default_dates(filter)
+class ClickhouseSessionsList(SessionsList):
+    def fetch_page(self) -> Tuple[List[Session], Optional[Dict]]:
+        limit = self.limit + 1
+        self.filter = set_default_dates(self.filter)  # type: ignore
+        offset = self.filter.pagination.get("offset", 0)
+        distinct_id_offset = self.filter.pagination.get("distinct_id_offset", 0)
 
-        filters, params = parse_prop_clauses(filter.properties, team.pk)
-        filters_select_clause, filters_timestamps_clause, filters_having, action_filter_params = format_action_filters(
-            filter
-        )
+        action_filters = format_action_filters(self.filter)
 
-        date_from, date_to, _ = parse_timestamps(filter, team.pk)
-        params = {
-            **params,
-            **action_filter_params,
-            "team_id": team.pk,
-            "limit": limit,
-            "offset": offset,
-            "distinct_id_limit": limit + offset,
-        }
+        date_from, date_to, _ = parse_timestamps(self.filter, self.team.pk)
+        distinct_ids = self.fetch_distinct_ids(action_filters, date_from, date_to, limit, distinct_id_offset)
+
         query = SESSION_SQL.format(
             date_from=date_from,
             date_to=date_to,
-            filters=filters,
-            filters_select_clause=filters_select_clause,
-            filters_timestamps_clause=filters_timestamps_clause,
-            filters_having=filters_having,
+            filters_select_clause=action_filters.select_clause,
+            matches_action_clauses=action_filters.matches_action_clauses,
+            filters_having=action_filters.filters_having,
             sessions_limit="LIMIT %(offset)s, %(limit)s",
         )
-        query_result = sync_execute(query, params)
+        query_result = sync_execute(
+            query,
+            {
+                **action_filters.params,
+                "team_id": self.team.pk,
+                "limit": limit,
+                "offset": offset,
+                "distinct_ids": distinct_ids,
+            },
+        )
         result = self._parse_list_results(query_result)
 
         pagination = None
-        if len(result) == limit:
-            result.pop()
-            pagination = {"offset": offset + limit - 1}
+        if len(distinct_ids) >= limit + distinct_id_offset or len(result) == limit:
+            if len(result) == limit:
+                result.pop()
+            pagination = {"offset": offset + len(result), "distinct_id_offset": distinct_id_offset + limit}
 
-        self._add_person_properties(team, result)
+        self._add_person_properties(result)
 
-        return filter_sessions_by_recordings(team, result, filter), pagination
+        return filter_sessions_by_recordings(self.team, result, self.filter), pagination
 
-    def _add_person_properties(self, team=Team, sessions=List[Tuple]):
+    def fetch_distinct_ids(
+        self, action_filters: ActionFiltersSQL, date_from: str, date_to: str, limit: int, distinct_id_offset: int
+    ) -> List[str]:
+        if self.filter.distinct_id:
+            persons = get_persons_by_distinct_ids(self.team.pk, [self.filter.distinct_id])
+            return persons[0].distinct_ids if len(persons) > 0 else []
+
+        person_filters, person_filter_params = parse_prop_clauses(self.filter.person_filter_properties, self.team.pk)
+        return sync_execute(
+            SESSIONS_DISTINCT_ID_SQL.format(
+                date_from=date_from,
+                date_to=date_to,
+                person_filters=person_filters,
+                action_filters=action_filters.matches_any_clause,
+            ),
+            {
+                **person_filter_params,
+                **action_filters.params,
+                "team_id": self.team.pk,
+                "distinct_id_limit": distinct_id_offset + limit,
+            },
+        )
+
+    def _add_person_properties(self, sessions: List[Session]):
         distinct_id_hash = {}
         for session in sessions:
             distinct_id_hash[session["distinct_id"]] = True
@@ -66,7 +95,7 @@ class ClickhouseSessionsList:
         if len(distinct_ids) == 0:
             return
 
-        persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
+        persons = get_persons_by_distinct_ids(self.team.pk, distinct_ids)
 
         distinct_to_person: Dict[str, Person] = {}
         for person in persons:
@@ -105,38 +134,47 @@ class ClickhouseSessionsList:
                     "event_count": len(result[4]),
                     "events": list(events),
                     "properties": {},
-                    "action_filter_times": [action_time for (action_time,) in result[10:]],
+                    "matching_events": list(sorted(set(flatten(result[10:])))),
                 }
             )
 
         return final
 
 
-def format_action_filters(filter: SessionsFilter) -> Tuple[str, str, str, Dict]:
+def format_action_filters(filter: SessionsFilter) -> ActionFiltersSQL:
     if len(filter.action_filters) == 0:
-        return "", "", "", {}
+        return ActionFiltersSQL("", "", "", "", {})
 
-    timestamps_clause = select_clause = ""
+    matches_action_clauses = select_clause = ""
     having_clause = []
+    matches_any_clause = []
+
     params: Dict = {}
 
     for index, entity in enumerate(filter.action_filters):
-        timestamp, filter_params = format_action_filter_aggregate(entity, prepend=f"entity_{index}")
+        condition_sql, filter_params = format_action_filter_aggregate(entity, prepend=f"event_matcher_{index}")
 
-        timestamps_clause += f", {timestamp} as action_filter_timestamp_{index}"
-        select_clause += f", groupArray(1)(action_filter_timestamp_{index}) as action_filter_timestamp_{index}"
-        having_clause.append(f"notEmpty(action_filter_timestamp_{index})")
+        matches_action_clauses += f", ({condition_sql}) ? uuid : NULL as event_match_{index}"
+        select_clause += f", groupArray(event_match_{index}) as event_match_{index}"
+        having_clause.append(f"notEmpty(event_match_{index})")
+        matches_any_clause.append(condition_sql)
 
         params = {**params, **filter_params}
 
-    return select_clause, timestamps_clause, f"HAVING {' AND '.join(having_clause)}", params
+    return ActionFiltersSQL(
+        select_clause,
+        matches_action_clauses,
+        f"HAVING {' AND '.join(having_clause)}",
+        f"AND ({' OR '.join(matches_any_clause)})",
+        params,
+    )
 
 
 def format_action_filter_aggregate(entity: Entity, prepend: str):
-    filter_sql, params = format_entity_filter(entity, prepend=prepend)
+    filter_sql, params = format_entity_filter(entity, prepend=prepend, filter_by_team=False)
     if entity.properties:
         filters, filter_params = parse_prop_clauses(entity.properties, prepend=prepend, team_id=None)
         filter_sql += f" {filters}"
         params = {**params, **filter_params}
 
-    return f"({filter_sql}) ? timestamp : NULL", params
+    return filter_sql, params

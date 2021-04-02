@@ -8,28 +8,15 @@ import { Fire } from '~/toolbar/button/icons/Fire'
 import { Flag } from '~/toolbar/button/icons/Flag'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
-import { Stats } from '~/toolbar/button/icons/Stats'
 import { posthog } from '~/toolbar/posthog'
 
 export function DraggableButton(): JSX.Element {
-    const {
-        dragPosition,
-        heatmapPosition,
-        heatmapWindowVisible,
-        actionsWindowVisible,
-        actionsPosition,
-        statsVisible,
-        statsPosition,
-    } = useValues(toolbarButtonLogic)
-    const {
-        saveDragPosition,
-        saveHeatmapPosition,
-        saveActionsPosition,
-        hideActionsInfo,
-        hideHeatmapInfo,
-        hideStats,
-        saveStatsPosition,
-    } = useActions(toolbarButtonLogic)
+    const { dragPosition, heatmapPosition, heatmapWindowVisible, actionsWindowVisible, actionsPosition } = useValues(
+        toolbarButtonLogic
+    )
+    const { saveDragPosition, saveHeatmapPosition, saveActionsPosition, hideActionsInfo, hideHeatmapInfo } = useActions(
+        toolbarButtonLogic
+    )
 
     return (
         <>
@@ -59,7 +46,7 @@ export function DraggableButton(): JSX.Element {
                 savePosition={saveHeatmapPosition}
             >
                 <div className="toolbar-block">
-                    <HeatmapStats buttonMode />
+                    <HeatmapStats />
                 </div>
             </ButtonWindow>
 
@@ -73,53 +60,6 @@ export function DraggableButton(): JSX.Element {
                 savePosition={saveActionsPosition}
             >
                 <ActionsTab />
-            </ButtonWindow>
-
-            <ButtonWindow
-                name="stats"
-                label="Stats"
-                icon={<Stats />}
-                visible={statsVisible}
-                close={hideStats}
-                position={statsPosition}
-                savePosition={saveStatsPosition}
-            >
-                <div className="toolbar-block">
-                    <p>Thank you for trying out the PostHog Toolbar!</p>
-                    <p>The stats view is coming soon!</p>
-                    <p>
-                        Follow the{' '}
-                        <a
-                            href="https://github.com/PostHog/posthog/projects/7"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                        >
-                            Toolbar Project
-                        </a>{' '}
-                        and the{' '}
-                        <a
-                            href="https://github.com/PostHog/posthog/issues/871"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                        >
-                            stats issue
-                        </a>{' '}
-                        on GitHub to stay up to date with the releases!
-                    </p>
-                    <p>
-                        <strong>
-                            To ask questions and to provide feedback during the beta program, please{' '}
-                            <a
-                                href="https://github.com/PostHog/posthog/issues/1129"
-                                target="_blank"
-                                rel="noreferrer noopener"
-                            >
-                                click here
-                            </a>
-                            !
-                        </strong>
-                    </p>
-                </div>
             </ButtonWindow>
         </>
     )

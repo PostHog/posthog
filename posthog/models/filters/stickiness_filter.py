@@ -4,21 +4,25 @@ from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMinute
 from django.http import HttpRequest
 
 from posthog.models.filters.base_filter import BaseFilter
-from posthog.models.filters.mixins.common import CompareMixin, InsightMixin, OffsetMixin, ShownAsMixin
-from posthog.models.filters.mixins.property import PropertyMixin
-from posthog.models.filters.mixins.stickiness import (
-    SelectedIntervalMixin,
-    TargetEntityDerivedMixin,
-    TotalIntervalsDerivedMixin,
+from posthog.models.filters.mixins.common import (
+    CompareMixin,
+    EntitiesMixin,
+    FilterTestAccountsMixin,
+    InsightMixin,
+    OffsetMixin,
+    ShownAsMixin,
 )
+from posthog.models.filters.mixins.property import PropertyMixin
+from posthog.models.filters.mixins.stickiness import SelectedIntervalMixin, TotalIntervalsDerivedMixin
 from posthog.models.team import Team
 
 
 class StickinessFilter(
     TotalIntervalsDerivedMixin,
-    TargetEntityDerivedMixin,
+    EntitiesMixin,
     SelectedIntervalMixin,
     PropertyMixin,
+    FilterTestAccountsMixin,
     OffsetMixin,
     CompareMixin,
     ShownAsMixin,
@@ -29,7 +33,7 @@ class StickinessFilter(
     team: Team
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
-        super().__init__(data, request)
+        super().__init__(data, request, **kwargs)
         team: Optional[Team] = kwargs.get("team", None)
         if not team:
             raise ValueError("Team must be provided to stickiness filter")

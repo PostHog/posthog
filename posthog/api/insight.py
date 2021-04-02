@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
+from posthog.api.utils import format_next_url
 from posthog.celery import update_cache_item_task
 from posthog.constants import FROM_DASHBOARD, INSIGHT, INSIGHT_FUNNELS, INSIGHT_PATHS, TRENDS_STICKINESS
 from posthog.decorators import CacheType, cached_function
@@ -23,7 +24,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, stickiness, trends
 from posthog.queries.sessions.sessions import Sessions
-from posthog.utils import generate_cache_key
+from posthog.utils import generate_cache_key, get_safe_cache
 
 
 class InsightSerializer(serializers.ModelSerializer):
@@ -74,14 +75,20 @@ class InsightSerializer(serializers.ModelSerializer):
     def get_result(self, dashboard_item: DashboardItem):
         if not dashboard_item.filters:
             return None
-        result = cache.get(dashboard_item.filters_hash)
+        result = get_safe_cache(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
-        return result["result"]
+        # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
+        return result.get("data")
 
     def get_created_by(self, dashboard_item: DashboardItem):
         if dashboard_item.created_by:
             return UserSerializer(dashboard_item.created_by).data
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["filters"] = instance.dashboard_filters()
+        return representation
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -143,10 +150,12 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_trends(request)
-        return Response(result)
+        filter = Filter(request=request)
+        next = format_next_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
+        return Response({**result, "next": next})
 
     @cached_function()
-    def calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
+    def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request)
         if filter.shown_as == TRENDS_STICKINESS:
@@ -160,7 +169,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         self._refresh_dashboard(request=request)
 
-        return result
+        return {"result": result}
 
     # ******************************************
     # /insight/session
@@ -171,13 +180,12 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        result: Dict[str, Any] = {"result": self.calculate_session(request)}
-
-        return Response(result)
+        return Response(self.calculate_session(request))
 
     @cached_function()
-    def calculate_session(self, request: request.Request) -> List[Dict[str, Any]]:
-        return Sessions().run(filter=SessionsFilter(request=request), team=self.team)
+    def calculate_session(self, request: request.Request) -> Dict[str, Any]:
+        result = Sessions().run(filter=SessionsFilter(request=request), team=self.team)
+        return {"result": result}
 
     # ******************************************
     # /insight/funnel
@@ -207,21 +215,22 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if refresh:
             cache.delete(cache_key)
         else:
-            cached_result = cache.get(cache_key)
+            cached_result = get_safe_cache(cache_key)
             if cached_result:
                 task_id = cached_result.get("task_id", None)
                 if not task_id:
                     return cached_result["result"]
                 else:
-                    return result
+                    return {"result": result}
 
         payload = {"filter": filter.toJSON(), "team_id": team.pk}
         task = update_cache_item_task.delay(cache_key, CacheType.FUNNEL, payload)
-        task_id = task.id
-        cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
+        if not task.ready():
+            task_id = task.id
+            cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
 
         self._refresh_dashboard(request=request)
-        return result
+        return {"result": result}
 
     # ******************************************
     # /insight/retention
@@ -232,17 +241,17 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_retention(request)
-        return Response({"data": result})
+        return Response(result)
 
     @cached_function()
-    def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
+    def calculate_retention(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         data = {}
         if not request.GET.get("date_from"):
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request)
         result = retention.Retention().run(filter, team)
-        return result
+        return {"result": result}
 
     # ******************************************
     # /insight/path
@@ -257,11 +266,11 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response(result)
 
     @cached_function()
-    def calculate_path(self, request: request.Request) -> List[Dict[str, Any]]:
+    def calculate_path(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
         resp = paths.Paths().run(filter=filter, team=team)
-        return resp
+        return {"result": resp}
 
     # Checks if a dashboard id has been set and if so, update the refresh date
     def _refresh_dashboard(self, request) -> None:

@@ -1,7 +1,10 @@
 from unittest.mock import call, patch
 
+from freezegun import freeze_time
+
 from posthog.models import Action, ActionStep, Element, ElementGroup, Event, Organization, Person
 from posthog.models.event import Selector
+from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 from posthog.test.base import BaseTest
 
 
@@ -551,10 +554,13 @@ class TestSendToSlack(BaseTest):
     @patch("celery.current_app.send_task")
     def test_send_to_slack(self, patch_post_to_slack):
         self.team.slack_incoming_webhook = "http://slack.com/hook"
+        self.team.save()
         action_user_paid = Action.objects.create(team=self.team, name="user paid", post_to_slack=True)
         ActionStep.objects.create(action=action_user_paid, event="user paid")
 
         event = Event.objects.create(team=self.team, event="user paid", site_url="http://testserver")
+        calculate_actions_from_last_calculation()
+        calculate_actions_from_last_calculation()  # intentionally twice to make sure the hook fires once
         self.assertEqual(patch_post_to_slack.call_count, 1)
         patch_post_to_slack.assert_has_calls(
             [call("posthog.tasks.webhooks.post_event_to_webhook", (event.pk, "http://testserver"))]
@@ -672,3 +678,21 @@ class TestSelectors(BaseTest):
         self.assertEqual(selector1.parts[1].data, {"tag_name": "div"})
         self.assertEqual(selector1.parts[1].direct_descendant, False)
         self.assertEqual(selector1.parts[1].unique_order, 1)
+
+
+class TestEventModel(BaseTest):
+    def test_earliest_timestamp(self):
+        with freeze_time("2012-01-15T02:44:00.000Z"):
+            Event.objects.create(
+                team=self.team, distinct_id="whatever",
+            )
+
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            Event.objects.create(
+                team=self.team, distinct_id="whatever",
+            )
+
+        with freeze_time("2012-01-16T03:21:34.000Z"):
+            self.assertEqual(Event.objects.earliest_timestamp(self.team.id), "2012-01-14T00:00:00+00:00")
+            # Team has no events
+            self.assertEqual(Event.objects.earliest_timestamp(team_id=-1), "2012-01-09T00:00:00+00:00")

@@ -13,7 +13,8 @@
                 "SECRET_KEY": {
                     "generator": "secret"
                 },
-                "DEPLOYMENT": "Heroku Review App"
+                "DEPLOYMENT": "Heroku Review App",
+                "AUTO_LOGIN": true
             },
             "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],
             "formation": {

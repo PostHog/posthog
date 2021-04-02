@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from random import random
 from typing import Any, Dict, Optional
 
 import statsd
@@ -11,12 +12,15 @@ from django.views.decorators.csrf import csrf_exempt
 
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
+from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team, User
+from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
     from ee.clickhouse.process_event import log_event, process_event_ee
+    from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_WAL
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -49,16 +53,18 @@ def _get_token(data, request) -> Optional[str]:
         return request.POST["api_key"]
     if request.POST.get("token"):
         return request.POST["token"]
-    if isinstance(data, list) and len(data) > 0:
-        return data[0]["properties"]["token"]  # Mixpanel Swift SDK
-    if data.get("$token"):
-        return data["$token"]  # JS identify call
-    if "token" in data:
-        return data["token"]  # JS reloadFeatures call
-    if data.get("api_key"):
-        return data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
-    if data.get("properties") and data["properties"].get("token"):
-        return data["properties"]["token"]  # JS capture call
+    if data:
+        if isinstance(data, list):
+            data = data[0]  # Mixpanel Swift SDK
+        if isinstance(data, dict):
+            if data.get("$token"):
+                return data["$token"]  # JS identify call
+            if data.get("token"):
+                return data["token"]  # JS reloadFeatures call
+            if data.get("api_key"):
+                return data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
+            if data.get("properties") and data["properties"].get("token"):
+                return data["properties"]["token"]  # JS capture call
     return None
 
 
@@ -80,6 +86,12 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
             return str(data["properties"]["distinct_id"])[0:200]
         except KeyError:
             return str(data["distinct_id"])[0:200]
+
+
+def _ensure_web_feature_flags_in_properties(event: Dict[str, Any], team: Team, distinct_id: str):
+    """If the event comes from web, ensure that it contains property $active_feature_flags."""
+    if event["properties"].get("$lib") == "web" and not event["properties"].get("$active_feature_flags"):
+        event["properties"]["$active_feature_flags"] = get_active_feature_flags(team, distinct_id)
 
 
 @csrf_exempt
@@ -121,7 +133,7 @@ def get_event(request):
                     "code": "validation",
                     "message": "API key not provided. You can find your project API key in PostHog project settings.",
                 },
-                status=400,
+                status=401,
             ),
         )
     team = Team.objects.get_team_from_token(token)
@@ -141,13 +153,13 @@ def get_event(request):
                         "code": "validation",
                         "message": "Project API key invalid. You can find your project API key in PostHog project settings.",
                     },
-                    status=400,
+                    status=401,
                 ),
             )
         user = User.objects.get_from_personal_api_key(token)
         if user is None:
             return cors_response(
-                request, JsonResponse({"code": "validation", "message": "Personal API key invalid.",}, status=400,),
+                request, JsonResponse({"code": "validation", "message": "Personal API key invalid.",}, status=401,),
             )
         team = user.teams.get(id=project_id)
 
@@ -162,6 +174,11 @@ def get_event(request):
         events = data
     else:
         events = [data]
+
+    try:
+        events = preprocess_session_recording_events(events)
+    except ValueError as e:
+        return cors_response(request, JsonResponse({"code": "validation", "message": str(e),}, status=400,),)
 
     for event in events:
         try:
@@ -178,7 +195,7 @@ def get_event(request):
                     status=400,
                 ),
             )
-        if "event" not in event:
+        if not event.get("event"):
             return cors_response(
                 request,
                 JsonResponse(
@@ -187,22 +204,48 @@ def get_event(request):
                 ),
             )
 
+        if not event.get("properties"):
+            event["properties"] = {}
+
+        _ensure_web_feature_flags_in_properties(event, team, distinct_id)
+
         event_uuid = UUIDT()
+        ip = None if team.anonymize_ips else get_ip_address(request)
 
         if is_ee_enabled():
-            process_event_ee(
+            log_topics = [KAFKA_EVENTS_WAL]
+
+            if settings.PLUGIN_SERVER_INGESTION:
+                log_topics.append(KAFKA_EVENTS_PLUGIN_INGESTION)
+                statsd.Counter("%s_posthog_cloud_plugin_server_ingestion" % (settings.STATSD_PREFIX,)).increment()
+
+            log_event(
                 distinct_id=distinct_id,
-                ip=get_ip_address(request),
+                ip=ip,
                 site_url=request.build_absolute_uri("/")[:-1],
                 data=event,
                 team_id=team.id,
                 now=now,
                 sent_at=sent_at,
                 event_uuid=event_uuid,
+                topics=log_topics,
             )
+
+            # must done after logging because process_event_ee modifies the event, e.g. by removing $elements
+            if not settings.PLUGIN_SERVER_INGESTION:
+                process_event_ee(
+                    distinct_id=distinct_id,
+                    ip=ip,
+                    site_url=request.build_absolute_uri("/")[:-1],
+                    data=event,
+                    team_id=team.id,
+                    now=now,
+                    sent_at=sent_at,
+                    event_uuid=event_uuid,
+                )
         else:
             task_name = "posthog.tasks.process_event.process_event"
-            if team.plugins_opt_in:
+            if settings.PLUGIN_SERVER_INGESTION or team.plugins_opt_in:
                 task_name += "_with_plugins"
                 celery_queue = settings.PLUGINS_CELERY_QUEUE
             else:
@@ -211,27 +254,7 @@ def get_event(request):
             celery_app.send_task(
                 name=task_name,
                 queue=celery_queue,
-                args=[
-                    distinct_id,
-                    get_ip_address(request),
-                    request.build_absolute_uri("/")[:-1],
-                    event,
-                    team.id,
-                    now.isoformat(),
-                    sent_at,
-                ],
-            )
-
-        if is_ee_enabled():
-            log_event(
-                distinct_id=distinct_id,
-                ip=get_ip_address(request),
-                site_url=request.build_absolute_uri("/")[:-1],
-                data=event,
-                team_id=team.id,
-                now=now,
-                sent_at=sent_at,
-                event_uuid=event_uuid,
+                args=[distinct_id, ip, request.build_absolute_uri("/")[:-1], event, team.id, now.isoformat(), sent_at,],
             )
     timer.stop("event_endpoint")
     return cors_response(request, JsonResponse({"status": 1}))

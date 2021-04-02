@@ -1,5 +1,6 @@
 import datetime
 
+import celery
 from django.core.exceptions import EmptyResultSet
 from django.db import connection, models, transaction
 from django.db.models import Q
@@ -23,61 +24,54 @@ class Action(models.Model):
         if end is None:
             end = timezone.now() + datetime.timedelta(days=1)
 
-        calculated_at = timezone.now()
+        last_calculated_at = self.last_calculated_at
+        now_calculated_at = timezone.now()
         self.is_calculating = True
         self.save()
         from .event import Event
 
         try:
             if recalculate_all:
-                event_query, params = Event.objects.query_db_by_action(self).only("pk").query.sql_with_params()
+                event_queryset = Event.objects.query_db_by_action(self).only("pk")
             else:
-                event_query, params = (
-                    Event.objects.query_db_by_action(self, start=start, end=end).only("pk").query.sql_with_params()
-                )
-
+                event_queryset = Event.objects.query_db_by_action(self, start=start, end=end).only("pk")
+            event_query, params = event_queryset.query.sql_with_params()
         except EmptyResultSet:
-            self.last_calculated_at = calculated_at
-            self.is_calculating = False
-            self.save()
             self.events.all().delete()
-            return
-
-        query = """DELETE FROM "posthog_action_events" WHERE "action_id" = {}""".format(self.pk)
-
-        period_delete_query = """AND "event_id" in
-                       (SELECT id
-                        FROM posthog_event
-                        WHERE "created_at" >= '{}'
-                        AND "created_at" < '{}');
-                """.format(
-            start.isoformat(), end.isoformat()
-        )
-
-        insert_query = """INSERT INTO "posthog_action_events" ("action_id", "event_id")
-                        {}
-                    ON CONFLICT DO NOTHING
-                 """.format(
-            event_query.replace("SELECT ", "SELECT {}, ".format(self.pk), 1)
-        )
-
-        if not recalculate_all:
-            query += period_delete_query
         else:
-            query += ";"
+            delete_query = f"""DELETE FROM "posthog_action_events" WHERE "action_id" = {self.pk}"""
 
-        query += insert_query
+            if not recalculate_all:
+                delete_query += f""" AND "event_id" IN (
+                    SELECT id FROM posthog_event
+                    WHERE "created_at" >= '{start.isoformat()}' AND "created_at" < '{end.isoformat()}'
+                )"""
 
-        cursor = connection.cursor()
-        with transaction.atomic():
-            try:
-                cursor.execute(query, params)
-            except Exception:
-                capture_exception()
+            insert_query = """INSERT INTO "posthog_action_events" ("action_id", "event_id")
+                            {}
+                        ON CONFLICT DO NOTHING
+                    """.format(
+                event_query.replace("SELECT ", f"SELECT {self.pk}, ", 1)
+            )
 
-        self.is_calculating = False
-        self.last_calculated_at = calculated_at
-        self.save()
+            cursor = connection.cursor()
+            with transaction.atomic():
+                try:
+                    cursor.execute(delete_query + ";" + insert_query, params)
+                except Exception as err:
+                    capture_exception(err)
+
+            if self.post_to_slack:
+                for event in self.events.filter(
+                    created_at__gt=last_calculated_at, team__slack_incoming_webhook__isnull=False
+                ).only("pk", "site_url"):
+                    celery.current_app.send_task(
+                        "posthog.tasks.webhooks.post_event_to_webhook", (event.pk, event.site_url)
+                    )
+        finally:
+            self.is_calculating = False
+            self.last_calculated_at = now_calculated_at
+            self.save()
 
     def on_perform(self, event):
         from posthog.api.event import EventSerializer

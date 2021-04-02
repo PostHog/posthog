@@ -2,11 +2,11 @@ import json
 import warnings
 from typing import Any, Dict, List, Optional, Union
 
-from django.core.cache import cache
 from django.db.models import Count, Func, Prefetch, Q, QuerySet
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
@@ -14,8 +14,9 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.utils import format_next_url, get_target_entity
 from posthog.constants import TRENDS_LINEAR, TRENDS_TABLE
-from posthog.models import Event, Filter, Person
+from posthog.models import Cohort, Event, Filter, Person
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
@@ -23,7 +24,7 @@ from posthog.queries.base import properties_to_Q
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
-from posthog.utils import convert_property_value, relative_date_parse
+from posthog.utils import convert_property_value, get_safe_cache, is_anonymous_id, relative_date_parse
 
 
 class PersonCursorPagination(CursorPagination):
@@ -50,8 +51,14 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         if person.properties.get("email"):
             return person.properties["email"]
         if len(person.distinct_ids) > 0:
-            return person.distinct_ids[-1]
+            # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
+            return sorted(person.distinct_ids, key=is_anonymous_id)[0]
         return person.pk
+
+    def to_representation(self, instance: Person) -> Dict[str, Any]:
+        representation = super().to_representation(instance)
+        representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
+        return representation
 
 
 class PersonFilter(filters.FilterSet):
@@ -122,12 +129,14 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return queryset
 
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
-        team_id = self.team_id
-        person = Person.objects.get(team_id=team_id, pk=pk)
-        events = Event.objects.filter(team_id=team_id, distinct_id__in=person.distinct_ids)
-        events.delete()
-        person.delete()
-        return response.Response(status=204)
+        try:
+            person = Person.objects.get(team_id=self.team_id, pk=pk)
+            events = Event.objects.filter(team_id=self.team_id, distinct_id__in=person.distinct_ids)
+            events.delete()
+            person.delete()
+            return response.Response(status=204)
+        except Person.DoesNotExist:
+            raise NotFound(detail="Person not found.")
 
     def get_queryset(self):
         return self._filter_request(self.request, super().get_queryset())
@@ -210,7 +219,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             return response.Response({})
 
         offset_value = int(offset)
-        cached_result = cache.get(reference_id)
+        cached_result = get_safe_cache(reference_id)
         if cached_result:
             return response.Response(
                 {
@@ -293,23 +302,24 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
         earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
         filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=earliest_timestamp_func)
-        people = self.stickiness_class().people(filter, team)
+
+        target_entity = get_target_entity(request)
+
+        people = self.stickiness_class().people(target_entity, filter, team)
         next_url = paginated_result(people, request, filter.offset)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 
+    @action(methods=["GET"], detail=False)
+    def cohorts(self, request: request.Request) -> response.Response:
+        from posthog.api.cohort import CohortSerializer
+
+        person = self.get_queryset().get(id=str(request.GET["person_id"]))
+        cohorts = Cohort.objects.annotate(count=Count("people")).filter(people__id=person.id)
+
+        return response.Response({"results": CohortSerializer(cohorts, many=True).data})
+
 
 def paginated_result(
-    entites: Union[List[Dict[str, Any]], ReturnDict], request: request.Request, offset: int = 0
+    entites: Union[List[Dict[str, Any]], ReturnDict], request: request.Request, offset: int = 0,
 ) -> Optional[str]:
-    next_url: Optional[str] = request.get_full_path()
-    if len(entites) > 99 and next_url:
-        if "offset" in next_url:
-            next_url = next_url[1:]
-            next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
-        else:
-            next_url = request.build_absolute_uri(
-                "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
-            )
-    else:
-        next_url = None
-    return next_url
+    return format_next_url(request, offset, 100) if len(entites) > 99 else None

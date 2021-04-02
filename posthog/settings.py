@@ -10,13 +10,12 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
-import base64
 import os
 import shutil
 import sys
 from datetime import timedelta
 from distutils.util import strtobool
-from typing import Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -30,27 +29,24 @@ from sentry_sdk.integrations.redis import RedisIntegration
 from posthog.constants import RDBMS
 
 
-def get_env(key):
-    try:
-        return os.environ[key]
-    except KeyError:
-        raise ImproperlyConfigured(f'The environment var "{key}" is absolutely required to run this software')
+def get_from_env(key: str, default: Any = None, *, optional: bool = False, type_cast: Optional[Callable] = None) -> Any:
+    value = os.getenv(key)
+    if value is None:
+        if optional:
+            return None
+        if default is not None:
+            return default
+        else:
+            raise ImproperlyConfigured(f'The environment variable "{key}" is required to run PostHog!')
+    if type_cast is not None:
+        return type_cast(value)
+    return value
 
 
 def get_list(text: str) -> List[str]:
     if not text:
         return []
     return [item.strip() for item in text.split(",")]
-
-
-def get_bool_from_env(name: str, default_value: bool) -> bool:
-    if name in os.environ:
-        value = os.environ[name]
-        try:
-            return bool(strtobool(str(value)))
-        except ValueError as e:
-            raise ValueError(f"{value} is an invalid value for {name}, expected boolean") from e
-    return default_value
 
 
 def print_warning(warning_lines: Sequence[str]):
@@ -61,34 +57,42 @@ def print_warning(warning_lines: Sequence[str]):
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-DEBUG = get_bool_from_env("DEBUG", False)
-TEST = "test" in sys.argv or get_bool_from_env("TEST", False)  # type: bool
-SELF_CAPTURE = get_bool_from_env("SELF_CAPTURE", DEBUG)
-SHELL_PLUS_PRINT_SQL = get_bool_from_env("PRINT_SQL", False)
+DEBUG = get_from_env("DEBUG", False, type_cast=strtobool)
+TEST = (
+    "test" in sys.argv or sys.argv[0].endswith("pytest") or get_from_env("TEST", False, type_cast=strtobool)
+)  # type: bool
+E2E_TESTING = get_from_env(
+    "E2E_TESTING", False, type_cast=strtobool,
+)  # whether the app is currently running for E2E tests
+SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=strtobool)
+SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=strtobool)
 
 SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
 if DEBUG:
-    JS_URL = os.environ.get("JS_URL", "http://localhost:8234/")
+    JS_URL = os.getenv("JS_URL", "http://localhost:8234/")
 else:
-    JS_URL = os.environ.get("JS_URL", "")
+    JS_URL = os.getenv("JS_URL", "")
 
-PLUGINS_INSTALL_VIA_API = get_bool_from_env("PLUGINS_INSTALL_VIA_API", True)
-PLUGINS_CONFIGURE_VIA_API = PLUGINS_INSTALL_VIA_API or get_bool_from_env("PLUGINS_CONFIGURE_VIA_API", True)
+PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
+PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
-PLUGINS_CELERY_QUEUE = os.environ.get("PLUGINS_CELERY_QUEUE", "posthog-plugins")
-PLUGINS_RELOAD_PUBSUB_CHANNEL = os.environ.get("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
+# Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
+# Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.
+GITLAB_TOKEN = os.getenv("GITLAB_TOKEN", None)
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", None)
+NPM_TOKEN = os.getenv("NPM_TOKEN", None)
 
 # This is set as a cross-domain cookie with a random value.
 # Its existence is used by the toolbar to see that we are logged in.
 TOOLBAR_COOKIE_NAME = "phtoolbar"
 
 # SSL & cookie defaults
-if os.environ.get("SECURE_COOKIES", None) is None:
+if os.getenv("SECURE_COOKIES", None) is None:
     # Default to True if in production
     secure_cookies = not DEBUG and not TEST
 else:
-    secure_cookies = get_bool_from_env("SECURE_COOKIES", True)
+    secure_cookies = get_from_env("SECURE_COOKIES", True, type_cast=strtobool)
 
 TOOLBAR_COOKIE_SECURE = secure_cookies
 SESSION_COOKIE_SECURE = secure_cookies
@@ -96,7 +100,7 @@ CSRF_COOKIE_SECURE = secure_cookies
 SECURE_SSL_REDIRECT = secure_cookies
 
 if not TEST:
-    if os.environ.get("SENTRY_DSN"):
+    if os.getenv("SENTRY_DSN"):
         sentry_sdk.utils.MAX_STRING_LENGTH = 10_000_000
         # https://docs.sentry.io/platforms/python/
         sentry_sdk.init(
@@ -104,34 +108,48 @@ if not TEST:
             integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration()],
             request_bodies="always",
             send_default_pii=True,
+            environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
         )
 
-if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
+if get_from_env("DISABLE_SECURE_SSL_REDIRECT", False, type_cast=strtobool):
     SECURE_SSL_REDIRECT = False
 
-if get_bool_from_env("IS_BEHIND_PROXY", False):
+
+# Proxy settings
+IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=strtobool)
+TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
+TRUST_ALL_PROXIES = os.getenv("TRUST_ALL_PROXIES", False)
+
+
+if IS_BEHIND_PROXY:
     USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-ASYNC_EVENT_ACTION_MAPPING = False
+    if not TRUST_ALL_PROXIES and not TRUSTED_PROXIES:
+        print_warning(
+            (
+                "️You indicated your instance is behind a proxy (IS_BEHIND_PROXY env var),",
+                " but you haven't configured any trusted proxies. See",
+                " https://posthog.com/docs/configuring-posthog/running-behind-proxy for details.",
+            )
+        )
 
-if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
-    ASYNC_EVENT_ACTION_MAPPING = True
-
+# IP Block settings
+ALLOWED_IP_BLOCKS = get_list(os.getenv("ALLOWED_IP_BLOCKS", ""))
 
 # Clickhouse Settings
 CLICKHOUSE_TEST_DB = "posthog_test"
 
-CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
-CLICKHOUSE_USERNAME = os.environ.get("CLICKHOUSE_USERNAME", "default")
-CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
-CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "default")
-CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", None)
-CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG)
-CLICKHOUSE_VERIFY = get_bool_from_env("CLICKHOUSE_VERIFY", True)
-CLICKHOUSE_REPLICATION = get_bool_from_env("CLICKHOUSE_REPLICATION", False)
-CLICKHOUSE_ENABLE_STORAGE_POLICY = get_bool_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False)
-CLICKHOUSE_ASYNC = get_bool_from_env("CLICKHOUSE_ASYNC", False)
+CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "localhost")
+CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
+CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
+CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
+CLICKHOUSE_CA = os.getenv("CLICKHOUSE_CA", None)
+CLICKHOUSE_SECURE = get_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG, type_cast=strtobool)
+CLICKHOUSE_VERIFY = get_from_env("CLICKHOUSE_VERIFY", True, type_cast=strtobool)
+CLICKHOUSE_REPLICATION = get_from_env("CLICKHOUSE_REPLICATION", False, type_cast=strtobool)
+CLICKHOUSE_ENABLE_STORAGE_POLICY = get_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False, type_cast=strtobool)
+CLICKHOUSE_ASYNC = get_from_env("CLICKHOUSE_ASYNC", False, type_cast=strtobool)
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
@@ -141,29 +159,34 @@ if CLICKHOUSE_SECURE:
 
 CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
 
-IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
+IS_HEROKU = get_from_env("IS_HEROKU", False, type_cast=strtobool)
 
 # Kafka configs
-KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
+KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka")
 KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
-KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
+KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=strtobool)
 
-PRIMARY_DB = os.environ.get("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
+PRIMARY_DB = os.getenv("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
 EE_AVAILABLE = False
 
-if PRIMARY_DB == RDBMS.CLICKHOUSE:
-    TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
-else:
-    TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
+PLUGIN_SERVER_INGESTION = get_from_env("PLUGIN_SERVER_INGESTION", not TEST, type_cast=strtobool)
 
+# True if ingesting with the plugin server into Postgres, as it's then not possible to calculate the mapping on the fly
+ASYNC_EVENT_ACTION_MAPPING = PRIMARY_DB == RDBMS.POSTGRES and get_from_env(
+    "ASYNC_EVENT_ACTION_MAPPING", True, type_cast=strtobool
+)
+ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
 
-# IP block settings
-ALLOWED_IP_BLOCKS = get_list(os.environ.get("ALLOWED_IP_BLOCKS", ""))
-TRUSTED_PROXIES = os.environ.get("TRUSTED_PROXIES", False)
-TRUST_ALL_PROXIES = os.environ.get("TRUST_ALL_PROXIES", False)
+ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", False, type_cast=strtobool)
+EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = get_from_env(
+    "ASYNC_EVENT_PROPERTY_USAGE_INTERVAL_SECONDS", 60 * 60, type_cast=int
+)
 
+UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = get_from_env(
+    "UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS", 90, type_cast=int
+)
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
@@ -171,20 +194,20 @@ TRUST_ALL_PROXIES = os.environ.get("TRUST_ALL_PROXIES", False)
 DEFAULT_SECRET_KEY = "<randomly generated secret key>"
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
+SECRET_KEY = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
 
-ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
+ALLOWED_HOSTS = get_list(os.getenv("ALLOWED_HOSTS", "*"))
 
 # Metrics - StatsD
-STATSD_HOST = os.environ.get("STATSD_HOST")
-STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
-STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "")
+STATSD_HOST = os.getenv("STATSD_HOST")
+STATSD_PORT = os.getenv("STATSD_PORT", 8125)
+STATSD_PREFIX = os.getenv("STATSD_PREFIX", "")
 
 # django-axes settings to lockout after too many attempts
-AXES_ENABLED = get_bool_from_env("AXES_ENABLED", True)
-AXES_FAILURE_LIMIT = int(os.environ.get("AXES_FAILURE_LIMIT", 5))
+AXES_ENABLED = get_from_env("AXES_ENABLED", True, type_cast=strtobool)
+AXES_FAILURE_LIMIT = int(os.getenv("AXES_FAILURE_LIMIT", 5))
 AXES_COOLOFF_TIME = timedelta(minutes=15)
-AXES_LOCKOUT_TEMPLATE = "too_many_failed_logins.html"
+AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axess_logout"
 AXES_META_PRECEDENCE_ORDER = [
     "HTTP_X_FORWARDED_FOR",
     "REMOTE_ADDR",
@@ -279,6 +302,7 @@ WSGI_APPLICATION = "posthog.wsgi.application"
 
 SOCIAL_AUTH_POSTGRES_JSONFIELD = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
+SOCIAL_AUTH_REDIRECT_IS_HTTPS = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=strtobool)
 
 AUTHENTICATION_BACKENDS = (
     "axes.backends.AxesBackend",
@@ -302,53 +326,75 @@ SOCIAL_AUTH_PIPELINE = (
 
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"
 SOCIAL_AUTH_STORAGE = "social_django.models.DjangoStorage"
-SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = ["invite_id", "user_name", "company_name", "email_opt_in"]
-
+SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
+    "invite_id",
+    "user_name",
+    "email_opt_in",
+    "organization_name",
+]
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
-SOCIAL_AUTH_GITHUB_KEY = os.environ.get("SOCIAL_AUTH_GITHUB_KEY")
-SOCIAL_AUTH_GITHUB_SECRET = os.environ.get("SOCIAL_AUTH_GITHUB_SECRET")
+SOCIAL_AUTH_GITHUB_KEY = os.getenv("SOCIAL_AUTH_GITHUB_KEY")
+SOCIAL_AUTH_GITHUB_SECRET = os.getenv("SOCIAL_AUTH_GITHUB_SECRET")
 
 SOCIAL_AUTH_GITLAB_SCOPE = ["read_user"]
-SOCIAL_AUTH_GITLAB_KEY = os.environ.get("SOCIAL_AUTH_GITLAB_KEY")
-SOCIAL_AUTH_GITLAB_SECRET = os.environ.get("SOCIAL_AUTH_GITLAB_SECRET")
-SOCIAL_AUTH_GITLAB_API_URL = os.environ.get("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
+SOCIAL_AUTH_GITLAB_KEY = os.getenv("SOCIAL_AUTH_GITLAB_KEY")
+SOCIAL_AUTH_GITLAB_SECRET = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
+SOCIAL_AUTH_GITLAB_API_URL = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
 
 # See https://docs.djangoproject.com/en/3.1/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
-DISABLE_SERVER_SIDE_CURSORS = get_bool_from_env("USING_PGBOUNCER", False)
+DISABLE_SERVER_SIDE_CURSORS = get_from_env("USING_PGBOUNCER", False, type_cast=strtobool)
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
 if TEST or DEBUG:
-    DATABASE_URL = os.environ.get("DATABASE_URL", "postgres://localhost:5432/posthog")
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgres://localhost:5432/posthog")
 else:
-    DATABASE_URL = os.environ.get("DATABASE_URL", "")
+    DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if DATABASE_URL:
     DATABASES = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=600)}
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
-elif os.environ.get("POSTHOG_DB_NAME"):
+elif os.getenv("POSTHOG_DB_NAME"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql_psycopg2",
-            "NAME": get_env("POSTHOG_DB_NAME"),
-            "USER": os.environ.get("POSTHOG_DB_USER", "postgres"),
-            "PASSWORD": os.environ.get("POSTHOG_DB_PASSWORD", ""),
-            "HOST": os.environ.get("POSTHOG_POSTGRES_HOST", "localhost"),
-            "PORT": os.environ.get("POSTHOG_POSTGRES_PORT", "5432"),
+            "NAME": get_from_env("POSTHOG_DB_NAME"),
+            "USER": os.getenv("POSTHOG_DB_USER", "postgres"),
+            "PASSWORD": os.getenv("POSTHOG_DB_PASSWORD", ""),
+            "HOST": os.getenv("POSTHOG_POSTGRES_HOST", "localhost"),
+            "PORT": os.getenv("POSTHOG_POSTGRES_PORT", "5432"),
             "CONN_MAX_AGE": 0,
             "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
+            "SSL_OPTIONS": {
+                "sslmode": os.getenv("POSTHOG_POSTGRES_SSL_MODE", None),
+                "sslrootcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CA", None),
+                "sslcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CRT", None),
+                "sslkey": os.getenv("POSTHOG_POSTGRES_CLI_SSL_KEY", None),
+            },
         }
     }
-    DATABASE_URL = "postgres://{}{}{}{}:{}/{}".format(
+
+    ssl_configurations = []
+    for ssl_option, value in DATABASES["default"]["SSL_OPTIONS"].items():
+        if value:
+            ssl_configurations.append("{}={}".format(ssl_option, value))
+
+    if ssl_configurations:
+        ssl_configuration = "?{}".format("&".join(ssl_configurations))
+    else:
+        ssl_configuration = ""
+
+    DATABASE_URL = "postgres://{}{}{}{}:{}/{}{}".format(
         DATABASES["default"]["USER"],
         ":" + DATABASES["default"]["PASSWORD"] if DATABASES["default"]["PASSWORD"] else "",
         "@" if DATABASES["default"]["USER"] or DATABASES["default"]["PASSWORD"] else "",
         DATABASES["default"]["HOST"],
         DATABASES["default"]["PORT"],
         DATABASES["default"]["NAME"],
+        ssl_configuration,
     )
 else:
     raise ImproperlyConfigured(
@@ -360,15 +406,15 @@ else:
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or (len(sys.argv) > 1 and sys.argv[1] == "collectstatic"):
-    REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost/")
+    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")
 else:
-    REDIS_URL = os.environ.get("REDIS_URL", "")
+    REDIS_URL = os.getenv("REDIS_URL", "")
 
-if not REDIS_URL and os.environ.get("POSTHOG_REDIS_HOST", ""):
+if not REDIS_URL and get_from_env("POSTHOG_REDIS_HOST", ""):
     REDIS_URL = "redis://:{}@{}:{}/".format(
-        os.environ.get("POSTHOG_REDIS_PASSWORD", ""),
-        os.environ.get("POSTHOG_REDIS_HOST", ""),
-        os.environ.get("POSTHOG_REDIS_PORT", "6379"),
+        os.getenv("POSTHOG_REDIS_PASSWORD", ""),
+        os.getenv("POSTHOG_REDIS_HOST", ""),
+        os.getenv("POSTHOG_REDIS_PORT", "6379"),
     )
 
 if not REDIS_URL:
@@ -396,6 +442,7 @@ CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
 CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
 CELERY_IGNORE_RESULT = True  # only applies to delay(), must do @shared_task(ignore_result=True) for apply_async
+CELERY_RESULT_EXPIRES = timedelta(days=4)  # expire tasks after 4 days instead of the default 1
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
@@ -438,6 +485,7 @@ AUTH_USER_MODEL = "posthog.User"
 LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
+AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=strtobool)
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^/api/.*$"
 
@@ -451,6 +499,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
+    "TEST_REQUEST_DEFAULT_FORMAT": "json",
 }
 
 EXCEPTIONS_HOG = {
@@ -458,17 +507,17 @@ EXCEPTIONS_HOG = {
 }
 
 # Email
-EMAIL_ENABLED = get_bool_from_env("EMAIL_ENABLED", True)
-EMAIL_HOST = os.environ.get("EMAIL_HOST", None)
-EMAIL_PORT = os.environ.get("EMAIL_PORT", "25")
-EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
-EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
-EMAIL_USE_TLS = get_bool_from_env("EMAIL_USE_TLS", False)
-EMAIL_USE_SSL = get_bool_from_env("EMAIL_USE_SSL", False)
-DEFAULT_FROM_EMAIL = os.environ.get("EMAIL_DEFAULT_FROM", os.environ.get("DEFAULT_FROM_EMAIL", "root@localhost"))
-EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO")
+EMAIL_ENABLED = get_from_env("EMAIL_ENABLED", True, type_cast=strtobool)
+EMAIL_HOST = os.getenv("EMAIL_HOST", None)
+EMAIL_PORT = os.getenv("EMAIL_PORT", "25")
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+EMAIL_USE_TLS = get_from_env("EMAIL_USE_TLS", False, type_cast=strtobool)
+EMAIL_USE_SSL = get_from_env("EMAIL_USE_SSL", False, type_cast=strtobool)
+DEFAULT_FROM_EMAIL = os.getenv("EMAIL_DEFAULT_FROM", os.getenv("DEFAULT_FROM_EMAIL", "root@localhost"))
+EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO", None)
 
-MULTI_TENANCY = False  # overriden by posthog-production
+MULTI_TENANCY = False  # overriden by posthog-cloud
 
 CACHES = {
     "default": {
@@ -526,7 +575,12 @@ if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
 
 
 def show_toolbar(request):
-    return request.path.startswith("/api/") or request.path.startswith("/decide/") or request.path.startswith("/e/")
+    return (
+        request.path.startswith("/api/")
+        or request.path.startswith("/decide/")
+        or request.path.startswith("/e/")
+        or request.path.startswith("/__debug__")
+    )
 
 
 DEBUG_TOOLBAR_CONFIG = {
@@ -539,14 +593,16 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
 
 
 # TODO: Temporary
-EMAIL_REPORTS_ENABLED: bool = get_bool_from_env("EMAIL_REPORTS_ENABLED", False)
+EMAIL_REPORTS_ENABLED: bool = get_from_env("EMAIL_REPORTS_ENABLED", False, type_cast=strtobool)
 
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler",},},
-    "root": {"handlers": ["console"], "level": "WARNING",},
+    "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING")},
     "loggers": {
         "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
+        "axes": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+        "statsd": {"handlers": ["console"], "level": "WARNING", "propagate": True,},
     },
 }

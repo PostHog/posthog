@@ -1,4 +1,4 @@
-import Simmer from '@posthog/simmerjs'
+import Simmer, { Simmer as SimmerType } from '@posthog/simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, ElementType } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
@@ -10,7 +10,7 @@ const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
 // always ignore the following
 const TAGS_TO_IGNORE = ['html', 'body', 'meta', 'head', 'script', 'link', 'style']
 
-const simmer = new Simmer(window, { depth: 8 })
+let simmer: SimmerType
 
 export function getSafeText(el: HTMLElement): string {
     if (!el.childNodes || !el.childNodes.length) {
@@ -30,17 +30,20 @@ export function getSafeText(el: HTMLElement): string {
     return elText
 }
 
-export function elementToQuery(element: HTMLElement): string | undefined {
+export function elementToQuery(element: HTMLElement, dataAttributes: string[]): string | undefined {
     if (!element) {
         return
+    }
+    if (!simmer) {
+        simmer = new Simmer(window, { depth: 8, dataAttributes })
     }
 
     // Turn tags into lower cases
     return simmer(element)?.replace(/(^[A-Z\-]+| [A-Z\-]+)/g, (d: string) => d.toLowerCase())
 }
 
-export function elementToActionStep(element: HTMLElement): ActionStepType {
-    const query = elementToQuery(element)
+export function elementToActionStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
+    const query = elementToQuery(element, dataAttributes)
     const tagName = element.tagName.toLowerCase()
 
     return {
@@ -205,7 +208,7 @@ export function stepMatchesHref(step: ActionStepType, href: string): boolean {
 }
 
 function matchRuleShort(str: string, rule: string): boolean {
-    const escapeRegex = (str: string): string => str.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
+    const escapeRegex = (strng: string): string => strng.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
     return new RegExp('^' + rule.split('%').map(escapeRegex).join('.*') + '$').test(str)
 }
 
@@ -246,7 +249,7 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
         elements = [...((querySelectorAllDeep(selector || '*', document, allElements) as unknown) as HTMLElement[])]
     } catch (e) {
         console.error('Can not use selector:', selector)
-        throw e
+        return null
     }
 
     if (hasText && step?.text) {

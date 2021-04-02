@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { toolbarLogicType } from 'types/toolbar/toolbarLogicType'
+import { toolbarLogicType } from './toolbarLogicType'
 import { EditorProps } from '~/types'
 import { clearSessionToolbarToken } from '~/toolbar/utils'
 import { posthog } from '~/toolbar/posthog'
@@ -26,6 +26,7 @@ export const toolbarLogic = kea<toolbarLogicType>({
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
+        dataAttributes: [(props.dataAttributes || []) as string[]],
     }),
 
     selectors: ({ selectors }) => ({

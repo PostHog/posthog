@@ -1,5 +1,5 @@
 RETENTION_PEOPLE_PER_PERIOD_SQL = """
-SELECT person_id, count(person_id) appearance_count, groupArray(intervals_from_base) appearances FROM (
+SELECT toString(person_id), count(person_id) appearance_count, groupArray(intervals_from_base) appearances FROM (
     SELECT DISTINCT
         datediff(%(period)s, {trunc_func}(toDateTime(%(start_date)s)), reference_event.event_date) as base_interval,
         datediff(%(period)s, reference_event.event_date, {trunc_func}(toDateTime(event_date))) as intervals_from_base,
@@ -10,7 +10,7 @@ SELECT person_id, count(person_id) appearance_count, groupArray(intervals_from_b
         pdi.person_id as person_id,
         e.uuid as uuid,
         e.event as event
-        FROM events e join (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
+        FROM events e join (SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
         where toDateTime(e.timestamp) >= toDateTime(%(start_date)s) AND toDateTime(e.timestamp) <= toDateTime(%(end_date)s)
         AND e.team_id = %(team_id)s {returning_query} {filters}
     ) event
@@ -34,7 +34,7 @@ SELECT DISTINCT
 pdi.person_id as person_id,
 e.uuid as uuid,
 e.event as event
-from events e JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
+from events e JOIN (SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
 where event_date = {trunc_func}(toDateTime(%(start_date)s))
 AND e.team_id = %(team_id)s {target_query} {filters}
 """
@@ -45,7 +45,7 @@ SELECT DISTINCT
 0,
 0,
 pdi.person_id as person_id
-from events e JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
+from events e JOIN (SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
 where {trunc_func}(e.timestamp) = {trunc_func}(toDateTime(%(start_date)s))
 AND e.team_id = %(team_id)s {target_query} {filters}
 """
@@ -56,7 +56,7 @@ min({trunc_func}(e.timestamp)) as event_date,
 pdi.person_id as person_id,
 argMin(e.uuid, {trunc_func}(e.timestamp)) as min_uuid,
 argMin(e.event, {trunc_func}(e.timestamp)) as min_event
-from events e JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
+from events e JOIN (SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
 WHERE e.team_id = %(team_id)s {target_query} {filters} 
 GROUP BY person_id HAVING
 event_date = {trunc_func}(toDateTime(%(start_date)s))
@@ -67,8 +67,8 @@ SELECT DISTINCT
 0,
 0,
 pdi.person_id as person_id
-from events e JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
+from events e JOIN (SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
 WHERE e.team_id = %(team_id)s {target_query} {filters} 
 GROUP BY person_id HAVING
-min({trunc_func}(e.timestamp)) >= {trunc_func}(toDateTime(%(start_date)s))
+min({trunc_func}(e.timestamp)) = {trunc_func}(toDateTime(%(start_date)s))
 """

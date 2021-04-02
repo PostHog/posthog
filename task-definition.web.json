@@ -71,10 +71,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "IS_DOCKER",
-                    "value": "True"
-                },
-                {
                     "name": "KAFKA_BASE64_KEYS",
                     "value": "True"
                 },
@@ -87,16 +83,32 @@
                     "value": "https://app.posthog.com"
                 },
                 {
-                    "name": "PLUGINS_CLOUD_WHITELISTED_ORG_IDS",
-                    "value": "4dc8564d-bd82-1065-2f40-97f7c50f67cf,57543eee-fe77-11ea-b810-0902baec2d39"
-                },
-                {
                     "name": "EMAIL_DEFAULT_FROM",
                     "value": "hey@posthog.com"
                 },
                 {
                     "name": "DEPLOYMENT",
                     "value": "Posthog Cloud"
+                },
+                {
+                    "name": "CLICKHOUSE_DENORMALIZED_PROPERTIES",
+                    "value": "issampledevent,currentscreen,objectname"
+                },
+                {
+                    "name": "BILLING_TRIAL_DAYS",
+                    "value": "0"
+                },
+                {
+                    "name": "BILLING_NO_PLAN_EVENT_ALLOCATION",
+                    "value": "10000"
+                },
+                {
+                    "name": "TRUST_ALL_PROXIES",
+                    "value": "True"
+                },
+                {
+                    "name": "ASYNC_EVENT_PROPERTY_USAGE",
+                    "value": "1"
                 }
             ],
             "secrets": [

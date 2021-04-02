@@ -16,7 +16,7 @@ $brand_yellow: #f9bd2b;
 // Text colors
 $text_default: #2d2d2d;
 $text_light: rgba(255, 255, 255, 0.88);
-$text_muted: #d9d9d9;
+$text_muted: rgba(0, 0, 0, 0.5);
 $text_muted_alt: #35416b;
 
 // Background colors
@@ -32,6 +32,9 @@ $border_light: #f0f0f0;
 $border: #d9d9d9;
 $border_dark: #bdbdbd;
 
+// Website colors
+$website_orange: #f96b36;
+
 .bg-mid {
     background-color: $bg_mid !important;
 }
@@ -42,19 +45,74 @@ $blue_500: #597dce;
 $blue_300: #8da9e7;
 $blue_100: #b8cefd;
 
+// Yellow Swatch
+$yellow_500: #f8a523;
+$yellow_300: #ffc035;
+$yellow_100: #fbdd99;
+$yellow_50: #fdedc9;
+
 // Purple Swatch
 $purple_700: #7c4286;
 $purple_500: #c278cf;
 $purple_300: #dcb1e3;
 
+// High-contrast colors
+$hc_navy: #35416b; // paired with $hc_light_lilac or $hc_yellow
+$hc_light_lilac: #ead1ee; // paired with $hc_navy
+$hc_yellow: #fbd577;
+
+// Gradients
+$sky: linear-gradient(180deg, #373088 0%, #d05783 60.94%, #ffb269 100%);
+$dusk_sky: linear-gradient(180deg, #20305a 0%, #373088 33.85%, #d05783 100%);
+$night_sky: linear-gradient(180deg, #200c39 0%, #373088 75%, #4a3587 100%);
+$space: linear-gradient(180deg, #0a092a 0%, #271955 100%);
+
+// Fonts
+$gosha_sans: 'GoshaSans-Bold', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue';
+
 // Additional style configurations
 .mixin-elevated {
     box-shadow: 0px 80px 80px rgba(0, 0, 0, 0.075), 0px 10px 10px rgba(0, 0, 0, 0.035) !important;
 }
+
+.mixin-gradient-overlay {
+    content: '';
+    width: 100%;
+    height: 3rem;
+    background: linear-gradient(to top, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0));
+    position: absolute;
+    pointer-events: none;
+    bottom: 0;
+}
+
 $default_spacing: 16px;
 $radius: 2px;
 $top_nav_height: 50px;
 
+.text-ellipsis {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: calc(100% - 8px);
+}
+
 // Z-indexes
-$z_mobile_nav_overlay: 1031;
-$z_pinned_dashboards_popup: 1062;
+$z_command_palette: 1875;
+$z_drawer: 1000;
+$z_main_nav: 948;
+$z_pinned_dashboards_popup: 962;
+$z_mobile_nav_overlay: 931;
+$z_top_navigation: 800;
+$z_content_overlay: 488;
+$z_city_background_content: 1;
+$z_city_background_image: 0;
+
+// Breakpoints (from AntD)
+$sm: 576px;
+$md: 768px;
+$lg: 992px;
+
+// Export variables for TS access
+:export {
+    zDrawer: $z_drawer;
+}

@@ -9,7 +9,8 @@ from django.db.models.expressions import ExpressionWrapper
 from django.db.models.fields import BooleanField
 from django.utils.timezone import now
 
-from posthog.models import Event, Team
+from posthog.models import Event, Person, Team
+from posthog.models.filters.filter import Filter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.base import entity_to_Q, properties_to_Q
 from posthog.queries.sessions.session_recording import filter_sessions_by_recordings
@@ -20,38 +21,56 @@ SESSIONS_LIST_DEFAULT_LIMIT = 50
 
 
 class SessionsList:
-    def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Session], Optional[Dict]]:
-        limit = int(kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
-        offset = int(filter.pagination.get("offset", 0))
-        start_timestamp = filter.pagination.get("start_timestamp")
-        date_filter = self.date_filter(filter)
+    filter: Filter
+    team: Team
+    limit: int
 
-        # :TRICKY: Query one extra person so we know when to stop pagination if all users on page are unique
-        person_emails = self.query_people_in_range(team, filter, date_filter, limit=limit + offset + 1)
+    def __init__(self, filter: SessionsFilter, team: Team, limit=SESSIONS_LIST_DEFAULT_LIMIT):
+        self.filter = filter
+        self.team = team
+        self.limit = limit
+
+    @classmethod
+    def run(cls, filter: SessionsFilter, team: Team, *args, **kwargs) -> Tuple[List[Dict], Optional[Dict]]:
+        "Sessions queries do post-filtering based on session recordings. This makes sure we return some data every page"
+        limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT)
+
+        results = []
+
+        while True:
+            page, pagination = cls(filter, team, limit=limit).fetch_page()
+            results.extend(page)
+
+            if len(results) >= limit or pagination is None:
+                return results, pagination
+            filter = filter.with_data({"pagination": pagination})
+
+    def fetch_page(self) -> Tuple[List[Session], Optional[Dict]]:
+        distinct_id_offset = self.filter.pagination.get("distinct_id_offset", 0)
+        start_timestamp = self.filter.pagination.get("start_timestamp")
+
+        person_emails = self.query_people_in_range(limit=self.limit + distinct_id_offset)
 
         sessions_builder = SessionListBuilder(
-            self.events_query(team, filter, date_filter, list(person_emails.keys()), start_timestamp).iterator(),
+            self.events_query(list(person_emails.keys()), start_timestamp).iterator(),
             emails=person_emails,
-            action_filter_count=len(filter.action_filters),
-            offset=offset,
-            limit=limit,
-            last_page_last_seen=kwargs.get("last_seen", {}),
+            action_filter_count=len(self.filter.action_filters),
+            distinct_id_offset=distinct_id_offset,
+            start_timestamp=start_timestamp,
+            limit=self.limit,
+            last_page_last_seen=self.filter.pagination.get("last_seen", {}),
         )
         sessions_builder.build()
 
-        return filter_sessions_by_recordings(team, sessions_builder.sessions, filter), sessions_builder.pagination
+        return (
+            filter_sessions_by_recordings(self.team, sessions_builder.sessions, self.filter),
+            sessions_builder.pagination,
+        )
 
-    def events_query(
-        self,
-        team: Team,
-        filter: SessionsFilter,
-        date_filter: Q,
-        distinct_ids: List[str],
-        start_timestamp: Optional[str],
-    ) -> QuerySet:
+    def events_query(self, distinct_ids: List[str], start_timestamp: Optional[str],) -> QuerySet:
         events = (
-            Event.objects.filter(team=team)
-            .filter(date_filter)
+            Event.objects.filter(team=self.team)
+            .filter(self.date_filter())
             .filter(distinct_id__in=distinct_ids)
             .order_by("-timestamp")
             .only("distinct_id", "timestamp")
@@ -61,34 +80,41 @@ class SessionsList:
             events = events.filter(timestamp__lt=datetime.fromtimestamp(float(start_timestamp)))
 
         keys = []
-        for i, entity in enumerate(filter.action_filters):
+        for i, entity in enumerate(self.filter.action_filters):
             key = f"entity_{i}"
             events = events.annotate(
-                **{key: ExpressionWrapper(entity_to_Q(entity, team.pk), output_field=BooleanField())}
+                **{key: ExpressionWrapper(entity_to_Q(entity, self.team.pk), output_field=BooleanField())}
             )
             keys.append(key)
 
-        return events.values_list("distinct_id", "timestamp", "current_url", *keys)
+        return events.values_list("distinct_id", "timestamp", "id", "current_url", *keys)
 
-    def query_people_in_range(
-        self, team: Team, filter: SessionsFilter, date_filter: Q, limit: int
-    ) -> Dict[str, Optional[str]]:
+    def query_people_in_range(self, limit: int) -> Dict[str, Optional[str]]:
+        if self.filter.distinct_id:
+            person = Person.objects.filter(
+                team=self.team, persondistinctid__distinct_id=self.filter.distinct_id
+            ).first()
+            return (
+                {distinct_id: person.properties.get("email") for distinct_id in person.distinct_ids} if person else {}
+            )
+
         events_query = (
-            Event.objects.filter(team=team)
-            .add_person_id(team.pk)
-            .filter(properties_to_Q(filter.properties, team_id=team.pk))
-            .filter(date_filter)
+            Event.objects.filter(team=self.team)
+            .add_person_id(self.team.pk)
+            .filter(properties_to_Q(self.filter.person_filter_properties, team_id=self.team.pk))
+            .filter(self.date_filter())
             .order_by("-timestamp")
-            .only("distinct_id")
         )
         sql, params = events_query.query.sql_with_params()
         query = f"""
-            SELECT DISTINCT ON(distinct_id) events.distinct_id, posthog_person.properties->>'email'
+            SELECT events.distinct_id, MIN(posthog_person.properties->>'email')
             FROM ({sql}) events
             LEFT OUTER JOIN
-                posthog_persondistinctid ON posthog_persondistinctid.distinct_id = events.distinct_id AND posthog_persondistinctid.team_id = {team.pk}
+                posthog_persondistinctid ON posthog_persondistinctid.distinct_id = events.distinct_id AND posthog_persondistinctid.team_id = {self.team.pk}
             LEFT OUTER JOIN
                 posthog_person ON posthog_person.id = posthog_persondistinctid.person_id
+            GROUP BY events.distinct_id
+            ORDER BY MAX(events.timestamp) DESC
             LIMIT {limit}
         """
         with connection.cursor() as cursor:
@@ -96,11 +122,11 @@ class SessionsList:
             distinct_id_to_email = dict(cursor.fetchall())
             return distinct_id_to_email
 
-    def date_filter(self, filter: SessionsFilter) -> Q:
+    def date_filter(self) -> Q:
         # if _date_from is not explicitely set we only want to get the last day worth of data
         # otherwise the query is very slow
-        if filter._date_from and filter.date_to:
-            return Q(timestamp__gte=filter.date_from, timestamp__lte=filter.date_to + relativedelta(days=1),)
+        if self.filter._date_from and self.filter.date_to:
+            return Q(timestamp__gte=self.filter.date_from, timestamp__lte=self.filter.date_to + relativedelta(days=1),)
         else:
             dt = now()
             dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)

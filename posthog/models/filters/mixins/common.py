@@ -1,5 +1,6 @@
 import datetime
 import json
+import re
 from distutils.util import strtobool
 from typing import Dict, List, Optional, Union
 
@@ -17,6 +18,8 @@ from posthog.constants import (
     DATE_TO,
     DISPLAY,
     EVENTS,
+    FILTER_TEST_ACCOUNTS,
+    FORMULA,
     INSIGHT,
     INSIGHT_TO_DISPLAY,
     INSIGHT_TRENDS,
@@ -32,6 +35,8 @@ from posthog.models.entity import Entity
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.utils import relative_date_parse
+
+ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
 
 
 class IntervalMixin(BaseParamMixin):
@@ -62,6 +67,32 @@ class ShownAsMixin(BaseParamMixin):
     @include_dict
     def shown_as_to_dict(self):
         return {"shown_as": self.shown_as} if self.shown_as else {}
+
+
+class FilterTestAccountsMixin(BaseParamMixin):
+    @cached_property
+    def filter_test_accounts(self) -> Optional[bool]:
+        setting = self._data.get(FILTER_TEST_ACCOUNTS, None)
+        if setting == True or setting == "true":
+            return True
+        return None
+
+    @include_dict
+    def filter_out_team_members_to_dict(self):
+        return {"filter_test_accounts": self.filter_test_accounts} if self.filter_test_accounts else {}
+
+
+class FormulaMixin(BaseParamMixin):
+    @cached_property
+    def formula(self) -> Optional[str]:
+        formula = self._data.get(FORMULA, None)
+        if not formula:
+            return None
+        return "".join(re.findall(ALLOWED_FORMULA_CHARACTERS, formula))
+
+    @include_dict
+    def formula_to_dict(self):
+        return {"formula": self.formula} if self.formula else {}
 
 
 class BreakdownMixin(BaseParamMixin):
@@ -138,6 +169,10 @@ class OffsetMixin(BaseParamMixin):
     def offset(self) -> int:
         _offset = self._data.get(OFFSET)
         return int(_offset or "0")
+
+    @include_dict
+    def offset_to_dict(self):
+        return {"offset": self.offset} if self.offset else {}
 
 
 class CompareMixin(BaseParamMixin):
@@ -266,3 +301,23 @@ class EntitiesMixin(BaseParamMixin):
             **({"events": [entity.to_dict() for entity in self.events]} if len(self.events) > 0 else {}),
             **({"actions": [entity.to_dict() for entity in self.actions]} if len(self.actions) > 0 else {}),
         }
+
+
+class EntityIdMixin(BaseParamMixin):
+    @cached_property
+    def target_entity_id(self) -> Optional[str]:
+        return self._data.get("entityId", None) or self._data.get("entity_id", None)
+
+    @include_dict
+    def entity_id_to_dict(self):
+        return {"entity_id": self.target_entity_id} if self.target_entity_id else {}
+
+
+class EntityTypeMixin(BaseParamMixin):
+    @cached_property
+    def target_entity_type(self) -> Optional[str]:
+        return self._data.get("type", None) or self._data.get("entity_type", None)
+
+    @include_dict
+    def entity_type_to_dict(self):
+        return {"entity_type": self.target_entity_type} if self.target_entity_type else {}

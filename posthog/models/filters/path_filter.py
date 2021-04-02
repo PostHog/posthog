@@ -4,7 +4,7 @@ from django.http.request import HttpRequest
 
 from posthog.constants import INSIGHT_PATHS
 from posthog.models.filters.base_filter import BaseFilter
-from posthog.models.filters.mixins.common import DateMixin, InsightMixin, IntervalMixin
+from posthog.models.filters.mixins.common import DateMixin, FilterTestAccountsMixin, InsightMixin, IntervalMixin
 from posthog.models.filters.mixins.paths import (
     ComparatorDerivedMixin,
     PropTypeDerivedMixin,
@@ -22,6 +22,7 @@ class PathFilter(
     PropertyMixin,
     IntervalMixin,
     InsightMixin,
+    FilterTestAccountsMixin,
     DateMixin,
     BaseFilter,
 ):
@@ -30,4 +31,4 @@ class PathFilter(
             data["insight"] = INSIGHT_PATHS
         else:
             data = {"insight": INSIGHT_PATHS}
-        super().__init__(data, request)
+        super().__init__(data, request, **kwargs)

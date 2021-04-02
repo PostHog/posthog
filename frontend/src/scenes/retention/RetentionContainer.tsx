@@ -6,22 +6,24 @@ import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { RetentionTable } from './RetentionTable'
 
 export function RetentionContainer(props: {
-    dashboardItemId: number
-    filters: Record<string, any>
-    color: string
-    inSharedMode: boolean
+    dashboardItemId?: number
+    filters?: Record<string, any>
+    color?: string
+    inSharedMode?: boolean
 }): JSX.Element {
     const logic = retentionTableLogic({ dashboardItemId: props.dashboardItemId, filters: props.filters })
     const { filters } = useValues(logic)
     return (
         <div
             style={
-                filters.display === ACTIONS_LINE_GRAPH_LINEAR
+                !props.dashboardItemId && filters.display === ACTIONS_LINE_GRAPH_LINEAR
                     ? {
                           minHeight: '70vh',
                           position: 'relative',
                       }
-                    : {}
+                    : {
+                          minHeight: '100%',
+                      }
             }
         >
             {filters.display === ACTIONS_LINE_GRAPH_LINEAR ? (

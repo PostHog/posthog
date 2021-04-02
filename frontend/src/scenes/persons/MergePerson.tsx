@@ -63,11 +63,13 @@ export function MergePerson({
                 {persons.results &&
                     persons.results
                         .filter((p) => p.uuid !== person.uuid)
-                        .map((person) => (
-                            <Select.Option value={person.id} key={person.id}>
-                                {person.name}
-                            </Select.Option>
-                        ))}
+                        .map((person) =>
+                            person.id ? (
+                                <Select.Option value={person.id} key={person.id}>
+                                    {person.name}
+                                </Select.Option>
+                            ) : undefined
+                        )}
             </Select>
             <div className="mt text-danger">This action is not reversible. Please be sure before continuing.</div>
         </Modal>

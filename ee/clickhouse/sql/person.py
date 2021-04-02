@@ -59,10 +59,17 @@ FROM kafka_{table_name}
 
 GET_LATEST_PERSON_SQL = """
 SELECT * FROM person JOIN (
-    SELECT id, max(created_at) as created_at FROM person WHERE team_id = %(team_id)s GROUP BY id
-) as person_max ON person.id = person_max.id AND person.created_at = person_max.created_at
+    SELECT id, max(_timestamp) as _timestamp FROM person WHERE team_id = %(team_id)s GROUP BY id
+) as person_max ON person.id = person_max.id AND person._timestamp = person_max._timestamp
 WHERE team_id = %(team_id)s
 {query}
+"""
+
+GET_LATEST_PERSON_DISTINCT_ID_SQL = """
+SELECT * FROM person_distinct_id JOIN (
+    SELECT distinct_id, max(_offset) as _offset FROM person_distinct_id WHERE team_id = %(team_id)s GROUP BY distinct_id
+) as person_max ON person_distinct_id.distinct_id = person_max.distinct_id AND person_distinct_id._offset = person_max._offset
+WHERE team_id = %(team_id)s
 """
 
 GET_LATEST_PERSON_ID_SQL = """
@@ -180,13 +187,15 @@ SELECT DISTINCT p.id
 FROM ({latest_person_sql}) AS p
 INNER JOIN (
     SELECT person_id, distinct_id
-    FROM person_distinct_id
+    FROM ({latest_distinct_id_sql})
     WHERE team_id = %(team_id)s
 ) AS pid ON p.id = pid.person_id
 WHERE team_id = %(team_id)s
   {distinct_query}
 """.format(
-    latest_person_sql=GET_LATEST_PERSON_SQL, distinct_query="{distinct_query}"
+    latest_person_sql=GET_LATEST_PERSON_SQL,
+    distinct_query="{distinct_query}",
+    latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
 )
 
 GET_PERSON_BY_DISTINCT_ID = """
@@ -194,38 +203,17 @@ SELECT p.id
 FROM ({latest_person_sql}) AS p
 INNER JOIN (
     SELECT person_id, distinct_id
-    FROM person_distinct_id
+    FROM ({latest_distinct_id_sql})
     WHERE team_id = %(team_id)s
 ) AS pid ON p.id = pid.person_id
 WHERE team_id = %(team_id)s
   AND pid.distinct_id = %(distinct_id)s
   {distinct_query}
 """.format(
-    latest_person_sql=GET_LATEST_PERSON_SQL, distinct_query="{distinct_query}"
+    latest_person_sql=GET_LATEST_PERSON_SQL,
+    distinct_query="{distinct_query}",
+    latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
 )
-
-GET_PERSONS_BY_DISTINCT_IDS = """
-SELECT 
-    p.id,
-    p.created_at,
-    p.team_id,
-    p.properties,
-    p.is_identified,
-    groupArray(pid.distinct_id) as distinct_ids
-FROM 
-    person as p 
-INNER JOIN 
-    person_distinct_id as pid on p.id = pid.person_id 
-WHERE 
-    team_id = %(team_id)s 
-    AND distinct_id IN (%(distinct_ids)s)
-GROUP BY
-    p.id,
-    p.created_at,
-    p.team_id,
-    p.properties,
-    p.is_identified
-"""
 
 PERSON_DISTINCT_ID_EXISTS_SQL = """
 SELECT count(*) FROM person_distinct_id
@@ -279,24 +267,49 @@ PEOPLE_THROUGH_DISTINCT_SQL = """
 SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM (
     {latest_person_sql}
 ) as person INNER JOIN (
-    SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE distinct_id IN ({content_sql}) AND team_id = %(team_id)s
+    SELECT DISTINCT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE distinct_id IN ({content_sql}) AND team_id = %(team_id)s
 ) as pdi ON person.id = pdi.person_id
 WHERE team_id = %(team_id)s
 GROUP BY id, created_at, team_id, properties, is_identified
 LIMIT 200 OFFSET %(offset)s
 """
 
+INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL = """
+INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
+    SELECT id FROM (
+        {latest_person_sql}
+    ) as person INNER JOIN (
+        SELECT DISTINCT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE distinct_id IN ({content_sql}) AND team_id = %(team_id)s
+    ) as pdi ON person.id = pdi.person_id
+    WHERE team_id = %(team_id)s
+    GROUP BY id
+)
+"""
+
 PEOPLE_SQL = """
 SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM (
     {latest_person_sql}
 ) as person INNER JOIN (
-    SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE person_id IN ({content_sql}) AND team_id = %(team_id)s
-) as pdi ON person.id = pdi.person_id GROUP BY id, created_at, team_id, properties, is_identified
+    SELECT DISTINCT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE person_id IN ({content_sql}) AND team_id = %(team_id)s
+) as pdi ON person.id = pdi.person_id 
+GROUP BY id, created_at, team_id, properties, is_identified
 LIMIT 100 OFFSET %(offset)s 
 """
 
+INSERT_COHORT_ALL_PEOPLE_SQL = """
+INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
+    SELECT id FROM (
+        {latest_person_sql}
+    ) as person INNER JOIN (
+        SELECT DISTINCT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE person_id IN ({content_sql}) AND team_id = %(team_id)s
+    ) as pdi ON person.id = pdi.person_id
+    WHERE team_id = %(team_id)s
+    GROUP BY id
+)
+"""
+
 GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
-SELECT distinct_id FROM person_distinct_id WHERE person_id IN
+SELECT distinct_id FROM ({latest_distinct_id_sql}) WHERE person_id IN
 (
     SELECT id
     FROM person

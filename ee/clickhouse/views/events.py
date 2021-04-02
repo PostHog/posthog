@@ -24,6 +24,7 @@ from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
 from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import convert_property_value, flatten
 
 
@@ -38,9 +39,12 @@ class ClickhouseEventsViewSet(EventViewSet):
                 distinct_to_person[distinct_id] = person
         return distinct_to_person
 
-    def _query_events_list(self, filter: Filter, team: Team, request: Request, long_date_from: bool = False) -> List:
-        limit = "LIMIT 101"
+    def _query_events_list(
+        self, filter: Filter, team: Team, request: Request, long_date_from: bool = False, limit: int = 100
+    ) -> List:
+        limit_sql = f"LIMIT {limit + 1}"
         conditions, condition_params = determine_event_conditions(
+            team,
             {
                 "after": (now() - timedelta(days=1)).isoformat(),
                 "before": (now() + timedelta(seconds=5)).isoformat(),
@@ -51,7 +55,10 @@ class ClickhouseEventsViewSet(EventViewSet):
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
 
         if request.GET.get("action_id"):
-            action = Action.objects.get(pk=request.GET["action_id"])
+            try:
+                action = Action.objects.get(pk=request.GET["action_id"], team_id=team.pk)
+            except Action.DoesNotExist:
+                return []
             if action.steps.count() == 0:
                 return []
             action_query, params = format_action_filter(action)
@@ -60,33 +67,37 @@ class ClickhouseEventsViewSet(EventViewSet):
 
         if prop_filters != "":
             return sync_execute(
-                SELECT_EVENT_WITH_PROP_SQL.format(conditions=conditions, limit=limit, filters=prop_filters),
+                SELECT_EVENT_WITH_PROP_SQL.format(conditions=conditions, limit=limit_sql, filters=prop_filters),
                 {"team_id": team.pk, **condition_params, **prop_filter_params},
             )
         else:
             return sync_execute(
-                SELECT_EVENT_WITH_ARRAY_PROPS_SQL.format(conditions=conditions, limit=limit),
+                SELECT_EVENT_WITH_ARRAY_PROPS_SQL.format(conditions=conditions, limit=limit_sql),
                 {"team_id": team.pk, **condition_params},
             )
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        is_csv_request = self.request.accepted_renderer.format == "csv"
+        limit = self.CSV_EXPORT_LIMIT if is_csv_request else 100
+
         team = self.team
         filter = Filter(request=request)
 
-        query_result = self._query_events_list(filter, team, request)
+        query_result = self._query_events_list(filter, team, request, limit=limit)
 
         # Retry the query without the 1 day optimization
-        if len(query_result) < 100 and not request.GET.get("after"):
-            query_result = self._query_events_list(filter, team, request, long_date_from=True)
+        if len(query_result) < limit and not request.GET.get("after"):
+            query_result = self._query_events_list(filter, team, request, long_date_from=True, limit=limit)
 
         result = ClickhouseEventSerializer(
-            query_result[0:100], many=True, context={"people": self._get_people(query_result, team),},
+            query_result[0:limit], many=True, context={"people": self._get_people(query_result, team),},
         ).data
 
-        if len(query_result) > 100:
+        next_url: Optional[str] = None
+        if not is_csv_request and len(query_result) > 100:
             path = request.get_full_path()
             reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
-            next_url: Optional[str] = request.build_absolute_uri(
+            next_url = request.build_absolute_uri(
                 "{}{}{}={}".format(
                     path,
                     "&" if "?" in path else "?",
@@ -94,8 +105,6 @@ class ClickhouseEventsViewSet(EventViewSet):
                     query_result[99][3].strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                 )
             )
-        else:
-            next_url = None
 
         return Response({"next": next_url, "results": result})
 
@@ -128,26 +137,24 @@ class ClickhouseEventsViewSet(EventViewSet):
     def sessions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionsFilter(request=request)
 
-        sessions, pagination = ClickhouseSessionsList().run(team=self.team, filter=filter)
-
-        if filter.distinct_id:
-            try:
-                person_ids = get_persons_by_distinct_ids(self.team.pk, [filter.distinct_id])[0].distinct_ids
-                sessions = [session for i, session in enumerate(sessions) if session["distinct_id"] in person_ids]
-            except IndexError:
-                sessions = []
-
+        sessions, pagination = ClickhouseSessionsList.run(team=self.team, filter=filter)
         return Response({"result": sessions, "pagination": pagination})
 
     # ******************************************
     # /event/session_recording
     # params:
     # - session_recording_id: (string) id of the session recording
+    # - save_view: (boolean) save view of the recording
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         session_recording = SessionRecording().run(
             team=self.team, filter=Filter(request=request), session_recording_id=request.GET["session_recording_id"]
         )
+
+        if request.GET.get("save_view"):
+            SessionRecordingViewed.objects.get_or_create(
+                team=self.team, user=request.user, session_id=request.GET["session_recording_id"]
+            )
 
         return Response({"result": session_recording})

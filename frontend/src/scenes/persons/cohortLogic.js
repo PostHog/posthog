@@ -5,13 +5,14 @@ import { Spin } from 'antd'
 import api from 'lib/api'
 import { router } from 'kea-router'
 import { cohortsModel } from '~/models'
+import { Link } from 'lib/components/Link'
 
 export const cohortLogic = kea({
     key: (props) => props.cohort.id || 'new',
     connect: [cohortsModel],
 
     actions: () => ({
-        saveCohort: (cohort) => ({ cohort }),
+        saveCohort: (cohortParams = {}, filterParams = null) => ({ cohortParams, filterParams }),
         setCohort: (cohort) => ({ cohort }),
         checkIsFinished: (cohort) => ({ cohort }),
         setToastId: (toastId) => ({ toastId }),
@@ -46,8 +47,9 @@ export const cohortLogic = kea({
         ],
     }),
 
-    listeners: ({ sharedListeners, actions }) => ({
-        saveCohort: async ({ cohort }) => {
+    listeners: ({ sharedListeners, actions, values }) => ({
+        saveCohort: async ({ cohortParams, filterParams }, breakpoint) => {
+            let cohort = { ...values.cohort, ...cohortParams }
             const cohortFormData = new FormData()
             for (const [key, value] of Object.entries(cohort)) {
                 if (key === 'groups') {
@@ -61,20 +63,24 @@ export const cohortLogic = kea({
                     cohortFormData.append(key, value)
                 }
             }
-
             if (cohort.id !== 'new') {
-                cohort = await api.update('api/cohort/' + cohort.id, cohortFormData)
+                cohort = await api.update(
+                    'api/cohort/' + cohort.id + (filterParams ? '?' + filterParams : ''),
+                    cohortFormData
+                )
                 cohortsModel.actions.updateCohort(cohort)
             } else {
-                cohort = await api.create('api/cohort', cohortFormData)
+                cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortFormData)
                 cohortsModel.actions.createCohort(cohort)
             }
+            breakpoint()
             delete cohort['csv']
             actions.setCohort(cohort)
             sharedListeners.pollIsFinished(cohort)
         },
-        checkIsFinished: async ({ cohort }) => {
+        checkIsFinished: async ({ cohort }, breakpoint) => {
             cohort = await api.get('api/cohort/' + cohort.id)
+            breakpoint()
             sharedListeners.pollIsFinished(cohort)
         },
     }),
@@ -96,12 +102,31 @@ export const cohortLogic = kea({
                 }
                 actions.setPollTimeout(setTimeout(() => actions.checkIsFinished(cohort), 1000))
             } else {
-                toast.update(values.toastId, {
-                    render: function RenderToast() {
-                        return <span data-attr="success-toast">Cohort saved!</span>
-                    },
-                    autoClose: 5000,
-                })
+                if (values.toastId) {
+                    toast.update(values.toastId, {
+                        render: function RenderToast() {
+                            return (
+                                <div data-attr="success-toast">
+                                    Cohort Saved&nbsp;
+                                    <Link to={`/cohorts/${cohort.id}`}>Click here to see it.</Link>
+                                </div>
+                            )
+                        },
+                        autoClose: 5000,
+                    })
+                } else {
+                    actions.setToastId(
+                        toast(
+                            <div data-attr="success-toast">
+                                Cohort Saved&nbsp;
+                                <Link to={`/cohorts/${cohort.id}`}>Click here to see it.</Link>
+                            </div>,
+                            {
+                                autoClose: false,
+                            }
+                        )
+                    )
+                }
                 actions.setLastSavedAt(new Date().toISOString())
                 actions.setCohort(cohort)
                 cohortsModel.actions.updateCohort(cohort)

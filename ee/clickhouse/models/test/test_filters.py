@@ -18,7 +18,9 @@ from posthog.models.team import Team
 def _filter_events(
     filter: Filter, team: Team, person_query: Optional[bool] = False, order_by: Optional[str] = None,
 ):
-    prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+    prop_filters, prop_filter_params = parse_prop_clauses(
+        filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+    )
     params = {"team_id": team.pk, **prop_filter_params}
 
     if order_by == "id":
@@ -46,7 +48,7 @@ def _create_event(**kwargs):
     return Event(id=str(uuid))
 
 
-class TestClickhouseFiltering(
+class TestFiltering(
     ClickhouseTestMixin, property_to_Q_test_factory(_filter_events, _create_event, _create_person),  # type: ignore
 ):
     def test_person_cohort_properties(self):

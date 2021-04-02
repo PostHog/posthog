@@ -29,7 +29,7 @@ const FilterRow = React.memo(function FilterRow({
     }
 
     return (
-        <Row align="middle" className="mt-05 mb-05">
+        <Row align="middle" className="mt-05 mb-05" data-attr={'property-filter-' + index}>
             <Popover
                 trigger="click"
                 onVisibleChange={handleVisibleChange}
@@ -52,14 +52,11 @@ const FilterRow = React.memo(function FilterRow({
                     onClick={() => {
                         remove(index)
                     }}
-                    style={{ cursor: 'pointer', float: 'none' }}
+                    style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
                 />
             )}
             {key && showConditionBadge && index + 1 < totalCount && (
-                <span
-                    style={{ marginLeft: 16, right: 16, position: 'absolute' }}
-                    className="match-condition-badge mc-and"
-                >
+                <span style={{ marginLeft: 16, right: 16, position: 'absolute' }} className="stateful-badge and">
                     AND
                 </span>
             )}
@@ -72,7 +69,7 @@ export function PropertyFilters({
     propertyFilters = null,
     onChange = null,
     pageKey,
-    showConditionBadges = false,
+    showConditionBadge = false,
 }) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
@@ -83,14 +80,14 @@ export function PropertyFilters({
                 filters.map((item, index) => {
                     return (
                         <FilterRow
-                            key={index === filters.length - 1 ? index : `${index}_${Object.keys(item)[0]}`}
+                            key={index}
                             logic={logic}
                             item={item}
                             index={index}
                             totalCount={filters.length - 1} // empty state
                             filters={filters}
                             pageKey={pageKey}
-                            showConditionBadge={showConditionBadges}
+                            showConditionBadge={showConditionBadge}
                         />
                     )
                 })}

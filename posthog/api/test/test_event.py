@@ -1,22 +1,27 @@
 import json
+from unittest.mock import patch
 
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog.models import Action, ActionStep, Element, Event, Organization, Person
-from posthog.test.base import TransactionBaseTest
+from posthog.constants import RDBMS
+from posthog.models import Action, ActionStep, Element, Event, Organization, Person, Team
+from posthog.test.base import APIBaseTest
 from posthog.utils import relative_date_parse
 
 
-def test_event_api_factory(event_factory, person_factory, action_factory):
-    class TestEvents(TransactionBaseTest):
-        TESTS_API = True
+def factory_test_event_api(event_factory, person_factory, _):
+    class TestEvents(APIBaseTest):
         ENDPOINT = "event"
 
         def test_filter_events(self):
             person_factory(
-                properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
+                properties={"email": "tim@posthog.com"},
+                team=self.team,
+                distinct_ids=["2", "some-random-uid"],
+                is_identified=True,
             )
 
             event_factory(
@@ -33,9 +38,14 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"}
             )
 
-            with self.assertNumQueries(11):
+            expected_queries = 4 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 11
+
+            with self.assertNumQueries(expected_queries):
                 response = self.client.get("/api/event/?distinct_id=2").json()
-            self.assertEqual(response["results"][0]["person"], "tim@posthog.com")
+            self.assertEqual(
+                response["results"][0]["person"],
+                {"distinct_ids": ["2"], "is_identified": True, "properties": {"email": "tim@posthog.com"}},
+            )
             self.assertEqual(response["results"][0]["elements"][0]["tag_name"], "button")
             self.assertEqual(response["results"][0]["elements"][0]["order"], 0)
             self.assertEqual(response["results"][0]["elements"][1]["order"], 1)
@@ -50,7 +60,10 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             event_factory(
                 event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
             )
-            with self.assertNumQueries(8):
+
+            expected_queries = 4 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 8
+
+            with self.assertNumQueries(expected_queries):
                 response = self.client.get("/api/event/?event=event_name").json()
             self.assertEqual(response["results"][0]["event"], "event_name")
 
@@ -65,7 +78,9 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
             )
 
-            with self.assertNumQueries(8):
+            expected_queries = 4 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 8
+
+            with self.assertNumQueries(expected_queries):
                 response = self.client.get(
                     "/api/event/?properties=%s" % (json.dumps([{"key": "$browser", "value": "Safari"}]))
                 ).json()
@@ -328,12 +343,16 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             self.assertIsNotNone(response["pagination"])
 
         def test_event_sessions_by_id(self):
+            another_team = Team.objects.create(organization=self.organization)
+
             Person.objects.create(team=self.team, distinct_ids=["1"])
+            Person.objects.create(team=another_team, distinct_ids=["1"])
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 event_factory(team=self.team, event="1st action", distinct_id="1")
                 event_factory(team=self.team, event="1st action", distinct_id="2")
             with freeze_time("2012-01-14T03:25:34.000Z"):
                 event_factory(team=self.team, event="2nd action", distinct_id="1")
+                event_factory(team=another_team, event="2nd action", distinct_id="1")
                 event_factory(team=self.team, event="2nd action", distinct_id="2")
             with freeze_time("2012-01-15T03:59:35.000Z"):
                 event_factory(team=self.team, event="3rd action", distinct_id="1")
@@ -356,6 +375,18 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 response = self.client.get("/api/event/").json()
             self.assertEqual(len(response["results"]), 1)
 
+        @patch("posthog.api.event.EventViewSet.CSV_EXPORT_LIMIT", 1000)
+        def test_events_csv_export_with_limit(self):
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                for _ in range(1234):
+                    event_factory(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
+                response = self.client.get("/api/event.csv")
+            self.assertEqual(
+                len(response.content.splitlines()),
+                1001,
+                "CSV export should return up to CSV_EXPORT_LIMIT events (+ headers row)",
+            )
+
     return TestEvents
 
 
@@ -368,5 +399,5 @@ def _create_action(**kwargs):
     return action
 
 
-class TestEvent(test_event_api_factory(Event.objects.create, Person.objects.create, _create_action)):  # type: ignore
+class TestEvent(factory_test_event_api(Event.objects.create, Person.objects.create, _create_action)):  # type: ignore
     pass

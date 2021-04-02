@@ -17,16 +17,23 @@
     }
 }
 
+.menu-tooltip-hotkey {
+    background-color: rgba($primary, 0.5) !important;
+    color: white !important;
+    border-color: rgba($primary, 0.5) !important;
+}
+
 .navigation-main {
     // General navigation bar styles (defaults to wide 180px)
     background-color: $bg_menu !important;
+    z-index: $z_main_nav;
 
     .navigation-inner {
         background-color: $bg_menu;
         position: fixed;
         width: 180px;
         height: 100%;
-        overflow: auto;
+        overflow-y: auto;
         padding-bottom: 32px;
         scroll-behavior: smooth;
     }
@@ -58,6 +65,7 @@
         margin-top: 8px;
         margin-left: 6px;
         margin-right: 6px;
+        position: relative;
 
         .anticon {
             line-height: 0;
@@ -79,6 +87,18 @@
         &.menu-item-active {
             background-color: $primary;
             transition: background-color 300ms cubic-bezier(0.645, 0.045, 0.355, 1);
+        }
+
+        .hotkey {
+            position: absolute;
+            right: -4px;
+            bottom: -4px;
+            transform: scale(1);
+            transition: transform 0.2s ease-out;
+
+            &.hide {
+                transform: scale(0);
+            }
         }
     }
 
@@ -218,7 +238,7 @@
     @extend .mixin-elevated;
     position: fixed;
     top: 0;
-    z-index: 1000;
+    z-index: $z_top_navigation;
     color: $text_default;
 
     &.full-width {
@@ -284,19 +304,6 @@
             font-size: 12px;
             color: $text_muted;
         }
-    }
-
-    .pp {
-        border-radius: 50%;
-        width: 32px;
-        height: 32px;
-        background-color: $purple_300;
-        color: #5f1903;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: bold;
-        font-size: 18px;
     }
 }
 
@@ -372,4 +379,32 @@
         height: 1px;
         width: 100%;
     }
+}
+
+.demo-warning {
+    display: flex;
+    align-items: center;
+
+    .ant-alert-message {
+        font-weight: bold;
+    }
+
+    .ant-alert-close-icon .anticon-close svg {
+        height: 14px;
+        width: 14px;
+        margin-left: $default_spacing;
+    }
+}
+
+.profile-picture {
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    background-color: $purple_300;
+    color: #5f1903;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 18px;
 }

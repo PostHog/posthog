@@ -5,7 +5,6 @@ import { userLogic } from 'scenes/userLogic'
 import { EventTypePropertyFilter } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
-import { Col } from 'antd'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 
 interface Props {
@@ -24,28 +23,26 @@ export function EventPropertyFilter({ filter, selector }: Props): JSX.Element {
 
     return (
         <>
-            <Col span={6}>
-                <PropertySelect
-                    value={value}
-                    optionGroups={[
+            <PropertySelect
+                value={value}
+                optionGroups={[
+                    {
+                        type: 'event',
+                        label: 'Event properties',
+                        options: eventProperties,
+                    },
+                ]}
+                onChange={(_, key) => {
+                    updateFilter(
                         {
-                            type: 'event',
-                            label: 'Event properties',
-                            options: eventProperties,
+                            ...filter,
+                            properties: [{ operator: 'exact', value: null, ...property, type: 'event', key }],
                         },
-                    ]}
-                    onChange={(_, key) => {
-                        updateFilter(
-                            {
-                                ...filter,
-                                properties: [{ operator: 'exact', value: null, ...property, type: 'event', key }],
-                            },
-                            selector
-                        )
-                    }}
-                    placeholder="Add property filter"
-                />
-            </Col>
+                        selector
+                    )
+                }}
+                placeholder="Add property filter"
+            />
             {property && (
                 <OperatorValueSelect
                     type="event"

@@ -30,7 +30,13 @@ app.autodiscover_tasks()
 app.conf.broker_pool_limit = 0
 
 # How frequently do we want to calculate action -> event relationships if async is enabled
-ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
+ACTION_EVENT_MAPPING_INTERVAL_SECONDS = settings.ACTION_EVENT_MAPPING_INTERVAL_SECONDS
+
+# How frequently do we want to calculate event property stats if async is enabled
+EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = settings.EVENT_PROPERTY_USAGE_INTERVAL_SECONDS
+
+# How frequently do we want to check if dashboard items need to be recalculated
+UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS
 
 if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
@@ -49,14 +55,14 @@ def setup_periodic_tasks(sender, **kwargs):
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s(),  # check twice a week
     )
 
-    if getattr(settings, "MULTI_TENANCY", False) or os.environ.get("SESSION_RECORDING_RETENTION_CRONJOB", False):
+    if getattr(settings, "MULTI_TENANCY", False) and not is_ee_enabled():
         sender.add_periodic_task(crontab(minute=0, hour="*/12"), run_session_recording_retention.s())
 
     # send weekly status report on non-PostHog Cloud instances
     if not getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
 
-    # Cloud (posthog-production) cron jobs
+    # Cloud (posthog-cloud) cron jobs
     if getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())  # every day midnight UTC
 
@@ -65,21 +71,30 @@ def setup_periodic_tasks(sender, **kwargs):
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    sender.add_periodic_task(90, check_cached_items.s(), name="check dashboard items")
+    sender.add_periodic_task(
+        UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
+    )
 
     if is_ee_enabled():
         sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
         sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
         sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
 
-    sender.add_periodic_task(60, calculate_cohort.s(), name="recalculate cohorts")
+    sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
     if settings.ASYNC_EVENT_ACTION_MAPPING:
         sender.add_periodic_task(
-            (60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
+            ACTION_EVENT_MAPPING_INTERVAL_SECONDS,
             calculate_event_action_mappings.s(),
             name="calculate event action mappings",
-            expires=(60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
+            expires=ACTION_EVENT_MAPPING_INTERVAL_SECONDS,
+        )
+
+    if settings.ASYNC_EVENT_PROPERTY_USAGE:
+        sender.add_periodic_task(
+            EVENT_PROPERTY_USAGE_INTERVAL_SECONDS,
+            calculate_event_property_usage.s(),
+            name="calculate event property usage",
         )
 
 

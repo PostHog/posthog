@@ -1,59 +1,54 @@
 import './DashboardItems.scss'
 
 import React, { useEffect, useRef, useState } from 'react'
-import { BuiltLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Responsive, WidthProvider } from 'react-grid-layout'
 
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
-import { DashboardItemType } from '~/types'
+import { DashboardItemType, DashboardMode } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
 
 const ReactGridLayout = WidthProvider(Responsive)
-const noop = (): void => {}
 
-export function DashboardItems({ logic, inSharedMode }: { logic: BuiltLogic; inSharedMode: boolean }): JSX.Element {
-    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, draggingEnabled } = useValues(logic)
-    const {
-        loadDashboardItems,
-        refreshDashboardItem,
-        updateLayouts,
-        updateContainerWidth,
-        updateItemColor,
-        enableWobblyDragging,
-    } = useActions(logic)
+export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX.Element {
+    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, dashboardMode } = useValues(dashboardLogic)
+    const { loadDashboardItems, updateLayouts, updateContainerWidth, updateItemColor, setDashboardMode } = useActions(
+        dashboardLogic
+    )
     const { duplicateDashboardItem } = useActions(dashboardItemsModel)
 
     // make sure the dashboard takes up the right size
     useEffect(() => triggerResizeAfterADelay(), [])
-    const [resizingItem, setResizingItem] = useState(null)
+    const [resizingItem, setResizingItem] = useState<any>(null)
 
     // can not click links when dragging and 250ms after
     const isDragging = useRef(false)
-    const dragEndTimeout = useRef(null)
+    const dragEndTimeout = useRef<number | null>(null)
+    const className = 'layout' + (dashboardMode === DashboardMode.Edit ? ' dragging-items wobbly' : '')
 
     return (
         <ReactGridLayout
-            className={`layout${draggingEnabled !== 'off' ? ' dragging-items' : ''}${
-                draggingEnabled === 'wobbly' ? ' wobbly' : ''
-            }`}
-            isDraggable={!inSharedMode && draggingEnabled !== 'off'}
-            isResizable={!inSharedMode && draggingEnabled !== 'off'}
+            className={className}
+            isDraggable={dashboardMode === DashboardMode.Edit}
+            isResizable={dashboardMode === DashboardMode.Edit}
             layouts={layouts}
             rowHeight={50}
             margin={[20, 20]}
             containerPadding={[0, 0]}
-            onLayoutChange={(layout, layouts) => {
-                updateLayouts(layouts)
+            onLayoutChange={(_: any, newLayouts: any) => {
+                updateLayouts(newLayouts)
                 triggerResize()
             }}
-            onWidthChange={(containerWidth, _, cols) => {
-                updateContainerWidth(containerWidth, cols)
+            onWidthChange={(containerWidth: any, _: any, newCols: any) => {
+                updateContainerWidth(containerWidth, newCols)
             }}
             breakpoints={breakpoints}
             resizeHandles={['s', 'e', 'se']}
             cols={cols}
-            onResize={(layout, oldItem, newItem) => {
+            onResize={(_layout: any, _oldItem: any, newItem: any) => {
                 if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
                     setResizingItem(newItem)
                 }
@@ -61,7 +56,7 @@ export function DashboardItems({ logic, inSharedMode }: { logic: BuiltLogic; inS
                 // Trigger the resize event for funnels, as they won't update their dimensions
                 // when their container is resized and must be recalculated.
                 // Skip this for other types as it slows down the interactions a bit.
-                const item = items.find((i) => i.id === parseInt(newItem.i))
+                const item = items.find((i: any) => i.id === parseInt(newItem.i))
                 if (item?.filters.display === 'FunnelViz') {
                     triggerResize()
                 }
@@ -72,10 +67,14 @@ export function DashboardItems({ logic, inSharedMode }: { logic: BuiltLogic; inS
             }}
             onDrag={() => {
                 isDragging.current = true
-                window.clearTimeout(dragEndTimeout.current)
+                if (dragEndTimeout.current) {
+                    window.clearTimeout(dragEndTimeout.current)
+                }
             }}
             onDragStop={() => {
-                window.clearTimeout(dragEndTimeout)
+                if (dragEndTimeout.current) {
+                    window.clearTimeout(dragEndTimeout.current)
+                }
                 dragEndTimeout.current = window.setTimeout(() => {
                     isDragging.current = false
                 }, 250)
@@ -93,15 +92,15 @@ export function DashboardItems({ logic, inSharedMode }: { logic: BuiltLogic; inS
                         }
                         loadDashboardItems={loadDashboardItems}
                         duplicateDashboardItem={duplicateDashboardItem}
-                        moveDashboardItem={(item: DashboardItemType, dashboardId: number) =>
-                            duplicateDashboardItem(item, dashboardId, true)
+                        moveDashboardItem={(it: DashboardItemType, dashboardId: number) =>
+                            duplicateDashboardItem(it, dashboardId, true)
                         }
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         inSharedMode={inSharedMode}
-                        enableWobblyDragging={draggingEnabled !== 'off' ? noop : enableWobblyDragging}
+                        isOnEditMode={dashboardMode === DashboardMode.Edit}
+                        setEditMode={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.LongPress)}
                         index={index}
-                        onRefresh={() => refreshDashboardItem(item.id)}
                     />
                 </div>
             ))}

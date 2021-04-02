@@ -4,16 +4,18 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog.api.test.base import APIBaseTest
-from posthog.models import Action, ActionStep, Event, Person, Team
+from posthog.constants import ENTITY_ID, ENTITY_TYPE
+from posthog.models import Action, ActionStep, Event, Person
+from posthog.models.entity import Entity
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.queries.abstract_test.test_compare import AbstractCompareTest
 from posthog.queries.stickiness import Stickiness
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest
 
 
 # parameterize tests to reuse in EE
 def stickiness_test_factory(stickiness, event_factory, person_factory, action_factory, get_earliest_timestamp):
-    class TestStickiness(APIBaseTest):
+    class TestStickiness(APIBaseTest, AbstractCompareTest):
         def _create_multiple_people(self, period=timedelta(days=1)):
             base_time = datetime.fromisoformat("2020-01-01T12:00:00.000000")
             p1 = person_factory(team_id=self.team.id, distinct_ids=["person1"], properties={"name": "person1"})
@@ -297,13 +299,12 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                     "stickiness_days": 1,
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-08",
-                    "type": "actions",
-                    "entityId": watched_movie.id,
                 },
                 team=self.team,
                 get_earliest_timestamp=get_earliest_timestamp,
             )
-            people = stickiness().people(filter, self.team)
+            target_entity = Entity({"id": watched_movie.id, "type": "actions"})
+            people = stickiness().people(target_entity, filter, self.team)
 
             all_people_ids = [str(person["id"]) for person in people]
             self.assertListEqual(sorted(all_people_ids), sorted([str(person1.pk), str(person4.pk)]))
@@ -330,8 +331,8 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                     "stickiness_days": 1,
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-08",
-                    "type": "actions",
-                    "entityId": watched_movie.id,
+                    ENTITY_TYPE: "actions",
+                    ENTITY_ID: watched_movie.id,
                 },
             ).json()
 
@@ -339,6 +340,29 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
 
             second_result = self.client.get(result["next"]).json()
             self.assertEqual(len(second_result["results"][0]["people"]), 50)
+
+        def test_compare(self):
+            self._create_multiple_people()
+
+            filter = StickinessFilter(
+                data={
+                    "shown_as": "Stickiness",
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-08",
+                    "compare": "true",
+                    "display": "ActionsLineGraph",
+                    "events": '[{"id":"watched movie","math":"dau","name":"watched movie","type":"events","order":null,"properties":[],"math_property":null}]',
+                    "insight": "TRENDS",
+                    "interval": "day",
+                    "properties": "[]",
+                    "shown_as": "Stickiness",
+                },
+                team=self.team,
+                get_earliest_timestamp=get_earliest_timestamp,
+            )
+            response = stickiness().run(filter, self.team)
+            self.assertEqual(response[0]["data"], [2, 1, 1, 0, 0, 0, 0, 0])
+            self.assertEqual(response[1]["data"], [3, 0, 0, 0, 0, 0, 0, 0])
 
     return TestStickiness
 

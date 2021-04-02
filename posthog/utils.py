@@ -1,5 +1,6 @@
 import base64
 import datetime
+import datetime as dt
 import gzip
 import hashlib
 import json
@@ -26,6 +27,7 @@ import pytz
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models.query import QuerySet
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
@@ -36,6 +38,25 @@ from sentry_sdk import capture_exception, push_scope
 
 from posthog.redis import get_client
 from posthog.settings import print_warning
+
+DATERANGE_MAP = {
+    "minute": datetime.timedelta(minutes=1),
+    "hour": datetime.timedelta(hours=1),
+    "day": datetime.timedelta(days=1),
+    "week": datetime.timedelta(weeks=1),
+    "month": datetime.timedelta(days=31),
+}
+ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
+
+# https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
+__location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
+
+
+def format_label_date(date: datetime.datetime, interval: str) -> str:
+    labels_format = "%a. {day} %B"
+    if interval == "hour" or interval == "minute":
+        labels_format += ", %H:%M"
+    return date.strftime(labels_format.format(day=date.day))
 
 
 def absolute_uri(url: Optional[str] = None) -> str:
@@ -179,12 +200,12 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     except (Team.DoesNotExist, AttributeError):
         team = Team.objects.first()
 
-    if os.environ.get("OPT_OUT_CAPTURE"):
-        # Prioritise instance-level config
-        context["opt_out_capture"] = True
-    else:
-        context["opt_out_capture"] = team.opt_out_capture if team else False
+    context["self_capture"] = False
+    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
 
+    # TODO: BEGINS DEPRECATED CODE
+    # Code deprecated in favor of posthog.api.authentication.AuthenticationSerializer
+    # Remove after migrating login to React
     if settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET:
         context["github_auth"] = True
     if settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET:
@@ -208,6 +229,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
                 context["google_auth"] = True
             else:
                 print_warning(["You have Google login set up, but not the required premium PostHog plan!"])
+    # ENDS DEPRECATED CODE
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
@@ -218,6 +240,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["git_branch"] = get_git_branch()
 
     if settings.SELF_CAPTURE:
+        context["self_capture"] = True
         if team:
             context["js_posthog_api_key"] = f"'{team.api_token}'"
             context["js_posthog_host"] = "window.location.origin"
@@ -245,18 +268,16 @@ def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]
     append["labels"] = []
     append["days"] = []
 
-    labels_format = "%a. {day} %B"
     days_format = "%Y-%m-%d"
 
     if interval == "hour" or interval == "minute":
-        labels_format += ", %H:%M"
         days_format += " %H:%M:%S"
 
     for item in dates_filled:
         date = item[0]
         value = item[1]
         append["days"].append(date.strftime(days_format))
-        append["labels"].append(date.strftime(labels_format.format(day=date.day)))
+        append["labels"].append(format_label_date(date, interval))
         append["data"].append(value)
     if math == "sum":
         append["count"] = sum(append["data"])
@@ -339,7 +360,7 @@ def load_data_from_request(request):
                 data_res["body"] = {**json.loads(request.body)}
             except:
                 pass
-        elif request.content_type == "text/plain":
+        elif request.content_type == "text/plain" or request.content_type == "":
             data = request.body
         else:
             data = request.POST.get("data")
@@ -449,9 +470,16 @@ def is_celery_alive() -> bool:
 def is_plugin_server_alive() -> bool:
     try:
         ping = get_client().get("@posthog-plugin-server/ping")
-        return ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30)
+        return bool(ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30))
     except BaseException:
         return False
+
+
+def get_plugin_server_version() -> Optional[str]:
+    cache_key_value = get_client().get("@posthog-plugin-server/version")
+    if cache_key_value:
+        return cache_key_value.decode("utf-8")
+    return None
 
 
 def get_redis_info() -> Mapping[str, Any]:
@@ -473,9 +501,158 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
     return new_string, named_params
 
 
-def flatten(l: List[Any]) -> Generator:
+def get_instance_realm() -> str:
+    """
+    Returns the realm for the current instance. `cloud` or `hosted`.
+    """
+    return "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
+
+
+def get_available_social_auth_providers() -> Dict[str, bool]:
+    github: bool = bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET)
+    gitlab: bool = bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET)
+    google: bool = False
+
+    if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
+        settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", None,
+    ):
+        if settings.MULTI_TENANCY:
+            google = True
+        else:
+
+            try:
+                from ee.models.license import License
+            except ImportError:
+                pass
+            else:
+                license = License.objects.first_valid()
+                if license is not None and "google_login" in license.available_features:
+                    google = True
+                else:
+                    print_warning(["You have Google login set up, but not the required premium PostHog plan!"])
+
+    return {"google-oauth2": google, "github": github, "gitlab": gitlab}
+
+
+def flatten(l: Union[List, Tuple]) -> Generator:
     for el in l:
         if isinstance(el, list):
             yield from flatten(el)
         else:
             yield el
+
+
+def get_daterange(
+    start_date: Optional[datetime.datetime], end_date: Optional[datetime.datetime], frequency: str
+) -> List[Any]:
+    """
+    Returns list of a fixed frequency Datetime objects between given bounds.
+
+    Parameters:
+        start_date: Left bound for generating dates.
+        end_date: Right bound for generating dates.
+        frequency: Possible options => minute, hour, day, week, month
+    """
+
+    delta = DATERANGE_MAP[frequency]
+
+    if not start_date or not end_date:
+        return []
+
+    time_range = []
+    if frequency != "minute" and frequency != "hour":
+        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    if frequency == "week":
+        start_date += datetime.timedelta(days=6 - start_date.weekday())
+    if frequency != "month":
+        while start_date <= end_date:
+            time_range.append(start_date)
+            start_date += delta
+    else:
+        if start_date.day != 1:
+            start_date = (start_date.replace(day=1) + delta).replace(day=1)
+        while start_date <= end_date:
+            time_range.append(start_date)
+            start_date = (start_date.replace(day=1) + delta).replace(day=1)
+    return time_range
+
+
+def get_safe_cache(cache_key: str):
+    try:
+        cached_result = cache.get(cache_key)  # cache.get is safe in most cases
+        return cached_result
+    except:  # if it errors out, the cache is probably corrupted
+        try:
+            cache.delete(cache_key)  # in that case, try to delete the cache
+        except:
+            pass
+    return None
+
+
+def is_anonymous_id(distinct_id: str) -> bool:
+    # Our anonymous ids are _not_ uuids, but a random collection of strings
+    return bool(re.match(ANONYMOUS_REGEX, distinct_id))
+
+
+def mask_email_address(email_address: str) -> str:
+    """
+    Grabs an email address and returns it masked in a human-friendly way to protect PII.
+        Example: testemail@posthog.com -> t********l@posthog.com
+    """
+    index = email_address.find("@")
+
+    if index == -1:
+        raise ValueError("Please provide a valid email address.")
+
+    if index == 1:
+        # Username is one letter, mask it differently
+        return f"*{email_address[index:]}"
+
+    return f"{email_address[0]}{'*' * (index - 2)}{email_address[index-1:]}"
+
+
+def is_valid_regex(value: Any) -> bool:
+    try:
+        re.compile(value)
+        return True
+    except re.error:
+        return False
+
+
+def get_absolute_path(to: str) -> str:
+    """
+    Returns an absolute path in the FS based on posthog/posthog (back-end root folder)
+    """
+    return os.path.join(__location__, to)
+
+
+class GenericEmails:
+    """
+    List of generic emails that we don't want to use to filter out test accounts.
+    """
+
+    def __init__(self):
+        with open(get_absolute_path("helpers/generic_emails.txt"), "r") as f:
+            self.emails = {x.rstrip(): True for x in f}
+
+    def is_generic(self, email: str) -> bool:
+        at_location = email.find("@")
+        if at_location == -1:
+            return False
+        return self.emails.get(email[at_location + 1 :], False)
+
+
+def get_available_timezones_with_offsets() -> Dict[str, float]:
+    now = dt.datetime.now()
+    result = {}
+    for tz in pytz.common_timezones:
+        try:
+            offset = pytz.timezone(tz).utcoffset(now)
+        except:
+            offset = pytz.timezone(tz).utcoffset(now + dt.timedelta(hours=2))
+        if offset is None:
+            continue
+        offset_hours = int(offset.total_seconds()) / 3600
+        result[tz] = offset_hours
+    return result

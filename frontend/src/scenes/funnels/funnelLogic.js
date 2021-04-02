@@ -1,40 +1,46 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
-import { objectsEqual, toParams } from 'lib/utils'
+import { autocorrectInterval, objectsEqual, toParams } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
+import { funnelsModel } from '../../models/funnelsModel'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function wait(ms = 1000) {
     return new Promise((resolve) => {
         setTimeout(resolve, ms)
     })
 }
-const SECONDS_TO_POLL = 120
+const SECONDS_TO_POLL = 3 * 60
 
-export async function pollFunnel(params = {}) {
+async function pollFunnel(params = {}) {
     let result = await api.get('api/insight/funnel/?' + toParams(params))
-    let count = 0
-    while (result.loading && count < SECONDS_TO_POLL) {
+    let start = window.performance.now()
+    while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
         await wait()
         const { refresh: _, ...restParams } = params // eslint-disable-line
         result = await api.get('api/insight/funnel/?' + toParams(restParams))
-        count += 1
     }
-    // if endpoint is still loading after 2 minutes just return default
+    // if endpoint is still loading after 3 minutes just return default
     if (result.loading) {
-        result = { filters: {} }
+        throw { status: 0, statusText: 'Funnel timeout' }
     }
     return result
 }
 
-export const cleanFunnelParams = (filters) => {
+const cleanFunnelParams = (filters) => {
     return {
         ...filters,
         ...(filters.date_from ? { date_from: filters.date_from } : {}),
         ...(filters.date_to ? { date_to: filters.date_to } : {}),
         ...(filters.actions ? { actions: filters.actions } : {}),
         ...(filters.events ? { events: filters.events } : {}),
+        ...(filters.display ? { display: filters.display } : {}),
+        ...(filters.interval ? { interval: filters.interval } : {}),
         ...(filters.properties ? { properties: filters.properties } : {}),
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        interval: autocorrectInterval(filters),
         insight: ViewType.FUNNELS,
     }
 }
@@ -42,19 +48,60 @@ export const cleanFunnelParams = (filters) => {
 const isStepsEmpty = (filters) => [...(filters.actions || []), ...(filters.events || [])].length === 0
 
 export const funnelLogic = kea({
+    key: (props) => {
+        return props.dashboardItemId || 'some_funnel'
+    },
+
     actions: () => ({
         setSteps: (steps) => ({ steps }),
         clearFunnel: true,
         setFilters: (filters, refresh = false) => ({ filters, refresh }),
-        loadFunnel: true,
         saveFunnelInsight: (name) => ({ name }),
+        setStepsWithCountLoading: (stepsWithCountLoading) => ({ stepsWithCountLoading }),
     }),
 
     connect: {
-        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
+        actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
     },
 
-    loaders: () => ({
+    loaders: ({ props, values, actions }) => ({
+        results: {
+            loadResults: async (refresh = false, breakpoint) => {
+                actions.setStepsWithCountLoading(true)
+                if (props.cachedResults && !refresh && values.filters === props.filters) {
+                    return props.cachedResults
+                }
+
+                const { from_dashboard } = values.filters
+                const cleanedParams = cleanFunnelParams(values.filters)
+                const params = {
+                    ...(refresh ? { refresh: true } : {}),
+                    ...(from_dashboard ? { from_dashboard } : {}),
+                    ...cleanedParams,
+                }
+
+                let result
+
+                insightLogic.actions.startQuery()
+
+                const eventCount = params.events?.length
+                const actionCount = params.actions?.length
+                const interval = params.interval
+
+                try {
+                    result = await pollFunnel(params)
+                    eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
+                } catch (e) {
+                    insightLogic.actions.endQuery(ViewType.FUNNELS, false, e)
+                    eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, false, e.message)
+                    return []
+                }
+                breakpoint()
+                insightLogic.actions.endQuery(ViewType.FUNNELS, result.last_refresh)
+                actions.setSteps(result.result)
+                return result.result
+            },
+        },
         people: {
             loadPeople: async (steps) => {
                 return (await api.get('api/person/?uuid=' + steps[0].people.join(','))).results
@@ -62,9 +109,9 @@ export const funnelLogic = kea({
         },
     }),
 
-    reducers: () => ({
+    reducers: ({ props }) => ({
         filters: [
-            {},
+            props.filters || {},
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
                 clearFunnel: (state) => ({ new_entity: state.new_entity }),
@@ -75,13 +122,13 @@ export const funnelLogic = kea({
             {
                 clearFunnel: () => [],
                 setSteps: (_, { steps }) => steps,
+                setFilters: () => [],
             },
         ],
         stepsWithCountLoading: [
             false,
             {
-                loadFunnel: () => true,
-                setSteps: () => false,
+                setStepsWithCountLoading: (_, { stepsWithCountLoading }) => stepsWithCountLoading,
             },
         ],
         people: {
@@ -97,7 +144,7 @@ export const funnelLogic = kea({
                     return null
                 }
                 const score = (person) => {
-                    return steps.reduce((val, step) => (step.people.indexOf(person.uuid) > -1 ? val + 1 : val), 0)
+                    return steps.reduce((val, step) => (step.people?.indexOf(person.uuid) > -1 ? val + 1 : val), 0)
                 }
                 return people.sort((a, b) => score(b) - score(a))
             },
@@ -118,31 +165,28 @@ export const funnelLogic = kea({
                 return result
             },
         ],
+        isValidFunnel: [
+            () => [selectors.stepsWithCount],
+            (stepsWithCount) => {
+                return stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
         setSteps: async () => {
-            if (values.stepsWithCount[0]?.people.length > 0) {
+            if (values.stepsWithCount[0]?.people?.length > 0) {
                 actions.loadPeople(values.stepsWithCount)
             }
+            actions.setStepsWithCountLoading(false)
         },
         setFilters: ({ refresh }) => {
             if (refresh) {
-                actions.loadFunnel()
+                actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)
-            actions.setAllFilters(cleanedParams)
-        },
-        loadFunnel: async () => {
-            const cleanedParams = cleanFunnelParams(values.filters)
-
-            actions.setAllFilters(cleanedParams)
-            if (!props.dashboardItemId) {
-                actions.createInsight({ ...cleanedParams, insight: ViewType.FUNNELS })
-            }
-
-            const result = await pollFunnel(cleanedParams)
-            actions.setSteps(result)
+            insightLogic.actions.setAllFilters(cleanedParams)
+            insightLogic.actions.setLastRefresh(false)
         },
         saveFunnelInsight: async ({ name }) => {
             await api.create('api/insight', {
@@ -150,23 +194,42 @@ export const funnelLogic = kea({
                 name,
                 saved: true,
             })
+            actions.loadFunnels()
         },
         clearFunnel: async () => {
-            actions.setAllFilters({})
+            insightLogic.actions.setAllFilters({})
+        },
+        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters) => {
+            if (props.dashboardItemId) {
+                actions.setFilters(filters, true)
+            }
         },
     }),
-    actionToUrl: ({ actions, values }) => ({
-        [actions.setSteps]: () => ['/insights', values.propertiesForUrl],
-        [actions.clearFunnel]: () => ['/insights', { insight: ViewType.FUNNELS }],
+    actionToUrl: ({ actions, values, props }) => ({
+        [actions.setSteps]: () => {
+            if (!props.dashboardItemId) {
+                return ['/insights', values.propertiesForUrl]
+            }
+        },
+        [actions.clearFunnel]: () => {
+            if (!props.dashboardItemId) {
+                return ['/insights', { insight: ViewType.FUNNELS }]
+            }
+        },
     }),
-    urlToAction: ({ actions, values }) => ({
+    urlToAction: ({ actions, values, props }) => ({
         '/insights': (_, searchParams) => {
+            if (props.dashboardItemId) {
+                return
+            }
             if (searchParams.insight === ViewType.FUNNELS) {
                 const paramsToCheck = {
                     date_from: searchParams.date_from,
                     date_to: searchParams.date_to,
                     actions: searchParams.actions,
                     events: searchParams.events,
+                    display: searchParams.display,
+                    interval: searchParams.interval,
                     properties: searchParams.properties,
                 }
                 const _filters = {
@@ -174,6 +237,7 @@ export const funnelLogic = kea({
                     date_to: values.filters.date_to,
                     actions: values.filters.actions,
                     events: values.filters.events,
+                    interval: values.filters.interval,
                     properties: values.filters.properties,
                 }
 

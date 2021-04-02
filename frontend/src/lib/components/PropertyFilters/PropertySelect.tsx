@@ -1,7 +1,6 @@
 import React from 'react'
 import { Select } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { EventProperty } from 'scenes/userLogic'
 
@@ -21,10 +20,15 @@ interface PropertyOptionGroup {
     options: Array<{ value: string }>
 }
 
+interface SelectionOptionType {
+    key: string
+    value: string
+    type: 'event' | 'person' | 'element'
+}
+
 export function PropertySelect({ optionGroups, value, onChange, placeholder, autoOpenIfEmpty }: Props): JSX.Element {
     return (
         <SelectGradientOverflow
-            className={rrwebBlockClass}
             showSearch
             autoFocus={autoOpenIfEmpty && !value}
             defaultOpen={autoOpenIfEmpty && !value}
@@ -33,7 +37,8 @@ export function PropertySelect({ optionGroups, value, onChange, placeholder, aut
             labelInValue
             value={value || undefined}
             filterOption={(input, option) => option?.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
-            onChange={(_, { value, type }) => {
+            onChange={(_: null, selection) => {
+                const { value, type } = selection as SelectionOptionType
                 onChange(type, value.replace(/^(event_|person_|element_)/gi, ''))
             }}
             style={{ width: '100%' }}
@@ -41,7 +46,7 @@ export function PropertySelect({ optionGroups, value, onChange, placeholder, aut
         >
             {optionGroups.map(
                 (group) =>
-                    group.options.length > 0 && (
+                    group.options?.length > 0 && (
                         <Select.OptGroup key={group.type} label={group.label}>
                             {group.options.map((option, index) => (
                                 <Select.Option

@@ -49,36 +49,36 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                         FROM (
                                                  SELECT events.person_id, day as base_day, sub_day as subsequent_day
                                                  FROM (
-                                                          SELECT DISTINCT person_id,
+                                                          SELECT DISTINCT _person_id as person_id,
                                                                           DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "day"
                                                           FROM ({events}) posthog_event
                                                           {action_join}
                                                             JOIN
-                                                            (SELECT person_id,
+                                                            (SELECT person_id as _person_id,
                                                                     distinct_id
                                                                 FROM posthog_persondistinctid
                                                                 WHERE team_id = %(team_id)s) pdi on posthog_event.distinct_id = pdi.distinct_id
                                                           WHERE team_id = %(team_id)s
                                                             AND {event_condition}
-                                                          GROUP BY person_id, day
+                                                          GROUP BY _person_id, day
                                                           HAVING DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
                                                                  %(prev_date_from)s
                                                              AND DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') <=
                                                                  %(date_to)s
                                                       ) base
                                                           JOIN (
-                                                     SELECT DISTINCT person_id,
+                                                     SELECT DISTINCT _person_id as person_id,
                                                                      DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "sub_day"
                                                      FROM ({events}) posthog_event
                                                      {action_join}
                                                         JOIN
-                                                        (SELECT person_id,
+                                                        (SELECT person_id as _person_id,
                                                                 distinct_id
                                                             FROM posthog_persondistinctid
                                                             WHERE team_id = %(team_id)s) pdi on posthog_event.distinct_id = pdi.distinct_id
                                                      WHERE team_id = %(team_id)s
                                                        AND {event_condition}
-                                                     GROUP BY person_id, sub_day
+                                                     GROUP BY _person_id, sub_day
                                                      HAVING DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
                                                             %(prev_date_from)s
                                                         AND DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') <=
@@ -90,18 +90,18 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                         UNION ALL
                                         SELECT person_id, min(day) as base_day, min(day) as subsequent_day
                                         FROM (
-                                                 SELECT DISTINCT person_id,
+                                                 SELECT DISTINCT _person_id as person_id,
                                                                  DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "day"
                                                  FROM ({events}) posthog_event
                                                  {action_join}
                                                     JOIN
-                                                    (SELECT person_id,
+                                                    (SELECT person_id as _person_id,
                                                             distinct_id
                                                         FROM posthog_persondistinctid
                                                         WHERE team_id = %(team_id)s) pdi on posthog_event.distinct_id = pdi.distinct_id
                                                  WHERE team_id = %(team_id)s
                                                    AND {event_condition}
-                                                 GROUP BY person_id, day
+                                                 GROUP BY _person_id, day
                                                  HAVING DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
                                                         %(prev_date_from)s
                                                     AND DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') <=
@@ -119,12 +119,12 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                                           FROM (
                                                                    SELECT person_id, total as base_day, day_start as subsequent_day
                                                                    FROM (
-                                                                            SELECT DISTINCT person_id,
+                                                                            SELECT DISTINCT _person_id as person_id,
                                                                                             array_agg(date_trunc(%(interval)s, posthog_event.timestamp)) as day
                                                                             FROM ({events}) posthog_event
                                                                             {action_join}
                                                                             JOIN
-                                                                            (SELECT person_id,
+                                                                            (SELECT person_id as _person_id,
                                                                                     distinct_id
                                                                                 FROM posthog_persondistinctid
                                                                                 WHERE team_id = %(team_id)s) pdi on posthog_event.distinct_id = pdi.distinct_id
@@ -133,7 +133,7 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                                                               AND posthog_event.timestamp <= %(after_date_to)s
                                                                               AND DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
                                                                                   %(date_from)s
-                                                                            GROUP BY person_id
+                                                                            GROUP BY _person_id
                                                                         ) as e
                                                                             CROSS JOIN (
                                                                        SELECT to_timestamp('0000-00-00 00:00:00', 'YYYY-MM-DD HH24:MI:SS') AS total,
@@ -152,19 +152,19 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                              ) dormant_days
                                     ) e
                                         JOIN (
-                                   SELECT DISTINCT person_id,
+                                   SELECT DISTINCT _person_id as person_id,
                                                    DATE_TRUNC(%(interval)s,
                                                               min("posthog_event"."timestamp") AT TIME ZONE 'UTC') earliest
                                    FROM ({earliest_events}) posthog_event
                                     JOIN
-                                    (SELECT person_id,
+                                    (SELECT person_id as _person_id,
                                             distinct_id
                                         FROM posthog_persondistinctid
                                         WHERE team_id = %(team_id)s) pdi on posthog_event.distinct_id = pdi.distinct_id
                                    {action_join}
                                    WHERE team_id = %(team_id)s
                                      AND {event_condition}
-                                   GROUP BY person_id
+                                   GROUP BY _person_id
                                ) earliest ON e.person_id = earliest.person_id
                   ) grouped_counts
              WHERE subsequent_day <= %(date_to)s
@@ -198,36 +198,36 @@ FROM (
                 FROM (
                             SELECT events.person_id, day as base_day, sub_day as subsequent_day
                             FROM (
-                                    SELECT DISTINCT person_id,
+                                    SELECT DISTINCT _person_id as person_id,
                                                     DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "day"
                                     FROM ({events}) posthog_event
                                     {action_join}
                                     JOIN
-                                    (SELECT person_id,
+                                    (SELECT person_id as _person_id,
                                             distinct_id
                                         FROM posthog_persondistinctid
                                         WHERE team_id = %(team_id)s) pdi on posthog_event.distinct_id = pdi.distinct_id
                                     WHERE team_id = %(team_id)s
                                     AND {event_condition}
-                                    GROUP BY person_id, day
+                                    GROUP BY _person_id, day
                                     HAVING DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
                                             %(prev_date_from)s
                                         AND DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') <=
                                             %(date_to)s
                                 ) base
                                     JOIN (
-                                SELECT DISTINCT person_id,
+                                SELECT DISTINCT _person_id as person_id,
                                                 DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "sub_day"
                                 FROM ({events}) posthog_event
                                 {action_join}
                                 JOIN
-                                (SELECT person_id,
+                                (SELECT person_id as _person_id,
                                         distinct_id
                                     FROM posthog_persondistinctid
                                     WHERE team_id = %(team_id)s) pdi on posthog_event.distinct_id = pdi.distinct_id
                                 WHERE team_id = %(team_id)s
                                 AND {event_condition}
-                                GROUP BY person_id, sub_day
+                                GROUP BY _person_id, sub_day
                                 HAVING DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
                                     %(prev_date_from)s
                                 AND DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') <=
@@ -239,18 +239,18 @@ FROM (
                 UNION ALL
                 SELECT person_id, min(day) as base_day, min(day) as subsequent_day
                 FROM (
-                            SELECT DISTINCT person_id,
+                            SELECT DISTINCT _person_id as person_id,
                                             DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "day"
                             FROM ({events}) posthog_event
                             {action_join}
                             JOIN
-                            (SELECT person_id,
+                            (SELECT person_id as _person_id,
                                     distinct_id
                                 FROM posthog_persondistinctid
                                 WHERE team_id = %(team_id)s) pdi on posthog_event.distinct_id = pdi.distinct_id
                             WHERE team_id = %(team_id)s
                             AND {event_condition}
-                            GROUP BY person_id, day
+                            GROUP BY _person_id, day
                             HAVING DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
                                 %(prev_date_from)s
                             AND DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') <=
@@ -268,12 +268,12 @@ FROM (
                                     FROM (
                                             SELECT person_id, total as base_day, day_start as subsequent_day
                                             FROM (
-                                                    SELECT DISTINCT person_id,
+                                                    SELECT DISTINCT _person_id as person_id,
                                                                     array_agg(date_trunc(%(interval)s, posthog_event.timestamp)) as day
                                                     FROM ({events}) posthog_event
                                                     {action_join}
                                                     JOIN
-                                                    (SELECT person_id,
+                                                    (SELECT person_id as _person_id,
                                                             distinct_id
                                                         FROM posthog_persondistinctid
                                                         WHERE team_id = %(team_id)s) pdi on posthog_event.distinct_id = pdi.distinct_id
@@ -282,7 +282,7 @@ FROM (
                                                         AND posthog_event.timestamp <= %(after_date_to)s
                                                         AND DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
                                                             %(date_from)s
-                                                    GROUP BY person_id
+                                                    GROUP BY _person_id
                                                 ) as e
                                                     CROSS JOIN (
                                                 SELECT to_timestamp('0000-00-00 00:00:00', 'YYYY-MM-DD HH24:MI:SS') AS total,
@@ -301,19 +301,19 @@ FROM (
                         ) dormant_days
             ) e
                 JOIN (
-            SELECT DISTINCT person_id,
+            SELECT DISTINCT _person_id as person_id,
                             DATE_TRUNC(%(interval)s,
                                         min("posthog_event"."timestamp") AT TIME ZONE 'UTC') earliest
             FROM ({earliest_events}) posthog_event
             JOIN
-            (SELECT person_id,
+            (SELECT person_id as _person_id,
                     distinct_id
                 FROM posthog_persondistinctid
                 WHERE team_id = %(team_id)s) pdi on posthog_event.distinct_id = pdi.distinct_id
             {action_join}
             WHERE team_id = %(team_id)s
                 AND {event_condition}
-            GROUP BY person_id
+            GROUP BY _person_id
         ) earliest ON e.person_id = earliest.person_id
     ) e
     WHERE status = %(status)s
@@ -384,15 +384,18 @@ class LifecycleTrend:
         interval_trunc, sub_interval = get_trunc_func(period=period)
 
         # include the before and after when filteirng all events
-        filter = Filter(
-            data={**filter._data, "date_from": prev_date_from.isoformat(), "date_to": after_date_to.isoformat()}
-        )
 
-        filtered_events = Event.objects.filter(team_id=team_id).filter(filter_events(team_id, filter, entity))
+        filter = filter.with_data({"date_from": prev_date_from.isoformat(), "date_to": after_date_to.isoformat()})
+
+        filtered_events = (
+            Event.objects.filter(team_id=team_id).add_person_id(team_id).filter(filter_events(team_id, filter, entity))
+        )
         event_query, event_params = queryset_to_named_query(filtered_events, "events")
 
-        earliest_events_filtered = Event.objects.filter(team_id=team_id).filter(
-            filter_events(team_id, filter, entity, include_dates=False)
+        earliest_events_filtered = (
+            Event.objects.filter(team_id=team_id)
+            .add_person_id(team_id)
+            .filter(filter_events(team_id, filter, entity, include_dates=False))
         )
         earliest_events_query, earliest_events_params = queryset_to_named_query(
             earliest_events_filtered, "earliest_events"
@@ -442,15 +445,17 @@ class LifecycleTrend:
         interval_trunc, sub_interval = get_trunc_func(period=period)
 
         # include the before and after when filteirng all events
-        filter = Filter(
-            data={**filter._data, "date_from": prev_date_from.isoformat(), "date_to": after_date_to.isoformat()}
-        )
+        filter = filter.with_data({"date_from": prev_date_from.isoformat(), "date_to": after_date_to.isoformat()})
 
-        filtered_events = Event.objects.filter(team_id=team_id).filter(filter_events(team_id, filter, entity))
+        filtered_events = (
+            Event.objects.filter(team_id=team_id).add_person_id(team_id).filter(filter_events(team_id, filter, entity))
+        )
         event_query, event_params = queryset_to_named_query(filtered_events)
 
-        earliest_events_filtered = Event.objects.filter(team_id=team_id).filter(
-            filter_events(team_id, filter, entity, include_dates=False)
+        earliest_events_filtered = (
+            Event.objects.filter(team_id=team_id)
+            .add_person_id(team_id)
+            .filter(filter_events(team_id, filter, entity, include_dates=False))
         )
         earliest_events_query, earliest_events_params = queryset_to_named_query(
             earliest_events_filtered, "earliest_events"

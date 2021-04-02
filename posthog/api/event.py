@@ -14,11 +14,11 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import Element, ElementGroup, Event, Filter, Person, PersonDistinctId
 from posthog.models.action import Action
 from posthog.models.event import EventManager
 from posthog.models.filters.sessions_filter import SessionEventsFilter, SessionsFilter
+from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.base import properties_to_Q
 from posthog.queries.sessions.session_recording import SessionRecording
@@ -45,8 +45,8 @@ class ElementSerializer(serializers.ModelSerializer):
 
 
 class EventSerializer(serializers.HyperlinkedModelSerializer):
-    person = serializers.SerializerMethodField()
     elements = serializers.SerializerMethodField()
+    person = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
@@ -61,15 +61,9 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
         ]
 
     def get_person(self, event: Event) -> Any:
-        if hasattr(event, "person_properties"):
-            if event.person_properties:  # type: ignore
-                return event.person_properties.get("email", event.distinct_id)  # type: ignore
-            else:
-                return event.distinct_id
-        try:
-            return event.person.properties.get("email", event.distinct_id)
-        except:
-            return event.distinct_id
+        if hasattr(event, "serialized_person"):
+            return event.serialized_person  # type: ignore
+        return None
 
     def get_elements(self, event: Event):
         if not event.elements_hash:
@@ -102,6 +96,8 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = EventSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
+    CSV_EXPORT_LIMIT = 100_000  # Return at most this number of events in CSV export
+
     def get_queryset(self):
         queryset = cast(EventManager, super().get_queryset()).add_person_id(self.team_id)
 
@@ -121,11 +117,10 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             elif key == "before":
                 queryset = queryset.filter(timestamp__lt=request.GET["before"])
             elif key == "person_id":
-                person = Person.objects.get(pk=request.GET["person_id"])
                 queryset = queryset.filter(
-                    distinct_id__in=PersonDistinctId.objects.filter(person_id=request.GET["person_id"]).values(
-                        "distinct_id"
-                    )
+                    distinct_id__in=PersonDistinctId.objects.filter(
+                        team_id=self.team_id, person_id=request.GET["person_id"]
+                    ).values("distinct_id")
                 )
             elif key == "distinct_id":
                 queryset = queryset.filter(distinct_id=request.GET["distinct_id"])
@@ -153,9 +148,22 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             groups = ElementGroup.objects.none()
         for event in events:
             try:
-                event.person_properties = [person.properties for person in people if event.distinct_id in person.distinct_ids][0]  # type: ignore
+                for person in people:
+                    if event.distinct_id in person.distinct_ids:
+                        event.serialized_person = {  # type: ignore
+                            "is_identified": person.is_identified,
+                            "distinct_ids": [
+                                person.distinct_ids[0],
+                            ],  # only send the first one to avoid a payload bloat
+                            "properties": {
+                                key: person.properties[key]
+                                for key in ["email", "name", "username"]
+                                if key in person.properties
+                            },
+                        }
+                        break
             except IndexError:
-                event.person_properties = None  # type: ignore
+                event.serialized_person = None  # type: ignore
             try:
                 event.elements_group_cache = [group for group in groups if group.hash == event.elements_hash][0]  # type: ignore
             except IndexError:
@@ -163,40 +171,38 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return events
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        queryset = self.get_queryset()
-        monday = now() + timedelta(days=-now().weekday())
-        # don't allow events too far into the future
-        queryset = queryset.filter(timestamp__lte=now() + timedelta(seconds=5),)
-        events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[0:101]
-
         is_csv_request = self.request.accepted_renderer.format == "csv"
+        monday = now() + timedelta(days=-now().weekday())
+        # Don't allow events too far into the future
+        queryset = self.get_queryset().filter(timestamp__lte=now() + timedelta(seconds=5))
+        next_url: Optional[str] = None
 
-        if not is_csv_request and len(events) < 101:
-            events = queryset[0:101]
-        elif is_csv_request:
-            events = queryset[0:100000]
-
-        prefetched_events = self._prefetch_events([event for event in events])
-        path = request.get_full_path()
-
-        reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
-        if not is_csv_request and len(events) > 100:
-            next_url: Optional[str] = request.build_absolute_uri(
-                "{}{}{}={}".format(
-                    path,
-                    "&" if "?" in path else "?",
-                    "after" if reverse else "before",
-                    events[99].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                )
-            )
+        if is_csv_request:
+            events = queryset[: self.CSV_EXPORT_LIMIT]
         else:
-            next_url = None
+            events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[:101]
+            if len(events) < 101:
+                events = queryset[:101]
+            path = request.get_full_path()
+            reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
+            if len(events) > 100:
+                next_url = request.build_absolute_uri(
+                    "{}{}{}={}".format(
+                        path,
+                        "&" if "?" in path else "?",
+                        "after" if reverse else "before",
+                        events[99].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                    )
+                )
+            events = events[:100]
+
+        prefetched_events = self._prefetch_events(list(events))
 
         return response.Response(
             {
                 "next": next_url,
                 "results": EventSerializer(
-                    prefetched_events[0:100], many=True, context={"format": self.request.accepted_renderer.format}
+                    prefetched_events, many=True, context={"format": self.request.accepted_renderer.format}
                 ).data,
             }
         )
@@ -275,18 +281,9 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         from posthog.queries.sessions.sessions_list import SessionsList
 
         filter = SessionsFilter(request=request)
-        pagination = json.loads(request.GET.get("pagination", "{}"))
 
-        sessions, pagination = SessionsList().run(filter=filter, team=self.team, **pagination)
-
-        if filter.distinct_id:
-            sessions = self._filter_sessions_by_distinct_id(filter.distinct_id, sessions)
-
+        sessions, pagination = SessionsList.run(filter=filter, team=self.team)
         return Response({"result": sessions, "pagination": pagination})
-
-    def _filter_sessions_by_distinct_id(self, distinct_id: str, sessions: List[Any]) -> List[Any]:
-        person_ids = Person.objects.get(persondistinctid__distinct_id=distinct_id).distinct_ids
-        return [session for i, session in enumerate(sessions) if session["distinct_id"] in person_ids]
 
     @action(methods=["GET"], detail=False)
     def session_events(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -299,11 +296,17 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # /event/session_recording
     # params:
     # - session_recording_id: (string) id of the session recording
+    # - save_view: (boolean) save view of the recording
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording = SessionRecording().run(
             team=self.team, filter=Filter(request=request), session_recording_id=request.GET["session_recording_id"]
         )
+
+        if request.GET.get("save_view"):
+            SessionRecordingViewed.objects.get_or_create(
+                team=self.team, user=request.user, session_id=request.GET["session_recording_id"]
+            )
 
         return response.Response({"result": session_recording})
