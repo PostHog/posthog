@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { autocorrectInterval, objectsEqual, toParams as toAPIParams } from 'lib/utils'
+import { autocorrectInterval, errorToast, objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
@@ -21,7 +21,6 @@ import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constan
 import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
-import { toast, ToastId } from 'react-toastify'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 interface TrendResponse {
@@ -137,16 +136,7 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
 // - dashboardItemId
 // - filters
 export const trendsLogic = kea<
-    trendsLogicType<
-        TrendResponse,
-        IndexedTrendResult,
-        TrendResult,
-        FilterType,
-        ActionType,
-        TrendPeople,
-        PropertyFilter,
-        ToastId
-    >
+    trendsLogicType<TrendResponse, IndexedTrendResult, TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter>
 >({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
@@ -365,7 +355,7 @@ export const trendsLogic = kea<
                     },
                 }).actions.saveCohort(cohortParams, filterParams)
             } else {
-                toast.error('Error creating cohort')
+                errorToast(undefined, "We couldn't create your cohort:")
             }
         },
         loadPeople: async ({ label, action, day, breakdown_value }, breakpoint) => {

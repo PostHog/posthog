@@ -65,7 +65,9 @@ export function FeatureFlags(): JSX.Element {
                     <Switch
                         onClick={(_checked, e) => e.stopPropagation()}
                         checked={featureFlag.active}
-                        onChange={(active) => (featureFlag.id ? updateFeatureFlag(featureFlag.id, { active }) : null)}
+                        onChange={(active) =>
+                            featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active } }) : null
+                        }
                     />
                 )
             },
