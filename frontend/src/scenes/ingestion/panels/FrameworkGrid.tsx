@@ -129,7 +129,13 @@ export function FrameworkGrid(): JSX.Element {
             <Row>{MenuHeader()}</Row>
             <Row align="middle" style={{ float: 'right', marginTop: 8 }}>
                 Don't see a language/platform/framework here?
-                <b style={{ marginLeft: 5 }} className="button-border clickable" onClick={() => setFramework(API)}>
+                <b
+                    style={{ marginLeft: 5 }}
+                    className="button-border clickable"
+                    onClick={() => {
+                        setFramework(API)
+                    }}
+                >
                     Continue with our HTTP API
                 </b>
             </Row>

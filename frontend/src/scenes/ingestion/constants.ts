@@ -52,7 +52,6 @@ export const frameworkToPlatform = (framework: Framework): PlatformType => {
         case ELIXIR:
             return BACKEND
         case API:
-        // ??
         case ANDROID:
         case IOS:
         case FLUTTER:
