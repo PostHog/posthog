@@ -83,8 +83,11 @@ function FrameworksContainer(frameworks: Record<string, string>, sort?: boolean)
 }
 
 function MenuHeader(): JSX.Element {
+    const { activeTab } = useValues(ingestionLogic)
+    const { setActiveTab } = useActions(ingestionLogic)
+
     return (
-        <Tabs defaultActiveKey="popular">
+        <Tabs defaultActiveKey="popular" activeKey={activeTab} onChange={(activeKey) => setActiveTab(activeKey)}>
             <TabPane tab="Most Popular" key="popular">
                 {FrameworksContainer(popularFrameworks, false)}
             </TabPane>

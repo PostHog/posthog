@@ -18,6 +18,7 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
             framework,
             verify,
         }),
+        setActiveTab: (tab: string) => ({ tab }),
         completeOnboarding: true,
     },
 
@@ -43,6 +44,12 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
                 setFramework: () => false,
                 setVerify: (_, { verify }) => verify,
                 setState: (_, { verify }) => verify,
+            },
+        ],
+        activeTab: [
+            'popular',
+            {
+                setActiveTab: (_, { tab }) => tab,
             },
         ],
     },
