@@ -4,6 +4,7 @@ import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { ingestionLogicType } from './ingestionLogicType'
 import { userLogic } from 'scenes/userLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
@@ -60,7 +61,7 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
             (s) => [s.platform, s.framework, s.verify],
             (platform, framework, verify) => {
                 const featFlags = featureFlagLogic.values.featureFlags
-                if (featFlags && featFlags['ingestion-grid']) {
+                if (featFlags[FEATURE_FLAGS.INGESTION_GRID]) {
                     return (framework && platform ? 1 : 0) + (verify ? 1 : 0)
                 }
                 return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
@@ -69,8 +70,8 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
         totalSteps: [
             (s) => [s.platform, s.framework, s.verify],
             (platform, framework, verify) => {
-                const inExperiment = true
-                if (inExperiment) {
+                const featFlags = featureFlagLogic.values.featureFlags
+                if (featFlags[FEATURE_FLAGS.INGESTION_GRID]) {
                     return 3
                 }
                 // if missing parts of the URL

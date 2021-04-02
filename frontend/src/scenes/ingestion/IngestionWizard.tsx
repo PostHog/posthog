@@ -8,6 +8,7 @@ import { MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { FrameworkPanel } from 'scenes/ingestion/panels/FrameworkPanel'
 import { FrameworkGrid } from 'scenes/ingestion/panels/FrameworkGrid'
 import { PlatformPanel } from 'scenes/ingestion/panels/PlatformPanel'
@@ -41,7 +42,7 @@ export default function IngestionWizard(): JSX.Element {
         )
     }
 
-    if (featureFlags && featureFlags['ingestion-grid'] && !framework) {
+    if (featureFlags[FEATURE_FLAGS.INGESTION_GRID] && !framework) {
         return (
             <IngestionContainer>
                 <FrameworkGrid />
