@@ -127,6 +127,7 @@ export interface TeamType {
     is_demo: boolean
     test_account_filters: FilterType[]
     timezone: string
+    data_attributes: string[]
 }
 
 export interface ActionType {
@@ -177,6 +178,7 @@ export type EditorProps = {
     instrument?: boolean
     distinctId?: string
     userEmail?: boolean
+    dataAttributes?: string[]
 }
 
 export interface PropertyFilter {

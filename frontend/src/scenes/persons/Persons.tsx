@@ -25,7 +25,7 @@ export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
     }, [])
 
     return (
-        <div>
+        <div className="persons-list">
             {!cohort && <PageHeader title="Persons" />}
             <Row style={{ gap: '0.75rem' }} className="mb">
                 <div style={{ flexGrow: 1, maxWidth: 600 }}>
@@ -71,7 +71,7 @@ export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
                             Identified
                         </Radio.Button>
                         <Radio.Button data-attr="people-types-tab-anonymous" value="false">
-                            Anonymous
+                            Unidentified
                         </Radio.Button>
                     </Radio.Group>
                 </div>

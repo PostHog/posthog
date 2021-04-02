@@ -9,7 +9,6 @@ from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE
 from posthog.models import Cohort, Person
 from posthog.models.filters.filter import Filter
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
-from posthog.queries.abstract_test.test_timerange import AbstractTimerangeTest
 from posthog.test.base import APIBaseTest
 
 
@@ -19,10 +18,12 @@ def _create_event(**kwargs):
 
 
 class TestFormula(AbstractIntervalTest, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def setUp(self):
         super().setUp()  # type: ignore
 
-        person = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
         )
         with freeze_time("2020-01-02T13:01:01Z"):

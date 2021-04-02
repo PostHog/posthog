@@ -18,6 +18,7 @@ from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.person import (
+    GET_LATEST_PERSON_DISTINCT_ID_SQL,
     GET_LATEST_PERSON_SQL,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL,
     PEOPLE_SQL,
@@ -137,7 +138,9 @@ def _process_content_sql(team: Team, entity: Entity, filter: Filter):
         person_prop = Property(**{"key": filter.breakdown, "value": filter.breakdown_value, "type": "person"})
         filter.properties.append(person_prop)
 
-    prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+    prop_filters, prop_filter_params = parse_prop_clauses(
+        filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+    )
     params: Dict = {"team_id": team.pk, **prop_filter_params, **entity_params, "offset": filter.offset}
 
     content_sql = PERSON_TREND_SQL.format(
@@ -156,7 +159,9 @@ def calculate_entity_people(team: Team, entity: Entity, filter: Filter):
 
     people = sync_execute(
         PEOPLE_THROUGH_DISTINCT_SQL.format(
-            content_sql=content_sql, latest_person_sql=GET_LATEST_PERSON_SQL.format(query="")
+            content_sql=content_sql,
+            latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         ),
         params,
     )
@@ -172,6 +177,7 @@ def insert_entity_people_into_cohort(cohort: Cohort, entity: Entity, filter: Fil
             cohort_table=PERSON_STATIC_COHORT_TABLE,
             content_sql=content_sql,
             latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         ),
         {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},
     )

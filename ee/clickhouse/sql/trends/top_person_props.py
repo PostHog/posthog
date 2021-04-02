@@ -3,7 +3,7 @@ SELECT groupArray(value) FROM (
     SELECT value, {aggregate_operation} as count
     FROM
     events e 
-    INNER JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid ON e.distinct_id = pid.distinct_id
+    INNER JOIN (SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) as pid ON e.distinct_id = pid.distinct_id
     INNER JOIN
         (
             SELECT * FROM (
@@ -26,6 +26,6 @@ SELECT groupArray(value) FROM (
         e.team_id = %(team_id)s {parsed_date_from} {parsed_date_to} {prop_filters}
     GROUP BY value
     ORDER BY count DESC
-    LIMIT %(limit)s
+    LIMIT %(limit)s OFFSET %(offset)s
 )
 """

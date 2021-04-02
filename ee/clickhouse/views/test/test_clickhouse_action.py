@@ -38,7 +38,7 @@ class TestAction(
 ):
     @patch("posthog.tasks.calculate_action.calculate_action.delay")
     def test_is_calculating_always_false(self, patch_delay):
-        create = self.client.post("/api/action/", data={"name": "ooh",}, content_type="application/json",).json()
+        create = self.client.post("/api/action/", data={"name": "ooh",}).json()
         self.assertEqual(create["is_calculating"], False)
         self.assertFalse(patch_delay.called)
 
@@ -49,9 +49,7 @@ class TestAction(
         self.assertEqual(response["is_calculating"], False)
 
         # Make sure we're not re-calculating actions
-        response = self.client.patch(
-            "/api/action/%s/" % create["id"], data={"name": "ooh",}, content_type="application/json",
-        ).json()
+        response = self.client.patch("/api/action/%s/" % create["id"], data={"name": "ooh",},).json()
         self.assertEqual(response["name"], "ooh")
         self.assertEqual(response["is_calculating"], False)
         self.assertFalse(patch_delay.called)
