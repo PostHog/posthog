@@ -34,23 +34,6 @@ class TestTeamAPI(APIBaseTest):
         self.assertIn("event_properties", response_data)
         self.assertIn("event_properties_numerical", response_data)
 
-    def test_retrieve_project_with_basic_data(self):
-
-        response = self.client.get("/api/projects/@current/?basic=1")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response_data = response.json()
-        self.assertEqual(response_data["name"], self.team.name)
-        self.assertEqual(response_data["organization"], str(self.organization.pk))
-        self.assertEqual(response_data["uuid"], str(self.team.uuid))
-        self.assertEqual(response_data["completed_snippet_onboarding"], self.team.completed_snippet_onboarding)
-        self.assertEqual(response_data["ingested_event"], self.team.ingested_event)
-        self.assertNotIn("test_account_filters", response_data)
-        self.assertNotIn("data_attributes", response_data)
-        self.assertNotIn("event_names", response_data)
-        self.assertNotIn("event_properties", response_data)
-        self.assertNotIn("event_properties_numerical", response_data)
-
     def test_cant_create_team_without_license_on_selfhosted(self):
         with self.settings(MULTI_TENANCY=False):
             response = self.client.post("/api/projects/", {"name": "Test"})
@@ -58,19 +41,6 @@ class TestTeamAPI(APIBaseTest):
             self.assertEqual(Team.objects.count(), 1)
             response = self.client.post("/api/projects/", {"name": "Test"})
             self.assertEqual(Team.objects.count(), 1)
-
-    def test_updating_project_with_basic_query_string_has_no_effect(self):
-        response = self.client.patch(
-            "/api/projects/@current/?basic=1", {"slack_incoming_webhook": "https://slack.posthog.com"}
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response_data = response.json()
-        self.assertEqual(response_data["name"], self.team.name)
-        self.assertEqual(response_data["slack_incoming_webhook"], "https://slack.posthog.com")
-
-        self.team.refresh_from_db()
-        self.assertEqual(self.team.slack_incoming_webhook, "https://slack.posthog.com")
 
     def test_update_project_timezone(self):
 

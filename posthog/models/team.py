@@ -123,7 +123,12 @@ class Team(models.Model):
 
     __repr__ = sane_repr("uuid", "name", "api_token")
 
-    def get_event_names_with_usage(self):
+    def get_latest_event_names_with_usage(self):
+        """
+        Fetches `event_names_with_usage` but adding any events that may have come in since the
+        property was last computed. Ensures all events are included.
+        """
+
         def get_key(event: str, type: str):
             return next((item.get(type) for item in self.event_names_with_usage if item["event"] == event), None)
 
@@ -132,7 +137,12 @@ class Team(models.Model):
             for event in self.event_names
         ]
 
-    def get_event_properties_with_usage(self):
+    def get_latest_event_properties_with_usage(self):
+        """
+        Fetches `event_properties_with_usage` but adding any properties that may have appeared since the
+        property was last computed. Ensures all properties are included.
+        """
+
         def get_key(key: str, type: str):
             return next((item.get(type) for item in self.event_properties_with_usage if item["key"] == key), None)
 

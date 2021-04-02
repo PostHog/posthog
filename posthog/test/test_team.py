@@ -1,4 +1,3 @@
-from posthog.models import organization
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User

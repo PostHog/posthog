@@ -107,6 +107,12 @@ class TeamSerializer(serializers.ModelSerializer):
             request.user.save()
         return team
 
+    def get_event_names_with_usage(self, instance: Team) -> List:
+        return instance.get_latest_event_names_with_usage()
+
+    def get_event_properties_with_usage(self, instance: Team) -> List:
+        return instance.get_latest_event_properties_with_usage()
+
 
 class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     serializer_class = TeamSerializer
@@ -126,9 +132,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         return super().get_queryset().filter(organization__in=self.request.user.organizations.all())
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
-        if self.action == "list" or (  # type: ignore
-            self.action == "retrieve" and self.request.query_params.get("basic")  # type: ignore
-        ):
+        if self.action == "list":
             return TeamBasicSerializer
         return super().get_serializer_class()
 
