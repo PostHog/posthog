@@ -2,7 +2,7 @@ version: '3'
 
 services:
     db:
-        image: postgres:11-alpine
+        image: postgres:12-alpine
         container_name: posthog_db
         environment:
             POSTGRES_USER: posthog
@@ -15,42 +15,34 @@ services:
         container_name: posthog_redis
         ports:
             - '6379:6379'
-    web:
-        build:
-            context: .
-            dockerfile: dev.Dockerfile
-        command: ./bin/docker-dev-web
-        volumes:
-            - .:/code
-        ports:
-            - '8000:8000'
-            - '8234:8234'
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: '<randomly generated secret key>'
-            DEBUG: 'true'
-        depends_on:
-            - db
-            - redis
-        links:
-            - db:db
-            - redis:redis
-    worker:
+
+    worker: &worker
         build:
             context: .
             dockerfile: dev.Dockerfile
         command: ./bin/docker-worker
         volumes:
-            - .:/code
+            - .:/code:cached
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             REDIS_URL: 'redis://redis:6379/'
             SECRET_KEY: '<randomly generated secret key>'
             DEBUG: 'true'
+
+            # For bin/tests
+            PGHOST: db
+            PGUSER: posthog
+            PGPASSWORD: posthog
         depends_on:
             - db
             - redis
         links:
             - db:db
             - redis:redis
+
+    web:
+        <<: *worker
+        command: ./bin/docker-dev-web
+        ports:
+            - '8000:8000'
+            - '8234:8234'
