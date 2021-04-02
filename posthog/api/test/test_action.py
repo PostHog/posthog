@@ -23,7 +23,6 @@ class TestCreateAction(APIBaseTest):
             },
             HTTP_ORIGIN="http://testserver",
         )
-        print(response.json())
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["is_calculating"], False)
         self.assertIn("last_calculated_at", response.json())
