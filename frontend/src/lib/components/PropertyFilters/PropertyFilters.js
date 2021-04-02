@@ -29,7 +29,14 @@ const FilterRow = React.memo(function FilterRow({
     }
 
     return (
-        <Row align="middle" className="mt-05 mb-05" data-attr={'property-filter-' + index}>
+        <Row
+            align="middle"
+            className="mt-05 mb-05"
+            data-attr={'property-filter-' + index}
+            style={{
+                maxWidth: '90vw',
+            }}
+        >
             <Popover
                 trigger="click"
                 onVisibleChange={handleVisibleChange}
