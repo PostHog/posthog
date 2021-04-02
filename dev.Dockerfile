@@ -6,13 +6,12 @@ WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        curl=7.64.0-4+deb10u2 \
-        git=1:2.20.1-2+deb10u3 \
-        build-essential=12.6 \
-        postgresql-client=11+200+deb10u4 \
+    && apt-get install -y --no-install-recommends curl=7.64.0-4+deb10u2 git=1:2.20.1-2+deb10u3 build-essential=12.6 \
     && curl -sL https://deb.nodesource.com/setup_14.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs=14.16.0-1nodesource1 \
+    && curl -sL https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends nodejs=14.16.0-1nodesource1 postgresql-client-12=12.6-1.pgdg100+1 \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g yarn@1 \
     && yarn config set network-timeout 300000 \
