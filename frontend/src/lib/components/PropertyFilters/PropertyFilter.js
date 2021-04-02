@@ -58,11 +58,11 @@ function PropertyPaneContents({
                                           propkey,
                                   }
                         }
-                        onChange={(type, value) =>
+                        onChange={(type, _value) =>
                             setThisFilter(
-                                value,
+                                _value,
                                 undefined,
-                                value === '$active_feature_flags' ? 'icontains' : operator,
+                                _value === '$active_feature_flags' ? 'icontains' : operator,
                                 type
                             )
                         }
