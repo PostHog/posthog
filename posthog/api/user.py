@@ -20,7 +20,7 @@ from posthog.ee import is_ee_enabled
 from posthog.email import is_email_available
 from posthog.models import Team, User
 from posthog.models.organization import Organization
-from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api, reload_plugins_on_workers
+from posthog.plugins import can_configure_plugins, can_install_plugins, reload_plugins_on_workers
 from posthog.tasks import user_identify
 from posthog.version import VERSION
 
@@ -69,7 +69,7 @@ def user(request):
             team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
             team.session_recording_opt_in = data["team"].get("session_recording_opt_in", team.session_recording_opt_in)
             team.session_recording_retention_period_days = data["team"].get(
-                "session_recording_retention_period_days", team.session_recording_retention_period_days
+                "session_recording_retention_period_days", team.session_recording_retention_period_days,
             )
             if data["team"].get("plugins_opt_in") is not None:
                 reload_plugins_on_workers()
@@ -78,6 +78,7 @@ def user(request):
                 "completed_snippet_onboarding", team.completed_snippet_onboarding,
             )
             team.test_account_filters = data["team"].get("test_account_filters", team.test_account_filters)
+            team.timezone = data["team"].get("timezone", team.timezone)
             team.save()
 
         if "user" in data:
@@ -125,6 +126,7 @@ def user(request):
                 "name": organization.name,
                 "billing_plan": organization.billing_plan,
                 "available_features": organization.available_features,
+                "plugins_access_level": organization.plugins_access_level,
                 "created_at": organization.created_at,
                 "updated_at": organization.updated_at,
                 "teams": [{"id": team.id, "name": team.name} for team in organization.teams.all().only("id", "name")],
@@ -151,6 +153,8 @@ def user(request):
                 "ingested_event": team.ingested_event,
                 "is_demo": team.is_demo,
                 "test_account_filters": team.test_account_filters,
+                "timezone": team.timezone,
+                "data_attributes": team.data_attributes,
             },
             "teams": teams,
             "has_password": user.has_usable_password(),
@@ -163,11 +167,8 @@ def user(request):
             "is_debug": getattr(settings, "DEBUG", False),
             "is_staff": user.is_staff,
             "is_impersonated": is_impersonated_session(request),
-            "plugin_access": {
-                "install": can_install_plugins_via_api(user.organization),
-                "configure": can_configure_plugins_via_api(user.organization),
-            },
             "is_event_property_usage_enabled": getattr(settings, "ASYNC_EVENT_PROPERTY_USAGE", False),
+            "is_async_event_action_mapping_enabled": getattr(settings, "ASYNC_EVENT_ACTION_MAPPING", False),
         }
     )
 
@@ -190,6 +191,7 @@ def redirect_to_site(request):
         "actionId": request.GET.get("actionId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
+        "dataAttributes": team.data_attributes,
     }
 
     if settings.JS_URL:

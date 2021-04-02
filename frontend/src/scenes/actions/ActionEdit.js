@@ -10,8 +10,9 @@ import { InfoCircleOutlined, PlusOutlined, SaveOutlined, DeleteOutlined } from '
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { actionsModel } from '~/models'
+import { AsyncActionMappingNotice } from 'scenes/project/Settings/WebhookIntegration'
 
-export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, user, simmer, temporaryToken }) {
+export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, user, temporaryToken }) {
     let logic = actionEditLogic({
         id: actionId,
         apiURL,
@@ -105,7 +106,6 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, use
                                 step={step}
                                 isEditor={false}
                                 actionId={action.id}
-                                simmer={simmer}
                                 isOnlyStep={action.steps.length === 1}
                                 onDelete={() => {
                                     const identifier = step.id ? 'id' : 'isNew'
@@ -163,6 +163,7 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, use
                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                             </Link>
                         </p>
+                        {user?.is_async_event_action_mapping_enabled && <AsyncActionMappingNotice />}
                         {action.post_to_slack && (
                             <>
                                 <Input

@@ -39,6 +39,7 @@ export function ActionFilter({
     disabled = false,
     singleFilter = false,
     sortable = false,
+    showOr = false,
 }) {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
@@ -89,6 +90,7 @@ export function ActionFilter({
                             key={index}
                             hideMathSelector={hideMathSelector}
                             singleFilter={singleFilter}
+                            showOr={showOr}
                         />
                     ))
                 )

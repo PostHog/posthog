@@ -11,14 +11,12 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.trends import Trends
 from posthog.tasks.update_cache import update_cache_item, update_cached_items
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key, get_safe_cache
 
 
-class TestUpdateCache(BaseTest):
-    TESTS_API = True
-
+class TestUpdateCache(APIBaseTest):
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_refresh_dashboard_cache(self, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock) -> None:

@@ -7,6 +7,7 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { FilterType } from '~/types'
 
 export enum ViewType {
     TRENDS = 'TRENDS',
@@ -47,7 +48,7 @@ export const insightLogic = kea<insightLogicType>({
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: true,
-        endQuery: (view: string, lastRefresh: string | boolean, exception?: Record<string, any>) => ({
+        endQuery: (view: string, lastRefresh: string | null, exception?: Record<string, any>) => ({
             view,
             lastRefresh,
             exception,
@@ -57,7 +58,7 @@ export const insightLogic = kea<insightLogicType>({
         setShowErrorMessage: (showErrorMessage: boolean) => ({ showErrorMessage }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setTimeout: (timeout) => ({ timeout }),
-        setLastRefresh: (lastRefresh: string | boolean): { lastRefresh: string | boolean } => ({ lastRefresh }),
+        setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
     }),
 
@@ -102,10 +103,10 @@ export const insightLogic = kea<insightLogicType>({
         ],
         timeout: [null, { setTimeout: (_, { timeout }) => timeout }],
         lastRefresh: [
-            false as boolean | string,
+            null as string | null,
             {
-                setLastRefresh: (_, { lastRefresh }): string | boolean => lastRefresh,
-                setActiveView: () => false,
+                setLastRefresh: (_, { lastRefresh }) => lastRefresh,
+                setActiveView: () => null,
             },
         ],
         isLoading: [
@@ -118,7 +119,7 @@ export const insightLogic = kea<insightLogicType>({
         allfilters is passed to components that are shared between the different insight features
         */
         allFilters: [
-            {} as Record<string, any>,
+            {} as FilterType,
             {
                 setAllFilters: (_, { filters }) => filters,
             },
@@ -141,7 +142,7 @@ export const insightLogic = kea<insightLogicType>({
         startQuery: () => {
             actions.setShowTimeoutMessage(false)
             actions.setShowErrorMessage(false)
-            actions.setLastRefresh(false)
+            actions.setLastRefresh(null)
             values.timeout && clearTimeout(values.timeout || undefined)
             const view = values.activeView
             actions.setTimeout(
@@ -158,7 +159,7 @@ export const insightLogic = kea<insightLogicType>({
             if (view === values.activeView) {
                 actions.setShowTimeoutMessage(values.maybeShowTimeoutMessage)
                 actions.setShowErrorMessage(values.maybeShowErrorMessage)
-                actions.setLastRefresh(lastRefresh || false)
+                actions.setLastRefresh(lastRefresh || null)
                 actions.setIsLoading(false)
                 if (values.maybeShowTimeoutMessage) {
                     posthog.capture('insight timeout message shown', { insight: values.activeView, ...exception })

@@ -96,6 +96,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "setup_section_2_completed",
         "created_at",
         "updated_at",
+        "plugins_access_level",
         "billing_plan",
         "organization_billing_link",
         "usage",
@@ -106,7 +107,14 @@ class OrganizationAdmin(admin.ModelAdmin):
     ]
     readonly_fields = ["created_at", "updated_at", "billing_plan", "organization_billing_link", "usage"]
     search_fields = ("name", "members__email")
-    list_display = ("name", "created_at", "members_count", "first_member", "organization_billing_link")
+    list_display = (
+        "name",
+        "created_at",
+        "plugins_access_level",
+        "members_count",
+        "first_member",
+        "organization_billing_link",
+    )
 
     def members_count(self, organization: Organization):
         return organization.members.count()

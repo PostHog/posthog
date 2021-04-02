@@ -2,7 +2,6 @@ import pytest
 from infi.clickhouse_orm import Database
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.person import Person
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
@@ -90,6 +89,7 @@ def db(db):
 def base_test_mixin_fixture():
     kls = TestMixin()
     kls.setUp()
+    kls.setUpTestData()
 
     return kls
 

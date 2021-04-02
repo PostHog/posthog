@@ -1,5 +1,6 @@
 import base64
 import datetime
+import datetime as dt
 import gzip
 import hashlib
 import json
@@ -199,6 +200,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     except (Team.DoesNotExist, AttributeError):
         team = Team.objects.first()
 
+    context["self_capture"] = False
     context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
 
     # TODO: BEGINS DEPRECATED CODE
@@ -238,6 +240,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["git_branch"] = get_git_branch()
 
     if settings.SELF_CAPTURE:
+        context["self_capture"] = True
         if team:
             context["js_posthog_api_key"] = f"'{team.api_token}'"
             context["js_posthog_host"] = "window.location.origin"
@@ -638,3 +641,18 @@ class GenericEmails:
         if at_location == -1:
             return False
         return self.emails.get(email[at_location + 1 :], False)
+
+
+def get_available_timezones_with_offsets() -> Dict[str, float]:
+    now = dt.datetime.now()
+    result = {}
+    for tz in pytz.common_timezones:
+        try:
+            offset = pytz.timezone(tz).utcoffset(now)
+        except:
+            offset = pytz.timezone(tz).utcoffset(now + dt.timedelta(hours=2))
+        if offset is None:
+            continue
+        offset_hours = int(offset.total_seconds()) / 3600
+        result[tz] = offset_hours
+    return result

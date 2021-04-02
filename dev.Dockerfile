@@ -3,10 +3,13 @@ ENV PYTHONUNBUFFERED 1
 RUN mkdir /code
 WORKDIR /code
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl git build-essential \
+    && apt-get install -y --no-install-recommends curl=7.64.0-4+deb10u2 git=1:2.20.1-2+deb10u3 build-essential=12.6 \
     && curl -sL https://deb.nodesource.com/setup_14.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get install -y --no-install-recommends nodejs=14.16.0-1nodesource1 \
+    && rm -rf /var/lib/apt/lists/* \
     && npm install -g yarn@1 \
     && yarn config set network-timeout 300000 \
     && yarn --frozen-lockfile
@@ -14,13 +17,12 @@ RUN apt-get update \
 COPY requirements.txt /code/
 COPY requirements-dev.txt /code/
 # install dependencies but ignore any we don't need for dev environment
-RUN pip install $(grep -ivE "psycopg2" requirements.txt | cut -d'#' -f1) --compile\
-    && pip install psycopg2-binary
+RUN pip install -r requirements.txt --no-cache-dir
 
 # install dev dependencies
 RUN mkdir /code/requirements/
 COPY requirements-dev.txt /code/requirements/
-RUN pip install -r requirements-dev.txt --compile
+RUN pip install -r requirements-dev.txt --compile --no-cache-dir
 
 COPY package.json /code/
 COPY yarn.lock /code/
@@ -44,6 +46,6 @@ RUN DEBUG=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py c
 EXPOSE 8000
 EXPOSE 8234
 RUN yarn install
-RUN cd plugins && yarn install
+RUN yarn install --cwd plugins
 ENV DEBUG 1
 CMD ["./bin/docker-dev"]

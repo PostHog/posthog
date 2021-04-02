@@ -12,6 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
+from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
@@ -173,6 +174,11 @@ def get_event(request):
         events = data
     else:
         events = [data]
+
+    try:
+        events = preprocess_session_recording_events(events)
+    except ValueError as e:
+        return cors_response(request, JsonResponse({"code": "validation", "message": str(e),}, status=400,),)
 
     for event in events:
         try:

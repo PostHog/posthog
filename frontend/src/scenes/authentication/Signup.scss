@@ -1,0 +1,126 @@
+@import '~/vars';
+@import './authenticationShared';
+
+/* Good Sans */
+@font-face {
+    font-family: 'Good Sans';
+    src: url('../../../public/GoodSans-Medium.woff') format('woff');
+    src: url('../../../public/GoodSans-Medium.woff2') format('woff2');
+    font-weight: normal;
+}
+
+$good_sans: 'Good Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue';
+
+.signup {
+    .image-showcase-container {
+        .image-showcase {
+            background: $space;
+
+            .planet {
+                z-index: $z_city_background_image;
+                position: absolute;
+                left: 0;
+                bottom: 0;
+                top: 0;
+                min-width: 492px;
+                width: 70%;
+                background: url('../../../public/planet.png');
+                background-size: cover;
+            }
+        }
+    }
+
+    .showcase-content {
+        z-index: $z_city_background_content;
+        height: calc(100% - 100px);
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 0 $default_spacing * 2;
+        position: relative;
+        font-family: $good_sans;
+        color: rgba(255, 255, 255, 0.8);
+
+        .inner {
+            padding-top: $default_spacing * 2;
+            max-width: 600px;
+            margin: 0 auto;
+
+            .showcase-description {
+                height: calc(100vh - 180px);
+                display: flex;
+                flex-direction: column;
+            }
+        }
+
+        h1 {
+            color: $text_light;
+        }
+
+        .signup-list {
+            margin-top: $default_spacing * 2;
+            div {
+                margin-bottom: $default_spacing;
+            }
+        }
+
+        .alt-options {
+            margin-top: $default_spacing * 3;
+            display: flex;
+            flex-grow: 1;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding-bottom: $default_spacing * 2;
+
+            a {
+                color: rgba(255, 255, 255, 0.8);
+            }
+
+            h3 {
+                color: $text_light;
+            }
+
+            .alt-option {
+                display: flex;
+                align-items: center;
+                padding-top: $default_spacing;
+                padding-bottom: $default_spacing;
+                b {
+                    color: $text_light;
+                    font-size: 1.05rem;
+                }
+                .anticon {
+                    font-size: 24px;
+                    padding-right: $default_spacing;
+                }
+
+                &:first-of-type {
+                    border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+                }
+            }
+        }
+    }
+
+    .auth-main-content {
+        align-items: center;
+        padding-bottom: 64px;
+        min-height: 100vh;
+    }
+
+    .form-step {
+        transform-origin: bottom;
+        transition: transform 0.4s ease-out;
+        transform: scaleY(1);
+
+        &.form-step-one {
+            transform-origin: top;
+        }
+
+        &.hide {
+            transform: scaleY(0);
+            height: 0;
+            transition: none;
+        }
+    }
+}

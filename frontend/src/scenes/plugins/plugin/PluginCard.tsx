@@ -1,4 +1,4 @@
-import { Button, Card, Col, Popconfirm, Row, Switch, Tag } from 'antd'
+import { Button, Card, Col, Popconfirm, Row, Space, Switch, Tag } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -9,9 +9,11 @@ import {
     LoadingOutlined,
     SettingOutlined,
     WarningOutlined,
+    InfoCircleOutlined,
+    MessageOutlined,
     DownOutlined,
+    GlobalOutlined,
 } from '@ant-design/icons'
-import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
 import { PluginError } from './PluginError'
 import { LocalPluginTag } from './LocalPluginTag'
@@ -20,6 +22,26 @@ import { SourcePluginTag } from './SourcePluginTag'
 import { CommunityPluginTag } from './CommunityPluginTag'
 import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
+import { endWithPunctation } from '../../../lib/utils'
+import { canInstallPlugins } from '../access'
+import { LinkButton } from '../../../lib/components/LinkButton'
+
+export function ExtraPluginButtons({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
+    return (
+        <Space>
+            <LinkButton to={url} target="_blank" rel="noopener noreferrer" disabled={disabled}>
+                <InfoCircleOutlined />
+                <span className="show-over-500">About</span>
+            </LinkButton>
+            {url.includes('github') && (
+                <LinkButton to={`${url}/issues/new`} target="_blank" rel="noopener noreferrer" disabled={disabled}>
+                    <MessageOutlined />
+                    <span className="show-over-500">Feedback</span>
+                </LinkButton>
+            )}
+        </Space>
+    )
+}
 
 interface PluginCardProps {
     plugin: Partial<PluginTypeWithConfig>
@@ -54,6 +76,9 @@ export function PluginCard({
         id: pluginId,
         updateStatus,
         hasMoved,
+        is_global,
+        organization_id,
+        organization_name,
     } = plugin
 
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin, rearrange } = useActions(
@@ -61,10 +86,6 @@ export function PluginCard({
     )
     const { loading, installingPluginUrl, checkingForUpdates, updatingPlugin } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
-
-    const canInstall = user?.plugin_access.install
-    const canConfigure = pluginId
-    const switchDisabled = rearranging
 
     return (
         <Col
@@ -103,9 +124,13 @@ export function PluginCard({
                                 }
                                 okText="Yes"
                                 cancelText="No"
-                                disabled={switchDisabled}
+                                disabled={rearranging}
                             >
-                                <Switch checked={pluginConfig.enabled} disabled={switchDisabled} />
+                                <Switch
+                                    checked={pluginConfig.enabled ?? false}
+                                    onClick={() => console.log(pluginConfig.enabled)}
+                                    disabled={rearranging}
+                                />
                             </Popconfirm>
                         </Col>
                     )}
@@ -124,8 +149,12 @@ export function PluginCard({
                             ) : error ? (
                                 <PluginError error={error} />
                             ) : null}
-
-                            {canInstall ? (
+                            {is_global && (
+                                <Tag color="blue">
+                                    <GlobalOutlined /> Managed by {organization_name}
+                                </Tag>
+                            )}
+                            {canInstallPlugins(user?.organization, organization_id) && (
                                 <>
                                     {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
                                     {updateStatus?.error ? (
@@ -149,61 +178,56 @@ export function PluginCard({
                                     ) : null}
                                     {pluginType === PluginInstallationType.Source ? <SourcePluginTag /> : null}
                                 </>
-                            ) : null}
-                        </div>
-                        <div>
-                            {description}
-                            {url && (
-                                <span>
-                                    {description ? ' ' : ''}
-                                    <Link
-                                        to={url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        style={{ whiteSpace: 'nowrap' }}
-                                    >
-                                        Learn more
-                                    </Link>
-                                    .
-                                </span>
                             )}
                         </div>
+                        <div>{endWithPunctation(description)}</div>
                     </Col>
                     <Col>
-                        {showUpdateButton && pluginId ? (
-                            <Button
-                                type={updateStatus?.updated ? 'default' : 'primary'}
-                                className="padding-under-500"
-                                onClick={() => (updateStatus?.updated ? editPlugin(pluginId) : updatePlugin(pluginId))}
-                                loading={!!updatingPlugin}
-                                icon={updateStatus?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
-                            >
-                                <span className="show-over-500">{updateStatus?.updated ? 'Updated' : 'Update'}</span>
-                            </Button>
-                        ) : canConfigure && pluginId ? (
-                            <Button
-                                type="primary"
-                                className="padding-under-500"
-                                disabled={rearranging}
-                                onClick={() => editPlugin(pluginId)}
-                            >
-                                <span className="show-over-500">Configure</span>
-                                <span className="hide-over-500">
+                        <Space>
+                            {url && <ExtraPluginButtons url={url} disabled={rearranging} />}
+                            {showUpdateButton && pluginId ? (
+                                <Button
+                                    type={updateStatus?.updated ? 'default' : 'primary'}
+                                    className="padding-under-500"
+                                    onClick={() =>
+                                        updateStatus?.updated ? editPlugin(pluginId) : updatePlugin(pluginId)
+                                    }
+                                    loading={!!updatingPlugin}
+                                    icon={updateStatus?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
+                                    disabled={rearranging}
+                                    data-attr="plugin-update"
+                                >
+                                    <span className="show-over-500">
+                                        {updateStatus?.updated ? 'Updated' : 'Update'}
+                                    </span>
+                                </Button>
+                            ) : pluginId ? (
+                                <Button
+                                    type="primary"
+                                    className="padding-under-500"
+                                    disabled={rearranging}
+                                    onClick={() => editPlugin(pluginId)}
+                                    data-attr="plugin-configure"
+                                >
                                     <SettingOutlined />
-                                </span>
-                            </Button>
-                        ) : !pluginId ? (
-                            <Button
-                                type="primary"
-                                className="padding-under-500"
-                                loading={loading && installingPluginUrl === url}
-                                disabled={loading && installingPluginUrl !== url}
-                                onClick={url ? () => installPlugin(url, PluginInstallationType.Repository) : undefined}
-                                icon={<CloudDownloadOutlined />}
-                            >
-                                <span className="show-over-500">Install</span>
-                            </Button>
-                        ) : null}
+                                    <span className="show-over-500">Configure</span>
+                                </Button>
+                            ) : !pluginId ? (
+                                <Button
+                                    type="primary"
+                                    className="padding-under-500"
+                                    loading={loading && installingPluginUrl === url}
+                                    disabled={loading && installingPluginUrl !== url}
+                                    onClick={
+                                        url ? () => installPlugin(url, PluginInstallationType.Repository) : undefined
+                                    }
+                                    icon={<CloudDownloadOutlined />}
+                                    data-attr="plugin-install"
+                                >
+                                    <span className="show-over-500">Install</span>
+                                </Button>
+                            ) : null}
+                        </Space>
                     </Col>
                 </Row>
             </Card>

@@ -8,7 +8,7 @@ interface Props {
 }
 
 interface DashboardItemAttributes {
-    type: string
+    type?: string
     entity: TrendPayload | FunnelPayload
 }
 

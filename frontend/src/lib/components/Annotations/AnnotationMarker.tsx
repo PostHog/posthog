@@ -5,7 +5,7 @@ import { Button, Popover, Row, Input, Checkbox, Tooltip } from 'antd'
 import { humanFriendlyDetailedTime } from '~/lib/utils'
 import { DeleteOutlined, PlusOutlined, ProjectOutlined, DeploymentUnitOutlined, CloseOutlined } from '@ant-design/icons'
 import { annotationsLogic } from './annotationsLogic'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { dashboardColors } from 'lib/colors'
 import { AnnotationScope } from 'lib/constants'
@@ -102,8 +102,8 @@ export function AnnotationMarker({
     if (
         dynamic &&
         Object.keys(groupedAnnotations)
-            .map((key) => moment(key))
-            .some((marker) => marker.isSame(moment(currentDateMarker).startOf(diffType)))
+            .map((key) => dayjs(key))
+            .some((marker) => marker.isSame(dayjs(currentDateMarker).startOf(diffType)))
     ) {
         return null
     }
@@ -116,13 +116,14 @@ export function AnnotationMarker({
             content={
                 dynamic ? (
                     <div ref={popupRef}>
-                        <span style={{ marginBottom: 12 }}>{moment(currentDateMarker).format('MMMM Do YYYY')}</span>
+                        <span style={{ marginBottom: 12 }}>{dayjs(currentDateMarker).format('MMMM Do YYYY')}</span>
                         <TextArea
                             maxLength={300}
                             style={{ marginBottom: 12 }}
                             rows={4}
                             value={textInput}
                             onChange={(e) => setTextInput(e.target.value)}
+                            autoFocus
                         />
                         <Checkbox
                             checked={applyAll}
@@ -285,7 +286,6 @@ export function AnnotationMarker({
                     zIndex: dynamic || hovered || elementId === currentDateMarker ? 999 : index,
                     boxShadow: dynamic ? '0 0 5px 4px rgba(0, 0, 0, 0.2)' : undefined,
                 }}
-                type="primary"
                 onClick={() => {
                     onClick?.()
                     setFocused(true)

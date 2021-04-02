@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { determineDifferenceType, deleteWithUndo, toParams, groupBy } from '~/lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
@@ -15,13 +15,13 @@ export const annotationsLogic = kea({
         createAnnotation: (content, date_marker, scope = 'dashboard_item') => ({
             content,
             date_marker,
-            created_at: moment(),
+            created_at: dayjs(),
             scope,
         }),
         createAnnotationNow: (content, date_marker, scope = 'dashboard_item') => ({
             content,
             date_marker,
-            created_at: moment(),
+            created_at: dayjs(),
             scope,
         }),
         deleteAnnotation: (id) => ({ id }),
@@ -114,14 +114,14 @@ export const annotationsLogic = kea({
         groupedAnnotations: [
             () => [selectors.annotationsList, selectors.diffType],
             (annotationsList, diffType) =>
-                groupBy(annotationsList, (annotation) => moment(annotation['date_marker']).startOf(diffType)),
+                groupBy(annotationsList, (annotation) => dayjs(annotation['date_marker']).startOf(diffType)),
         ],
     }),
     listeners: ({ actions, props }) => ({
         createAnnotationNow: async ({ content, date_marker, created_at, scope }) => {
             await api.create('api/annotation', {
                 content,
-                date_marker: moment(date_marker),
+                date_marker: dayjs(date_marker),
                 created_at,
                 dashboard_item: props.pageKey,
                 scope,

@@ -138,21 +138,34 @@ class EventManager(models.QuerySet):
     def filter_by_element(self, filters: Dict, team_id: int):
         groups = ElementGroup.objects.filter(team_id=team_id)
 
+        filter = Q()
         if filters.get("selector"):
             selector = Selector(filters["selector"])
-            subqueries, filter = self._element_subquery(selector)
+            subqueries, subq_filter = self._element_subquery(selector)
+            filter = Q(**subq_filter)
             groups = groups.annotate(**subqueries)  # type: ignore
         else:
-            filter = {}
+            filter = Q()
 
         for key in ["tag_name", "text", "href"]:
-            if filters.get(key):
-                filter["element__{}".format(key)] = filters[key]
+            values = filters.get(key, [])
+
+            if not values:
+                continue
+
+            values = values if isinstance(values, list) else [values]
+            if len(values) == 0:
+                continue
+
+            condition = Q()
+            for searched_value in values:
+                condition |= Q(**{"element__{}".format(key): searched_value})
+            filter &= condition
 
         if not filter:
             return {}
 
-        groups = groups.filter(**filter)
+        groups = groups.filter(filter)
         return {"elements_hash__in": groups.values_list("hash", flat=True)}
 
     def filter_by_url(self, action_step: ActionStep, subquery: QuerySet):
@@ -233,7 +246,9 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def create(self, site_url: Optional[str] = None, *args: Any, **kwargs: Any):
+    def create(self, *args: Any, **kwargs: Any):
+        site_url = kwargs.get("site_url")
+
         with transaction.atomic():
             if kwargs.get("elements"):
                 if kwargs.get("team"):
@@ -246,9 +261,7 @@ class EventManager(models.QuerySet):
                     ).hash
             event = super().create(*args, **kwargs)
 
-            # Matching actions to events can get very expensive to do as events are streaming in
-            # In a few cases we have had it OOM Postgres with the query it is running
-            # Short term solution is to have this be configurable to be run in batch
+            # DEPRECATED: ASYNC_EVENT_ACTION_MAPPING is the main approach now, as it works with the plugin server
             if not settings.ASYNC_EVENT_ACTION_MAPPING:
                 should_post_webhook = False
                 relations = []
@@ -274,6 +287,7 @@ class Event(models.Model):
         indexes = [
             models.Index(fields=["elements_hash"]),
             models.Index(fields=["timestamp", "team_id", "event"]),
+            models.Index(fields=["created_at"]),
         ]
 
     def _can_use_cached_query(self, last_updated_action_ts):
@@ -375,6 +389,7 @@ class Event(models.Model):
     properties: JSONField = JSONField(default=dict)
     timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
     elements_hash: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    site_url: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     # DEPRECATED: elements are stored against element groups now
     elements: JSONField = JSONField(default=list, null=True, blank=True)

@@ -24,7 +24,6 @@ services:
             - '8000:8000'
             - '8234:8234'
         environment:
-            IS_DOCKER: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             CLICKHOUSE_HOST: 'clickhouse'
             CLICKHOUSE_DATABASE: 'posthog'
@@ -52,7 +51,6 @@ services:
         volumes:
             - ..:/code
         environment:
-            IS_DOCKER: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             CLICKHOUSE_HOST: 'clickhouse'
             CLICKHOUSE_DATABASE: 'posthog'
@@ -71,7 +69,7 @@ services:
             - redis:redis
             - kafka:kafka
     plugins:
-        image: posthog/plugin-server:0.11.3
+        image: posthog/plugin-server:0.15.4
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'

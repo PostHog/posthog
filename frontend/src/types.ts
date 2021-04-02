@@ -4,6 +4,7 @@ import {
     CUSTOM_EVENT,
     EVENT_TYPE,
     OrganizationMembershipLevel,
+    PluginsAccessLevel,
     PAGEVIEW,
     SCREEN,
     ShownAsValue,
@@ -24,10 +25,9 @@ export interface UserType {
     team: TeamType | null
     toolbar_mode: 'disabled' | 'toolbar'
     organizations: OrganizationType[]
-    teams: TeamType[]
+    teams: Partial<TeamType>[]
     current_organization_id: string
     current_team_id: number
-    plugin_access: PluginAccess
     has_password: boolean
     is_multi_tenancy: boolean
     is_staff: boolean
@@ -38,6 +38,7 @@ export interface UserType {
     realm: 'cloud' | 'hosted'
     billing?: OrganizationBilling
     is_event_property_usage_enabled: boolean
+    is_async_event_action_mapping_enabled: boolean
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -81,6 +82,7 @@ export interface OrganizationType {
     membership_level: OrganizationMembershipLevel | null
     setup: SetupState
     personalization: PersonalizationData
+    plugins_access_level: PluginsAccessLevel
 }
 
 export interface OrganizationMemberType {
@@ -124,6 +126,8 @@ export interface TeamType {
     ingested_event: boolean
     is_demo: boolean
     test_account_filters: FilterType[]
+    timezone: string
+    data_attributes: string[]
 }
 
 export interface ActionType {
@@ -135,7 +139,7 @@ export interface ActionType {
     name: string
     post_to_slack?: boolean
     steps?: ActionStepType[]
-    created_by: Record<string, any>
+    created_by: UserNestedType | null
 }
 
 export interface ActionStepType {
@@ -174,6 +178,7 @@ export type EditorProps = {
     instrument?: boolean
     distinctId?: string
     userEmail?: boolean
+    dataAttributes?: string[]
 }
 
 export interface PropertyFilter {
@@ -260,9 +265,9 @@ export interface EntityWithProperties extends Entity {
 }
 
 export interface PersonType {
-    id: number
-    uuid: string
-    name: string
+    id?: number
+    uuid?: string
+    name?: string
     distinct_ids: string[]
     properties: Record<string, any>
     is_identified: boolean
@@ -277,7 +282,7 @@ export interface CohortGroupType {
 
 export interface CohortType {
     count?: number
-    created_by?: Record<string, any>
+    created_by?: UserNestedType | null
     created_at?: string
     deleted?: boolean
     id: number | 'new'
@@ -309,6 +314,7 @@ export interface EventType {
     id: number | string
     properties: Record<string, any>
     timestamp: string
+    person?: Partial<PersonType> | null
 }
 
 export interface SessionType {
@@ -372,7 +378,7 @@ export interface DashboardItemType {
     color: string | null
     last_refresh: string
     refreshing: boolean
-    created_by: Record<string, any>
+    created_by: UserNestedType | null
     is_sample: boolean
     dashboard: number
     result: any | null
@@ -381,15 +387,17 @@ export interface DashboardItemType {
 export interface DashboardType {
     id: number
     name: string
+    description: string
     pinned: boolean
     items: DashboardItemType[]
     created_at: string
-    created_by: number
+    created_by: UserNestedType | null
     is_shared: boolean
     share_token: string
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
+    tags: string[]
 }
 
 export interface OrganizationInviteType {
@@ -414,6 +422,9 @@ export interface PluginType {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     maintainer?: string
+    is_global: boolean
+    organization_id: string
+    organization_name: string
 }
 
 export interface PluginConfigType {
@@ -547,6 +558,26 @@ export interface ChartParams {
     view: ViewType
 }
 
+export interface FeatureFlagGroupType {
+    properties: PropertyFilter[]
+    rollout_percentage: number | null
+}
+interface FeatureFlagFilters {
+    groups: FeatureFlagGroupType[]
+}
+export interface FeatureFlagType {
+    id: number | null
+    key: string
+    name: string // Used as description
+    filters: FeatureFlagFilters
+    deleted: boolean
+    active: boolean
+    created_by: UserNestedType | null
+    created_at: string
+    is_simple_flag: boolean
+    rollout_percentage: number | null
+}
+
 export interface PrevalidatedInvite {
     id: string
     target_email: string
@@ -569,6 +600,7 @@ export interface PreflightStatus {
     cloud: boolean
     celery: boolean
     available_social_auth_providers: AuthBackends
+    available_timezones: Record<string, number>
 }
 
 export enum DashboardMode { // Default mode is null
@@ -578,14 +610,17 @@ export enum DashboardMode { // Default mode is null
     Public = 'public', // When viewing the dashboard publicly via a shareToken
 }
 
-export type Keys =
+// Reserved hotkeys globally available
+export type GlobalHotKeys = 'g'
+
+// Hotkeys for local (component) actions
+export type HotKeys =
     | 'a'
     | 'b'
     | 'c'
     | 'd'
     | 'e'
     | 'f'
-    | 'g'
     | 'h'
     | 'i'
     | 'j'

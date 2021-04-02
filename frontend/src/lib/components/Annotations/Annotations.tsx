@@ -1,5 +1,5 @@
 import React from 'react'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
@@ -39,12 +39,12 @@ export const Annotations = function Annotations({
     const markers: JSX.Element[] = []
     dates &&
         dates.forEach((date: string, index: number) => {
-            const annotations = groupedAnnotations[moment(date).startOf(diffType)]
+            const annotations = groupedAnnotations[dayjs(date).startOf(diffType)]
             if (annotations) {
                 markers.push(
                     <AnnotationMarker
                         elementId={dates[index]}
-                        label={moment(dates[index]).format('MMMM Do YYYY')}
+                        label={dayjs(dates[index]).format('MMMM Do YYYY')}
                         key={index}
                         left={index * interval + leftExtent - 12.5}
                         top={topExtent}
