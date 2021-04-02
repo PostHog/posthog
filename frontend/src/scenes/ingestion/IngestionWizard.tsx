@@ -7,6 +7,7 @@ import { InstructionsPanel } from 'scenes/ingestion/panels/InstructionsPanel'
 import { MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FrameworkPanel } from 'scenes/ingestion/panels/FrameworkPanel'
 import { FrameworkGrid } from 'scenes/ingestion/panels/FrameworkGrid'
 import { PlatformPanel } from 'scenes/ingestion/panels/PlatformPanel'
@@ -30,6 +31,7 @@ export function IngestionContainer({ children }: { children: React.ReactNode }):
 
 export default function IngestionWizard(): JSX.Element {
     const { platform, framework, verify } = useValues(ingestionLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (verify) {
         return (
@@ -39,8 +41,7 @@ export default function IngestionWizard(): JSX.Element {
         )
     }
 
-    const inExperiment = true
-    if (inExperiment && !framework) {
+    if (featureFlags && featureFlags['ingestion-grid'] && !framework) {
         return (
             <IngestionContainer>
                 <FrameworkGrid />

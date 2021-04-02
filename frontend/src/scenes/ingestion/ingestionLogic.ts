@@ -3,6 +3,7 @@ import { Framework, PlatformType } from 'scenes/ingestion/types'
 import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { ingestionLogicType } from './ingestionLogicType'
 import { userLogic } from 'scenes/userLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
@@ -58,8 +59,8 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
         index: [
             (s) => [s.platform, s.framework, s.verify],
             (platform, framework, verify) => {
-                const inExperiment = true
-                if (inExperiment) {
+                const featFlags = featureFlagLogic.values.featureFlags
+                if (featFlags && featFlags['ingestion-grid']) {
                     return (framework && platform ? 1 : 0) + (verify ? 1 : 0)
                 }
                 return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
