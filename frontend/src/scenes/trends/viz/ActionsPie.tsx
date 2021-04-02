@@ -23,23 +23,26 @@ export function ActionsPie({
 
     function updateData(): void {
         const _data = results as TrendResultWithAggregate[]
-        _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
 
-        const colorList = getChartColors(color)
+        if (_data) {
+            _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
 
-        setData([
-            {
-                labels: _data.map((item) => item.label),
-                data: _data.map((item) => item.aggregated_value),
-                backgroundColor: colorList,
-                hoverBackgroundColor: colorList,
-                hoverBorderColor: colorList,
-                borderColor: colorList,
-                hoverBorderWidth: 10,
-                borderWidth: 1,
-            },
-        ])
-        setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
+            const colorList = getChartColors(color)
+
+            setData([
+                {
+                    labels: _data.map((item) => item.label),
+                    data: _data.map((item) => item.aggregated_value),
+                    backgroundColor: colorList,
+                    hoverBackgroundColor: colorList,
+                    hoverBorderColor: colorList,
+                    borderColor: colorList,
+                    hoverBorderWidth: 10,
+                    borderWidth: 1,
+                },
+            ])
+            setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
+        }
     }
 
     useEffect(() => {
