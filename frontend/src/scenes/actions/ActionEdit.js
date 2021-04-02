@@ -13,6 +13,7 @@ import { actionsModel } from '~/models'
 import { AsyncActionMappingNotice } from 'scenes/project/Settings/WebhookIntegration'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import dayjs from 'dayjs'
+import { compactNumber } from 'lib/utils'
 
 export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, user, temporaryToken }) {
     let logic = actionEditLogic({
@@ -85,19 +86,21 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, use
                     />
                     {action.count > -1 && (
                         <div>
-                            <small className="text-muted">
-                                Matches {action.count} events
+                            <span className="text-muted mb-05">
+                                This action matches <b>{compactNumber(action.count)}</b> events
                                 {preflight.db_backend !== 'clickhouse' && (
                                     <>
                                         {' '}
                                         (last calculated{' '}
-                                        {action.last_calculated_at
-                                            ? dayjs(action.last_calculated_at).fromNow()
-                                            : 'a while ago'}
+                                        {action.last_calculated_at ? (
+                                            <b>{dayjs(action.last_calculated_at).fromNow()}</b>
+                                        ) : (
+                                            'a while ago'
+                                        )}
                                         )
                                     </>
                                 )}
-                            </small>
+                            </span>
                         </div>
                     )}
                 </div>
