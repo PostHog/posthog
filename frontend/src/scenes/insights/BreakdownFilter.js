@@ -108,6 +108,10 @@ function Content({ breakdown, breakdown_type, onChange }) {
                     breakdown={(!breakdown_type || breakdown_type == 'property') && breakdown}
                     onChange={onChange}
                 />
+                <span className="text-muted">
+                    Note: If there are more than 20 properties, <b>only the top 20</b> with the highest volume{' '}
+                    <b>will be shown</b>.
+                </span>
             </TabPane>
             <TabPane tab="Cohort" key="cohort">
                 <CohortFilter breakdown={breakdown_type == 'cohort' && breakdown} onChange={onChange} />

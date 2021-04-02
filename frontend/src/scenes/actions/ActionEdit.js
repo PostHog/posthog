@@ -14,7 +14,7 @@ import { AsyncActionMappingNotice } from 'scenes/project/Settings/WebhookIntegra
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import dayjs from 'dayjs'
 
-export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, user, simmer, temporaryToken }) {
+export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, user, temporaryToken }) {
     let logic = actionEditLogic({
         id: actionId,
         apiURL,
@@ -121,7 +121,6 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, use
                                 step={step}
                                 isEditor={false}
                                 actionId={action.id}
-                                simmer={simmer}
                                 isOnlyStep={action.steps.length === 1}
                                 onDelete={() => {
                                     const identifier = step.id ? 'id' : 'isNew'

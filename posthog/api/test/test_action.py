@@ -3,13 +3,11 @@ from unittest.mock import patch
 from rest_framework import status
 
 from posthog.models import Action, ActionStep, Element, Event
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest
 
 
 @patch("posthog.tasks.calculate_action.calculate_action.delay")
-class TestCreateAction(BaseTest):
-    TESTS_API = True
-
+class TestCreateAction(APIBaseTest):
     @patch("posthoganalytics.capture")
     def test_create_action(self, patch_capture, *args):
         Event.objects.create(
@@ -23,7 +21,6 @@ class TestCreateAction(BaseTest):
                 "name": "user signed up",
                 "steps": [{"text": "sign up", "selector": "div > button", "url": "/signup", "isNew": "asdf"}],
             },
-            content_type="application/json",
             HTTP_ORIGIN="http://testserver",
         )
         print(response.json())
@@ -124,7 +121,6 @@ class TestCreateAction(BaseTest):
                     "email": "person@email.com",
                 },
             },
-            content_type="application/json",
             HTTP_ORIGIN="http://testserver",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -174,7 +170,6 @@ class TestCreateAction(BaseTest):
         response = self.client.patch(
             "/api/action/%s/" % action.pk,
             data={"name": "user signed up 2", "steps": [],},
-            content_type="application/json",
             HTTP_ORIGIN="http://testserver",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -189,10 +184,7 @@ class TestCreateAction(BaseTest):
         # FIXME: BaseTest is using Django client to performe calls to a DRF endpoint.
         # Django HttpResponse does not have an attribute `data`. Better use rest_framework.test.APIClient.
         response = self.client.post(
-            "/api/action/",
-            data={"name": "user signed up",},
-            content_type="application/json",
-            HTTP_ORIGIN="https://evilwebsite.com",
+            "/api/action/", data={"name": "user signed up",}, HTTP_ORIGIN="https://evilwebsite.com",
         )
         self.assertEqual(response.status_code, 403)
 
@@ -202,7 +194,6 @@ class TestCreateAction(BaseTest):
         response = self.client.post(
             "/api/action/?temporary_token=token123",
             data={"name": "user signed up",},
-            content_type="application/json",
             HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(response.status_code, 201)
@@ -210,37 +201,28 @@ class TestCreateAction(BaseTest):
         response = self.client.post(
             "/api/action/?temporary_token=token123",
             data={"name": "user signed up and post to slack", "post_to_slack": True,},
-            content_type="application/json",
             HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["post_to_slack"], True)
 
-        list_response = self.client.get(
-            "/api/action/", content_type="application/json", HTTP_ORIGIN="https://evilwebsite.com",
-        )
+        list_response = self.client.get("/api/action/", HTTP_ORIGIN="https://evilwebsite.com",)
         self.assertEqual(list_response.status_code, 403)
 
         detail_response = self.client.get(
-            f"/api/action/{response.json()['id']}/",
-            content_type="application/json",
-            HTTP_ORIGIN="https://evilwebsite.com",
+            f"/api/action/{response.json()['id']}/", HTTP_ORIGIN="https://evilwebsite.com",
         )
         self.assertEqual(detail_response.status_code, 403)
 
         self.client.logout()
         list_response = self.client.get(
-            "/api/action/",
-            data={"temporary_token": "token123",},
-            content_type="application/json",
-            HTTP_ORIGIN="https://somewebsite.com",
+            "/api/action/", data={"temporary_token": "token123",}, HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(list_response.status_code, 200)
 
         response = self.client.post(
             "/api/action/?temporary_token=token123",
             data={"name": "user signed up 22",},
-            content_type="application/json",
             HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(response.status_code, 201, response.json())
@@ -248,9 +230,6 @@ class TestCreateAction(BaseTest):
     # This case happens when someone is running behind a proxy, but hasn't set `IS_BEHIND_PROXY`
     def test_http_to_https(self, patch_delay):
         response = self.client.post(
-            "/api/action/",
-            data={"name": "user signed up again",},
-            content_type="application/json",
-            HTTP_ORIGIN="https://testserver/",
+            "/api/action/", data={"name": "user signed up again",}, HTTP_ORIGIN="https://testserver/",
         )
         self.assertEqual(response.status_code, 201, response.json())

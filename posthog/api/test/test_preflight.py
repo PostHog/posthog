@@ -1,16 +1,13 @@
 from typing import cast
 
-import pytz
 from rest_framework import status
 
 from posthog.constants import RDBMS
 from posthog.models import User
-from posthog.settings import PRIMARY_DB
-
-from .base import BaseTest
+from posthog.test.base import APIBaseTest
 
 
-class TestPreflight(BaseTest):
+class TestPreflight(APIBaseTest):
     def test_preflight_request(self):
         with self.settings(MULTI_TENANCY=False):
             response = self.client.get("/_preflight/")

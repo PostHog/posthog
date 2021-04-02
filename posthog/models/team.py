@@ -24,7 +24,7 @@ class TeamManager(models.Manager):
             {
                 "key": "$host",
                 "operator": "is_not",
-                "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000"],
+                "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
             },
         ]
         if organization:
@@ -64,6 +64,10 @@ class TeamManager(models.Manager):
             return None
 
 
+def get_default_data_attributes() -> Any:
+    return ["data-attr"]
+
+
 class Team(models.Model):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
@@ -99,6 +103,7 @@ class Team(models.Model):
     is_demo: models.BooleanField = models.BooleanField(default=False)
     test_account_filters: JSONField = JSONField(default=list)
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
+    data_attributes: JSONField = JSONField(default=get_default_data_attributes)
 
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
