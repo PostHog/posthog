@@ -106,6 +106,7 @@ export function PropertyValue({
                         value={id || name}
                         data-attr={'prop-val-' + index}
                         className="ph-no-capture"
+                        title={name}
                     >
                         {name === true && 'true'}
                         {name === false && 'false'}
