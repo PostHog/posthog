@@ -53,6 +53,14 @@ class ErrorResponsesMixin:
             "attr": None,
         }
 
+    def method_not_allowed_response(self, method: str) -> Dict[str, Optional[str]]:
+        return {
+            "type": "invalid_request",
+            "code": "method_not_allowed",
+            "detail": f'Method "{method}" not allowed.',
+            "attr": None,
+        }
+
 
 class TestMixin:
     CONFIG_ORGANIZATION_NAME: str = "Test"

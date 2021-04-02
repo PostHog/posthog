@@ -9,6 +9,10 @@ from posthog.test.base import APIBaseTest
 
 
 class TestUserAPI(APIBaseTest):
+    new_org: Organization = None  # type: ignore
+    new_project: Team = None  # type: ignore
+    CONFIG_PASSWORD = "testpassword12345"
+
     def _assert_current_org_and_team_unchanged(self):
         self.user.refresh_from_db()
         self.assertEqual(self.user.current_team, self.team)
@@ -251,14 +255,13 @@ class TestUserAPI(APIBaseTest):
     @patch("posthoganalytics.capture")
     def test_user_can_update_password(self, mock_capture):
 
-        response = self.client.patch(
-            "/api/v2/user/", {"current_password": self.CONFIG_PASSWORD, "password": "a_new_password"},
-        )
+        user = self._create_user("bob@posthog.com", password="A12345678")
+        self.client.force_login(user)
+
+        response = self.client.patch("/api/v2/user/", {"current_password": "A12345678", "password": "a_new_password"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-
-        self.assertEqual(response_data["first_name"], self.user.first_name)
-        self.assertEqual(response_data["email"], self.user.email)
+        self.assertEqual(response_data["email"], "bob@posthog.com")
         self.assertNotIn("password", response_data)
         self.assertNotIn("current_password", response_data)
 
@@ -267,15 +270,15 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(get_response.status_code, status.HTTP_200_OK)
 
         # Password was successfully changed
-        self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password("a_new_password"))
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("a_new_password"))
 
         mock_capture.assert_called_once_with(
-            self.user.distinct_id, "user updated", properties={"updated_attrs": ["password"]},
+            user.distinct_id, "user updated", properties={"updated_attrs": ["password"]},
         )
 
         # User can log in with new password
-        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": "a_new_password"})
+        response = self.client.post("/api/login", {"email": "bob@posthog.com", "password": "a_new_password"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @patch("posthoganalytics.capture")
@@ -348,13 +351,70 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
         mock_capture.assert_not_called()
-        pass
+
+    def test_user_cannot_update_password_without_current_password(self):
+        response = self.client.patch("/api/v2/user/", {"password": "12345678"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "required",
+                "detail": "This field is required when updating your password.",
+                "attr": "current_password",
+            },
+        )
+
+        # Password was not changed
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+
+    def test_user_cannot_update_password_with_incorrect_current_password(self):
+        response = self.client.patch("/api/v2/user/", {"current_password": "wrong", "password": "12345678"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "incorrect_password",
+                "detail": "Your current password is incorrect.",
+                "attr": "current_password",
+            },
+        )
+
+        # Password was not changed
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+
+    def test_unauthenticated_user_cannot_update_anything(self):
+        self.client.logout()
+        response = self.client.patch(
+            "/api/v2/user/",
+            {
+                "id": str(self.user.uuid),
+                "email": "new@posthog.com",
+                "password": "hijacked",
+                "current_password": self.CONFIG_PASSWORD,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json(), self.ERROR_RESPONSE_UNAUTHENTICATED)
+
+        self.user.refresh_from_db()
+        self.assertNotEqual(self.user.email, "new@posthog.com")
+        self.assertFalse(self.user.check_password("hijacked"))
+
+    # DELETING USER
 
     def test_deleting_current_user_is_not_supported(self):
         """
         Self-serve account deletion is currently not supported.
         """
-        pass
+        response = self.client.delete("/api/v2/user/")
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(response.json(), self.method_not_allowed_response("DELETE"))
+
+        self.user.refresh_from_db()
 
 
 class TestUserAPILegacy(APIBaseTest):
@@ -419,7 +479,6 @@ class TestUserAPILegacy(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
-        # TODO: When refactoring this to DRF; assert the full response is what's expected
         self.assertEqual(response_data["distinct_id"], self.user.distinct_id)
 
         # Make sure the user is update in PostHog (analytics)

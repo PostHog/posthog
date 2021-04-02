@@ -9,6 +9,7 @@ from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.db import models
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
@@ -96,8 +97,9 @@ class UserSerializer(serializers.ModelSerializer):
 
         raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
 
-    def validate_password_change(self, instance: User, current_password: Optional[str], password: Optional[str]) -> str:
-
+    def validate_password_change(
+        self, instance: User, current_password: Optional[str], password: Optional[str]
+    ) -> Optional[str]:
         if password:
             if instance.password and instance.has_usable_password():
                 # If user has a password set, we check it's provided to allow updating it. We need to check that is both
@@ -118,7 +120,7 @@ class UserSerializer(serializers.ModelSerializer):
 
         return password
 
-    def update(self, instance: User, validated_data: Any) -> Any:
+    def update(self, instance: models.Model, validated_data: Any) -> Any:
 
         # Update current_organization and current_team
         current_organization = validated_data.pop("set_current_organization", None)
@@ -137,10 +139,12 @@ class UserSerializer(serializers.ModelSerializer):
 
         # Update password
         current_password = validated_data.pop("current_password", None)
-        password = self.validate_password_change(instance, current_password, validated_data.pop("password", None))
+        password = self.validate_password_change(
+            cast(User, instance), current_password, validated_data.pop("password", None)
+        )
 
         updated_attrs = list(validated_data.keys())
-        instance = super().update(instance, validated_data)
+        instance = cast(User, super().update(instance, validated_data))
 
         if password:
             instance.set_password(password)
