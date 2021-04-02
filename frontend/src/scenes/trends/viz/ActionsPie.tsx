@@ -26,7 +26,6 @@ export function ActionsPie({
 
         if (_data) {
             _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
-
             const colorList = getChartColors(color)
 
             setData([
