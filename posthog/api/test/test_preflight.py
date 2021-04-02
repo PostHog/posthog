@@ -1,5 +1,7 @@
 from typing import cast
 
+import pytest
+from django.conf import settings
 from rest_framework import status
 
 from posthog.constants import RDBMS
@@ -26,7 +28,7 @@ class TestPreflight(APIBaseTest):
                     "db": True,
                     "initiated": True,
                     "cloud": False,
-                    "ee_available": True,
+                    "ee_available": settings.EE_AVAILABLE,
                     "ee_enabled": False,
                     "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
                     "opt_out_capture": False,
@@ -39,6 +41,7 @@ class TestPreflight(APIBaseTest):
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
+    @pytest.mark.ee
     def test_cloud_preflight_request(self):
 
         self.client.logout()  # make sure it works anonymously
@@ -73,6 +76,7 @@ class TestPreflight(APIBaseTest):
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
+    @pytest.mark.ee
     def test_cloud_preflight_request_with_social_auth_providers(self):
 
         self.client.logout()  # make sure it works anonymously

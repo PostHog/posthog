@@ -132,7 +132,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         return super().get_queryset().filter(organization__in=self.request.user.organizations.all())
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
-        if self.action == "list":
+        if self.action == "list":  # type: ignore
             return TeamBasicSerializer
         return super().get_serializer_class()
 
