@@ -126,7 +126,7 @@ export function FrameworkGrid(): JSX.Element {
             </h3>
 
             <Row>{FrameworkTabs()}</Row>
-            <Row align="middle" style={{ float: 'right', marginTop: 8 }}>
+            <Row align="middle" style={{ float: 'right', marginTop: 5 }}>
                 Don't see a language/platform/framework here?
                 <b
                     style={{ marginLeft: 5 }}

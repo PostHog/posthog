@@ -82,7 +82,6 @@ export const mobileFrameworks = {
     ...httpFrameworks,
 }
 
-// todo: replace web w/ server, rename client to web.
 export const clientFrameworks = {
     [PURE_JS]: 'JavaScript SDK',
     [AUTOCAPTURE]: 'JavaScript Snippet',
