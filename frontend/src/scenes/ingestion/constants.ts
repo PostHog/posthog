@@ -1,4 +1,4 @@
-import { PlatformType } from 'scenes/ingestion/types'
+import { Framework, PlatformType } from 'scenes/ingestion/types'
 
 export const PLATFORM_TYPE = 'PLATFORM_TYPE'
 export const AUTOCAPTURE = 'AUTOCAPTURE'
@@ -25,7 +25,7 @@ export const IOS = 'IOS'
 export const REACT_NATIVE = 'REACT_NATIVE'
 export const FLUTTER = 'FLUTTER'
 
-export const frameworkToPlatform = (framework: string): PlatformType => {
+export const frameworkToPlatform = (framework: Framework): PlatformType => {
     switch (framework) {
         case PURE_JS:
         case AUTOCAPTURE:

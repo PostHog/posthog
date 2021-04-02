@@ -25,7 +25,7 @@ export function AutocapturePanel(): JSX.Element {
         }
     }
 
-    const scrollToSdk = (e): void => {
+    const scrollToSdk = (e: HTMLDivElement): void => {
         if (framework?.toString() === 'PURE_JS') {
             e?.scrollIntoView()
         }

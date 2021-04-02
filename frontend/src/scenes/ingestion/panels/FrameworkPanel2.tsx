@@ -19,30 +19,27 @@ import './FrameworkPanel2.scss'
 const { TabPane } = Tabs
 const { Paragraph } = Typography
 
-// console.log(displayedTab)
-function FrameworksContainer(frameworks: Framework[], sort?: boolean): JSX.Element {
-    // const [displayedTab, setDisplayedTab] = useState('popular')
-
+function FrameworksContainer(frameworks: Record<string, string>, sort?: boolean): JSX.Element {
     const { setPlatform, setFramework } = useActions(ingestionLogic)
-    // const {platform, index, totalSteps} = useValues(ingestionLogic)
 
-    // const [displayedPlatform, setDisplayedPlatform] = useState('popular')
-
-    const getDisplayName = (item: string): string => {
-        if (item === 'PURE_JS') {
+    const getDisplayName = (item: Framework | string): string => {
+        if (item?.toString() === 'PURE_JS') {
             return 'JAVASCRIPT SDK'
-        } else if (item === 'AUTOCAPTURE') {
+        } else if (item?.toString() === 'AUTOCAPTURE') {
             return 'Auto Capture (JS Snippet)'
-        } else if (item === 'NODEJS') {
+        } else if (item?.toString() === 'NODEJS') {
             return 'NODE JS'
         } else {
-            return frameworks[item]
+            return item ? frameworks[item] : ''
         }
     }
 
-    const getDataSource = (sorted?: boolean): (keyof typeof frameworks)[] => {
+    const getDataSource = (sorted?: boolean): string[] => {
         if (sorted) {
             return Object.keys(frameworks).sort((k1, k2) => {
+                if (k1 === API) {
+                    return 1
+                }
                 return getDisplayName(k1).toString().localeCompare(getDisplayName(k2).toString())
             }) as (keyof typeof frameworks)[]
         } else {
@@ -55,35 +52,24 @@ function FrameworksContainer(frameworks: Framework[], sort?: boolean): JSX.Eleme
             style={{ height: 325, maxHeight: 325, overflowY: 'scroll' }}
             grid={{}}
             size={'large'}
-            dataSource={getDataSource(sort)}
-            renderItem={(item) => (
+            dataSource={getDataSource(sort) as Framework[]}
+            renderItem={(item: Framework) => (
                 <List.Item
                     className="selectable-item"
                     data-attr={'select-framework-' + item}
                     key={item}
                     onClick={() => {
-                        console.log('handling click')
-                        console.log(item)
                         setPlatform(frameworkToPlatform(item))
                         setFramework(item)
                     }}
                 >
-                    {/*{item === 'PURE_JS' ? <Tag color="green">AUTO TRACK</Tag> : null}*/}
                     <div className="framework-container">
                         <div className={'logo-container'}>
                             <Avatar
                                 size={64}
                                 shape={'square'}
-                                // shape={
-                                //     item === 'PURE_JS' ||
-                                //     item === 'AUTOCAPTURE' ||
-                                //     item === 'REACT_NATIVE' ||
-                                //     item === 'PHP'
-                                //         ? 'circle'
-                                //         : 'square'
-                                // }
                                 className={'logo'}
-                                src={item in logos ? logos[item] : logos['default']}
+                                src={item && item in logos ? logos[item] : logos['default']}
                             />
                         </div>
                         <Paragraph className="framework-name" type="secondary" strong>
@@ -97,16 +83,6 @@ function FrameworksContainer(frameworks: Framework[], sort?: boolean): JSX.Eleme
 }
 
 function MenuHeader(): JSX.Element {
-    // const allFrameworks = Object.assign({}, webFrameworks, mobileFrameworks, clientFrameworks)
-    // const mobile
-
-    // const allFrameworksSorted = Object.values(allFrameworks).sort().reduce(
-    //   (obj, key) => {
-    //     obj[key] = allFrameworks[key];
-    //     return obj;
-    //   },
-    //   {}
-    // );
     return (
         <Tabs defaultActiveKey="popular">
             <TabPane tab="Most Popular" key="popular">
