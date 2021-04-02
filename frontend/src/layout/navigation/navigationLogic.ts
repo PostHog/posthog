@@ -104,6 +104,10 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
         demoWarning: [
             () => [userLogic.selectors.user, organizationLogic.selectors.currentOrganization],
             (user: UserType, organization: OrganizationType): WarningType => {
+                if (!organization) {
+                    return null
+                }
+
                 if (
                     organization.setup.is_active &&
                     dayjs(organization.created_at) >= dayjs().subtract(1, 'days') &&

@@ -63,7 +63,8 @@ export function App(): JSX.Element | null {
 
         // If ingestion tutorial not completed, redirect to it
         if (
-            !currentTeam?.completed_snippet_onboarding &&
+            currentTeam &&
+            !currentTeam.completed_snippet_onboarding &&
             !location.pathname.startsWith('/ingestion') &&
             !location.pathname.startsWith('/personalization')
         ) {
@@ -107,7 +108,6 @@ export function App(): JSX.Element | null {
 
     return (
         <>
-            <UpgradeModal />
             <Layout>
                 <MainNavigation />
                 <Layout className={`${sceneConfig.dark ? 'bg-mid' : ''}`} style={{ minHeight: '100vh' }}>
@@ -124,6 +124,7 @@ export function App(): JSX.Element | null {
                 </Layout>
                 {essentialElements}
             </Layout>
+            <UpgradeModal />
             <CommandPalette />
         </>
     )
