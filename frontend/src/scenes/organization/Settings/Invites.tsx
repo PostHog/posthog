@@ -4,7 +4,7 @@ import { useValues, useActions } from 'kea'
 import { invitesLogic } from './invitesLogic'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { OrganizationInviteType, UserNestedType } from '~/types'
+import { OrganizationInviteType, UserBasicSerializer } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CreateInviteModalWithButton } from './CreateInviteModal'
 import { ColumnsType } from 'antd/lib/table'
@@ -81,7 +81,8 @@ export function Invites(): JSX.Element {
             title: 'Created By',
             dataIndex: 'created_by',
             key: 'created_by',
-            render: (createdBy?: UserNestedType) => (createdBy ? `${createdBy.first_name} (${createdBy.email})` : '–'),
+            render: (createdBy?: UserBasicSerializer) =>
+                createdBy ? `${createdBy.first_name} (${createdBy.email})` : '–',
         },
         {
             title: 'Invite Link',
