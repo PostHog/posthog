@@ -1019,6 +1019,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "wushaobo",
+      "name": "Shaobo Wu",
+      "avatar_url": "https://avatars.githubusercontent.com/u/491264?v=4",
+      "profile": "https://github.com/wushaobo",
+      "contributions": [
+        "question"
+      ]
     }
   ],
   "contributorsPerLine": 7,
