@@ -15,7 +15,6 @@ services:
         container_name: posthog_redis
         ports:
             - '6379:6379'
-
     worker: &worker
         build:
             context: .
@@ -28,7 +27,6 @@ services:
             REDIS_URL: 'redis://redis:6379/'
             SECRET_KEY: '<randomly generated secret key>'
             DEBUG: 'true'
-
             # For bin/tests
             PGHOST: db
             PGUSER: posthog
@@ -39,7 +37,6 @@ services:
         links:
             - db:db
             - redis:redis
-
     web:
         <<: *worker
         command: ./bin/docker-dev-web
