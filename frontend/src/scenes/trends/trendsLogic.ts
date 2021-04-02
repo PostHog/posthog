@@ -161,7 +161,7 @@ export const trendsLogic = kea<
             __default: {} as TrendResponse,
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
-                    return props.cachedResults
+                    return { result: props.cachedResults } as TrendResponse
                 }
                 insightLogic.actions.startQuery()
                 let response
@@ -180,6 +180,7 @@ export const trendsLogic = kea<
                         )
                     }
                 } catch (e) {
+                    console.error(e)
                     breakpoint()
                     insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, null, e)
                     return []
