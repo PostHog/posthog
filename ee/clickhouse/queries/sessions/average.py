@@ -2,7 +2,7 @@ from typing import List
 
 from dateutil.relativedelta import relativedelta
 
-from ee.clickhouse.client import format_sql, sync_execute
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.sessions.util import entity_query_conditions
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
