@@ -40,9 +40,7 @@ class TestAction(
 ):
     @patch("posthog.tasks.calculate_action.calculate_action.delay")
     def test_is_calculating_always_false(self, patch_delay):
-        create_response_wrapper = self.client.post(
-            "/api/action/", data={"name": "ooh"}, content_type="application/json"
-        )
+        create_response_wrapper = self.client.post("/api/action/", {"name": "ooh"})
         create_response = create_response_wrapper.json()
         print(create_response)
         self.assertEqual(create_response_wrapper.status_code, status.HTTP_201_CREATED)
@@ -56,9 +54,7 @@ class TestAction(
         self.assertEqual(response["is_calculating"], False)
 
         # Make sure we're not re-calculating actions
-        response = self.client.patch(
-            "/api/action/%s/" % create_response["id"], {"name": "ooh"}, content_type="application/json"
-        )
+        response = self.client.patch("/api/action/%s/" % create_response["id"], {"name": "ooh"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "ooh")
         self.assertEqual(response.json()["is_calculating"], False)
