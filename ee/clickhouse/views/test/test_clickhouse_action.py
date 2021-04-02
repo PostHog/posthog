@@ -42,7 +42,6 @@ class TestAction(
     def test_is_calculating_always_false(self, patch_delay):
         create_response_wrapper = self.client.post("/api/action/", {"name": "ooh"})
         create_response = create_response_wrapper.json()
-        print(create_response)
         self.assertEqual(create_response_wrapper.status_code, status.HTTP_201_CREATED)
         self.assertEqual(create_response["is_calculating"], False)
         self.assertFalse(patch_delay.called)
