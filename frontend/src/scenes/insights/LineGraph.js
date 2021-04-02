@@ -21,6 +21,16 @@ Chart.defaults.global.elements.line.tension = 0
 
 const noop = () => {}
 
+const commonTooltipsOptions = {
+    enabled: true,
+    yPadding: 10,
+    xPadding: 10,
+    caretPadding: 0,
+    backgroundColor: '#1dc9b7',
+    titleFontColor: '#ffffff',
+    labelFontSize: 23,
+}
+
 export function LineGraph({
     datasets,
     visibilityMap = null,
@@ -184,7 +194,7 @@ export function LineGraph({
             maintainAspectRatio: false,
             scaleShowHorizontalLines: false,
             tooltips: {
-                enabled: true,
+                ...commonTooltipsOptions,
                 intersect: false,
                 mode: 'nearest',
                 // If bar, we want to only show the tooltip for what we're hovering over
@@ -192,15 +202,8 @@ export function LineGraph({
                 axis: { bar: 'x', horizontalBar: 'y' }[type],
                 bodySpacing: 5,
                 position: 'nearest',
-                yPadding: 10,
-                xPadding: 10,
-                caretPadding: 0,
                 displayColors: false,
-                backgroundColor: '#1dc9b7',
-                titleFontColor: '#ffffff',
-                labelFontSize: 23,
                 cornerRadius: 4,
-                fontSize: 12,
                 footerSpacing: 0,
                 titleSpacing: 0,
                 footerFontStyle: 'italic',
@@ -333,16 +336,8 @@ export function LineGraph({
                 maintainAspectRatio: false,
                 hover: { mode: 'index' },
                 tooltips: {
-                    enabled: true,
-                    yPadding: 10,
-                    xPadding: 10,
-                    caretPadding: 0,
-                    displayColors: true,
+                    ...commonTooltipsOptions,
                     mode: 'index',
-                    backgroundColor: '#1dc9b7',
-                    titleFontColor: '#ffffff',
-                    labelFontSize: 23,
-                    fontSize: 12,
                     callbacks: {
                         label: function (tooltipItem, data) {
                             let entityData = data.datasets[tooltipItem.datasetIndex]
