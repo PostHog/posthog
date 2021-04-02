@@ -160,7 +160,7 @@ export function ProjectSettings(): JSX.Element {
                 <p>
                     Increase the quality of your analytics results by filtering out events from internal sources, such
                     as team members, test accounts, or development environments. The data be saved nonetheless, however
-                    you'll be able to exclude it from queries with the "Filter out internal and test users " setting
+                    you'll be able to exclude it from queries with the "Filter out internal and test users" setting
                     during analysis.
                 </p>
                 <p>
