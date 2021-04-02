@@ -3,7 +3,6 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { autocorrectInterval, errorToast, objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
-import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 import {
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -22,6 +21,7 @@ import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendRe
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { teamLogic } from 'scenes/teamLogic'
 
 interface TrendResponse {
     result: TrendResult[]
@@ -143,7 +143,7 @@ export const trendsLogic = kea<
     },
 
     connect: {
-        values: [userLogic, ['eventNames'], actionsModel, ['actions']],
+        values: [teamLogic, ['eventNames'], actionsModel, ['actions']],
     },
 
     loaders: ({ values, props }) => ({

@@ -1,8 +1,8 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { userLogic } from 'scenes/userLogic'
 import { objectsEqual } from 'lib/utils'
 import { router } from 'kea-router'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function parseProperties(input) {
     if (Array.isArray(input) || !input) {
@@ -135,7 +135,7 @@ export const propertyFilterLogic = kea({
             actions.loadPersonProperties()
             // TODO: Supporting event properties in sessions is temporarily unsupported (context https://github.com/PostHog/posthog/issues/2735)
             if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
-                actions.setProperties(userLogic.values.eventProperties)
+                actions.setProperties(teamLogic.values.eventProperties)
             }
         },
     }),
