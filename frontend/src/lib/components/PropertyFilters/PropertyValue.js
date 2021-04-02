@@ -46,6 +46,11 @@ export function PropertyValue({
         }
     }
 
+    function setValue(newValue) {
+        onSet(newValue)
+        setInput('')
+    }
+
     useEffect(() => {
         loadPropertyValues('')
     }, [propertyKey])
@@ -66,9 +71,9 @@ export function PropertyValue({
                 style={{ width: '100%', ...style }}
                 onChange={(value, payload) => {
                     if (isOperatorMulti(operator) && payload.length > 0) {
-                        onSet(value)
+                        setValue(value)
                     } else {
-                        onSet(payload?.value ?? null)
+                        setValue(payload?.value ?? null)
                     }
                 }}
                 value={value || placeholder}
