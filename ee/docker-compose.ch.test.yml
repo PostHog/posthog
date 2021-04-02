@@ -2,7 +2,7 @@ version: '3'
 
 services:
     db:
-        image: postgres:11-alpine
+        image: postgres:12-alpine
         environment:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
