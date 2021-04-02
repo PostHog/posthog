@@ -238,7 +238,10 @@ export function formatLabel(label: string, action: ActionFilter): string {
     }
     if (action?.properties?.length) {
         label += ` (${action.properties
-            .map((property) => operatorMap[property.operator || 'exact'].split(' ')[0] + ' ' + property.value)
+            .map(
+                (property) =>
+                    `${property.key} ${operatorMap[property.operator || 'exact'].split(' ')[0]} ${property.value}`
+            )
             .join(', ')})`
     }
     return label
