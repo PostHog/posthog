@@ -27,7 +27,6 @@ services:
             REDIS_URL: 'redis://redis:6379/'
             SECRET_KEY: '<randomly generated secret key>'
             DEBUG: 'true'
-            # For bin/tests
             PGHOST: db
             PGUSER: posthog
             PGPASSWORD: posthog
