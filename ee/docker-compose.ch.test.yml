@@ -37,11 +37,11 @@ services:
         environment:
             KAFKA_ADVERTISED_HOST_NAME: kafka
             KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-    worker: &worker
+    test:
         build:
             context: ../
             dockerfile: dev.Dockerfile
-        command: ./bin/docker-worker-celery --with-scheduler
+        command: ./ee/bin/docker-ch-test
         volumes:
             - ..:/code
         environment:
@@ -66,28 +66,6 @@ services:
             - redis:redis
             - clickhouse:clickhouse
             - kafka:kafka
-    test:
-        <<: *worker
-        command: ./ee/bin/docker-ch-test
         ports:
             - '8000:8000'
             - '8234:8234'
-    plugins:
-        image: posthog/plugin-server:0.11.3
-        restart: on-failure
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_ENABLED: 'true'
-            KAFKA_HOSTS: 'kafka:9092'
-            REDIS_URL: 'redis://redis:6379/'
-            CLICKHOUSE_HOST: 'clickhouse'
-        depends_on:
-            - db
-            - redis
-            - clickhouse
-            - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka
