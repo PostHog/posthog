@@ -1,15 +1,9 @@
 # This file contains a list of 'ignored' typescript errors. If any new ones are added they will cause ci breakage
 # Add lines via bin/check-typescript-strict | cut -d":" -f1
 Type.ts
-frontend/src/initKea.tsx(2,32)
-frontend/src/initKea.tsx(4,31)
-frontend/src/initKea.tsx(5,36)
-frontend/src/initKea.tsx(17,29)
-frontend/src/initKea.tsx(17,36)
-frontend/src/initKea.tsx(17,48)
-frontend/src/initKea.tsx(22,77)
-frontend/src/initKea.tsx(27,28)
-frontend/src/initKea.tsx(27,47)
+frontend/src/initKea.ts(2,32)
+frontend/src/initKea.ts(4,31)
+frontend/src/initKea.ts(5,36)
 frontend/src/layout/TopContent/TopSelectors.tsx(69,53)
 frontend/src/layout/TopContent/TopSelectors.tsx(115,29)
 frontend/src/layout/TopContent/TopSelectors.tsx(133,26)

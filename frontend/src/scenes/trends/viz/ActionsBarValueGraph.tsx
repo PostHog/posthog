@@ -53,7 +53,11 @@ export function ActionsBarValueGraph({
         setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
     }
 
-    useEffect(updateData, [results, color])
+    useEffect(() => {
+        if (results) {
+            updateData()
+        }
+    }, [results, color])
 
     return data && !resultsLoading ? (
         total > 0 ? (

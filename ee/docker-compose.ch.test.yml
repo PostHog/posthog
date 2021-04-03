@@ -66,6 +66,3 @@ services:
             - redis:redis
             - clickhouse:clickhouse
             - kafka:kafka
-        ports:
-            - '8000:8000'
-            - '8234:8234'
