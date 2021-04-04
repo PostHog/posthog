@@ -7,6 +7,7 @@ import { OrganizationType, SystemStatus, UserType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 type WarningType =
     | 'welcome'
@@ -88,10 +89,14 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
             },
         ],
         updateAvailable: [
-            (selectors) => [selectors.latestVersion, selectors.latestVersionLoading, userLogic.selectors.user],
-            (latestVersion, latestVersionLoading, user) => {
+            (selectors) => [
+                selectors.latestVersion,
+                selectors.latestVersionLoading,
+                preflightLogic.selectors.preflight,
+            ],
+            (latestVersion, latestVersionLoading, preflight) => {
                 // Always latest version in multitenancy
-                return !latestVersionLoading && !user?.is_multi_tenancy && latestVersion !== user?.posthog_version
+                return !latestVersionLoading && !preflight?.cloud && latestVersion !== preflight?.posthog_version
             },
         ],
         currentTeam: [
@@ -153,6 +158,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
             if (values.currentTeam === id) {
                 return
             }
+            // TODO
             await api.update('api/user', {
                 user: { current_team_id: id },
             })

@@ -30,6 +30,7 @@ import { BulkInviteModal } from 'scenes/organization/Settings/BulkInviteModal'
 import { UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import MD5 from 'crypto-js/md5'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export interface ProfilePictureProps {
     name?: string
@@ -82,6 +83,7 @@ export function TopNavigation(): JSX.Element {
         navigationLogic
     )
     const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
     const { logout } = useActions(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
     const { sceneConfig } = useValues(sceneLogic)
@@ -101,7 +103,7 @@ export function TopNavigation(): JSX.Element {
             </div>
             <div className="text-center mt" style={{ paddingRight: 16, paddingLeft: 16 }}>
                 <div>
-                    {user?.email_service_available ? (
+                    {preflight?.email_service_available ? (
                         <Button
                             type="primary"
                             icon={<UserAddOutlined />}
@@ -125,7 +127,7 @@ export function TopNavigation(): JSX.Element {
                         Organization Settings
                     </LinkButton>
                 </div>
-                {user?.is_multi_tenancy ? (
+                {preflight?.cloud ? (
                     <div className="mt-05">
                         <Link to="/organization/billing" data-attr="top-menu-item-billing">
                             Billing
@@ -254,7 +256,7 @@ export function TopNavigation(): JSX.Element {
                                 type="primary"
                             />
                         )}
-                        {(!user?.is_multi_tenancy || user.is_staff) && (
+                        {(!preflight?.cloud || user?.is_staff) && (
                             <Badge
                                 data-attr="system-status-badge"
                                 type={systemStatus ? 'success' : 'danger'}
@@ -263,7 +265,7 @@ export function TopNavigation(): JSX.Element {
                                 className="mr"
                             />
                         )}
-                        {!user?.is_multi_tenancy && (
+                        {!preflight?.cloud && (
                             <Badge
                                 data-attr="update-indicator-badge"
                                 type={updateAvailable ? 'warning' : undefined}
