@@ -2,18 +2,24 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { PreflightStatus } from '~/types'
 import { preflightLogicType } from './logicType'
+import posthog from 'posthog-js'
 
 export const preflightLogic = kea<preflightLogicType<PreflightStatus>>({
-    loaders: {
+    loaders: ({ actions }) => ({
         preflight: [
             null as PreflightStatus | null,
             {
-                loadPreflight: async () => await api.get('_preflight/'),
+                loadPreflight: async () => {
+                    const response = await api.get('_preflight/')
+                    actions.registerInstrumentationProps()
+                    return response
+                },
             },
         ],
-    },
+    }),
     actions: {
         resetPreflight: true,
+        registerInstrumentationProps: true,
     },
     reducers: {
         preflight: {
@@ -36,10 +42,22 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus>>({
             },
         ],
     },
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         resetPreflight: async (_, breakpoint) => {
             await breakpoint(1000)
             actions.loadPreflight()
+        },
+        registerInstrumentationProps: async (_, breakpoint) => {
+            await breakpoint(100)
+            if (posthog && values.preflight) {
+                posthog.register({
+                    posthog_version: values.preflight.posthog_version,
+                    realm: values.realm,
+                    ee_enabled: values.preflight.ee_enabled,
+                    ee_available: values.preflight.ee_available,
+                    email_service_available: values.preflight.email_service_available,
+                })
+            }
         },
     }),
     events: ({ actions }) => ({

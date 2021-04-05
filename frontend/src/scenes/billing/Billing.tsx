@@ -12,7 +12,7 @@ export function Billing(): JSX.Element {
 
     return (
         <div className="billing-page">
-            <PageHeader title="Billing &amp; usage information" />
+            <PageHeader title="Billing &amp; usage information iajsdfoijsadfioasjdifojas" />
             <CurrentUsage />
             {billing?.plan ? <CurrentPlan plan={billing.plan} /> : <BillingEnrollment />}
             <div style={{ marginBottom: 128 }} />

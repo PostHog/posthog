@@ -4,6 +4,7 @@ import { billingLogicType } from './billingLogicType'
 import { PlanInterface, UserType, BillingType } from '~/types'
 import { sceneLogic, Scene } from 'scenes/sceneLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import posthog from 'posthog-js'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -14,6 +15,9 @@ export enum BillingAlertType {
 }
 
 export const billingLogic = kea<billingLogicType<PlanInterface, UserType, BillingType>>({
+    actions: {
+        registerInstrumentationProps: true,
+    },
     loaders: ({ actions }) => ({
         billing: [
             null as BillingType | null,
@@ -23,6 +27,7 @@ export const billingLogic = kea<billingLogicType<PlanInterface, UserType, Billin
                     if (!response?.plan) {
                         actions.loadPlans()
                     }
+                    actions.registerInstrumentationProps()
                     return response as BillingType
                 },
             },
@@ -107,10 +112,24 @@ export const billingLogic = kea<billingLogicType<PlanInterface, UserType, Billin
             }
         },
     }),
-    listeners: () => ({
+    listeners: ({ values }) => ({
         subscribeSuccess: ({ billingSubscription }) => {
             if (billingSubscription?.subscription_url) {
                 window.location.href = billingSubscription.subscription_url
+            }
+        },
+        registerInstrumentationProps: async (_, breakpoint) => {
+            await breakpoint(100)
+            if (posthog && values.billing) {
+                posthog.register({
+                    has_billing_plan: !!values.billing?.plan,
+                    metered_billing: values.billing.plan?.is_metered_billing,
+                    event_allocation: values.billing.event_allocation,
+                    allocation_used:
+                        values.billing.event_allocation && values.billing.current_usage !== null
+                            ? values.billing.current_usage / values.billing.event_allocation
+                            : undefined,
+                })
             }
         },
     }),
