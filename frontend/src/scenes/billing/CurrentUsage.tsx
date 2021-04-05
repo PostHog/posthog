@@ -2,39 +2,33 @@ import { Card, Progress, Tooltip } from 'antd'
 import { useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
 import React from 'react'
-import { userLogic } from 'scenes/userLogic'
 import { billingLogic } from './billingLogic'
 
-export function CurrentUsage(): JSX.Element {
-    const { eventAllocation, percentage, strokeColor } = useValues(billingLogic)
-    const { user } = useValues(userLogic)
-    const plan = user?.billing?.plan
+export function CurrentUsage(): JSX.Element | null {
+    const { eventAllocation, percentage, strokeColor, billing } = useValues(billingLogic)
+    const plan = billing?.plan
 
-    // :TODO: Temporary support for legacy `FormattedNumber` type
-    const current_usage =
-        typeof user?.billing?.current_usage === 'number'
-            ? user.billing.current_usage
-            : user?.billing?.current_usage?.value
-    const allocation = typeof eventAllocation === 'number' ? eventAllocation : eventAllocation?.value
+    if (!billing) {
+        return null
+    }
 
     return (
         <>
             <div className="space-top" />
             <Card title="Current monthly usage">
-                {current_usage !== undefined ? (
+                {billing.current_usage !== null ? (
                     <>
                         Your organization has used{' '}
-                        <Tooltip title={`${current_usage.toLocaleString()} events`}>
-                            <b>{compactNumber(current_usage)}</b>
+                        <Tooltip title={`${billing.current_usage.toLocaleString()} events`}>
+                            <b>{compactNumber(billing.current_usage)}</b>
                         </Tooltip>{' '}
                         events this month.{' '}
-                        {allocation && (
+                        {eventAllocation && (
                             <>
-                                You can use up to <b>{compactNumber(allocation)}</b> events per month.
+                                You can use up to <b>{compactNumber(eventAllocation)}</b> events per month.
                             </>
                         )}
                         {plan &&
-                            !plan.allowance && // :TODO: DEPRECATED
                             !plan.event_allowance &&
                             !plan.is_metered_billing &&
                             'Your current plan has an unlimited event allocation.'}

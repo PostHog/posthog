@@ -80,7 +80,7 @@ export function App(): JSX.Element | null {
     const essentialElements = (
         // Components that should always be mounted inside Layout
         <>
-            {featureFlags['papercups-enabled'] && <Papercups user={user} />}
+            {featureFlags['papercups-enabled'] && <Papercups />}
             <Toast />
         </>
     )

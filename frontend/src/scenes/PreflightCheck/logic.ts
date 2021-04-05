@@ -26,6 +26,15 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus>>({
             (preflight: PreflightStatus | null) =>
                 preflight && Object.values(preflight.available_social_auth_providers).filter((i) => i).length,
         ],
+        realm: [
+            (s) => [s.preflight],
+            (preflight: PreflightStatus | null): 'cloud' | 'hosted' | null => {
+                if (!preflight) {
+                    return null
+                }
+                return preflight.cloud ? 'cloud' : 'hosted'
+            },
+        ],
     },
     listeners: ({ actions }) => ({
         resetPreflight: async (_, breakpoint) => {
