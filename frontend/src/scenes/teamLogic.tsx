@@ -2,9 +2,10 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { teamLogicType } from './teamLogicType'
 import { TeamType } from '~/types'
+import { userLogic } from './userLogic'
 import { toast } from 'react-toastify'
 import React from 'react'
-import { posthogEvents, capitalizeFirstLetter } from 'lib/utils'
+import { posthogEvents, identifierToHuman, resolveWebhookService } from 'lib/utils'
 
 export interface EventProperty {
     value: string
@@ -16,12 +17,7 @@ export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
         deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,
         deleteTeamFailure: true,
-        // updateController can be used to handle special logic when updating a team for a particular instance (e.g. showing a different success message)
-        updateCurrentTeamSuccess: (currentTeam: TeamType, updateController?: string, updatedAttribute?: string) => ({
-            currentTeam,
-            updateController,
-            updatedAttribute,
-        }),
+        setUpdatingTeamPayload: (payload: Partial<TeamType>) => ({ payload }),
     },
     reducers: {
         teamBeingDeleted: [
@@ -32,13 +28,10 @@ export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
                 deleteTeamFailure: () => null,
             },
         ],
-        currentTeam: [
-            null as TeamType | null,
+        updatingTeamPayload: [
+            null as Partial<TeamType> | null,
             {
-                updateCurrentTeamSuccess: (_, { currentTeam }) => {
-                    console.log('reducer', currentTeam)
-                    return currentTeam
-                },
+                setUpdatingTeamPayload: (_, { payload }) => payload,
             },
         ],
     },
@@ -53,21 +46,13 @@ export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
                         return null
                     }
                 },
-                updateCurrentTeam: async ({
-                    payload,
-                    updateController,
-                }: {
-                    payload: Partial<TeamType>
-                    updateController?: string
-                }) => {
+                updateCurrentTeam: async (payload: Partial<TeamType>) => {
                     if (!values.currentTeam) {
                         throw new Error('Current team has not been loaded yet, so it cannot be updated!')
                     }
-                    const updatedAttribute = Object.keys(payload).length === 1 ? Object.keys(payload)[0] : undefined
+                    actions.setUpdatingTeamPayload(payload)
                     const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, payload)) as TeamType
-                    console.log(patchedTeam)
-                    actions.updateCurrentTeamSuccess(patchedTeam, updateController, updatedAttribute)
-
+                    userLogic.actions.loadUser()
                     return patchedTeam
                 },
                 createTeam: async (name: string): Promise<TeamType> => await api.create('api/projects/', { name }),
@@ -75,7 +60,7 @@ export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
             },
         ],
     }),
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         deleteTeam: async ({ team }) => {
             try {
                 await api.delete(`api/projects/${team.id}`)
@@ -91,21 +76,33 @@ export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
         createTeamSuccess: () => {
             window.location.href = '/ingestion'
         },
-        updateCurrentTeamSuccess: ({ updateController, updatedAttribute }) => {
-            console.log(updateController, updatedAttribute, 'listener')
-            if (!updateController) {
-                /* By default we show a success message. If `updateController` is set, we let the listening
-                controller handle this logic. */
-                toast.success(
-                    <div>
-                        <h1>
-                            {updatedAttribute ? capitalizeFirstLetter(updatedAttribute) : 'Project'} updated
-                            successfully!
-                        </h1>
-                        <p>Your project's settings have been successfully updated. Click here to dismiss.</p>
-                    </div>
-                )
+        updateCurrentTeamSuccess: () => {
+            if (!values.updatingTeamPayload) {
+                return
             }
+            const updatedAttribute =
+                Object.keys(values.updatingTeamPayload).length === 1 ? Object.keys(values.updatingTeamPayload)[0] : null
+
+            let description = "Your project's settings have been successfully updated. Click here to dismiss."
+
+            if (updatedAttribute === 'slack_incoming_webhook') {
+                description = values.updatingTeamPayload.slack_incoming_webhook
+                    ? `Webhook integration enabled. You should see a message on ${resolveWebhookService(
+                          values.updatingTeamPayload.slack_incoming_webhook
+                      )}.`
+                    : 'Webhook integration disabled.'
+            }
+
+            toast.dismiss('updateCurrentTeam')
+            toast.success(
+                <div>
+                    <h1>{updatedAttribute ? identifierToHuman(updatedAttribute) : 'Project'} updated successfully!</h1>
+                    <p>{description}</p>
+                </div>,
+                {
+                    toastId: 'updateCurrentTeam',
+                }
+            )
         },
     }),
     selectors: {

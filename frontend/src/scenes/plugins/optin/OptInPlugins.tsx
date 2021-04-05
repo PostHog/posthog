@@ -77,7 +77,7 @@ export function OptInPlugins(): JSX.Element {
                     disabled={!optIn || serverStatus !== 'online'}
                     data-attr="enable-plugins"
                     onClick={() => {
-                        updateCurrentTeam({ payload: { plugins_opt_in: true } })
+                        updateCurrentTeam({ plugins_opt_in: true })
                         posthog.capture('plugins enabled for project')
                     }}
                 >

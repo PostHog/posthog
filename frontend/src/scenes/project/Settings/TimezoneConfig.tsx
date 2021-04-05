@@ -20,8 +20,9 @@ export function TimezoneConfig(): JSX.Element {
                 placeholder="Select a timezone"
                 style={{ width: '20rem', maxWidth: '100%' }}
                 loading={currentTeamLoading}
+                disabled={currentTeamLoading}
                 value={currentTeam.timezone}
-                onChange={(val) => updateCurrentTeam({ payload: { timezone: val } })}
+                onChange={(val) => updateCurrentTeam({ timezone: val })}
                 data-attr="timezone-select"
             >
                 {Object.entries(preflight.available_timezones).map(([tz, offset]) => {

@@ -104,16 +104,13 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
     listeners: () => ({
         completeOnboarding: () => {
             teamLogic.actions.updateCurrentTeam({
-                payload: { completed_snippet_onboarding: true },
-                updateController: 'ingestion',
+                completed_snippet_onboarding: true,
             })
         },
-        updateCurrentTeamSuccess: ({ updateController }) => {
-            if (updateController === 'ingestion') {
-                const usingOnboardingSetup = organizationLogic.values.currentOrganization?.setup.is_active
-                // If user is under the new setup state (#2822), take them back to start section II of the setup
-                window.location.href = usingOnboardingSetup ? '/setup' : '/insights'
-            }
+        updateCurrentTeamSuccess: () => {
+            const usingOnboardingSetup = organizationLogic.values.currentOrganization?.setup.is_active
+            // If user is under the new setup state (#2822), take them back to start section II of the setup
+            window.location.href = usingOnboardingSetup ? '/setup' : '/insights'
         },
     }),
 })

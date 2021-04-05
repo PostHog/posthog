@@ -71,7 +71,7 @@ export function App(): JSX.Element | null {
         }
     }, [scene, user])
 
-    if (userLoading || preflightLoading) {
+    if ((userLoading && !user) || (preflightLoading && !preflight)) {
         return <SceneLoading />
     }
 

@@ -182,3 +182,9 @@ export const MATHS: Record<string, any> = {
         type: PROPERTY_MATH_TYPE,
     },
 }
+
+export const WEBHOOK_SERVICES: Record<string, string> = {
+    Slack: 'slack.com',
+    Discord: 'discord.com',
+    Teams: 'office.com',
+}

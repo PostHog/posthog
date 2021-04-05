@@ -17,7 +17,7 @@ export function SessionRecording(): JSX.Element {
                 <Switch
                     data-attr="opt-in-session-recording-switch"
                     onChange={(checked) => {
-                        updateCurrentTeam({ payload: { session_recording_opt_in: checked } })
+                        updateCurrentTeam({ session_recording_opt_in: checked })
                     }}
                     checked={currentTeam?.session_recording_opt_in}
                 />
@@ -37,7 +37,7 @@ export function SessionRecording(): JSX.Element {
                             data-attr="session-recording-retention-period-switch"
                             onChange={(checked) => {
                                 const newPeriod = checked ? 7 : null
-                                updateCurrentTeam({ payload: { session_recording_retention_period_days: newPeriod } })
+                                updateCurrentTeam({ session_recording_retention_period_days: newPeriod })
                                 setPeriod(newPeriod)
                             }}
                             checked={period != null}
@@ -58,7 +58,7 @@ export function SessionRecording(): JSX.Element {
                                 onChange={(event) => {
                                     const newPeriod = parseFloat(event.target.value)
                                     updateCurrentTeam({
-                                        payload: { session_recording_retention_period_days: newPeriod },
+                                        session_recording_retention_period_days: newPeriod,
                                     })
                                     setPeriod(newPeriod)
                                 }}

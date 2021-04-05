@@ -3,44 +3,25 @@ import { kea, useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { Input, Button } from 'antd'
 import { logicType } from './WebhookIntegrationType'
-import { UserType } from '~/types'
-import { toast } from 'react-toastify'
 import { errorToast } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-
-const WEBHOOK_SERVICES: Record<string, string> = {
-    Slack: 'slack.com',
-    Discord: 'discord.com',
-    Teams: 'office.com',
-}
-
-function resolveWebhookService(webhookUrl: string): string {
-    for (const [service, domain] of Object.entries(WEBHOOK_SERVICES)) {
-        if (webhookUrl.includes(domain + '/')) {
-            return service
-        }
-    }
-    return 'your webhook service'
-}
 
 function adjustDiscordWebhook(webhookUrl: string): string {
     // We need Discord webhook URLs to end with /slack for proper handling, this ensures that
     return webhookUrl.replace(/\/*(?:posthog|slack)?\/?$/, '/slack')
 }
 
-const logic = kea<logicType<UserType>>({
+const logic = kea<logicType>({
     actions: () => ({
         setEditedWebhook: (webhook: string) => ({ webhook }),
         saveWebhook: (webhook: string) => ({ webhook }),
         testThenSaveWebhook: true,
         handleTestError: (error: string) => ({ error }),
     }),
-
     defaults: () => (state: Record<string, any>) => ({
         editedWebhook: teamLogic.selectors.currentTeam(state, {})?.slack_incoming_webhook,
     }),
-
     reducers: () => ({
         editedWebhook: [
             '',
@@ -49,19 +30,7 @@ const logic = kea<logicType<UserType>>({
                 saveWebhook: (_, { webhook }) => webhook,
             },
         ],
-        isSaving: [
-            false,
-            {
-                saveWebhook: () => true,
-                testThenSaveWebhook: () => true,
-                handleTestError: () => false,
-                [teamLogic.actionTypes.updateCurrentTeamSuccess]: (state, { updateController }) =>
-                    updateController === 'webhook' ? false : state,
-                [teamLogic.actionTypes.updateCurrentTeamFailure]: () => false,
-            },
-        ],
     }),
-
     listeners: ({ actions, values }) => ({
         testThenSaveWebhook: async () => {
             let { editedWebhook } = values
@@ -87,24 +56,10 @@ const logic = kea<logicType<UserType>>({
             }
         },
         saveWebhook: async () => {
-            teamLogic.actions.updateCurrentTeam({
-                payload: { slack_incoming_webhook: values.editedWebhook },
-                updateController: 'webhook',
-            })
+            teamLogic.actions.updateCurrentTeam({ slack_incoming_webhook: values.editedWebhook })
         },
         handleTestError: ({ error }) => {
             errorToast('Error validating your webhook', 'Your webhook returned the following error response:', error)
-        },
-        [teamLogic.actionTypes.updateCurrentTeamSuccess]: ({ updateController }) => {
-            if (updateController === 'webhook') {
-                toast.success(
-                    values.editedWebhook
-                        ? `Webhook integration enabled. You should see a message on ${resolveWebhookService(
-                              values.editedWebhook
-                          )}.`
-                        : 'Webhook integration disabled.'
-                )
-            }
         },
     }),
 })
@@ -119,9 +74,10 @@ export function AsyncActionMappingNotice(): JSX.Element {
 }
 
 export function WebhookIntegration(): JSX.Element {
-    const { isSaving, editedWebhook } = useValues(logic)
+    const { editedWebhook } = useValues(logic)
     const { testThenSaveWebhook, setEditedWebhook } = useActions(logic)
     const { preflight } = useValues(preflightLogic)
+    const { currentTeamLoading } = useValues(teamLogic)
 
     return (
         <div>
@@ -142,6 +98,7 @@ export function WebhookIntegration(): JSX.Element {
                 style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
                 type="url"
                 placeholder={'integration disabled – type a URL to enable'}
+                disabled={currentTeamLoading}
             />
             <Button
                 type="primary"
@@ -149,8 +106,9 @@ export function WebhookIntegration(): JSX.Element {
                     e.preventDefault()
                     testThenSaveWebhook()
                 }}
+                loading={currentTeamLoading}
             >
-                {isSaving ? '...' : editedWebhook ? 'Test & Save' : 'Save'}
+                {editedWebhook ? 'Test & Save' : 'Save'}
             </Button>
         </div>
     )
