@@ -17,7 +17,6 @@ import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
-import { userLogic } from 'scenes/userLogic'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { RestrictedArea } from '../../../lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from '../../../lib/constants'
@@ -52,7 +51,7 @@ function DisplayName(): JSX.Element {
                 type="primary"
                 onClick={(e) => {
                     e.preventDefault()
-                    updateCurrentTeam({ name })
+                    updateCurrentTeam({ payload: { name } })
                 }}
                 disabled={!name || !currentTeam || name === currentTeam.name}
                 loading={currentTeamLoading}
@@ -67,7 +66,6 @@ export function ProjectSettings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
-    const { user } = useValues(userLogic)
 
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
 
@@ -107,7 +105,7 @@ export function ProjectSettings(): JSX.Element {
                     project.
                     <br />
                 </p>
-                <p>{user?.team && <JSBookmarklet team={user.team} />}</p>
+                <div>{currentTeam && <JSBookmarklet team={currentTeam} />}</div>
                 <Divider />
                 <h2 id="custom-events" className="subtitle">
                     Send Custom Events
@@ -143,7 +141,7 @@ export function ProjectSettings(): JSX.Element {
                     ]}
                     copyDescription="project API key"
                 >
-                    {currentTeam?.api_token}
+                    {currentTeam?.api_token || ''}
                 </CodeSnippet>
                 Write-only means it can only create new events. It can't read events or any of your other data stored
                 with PostHog, so it's safe to use in public apps.

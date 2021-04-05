@@ -26,7 +26,7 @@ export function DangerZone(): JSX.Element {
                 <Popconfirm
                     title="Are you sure you want to disable plugins?"
                     onConfirm={() => {
-                        updateCurrentTeam({ plugins_opt_in: false })
+                        updateCurrentTeam({ payload: { plugins_opt_in: false } })
                         posthog.capture('plugins disabled for project')
                     }}
                     onCancel={() => null}

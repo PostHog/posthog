@@ -2,11 +2,12 @@ import React from 'react'
 import { kea, useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { Input, Button } from 'antd'
-import { userLogic } from 'scenes/userLogic'
 import { logicType } from './WebhookIntegrationType'
 import { UserType } from '~/types'
 import { toast } from 'react-toastify'
 import { errorToast } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 const WEBHOOK_SERVICES: Record<string, string> = {
     Slack: 'slack.com',
@@ -37,7 +38,7 @@ const logic = kea<logicType<UserType>>({
     }),
 
     defaults: () => (state: Record<string, any>) => ({
-        editedWebhook: userLogic.selectors.user(state, {})?.team?.slack_incoming_webhook,
+        editedWebhook: teamLogic.selectors.currentTeam(state, {})?.slack_incoming_webhook,
     }),
 
     reducers: () => ({
@@ -54,10 +55,9 @@ const logic = kea<logicType<UserType>>({
                 saveWebhook: () => true,
                 testThenSaveWebhook: () => true,
                 handleTestError: () => false,
-                [userLogic.actionTypes.userUpdateSuccess]: (state, { updateKey }) =>
-                    updateKey === 'webhook' ? false : state,
-                [userLogic.actionTypes.userUpdateFailure]: (state, { updateKey }) =>
-                    updateKey === 'webhook' ? false : state,
+                [teamLogic.actionTypes.updateCurrentTeamSuccess]: (state, { updateController }) =>
+                    updateController === 'webhook' ? false : state,
+                [teamLogic.actionTypes.updateCurrentTeamFailure]: () => false,
             },
         ],
     }),
@@ -87,13 +87,16 @@ const logic = kea<logicType<UserType>>({
             }
         },
         saveWebhook: async () => {
-            userLogic.actions.userUpdateRequest({ team: { slack_incoming_webhook: values.editedWebhook } }, 'webhook')
+            teamLogic.actions.updateCurrentTeam({
+                payload: { slack_incoming_webhook: values.editedWebhook },
+                updateController: 'webhook',
+            })
         },
         handleTestError: ({ error }) => {
             errorToast('Error validating your webhook', 'Your webhook returned the following error response:', error)
         },
-        [userLogic.actionTypes.userUpdateSuccess]: ({ updateKey }) => {
-            if (updateKey === 'webhook') {
+        [teamLogic.actionTypes.updateCurrentTeamSuccess]: ({ updateController }) => {
+            if (updateController === 'webhook') {
                 toast.success(
                     values.editedWebhook
                         ? `Webhook integration enabled. You should see a message on ${resolveWebhookService(
@@ -118,7 +121,7 @@ export function AsyncActionMappingNotice(): JSX.Element {
 export function WebhookIntegration(): JSX.Element {
     const { isSaving, editedWebhook } = useValues(logic)
     const { testThenSaveWebhook, setEditedWebhook } = useActions(logic)
-    const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
 
     return (
         <div>
@@ -130,7 +133,7 @@ export function WebhookIntegration(): JSX.Element {
                 <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>. Discord is also
                 supported.
             </p>
-            {user?.is_async_event_action_mapping_enabled && <AsyncActionMappingNotice />}
+            {preflight?.is_async_event_action_mapping_enabled && <AsyncActionMappingNotice />}
 
             <Input
                 value={editedWebhook}

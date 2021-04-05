@@ -210,7 +210,9 @@ export function OnboardingSetup(): JSX.Element {
                                     identifier="session-recording"
                                     handleClick={() =>
                                         updateCurrentTeam({
-                                            session_recording_opt_in: !currentTeam?.session_recording_opt_in,
+                                            payload: {
+                                                session_recording_opt_in: !currentTeam?.session_recording_opt_in,
+                                            },
                                         })
                                     }
                                     caption={

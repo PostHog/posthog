@@ -9,7 +9,7 @@ export function TimezoneConfig(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
-    if (!preflight || !currentTeam) {
+    if (!preflight?.available_timezones || !currentTeam) {
         return <Skeleton paragraph={{ rows: 0 }} active />
     }
 
@@ -21,7 +21,7 @@ export function TimezoneConfig(): JSX.Element {
                 style={{ width: '20rem', maxWidth: '100%' }}
                 loading={currentTeamLoading}
                 value={currentTeam.timezone}
-                onChange={(val) => updateCurrentTeam({ timezone: val })}
+                onChange={(val) => updateCurrentTeam({ payload: { timezone: val } })}
                 data-attr="timezone-select"
             >
                 {Object.entries(preflight.available_timezones).map(([tz, offset]) => {

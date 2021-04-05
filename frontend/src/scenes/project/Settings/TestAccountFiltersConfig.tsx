@@ -11,7 +11,7 @@ export function TestAccountFiltersConfig(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     const handleChange = (filters: FilterType[]): void => {
-        updateCurrentTeam({ test_account_filters: filters })
+        updateCurrentTeam({ payload: { test_account_filters: filters } })
         reportTestAccountFiltersUpdated(filters)
     }
 

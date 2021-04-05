@@ -45,7 +45,7 @@ export function DataAttributes(): JSX.Element {
                     type="primary"
                     onClick={() =>
                         updateCurrentTeam({
-                            data_attributes: value.map((s) => s.trim()).filter((a) => a) || [],
+                            payload: { data_attributes: value.map((s) => s.trim()).filter((a) => a) || [] },
                         })
                     }
                 >
