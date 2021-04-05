@@ -74,7 +74,7 @@ export const MATHS: Record<string, any> = {
         type: EVENT_MATH_TYPE,
     },
     dau: {
-        name: 'Unique instance of event',
+        name: 'Unique users',
         description: (
             <>
                 Users active in the time interval.
