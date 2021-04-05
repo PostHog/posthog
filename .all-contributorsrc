@@ -59,7 +59,9 @@
       "contributions": [
         "code",
         "test",
-        "design"
+        "design",
+        "content",
+        "data"
       ]
     },
     {
