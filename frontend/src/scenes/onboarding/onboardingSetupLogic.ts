@@ -1,9 +1,11 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { OrganizationType, UserType } from '~/types'
+import { OrganizationType, TeamType } from '~/types'
 import { onboardingSetupLogicType } from './onboardingSetupLogicType'
 
 export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
@@ -37,8 +39,7 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
     listeners: {
         switchToNonDemoProject: ({ dest }: { dest: string }) => {
             // Swithces to the first non-demo project (if on demo) and takes user to dest
-            const { user } = userLogic.values
-            if (!user?.team?.is_demo) {
+            if (!teamLogic.values.currentTeam?.is_demo) {
                 router.actions.push(dest)
             } else {
                 const teamId =
@@ -79,13 +80,13 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
             (organization: OrganizationType): number | null => organization.setup.current_section,
         ],
         teamInviteAvailable: [
-            () => [userLogic.selectors.user],
-            (user: UserType): boolean => user.email_service_available,
+            () => [preflightLogic.selectors.preflight],
+            (preflight): boolean => !!preflight?.email_service_available,
         ],
         progressPercentage: [
             (s) => [
                 s.teamInviteAvailable,
-                userLogic.selectors.user,
+                teamLogic.selectors.currentTeam,
                 organizationLogic.selectors.currentOrganization,
                 s.stepProjectSetup,
                 s.stepInstallation,
@@ -94,7 +95,7 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
             ],
             (
                 teamInviteAvailable: boolean,
-                user: UserType,
+                currentTeam: TeamType,
                 currentOrganization: OrganizationType,
                 ...steps: boolean[]
             ): number => {
@@ -103,7 +104,7 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
                         currentOrganization.setup.is_active && currentOrganization.setup.has_invited_team_members
                     )
                 }
-                steps.push(user.team ? user.team.session_recording_opt_in : false)
+                steps.push(currentTeam ? currentTeam.session_recording_opt_in : false)
                 const completed_steps = steps.reduce((acc, step) => acc + (step ? 1 : 0), 0)
                 return Math.round((completed_steps / steps.length) * 100)
             },

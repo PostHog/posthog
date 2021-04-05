@@ -12,9 +12,9 @@ import { ViewType } from '../../insightLogic'
 import { ShownAsValue } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FilterType } from '~/types'
-import { userLogic } from 'scenes/userLogic'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 interface TrendTabProps {
     view: string
@@ -24,7 +24,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { filters } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
-    const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
 
     return featureFlags['remove-shownas'] ? (
         <>
@@ -52,7 +52,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
             )}
             {(!filters.insight || filters.insight === ViewType.TRENDS) &&
                 featureFlags['3275-formulas'] &&
-                user?.ee_enabled && (
+                preflight?.ee_enabled && (
                     <>
                         <hr />
                         <h4 className="secondary">Formula</h4>
@@ -107,7 +107,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
             <TestAccountFilter filters={filters} onChange={setFilters} />
             {(!filters.insight || filters.insight === ViewType.TRENDS) &&
                 featureFlags['3275-formulas'] &&
-                user?.ee_enabled && (
+                preflight?.ee_enabled && (
                     <>
                         <hr />
                         <h4 className="secondary">Formula</h4>

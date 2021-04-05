@@ -62,9 +62,9 @@ export function ProfilePicture({ name, email }: ProfilePictureProps): JSX.Elemen
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
         <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
-            <ProfilePicture name={user.name} email={user.email} />
+            <ProfilePicture name={user.first_name} email={user.email} />
             <div className="details hide-lte-lg">
-                <span>{user.name}</span>
+                <span>{user.first_name}</span>
                 <span>{user.organization?.name}</span>
             </div>
         </div>
@@ -95,7 +95,7 @@ export function TopNavigation(): JSX.Element {
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
             <div className="whoami" style={{ paddingRight: 16, paddingLeft: 16 }}>
-                <ProfilePicture name={user?.name} email={user?.email} />
+                <ProfilePicture name={user?.first_name} email={user?.email} />
                 <div className="details">
                     <span>{user?.email}</span>
                     <span>{user?.organization?.name}</span>

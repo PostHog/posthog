@@ -15,7 +15,6 @@ import { ViewType } from 'scenes/insights/insightLogic'
 
 export interface UserType {
     id: string
-    name: string
     first_name: string
     email: string
     email_opt_in: boolean
@@ -31,8 +30,9 @@ export interface UserType {
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
-export interface UserBasicSerializer {
+export interface UserBasicType {
     id: number
+    uuid: string
     distinct_id: string
     first_name: string
     email: string
@@ -76,13 +76,11 @@ export interface OrganizationType extends OrganizationBasicType {
 }
 
 export interface OrganizationMemberType {
-    joined_at: string
+    id: string
+    user: UserBasicType
     level: OrganizationMembershipLevel
-    membership_id: string
+    joined_at: string
     updated_at: string
-    user_email: string
-    user_first_name: string
-    user_id: number
 }
 
 export interface EventUsageType {
@@ -133,7 +131,7 @@ export interface ActionType {
     name: string
     post_to_slack?: boolean
     steps?: ActionStepType[]
-    created_by: UserBasicSerializer | null
+    created_by: UserBasicType | null
 }
 
 export interface ActionStepType {
@@ -276,7 +274,7 @@ export interface CohortGroupType {
 
 export interface CohortType {
     count?: number
-    created_by?: UserBasicSerializer | null
+    created_by: UserBasicType | null
     created_at?: string
     deleted?: boolean
     id: number | 'new'
@@ -367,7 +365,7 @@ export interface DashboardItemType {
     color: string | null
     last_refresh: string
     refreshing: boolean
-    created_by: UserBasicSerializer | null
+    created_by: UserBasicType | null
     is_sample: boolean
     dashboard: number
     result: any | null
@@ -380,7 +378,7 @@ export interface DashboardType {
     pinned: boolean
     items: DashboardItemType[]
     created_at: string
-    created_by: UserBasicSerializer | null
+    created_by: UserBasicType | null
     is_shared: boolean
     share_token: string
     deleted: boolean
@@ -395,7 +393,7 @@ export interface OrganizationInviteType {
     first_name: string
     is_expired: boolean
     emailing_attempt_made: boolean
-    created_by: UserBasicSerializer | null
+    created_by: UserBasicType | null
     created_at: string
     updated_at: string
 }
@@ -438,7 +436,7 @@ export interface AnnotationType {
     scope: 'organization' | 'dashboard_item'
     content: string
     date_marker: string
-    created_by?: UserBasicSerializer | null
+    created_by?: UserBasicType | null
     created_at: string
     updated_at: string
     dashboard_item?: number
@@ -561,7 +559,7 @@ export interface FeatureFlagType {
     filters: FeatureFlagFilters
     deleted: boolean
     active: boolean
-    created_by: UserBasicSerializer | null
+    created_by: UserBasicType | null
     created_at: string
     is_simple_flag: boolean
     rollout_percentage: number | null
