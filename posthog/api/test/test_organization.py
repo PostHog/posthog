@@ -22,6 +22,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response_data["id"], str(self.organization.id))
         # By default, setup state is marked as completed
         self.assertEqual(response_data["setup"], {"is_active": False, "current_section": None})
+        self.assertEqual(response_data["available_features"], [])
 
     def test_current_organization_on_setup_mode(self):
 
