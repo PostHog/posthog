@@ -583,6 +583,7 @@ interface AuthBackends {
 }
 
 export interface PreflightStatus {
+    // Attributes that accept undefined values (i.e. `?`) are not received when unauthenticated
     django: boolean
     plugins: boolean
     redis: boolean
@@ -590,17 +591,17 @@ export interface PreflightStatus {
     initiated: boolean
     cloud: boolean
     celery: boolean
-    ee_available: boolean
-    ee_enabled: boolean
-    db_backend: 'postgres' | 'clickhouse'
+    ee_available?: boolean
+    ee_enabled?: boolean
+    db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
-    available_timezones: Record<string, number>
-    opt_out_capture: boolean
-    posthog_version: string
-    email_service_available: boolean
-    is_debug: boolean
-    is_event_property_usage_enabled: boolean
-    is_async_event_action_mapping_enabled: boolean
+    available_timezones?: Record<string, number>
+    opt_out_capture?: boolean
+    posthog_version?: string
+    email_service_available?: boolean
+    is_debug?: boolean
+    is_event_property_usage_enabled?: boolean
+    is_async_event_action_mapping_enabled?: boolean
 }
 
 export enum DashboardMode { // Default mode is null
