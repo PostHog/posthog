@@ -11,7 +11,7 @@ from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
-from .utils import UUIDT, generate_random_token, sane_repr
+from .utils import UUIDT, UUIDClassicModel, generate_random_token, sane_repr
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
@@ -68,7 +68,7 @@ def get_default_data_attributes() -> Any:
     return ["data-attr"]
 
 
-class Team(models.Model):
+class Team(UUIDClassicModel):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
@@ -93,7 +93,6 @@ class Team(models.Model):
     anonymize_ips: models.BooleanField = models.BooleanField(default=False)
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
-    uuid: models.UUIDField = models.UUIDField(default=UUIDT, editable=False, unique=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
     session_recording_retention_period_days: models.IntegerField = models.IntegerField(
         null=True, default=None, blank=True

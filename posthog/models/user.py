@@ -12,7 +12,7 @@ from posthog.utils import get_instance_realm
 from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey
 from .team import Team
-from .utils import UUIDT, generate_random_token, sane_repr
+from .utils import UUIDT, UUIDClassicModel, generate_random_token, sane_repr
 
 
 class UserManager(BaseUserManager):
@@ -85,7 +85,7 @@ class UserManager(BaseUserManager):
             return personal_api_key.user
 
 
-class User(AbstractUser):
+class User(AbstractUser, UUIDClassicModel):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: List[str] = []
 
@@ -96,7 +96,6 @@ class User(AbstractUser):
         (TOOLBAR, TOOLBAR),
     ]
 
-    uuid: models.UUIDField = models.UUIDField(db_index=True, default=UUIDT, unique=True, editable=False)
     current_organization = models.ForeignKey(
         "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+",
     )
