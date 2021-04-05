@@ -112,7 +112,6 @@ class User(AbstractUser):
 
     # Remove unused attributes from `AbstractUser`
     username = None  # type: ignore
-    last_name = None  # type: ignore
 
     objects: UserManager = UserManager()  # type: ignore
 
