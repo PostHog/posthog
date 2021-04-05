@@ -27,7 +27,7 @@ import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { patchCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
 
     const [name, setName] = useState(currentTeam?.name || '')
 
@@ -52,7 +52,7 @@ function DisplayName(): JSX.Element {
                 type="primary"
                 onClick={(e) => {
                     e.preventDefault()
-                    patchCurrentTeam({ name })
+                    updateCurrentTeam({ name })
                 }}
                 disabled={!name || !currentTeam || name === currentTeam.name}
                 loading={currentTeamLoading}

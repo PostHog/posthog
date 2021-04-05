@@ -18,7 +18,6 @@ import {
 import { SessionsPlayerButton, sessionPlayerUrl } from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { SessionsPlay } from './SessionsPlay'
-import { userLogic } from 'scenes/userLogic'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkButton } from 'lib/components/LinkButton'
@@ -29,6 +28,7 @@ import { Drawer } from 'lib/components/Drawer'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/es/date-picker/generatePicker'
+import { teamLogic } from 'scenes/teamLogic'
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 interface SessionsTableProps {
@@ -63,7 +63,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         firstRecordingId,
     } = useValues(logic)
     const { fetchNextSessions, previousDay, nextDay, setFilters, applyFilters } = useActions(logic)
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -76,7 +76,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
 
     const playAllCTA =
         firstRecordingId === null
-            ? user?.team?.session_recording_opt_in
+            ? currentTeam?.session_recording_opt_in
                 ? 'No recordings found for this date'
                 : enableSessionRecordingCTA
             : undefined
@@ -139,7 +139,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         {
             title: (
                 <span>
-                    {user?.team?.session_recording_opt_in ? (
+                    {currentTeam?.session_recording_opt_in ? (
                         <Tooltip
                             title={
                                 <>

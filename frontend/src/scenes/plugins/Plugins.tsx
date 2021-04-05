@@ -12,14 +12,16 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
 import { canGloballyManagePlugins, canInstallPlugins, canViewPlugins } from './access'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function Plugins(): JSX.Element | null {
     const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { pluginTab } = useValues(pluginsLogic)
     const { setPluginTab } = useActions(pluginsLogic)
     const { TabPane } = Tabs
 
-    if (!user) {
+    if (!user || !currentTeam) {
         return <Spin />
     }
 
@@ -43,10 +45,12 @@ export function Plugins(): JSX.Element | null {
                         </sup>
                     </>
                 }
-                caption={user.team?.plugins_opt_in ? "Plugins enable you to extend PostHog's core functionality." : ''}
+                caption={
+                    currentTeam?.plugins_opt_in ? "Plugins enable you to extend PostHog's core functionality." : ''
+                }
             />
 
-            {user.team?.plugins_opt_in ? (
+            {currentTeam?.plugins_opt_in ? (
                 <>
                     {canInstallPlugins(user.organization) ? (
                         <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}>

@@ -5,7 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 export function DataAttributes(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { patchCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
     const [value, setValue] = useState(currentTeam?.data_attributes || [])
 
     if (!currentTeam) {
@@ -44,7 +44,7 @@ export function DataAttributes(): JSX.Element {
                 <Button
                     type="primary"
                     onClick={() =>
-                        patchCurrentTeam({
+                        updateCurrentTeam({
                             data_attributes: value.map((s) => s.trim()).filter((a) => a) || [],
                         })
                     }

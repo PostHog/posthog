@@ -70,7 +70,6 @@ export const userLogic = kea<userLogicType<UserType, UserUpdateType>>({
                                 posthog.people.set({ email: user.anonymize_data ? null : user.email })
 
                                 posthog.register({
-                                    has_slack_webhook: !!user.team?.slack_incoming_webhook,
                                     is_demo_project: user.team?.is_demo,
                                 })
                             }

@@ -39,11 +39,11 @@ export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
                         return null
                     }
                 },
-                patchCurrentTeam: async (patch: Partial<TeamType>) => {
+                updateCurrentTeam: async (payload: Partial<TeamType>) => {
                     if (!values.currentTeam) {
                         throw new Error('Current team has not been loaded yet, so it cannot be updated!')
                     }
-                    const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, patch)) as TeamType
+                    const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, payload)) as TeamType
                     userLogic.actions.loadUser()
                     return patchedTeam
                 },
@@ -68,7 +68,7 @@ export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
         createTeamSuccess: () => {
             window.location.href = '/ingestion'
         },
-        patchCurrentTeamSuccess: () => {
+        updateCurrentTeamSuccess: () => {
             toast.success(
                 <div>
                     <h1>Project updated successfully!</h1>
