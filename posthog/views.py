@@ -187,6 +187,7 @@ def preflight_check(_):
             "cloud": settings.MULTI_TENANCY,
             "ee_available": settings.EE_AVAILABLE,
             "ee_enabled": is_ee_enabled(),
+            "db_backend": settings.PRIMARY_DB.value,
             "available_social_auth_providers": get_available_social_auth_providers(),
             "available_timezones": get_available_timezones_with_offsets(),
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE", False),

@@ -30,6 +30,7 @@ class TestPreflight(APIBaseTest):
                     "cloud": False,
                     "ee_available": settings.EE_AVAILABLE,
                     "ee_enabled": False,
+                    "db_backend": "postgres",
                     "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
                     "opt_out_capture": False,
                     "posthog_version": VERSION,
@@ -65,6 +66,7 @@ class TestPreflight(APIBaseTest):
                     "cloud": True,
                     "ee_available": True,
                     "ee_enabled": True,
+                    "db_backend": "clickhouse",
                     "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
                     "opt_out_capture": False,
                     "posthog_version": VERSION,
@@ -87,6 +89,7 @@ class TestPreflight(APIBaseTest):
             SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
             MULTI_TENANCY=True,
             EMAIL_HOST="localhost",
+            PRIMARY_DB=RDBMS.CLICKHOUSE,
         ):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -104,7 +107,8 @@ class TestPreflight(APIBaseTest):
                     "initiated": False,
                     "cloud": True,
                     "ee_available": True,
-                    "ee_enabled": False,
+                    "ee_enabled": True,
+                    "db_backend": "clickhouse",
                     "available_social_auth_providers": {"google-oauth2": True, "github": False, "gitlab": False},
                     "opt_out_capture": False,
                     "posthog_version": VERSION,

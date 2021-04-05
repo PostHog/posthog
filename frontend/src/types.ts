@@ -131,6 +131,7 @@ export interface ActionType {
     deleted?: boolean
     id: number
     is_calculating?: boolean
+    last_calculated_at?: string
     name: string
     post_to_slack?: boolean
     steps?: ActionStepType[]
@@ -599,6 +600,7 @@ export interface PreflightStatus {
     is_debug: boolean
     is_event_property_usage_enabled: boolean
     is_async_event_action_mapping_enabled: boolean
+    db_backend: 'postgres' | 'clickhouse'
 }
 
 export enum DashboardMode { // Default mode is null

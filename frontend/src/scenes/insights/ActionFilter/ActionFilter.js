@@ -6,6 +6,7 @@ import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined, EllipsisOutlined } from '@ant-design/icons'
 import { sortableContainer, sortableElement, sortableHandle } from 'react-sortable-hoc'
+import { alphabet } from 'lib/utils'
 import posthog from 'posthog-js'
 
 const DragHandle = sortableHandle(() => (
@@ -39,6 +40,7 @@ export function ActionFilter({
     disabled = false,
     singleFilter = false,
     sortable = false,
+    showLetters = false,
     showOr = false,
 }) {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
@@ -70,15 +72,17 @@ export function ActionFilter({
                 sortable ? (
                     <SortableContainer onSortEnd={onSortEnd} lockAxis="y" distance={5}>
                         {localFilters.map((filter, index) => (
-                            <SortableActionFilterRow
-                                key={index}
-                                logic={logic}
-                                filter={filter}
-                                index={index}
-                                filterIndex={index}
-                                hideMathSelector={hideMathSelector}
-                                filterCount={localFilters.length}
-                            />
+                            <>
+                                <SortableActionFilterRow
+                                    key={index}
+                                    logic={logic}
+                                    filter={filter}
+                                    index={index}
+                                    filterIndex={index}
+                                    hideMathSelector={hideMathSelector}
+                                    filterCount={localFilters.length}
+                                />
+                            </>
                         ))}
                     </SortableContainer>
                 ) : (
@@ -88,6 +92,7 @@ export function ActionFilter({
                             filter={filter}
                             index={index}
                             key={index}
+                            letter={showLetters && (alphabet[index] || '-')}
                             hideMathSelector={hideMathSelector}
                             singleFilter={singleFilter}
                             showOr={showOr}

@@ -166,14 +166,16 @@ export class ActionStep extends Component {
                             )}
                             {step.event != null && step.event !== '$autocapture' && step.event !== '$pageview' && (
                                 <div style={{ marginTop: '2rem' }}>
-                                    <label>Event name: {step.event}</label>
+                                    <label>
+                                        <b>Event name: </b>
+                                    </label>
                                     <EventName
                                         value={step.event}
                                         isActionStep={true}
                                         onChange={(value) =>
                                             this.sendStep({
                                                 ...step,
-                                                event: value,
+                                                event: value || '',
                                             })
                                         }
                                     />

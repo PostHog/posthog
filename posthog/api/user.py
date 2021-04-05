@@ -16,8 +16,8 @@ from django.views.decorators.http import require_http_methods
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, permissions, serializers, viewsets
 
-from posthog.api.organization import OrganizationBasicSerializer, OrganizationSerializer
-from posthog.api.team import TeamBasicSerializer
+from posthog.api.organization import OrganizationSerializer
+from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
 from posthog.ee import is_ee_enabled
 from posthog.email import is_email_available
@@ -171,14 +171,19 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
     lookup_field = "uuid"
 
     def get_object(self) -> Any:
-        return self.request.user
+        lookup_value = self.kwargs[self.lookup_field]
+        if lookup_value == "@me":
+            return self.request.user
+        raise serializers.ValidationError(
+            "Currently this endpoint only supports retrieving `@me` instance.", code="invalid_parameter",
+        )
 
 
 @authenticate_secondarily
 def user(request):
     """
-    DEPRECATED: This endpoint (/api/user/) has been deprecated in favor of /api/v2/user/ 
-    and will be removed in PostHog V2.
+    DEPRECATED: This endpoint (/api/user/) has been deprecated in favor of /api/v2/user/
+    and will be removed soon.
     """
     organization: Optional[Organization] = request.user.organization
     organizations = list(request.user.organizations.order_by("-created_at").values("name", "id"))

@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
+from posthog.api.shared import TeamBasicSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team
 from posthog.models.utils import generate_random_token
@@ -31,27 +32,6 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
         ):
             return False
         return True
-
-
-class TeamBasicSerializer(serializers.ModelSerializer):
-    """
-    Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
-    Also used for nested serializers.
-    """
-
-    class Meta:
-        model = Team
-        fields = (
-            "id",
-            "uuid",
-            "organization",
-            "api_token",
-            "name",
-            "completed_snippet_onboarding",
-            "ingested_event",
-            "is_demo",
-            "timezone",
-        )
 
 
 class TeamSerializer(serializers.ModelSerializer):

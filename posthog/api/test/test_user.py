@@ -33,7 +33,7 @@ class TestUserAPI(APIBaseTest):
 
     def test_retrieve_current_user(self):
 
-        response = self.client.get("/api/v2/user/")
+        response = self.client.get("/api/users/@me/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -70,11 +70,47 @@ class TestUserAPI(APIBaseTest):
             ],
         )
 
+    def test_cannot_retrieve_or_list_other_users(self):
+        """
+        At this moment only the current user can be retrieved from this endpoint. Listing is not supported.
+        """
+        response = self.client.get("/api/users/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json(), self.not_found_response("Endpoint not found."))
+
+        user = self._create_user("newtest@posthog.com")
+        response = self.client.get(f"/api/users/{user.uuid}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_parameter",
+                "detail": "Currently this endpoint only supports retrieving `@me` instance.",
+                "attr": None,
+            },
+        )
+
     def test_unauthenticated_user_cannot_fetch_endpoint(self):
         self.client.logout()
-        response = self.client.get("/api/v2/user/")
+        response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json(), self.ERROR_RESPONSE_UNAUTHENTICATED)
+
+    # CREATING USERS
+
+    def test_creating_users_on_this_endpoint_is_not_supported(self):
+        """
+        At this moment we don't support creating users on this endpoint. Refer to /api/signup or
+        /api/organization/@current/members to add users.
+        """
+        count = User.objects.count()
+
+        response = self.client.post("/api/users/", {"first_name": "James", "email": "test+james@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json(), self.not_found_response("Endpoint not found."))
+
+        self.assertEqual(User.objects.count(), count)
 
     # UPDATING USER
 
@@ -85,7 +121,7 @@ class TestUserAPI(APIBaseTest):
         user = self._create_user("old@posthog.com", password="12345678")
         self.client.force_login(user)
         response = self.client.patch(
-            "/api/v2/user/",
+            "/api/users/@me/",
             {
                 "first_name": "Cooper",
                 "email": "updated@posthog.com",
@@ -124,7 +160,7 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_can_update_current_organization(self, mock_capture):
-        response = self.client.patch("/api/v2/user/", {"set_current_organization": str(self.new_org.id)},)
+        response = self.client.patch("/api/users/@me/", {"set_current_organization": str(self.new_org.id)},)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["organization"]["id"], str(self.new_org.id))
@@ -147,7 +183,7 @@ class TestUserAPI(APIBaseTest):
     @patch("posthoganalytics.capture")
     def test_can_update_current_project(self, mock_capture):
         team = Team.objects.create(name="Local Team", organization=self.new_org)
-        response = self.client.patch("/api/v2/user/", {"set_current_team": team.id})
+        response = self.client.patch("/api/users/@me/", {"set_current_team": team.id})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["team"]["id"], team.id)
@@ -173,7 +209,7 @@ class TestUserAPI(APIBaseTest):
         self.user.join(organization=org)
 
         response = self.client.patch(
-            "/api/v2/user/", {"set_current_team": team.id, "set_current_organization": self.organization.id}
+            "/api/users/@me/", {"set_current_team": team.id, "set_current_organization": self.organization.id}
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -193,7 +229,7 @@ class TestUserAPI(APIBaseTest):
     def test_cannot_set_an_organization_without_permissions(self):
         org = Organization.objects.create(name="Isolated Org")
 
-        response = self.client.patch("/api/v2/user/", {"set_current_organization": org.id})
+        response = self.client.patch("/api/users/@me/", {"set_current_organization": org.id})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -211,7 +247,7 @@ class TestUserAPI(APIBaseTest):
         org = Organization.objects.create(name="Isolated Org")
         team = Team.objects.create(name="Isolated Team", organization=org)
 
-        response = self.client.patch("/api/v2/user/", {"set_current_team": team.id})
+        response = self.client.patch("/api/users/@me/", {"set_current_team": team.id})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -226,7 +262,7 @@ class TestUserAPI(APIBaseTest):
         self._assert_current_org_and_team_unchanged()
 
     def test_cannot_set_a_non_existent_org_or_team(self):
-        response = self.client.patch("/api/v2/user/", {"set_current_team": 3983838})
+        response = self.client.patch("/api/users/@me/", {"set_current_team": 3983838})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -239,7 +275,7 @@ class TestUserAPI(APIBaseTest):
         )
 
         _uuid = str(uuid.uuid4())
-        response = self.client.patch("/api/v2/user/", {"set_current_organization": _uuid})
+        response = self.client.patch("/api/users/@me/", {"set_current_organization": _uuid})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -259,7 +295,7 @@ class TestUserAPI(APIBaseTest):
         user = self._create_user("bob@posthog.com", password="A12345678")
         self.client.force_login(user)
 
-        response = self.client.patch("/api/v2/user/", {"current_password": "A12345678", "password": "a_new_password"})
+        response = self.client.patch("/api/users/@me/", {"current_password": "A12345678", "password": "a_new_password"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["email"], "bob@posthog.com")
@@ -267,7 +303,7 @@ class TestUserAPI(APIBaseTest):
         self.assertNotIn("current_password", response_data)
 
         # Assert session is still valid
-        get_response = self.client.get("/api/v2/user/")
+        get_response = self.client.get("/api/users/@me/")
         self.assertEqual(get_response.status_code, status.HTTP_200_OK)
 
         # Password was successfully changed
@@ -288,7 +324,7 @@ class TestUserAPI(APIBaseTest):
         self.client.force_login(user)
 
         response = self.client.patch(
-            "/api/v2/user/", {"password": "a_new_password"},  # note we don't send current password
+            "/api/users/@me/", {"password": "a_new_password"},  # note we don't send current password
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -297,7 +333,7 @@ class TestUserAPI(APIBaseTest):
         self.assertNotIn("current_password", response_data)
 
         # Assert session is still valid
-        get_response = self.client.get("/api/v2/user/")
+        get_response = self.client.get("/api/users/@me/")
         self.assertEqual(get_response.status_code, status.HTTP_200_OK)
 
         # Password was successfully changed
@@ -318,11 +354,11 @@ class TestUserAPI(APIBaseTest):
         user.save()
         self.client.force_login(user)
 
-        response = self.client.patch("/api/v2/user/", {"password": "a_new_password"},)
+        response = self.client.patch("/api/users/@me/", {"password": "a_new_password"},)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Assert session is still valid
-        get_response = self.client.get("/api/v2/user/")
+        get_response = self.client.get("/api/users/@me/")
         self.assertEqual(get_response.status_code, status.HTTP_200_OK)
 
         # Password was successfully changed
@@ -332,7 +368,7 @@ class TestUserAPI(APIBaseTest):
     @patch("posthoganalytics.capture")
     def test_cant_update_to_insecure_password(self, mock_capture):
 
-        response = self.client.patch("/api/v2/user/", {"current_password": self.CONFIG_PASSWORD, "password": "123"})
+        response = self.client.patch("/api/users/@me/", {"current_password": self.CONFIG_PASSWORD, "password": "123"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -345,7 +381,7 @@ class TestUserAPI(APIBaseTest):
         )
 
         # Assert session is still valid
-        get_response = self.client.get("/api/v2/user/")
+        get_response = self.client.get("/api/users/@me/")
         self.assertEqual(get_response.status_code, status.HTTP_200_OK)
 
         # Password was not changed
@@ -354,7 +390,7 @@ class TestUserAPI(APIBaseTest):
         mock_capture.assert_not_called()
 
     def test_user_cannot_update_password_without_current_password(self):
-        response = self.client.patch("/api/v2/user/", {"password": "12345678"})
+        response = self.client.patch("/api/users/@me/", {"password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -371,7 +407,7 @@ class TestUserAPI(APIBaseTest):
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
 
     def test_user_cannot_update_password_with_incorrect_current_password(self):
-        response = self.client.patch("/api/v2/user/", {"current_password": "wrong", "password": "12345678"})
+        response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -390,7 +426,7 @@ class TestUserAPI(APIBaseTest):
     def test_unauthenticated_user_cannot_update_anything(self):
         self.client.logout()
         response = self.client.patch(
-            "/api/v2/user/",
+            "/api/users/@me/",
             {
                 "id": str(self.user.uuid),
                 "email": "new@posthog.com",
@@ -411,7 +447,7 @@ class TestUserAPI(APIBaseTest):
         """
         Self-serve account deletion is currently not supported.
         """
-        response = self.client.delete("/api/v2/user/")
+        response = self.client.delete("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(response.json(), self.method_not_allowed_response("DELETE"))
 

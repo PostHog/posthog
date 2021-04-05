@@ -8,8 +8,9 @@ import api from 'lib/api'
 import { kea } from 'kea'
 import { Spin } from 'antd'
 import { EventsTable } from 'scenes/events'
+import dayjs from 'dayjs'
 
-let actionLogic = kea({
+const actionLogic = kea({
     key: (props) => props.id || 'new',
     actions: () => ({
         checkIsFinished: (action) => ({ action }),
@@ -96,7 +97,22 @@ export function Action({ id }) {
                 </div>
             )}
             {isComplete && (
-                <div style={{ marginTop: 64 }}>
+                <div style={{ marginTop: 86 }}>
+                    <h2 className="subtitle">Event List</h2>
+                    <p className="text-muted">
+                        List of the events that match this action.{' '}
+                        {action && (
+                            <>
+                                This list was{' '}
+                                <b>
+                                    calculated{' '}
+                                    {action.last_calculated_at
+                                        ? dayjs(action.last_calculated_at).fromNow()
+                                        : 'a while ago'}
+                                </b>
+                            </>
+                        )}
+                    </p>
                     {id && <EventsTable key={isComplete} fixedFilters={fixedFilters} filtersEnabled={false} />}
                 </div>
             )}
