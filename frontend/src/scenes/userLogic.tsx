@@ -100,8 +100,8 @@ export const userLogic = kea<userLogicType<UserType, UserUpdateType>>({
             toast.dismiss('updateUser')
             toast.success(
                 <div>
-                    <h1>User updated successfully!</h1>
-                    <p>Your preferences have been saved. Click here to dismiss.</p>
+                    <h1>Your preferences have been saved!</h1>
+                    <p>All set. Click here to dismiss.</p>
                 </div>,
                 {
                     toastId: 'updateUser',
