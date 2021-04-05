@@ -16,8 +16,8 @@ from django.views.decorators.http import require_http_methods
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, permissions, serializers, viewsets
 
-from posthog.api.organization import OrganizationBasicSerializer, OrganizationSerializer
-from posthog.api.team import TeamBasicSerializer
+from posthog.api.organization import OrganizationSerializer
+from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
 from posthog.ee import is_ee_enabled
 from posthog.email import is_email_available

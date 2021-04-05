@@ -107,7 +107,7 @@ class TestPreflight(APIBaseTest):
                     "initiated": False,
                     "cloud": True,
                     "ee_available": True,
-                    "ee_enabled": False,
+                    "ee_enabled": True,
                     "db_backend": "clickhouse",
                     "available_social_auth_providers": {"google-oauth2": True, "github": False, "gitlab": False},
                     "opt_out_capture": False,
