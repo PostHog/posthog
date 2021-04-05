@@ -42,6 +42,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     filters.shown_as === ShownAsValue.LIFECYCLE && !!(filters.events?.length || filters.actions?.length)
                 }
                 singleFilter={filters.shown_as === ShownAsValue.LIFECYCLE}
+                hidePropertySelector={filters.shown_as === ShownAsValue.LIFECYCLE}
             />
             <hr />
             <h4 className="secondary">Filters</h4>
