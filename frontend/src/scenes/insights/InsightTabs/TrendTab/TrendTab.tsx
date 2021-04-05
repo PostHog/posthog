@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
@@ -24,6 +24,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
+    const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
 
     return (
         <>
@@ -36,6 +37,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                 typeKey={'trends_' + view}
                 hideMathSelector={filters.shown_as === ShownAsValue.LIFECYCLE}
                 copy="Add graph series"
+                showLetters={isUsingFormulas}
                 disabled={
                     filters.shown_as === ShownAsValue.LIFECYCLE && !!(filters.events?.length || filters.actions?.length)
                 }
@@ -55,7 +57,16 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     <>
                         <hr />
                         <h4 className="secondary">Formula</h4>
-                        <Formula filters={filters} onChange={(formula: string): void => setFilters({ formula })} />
+                        <Formula
+                            filters={filters}
+                            onFocus={(hasFocus, localFormula) =>
+                                setIsUsingFormulas(hasFocus ? true : localFormula ? true : false)
+                            }
+                            onChange={(formula: string): void => {
+                                setIsUsingFormulas(formula ? true : false)
+                                setFilters({ formula })
+                            }}
+                        />
                     </>
                 )}
             {filters.insight !== ViewType.LIFECYCLE && filters.insight !== ViewType.STICKINESS && (

@@ -183,6 +183,7 @@ def preflight_check(_):
             if not settings.E2E_TESTING
             else False,  # Enables E2E testing of signup flow
             "cloud": settings.MULTI_TENANCY,
+            "db_backend": settings.PRIMARY_DB.value,
             "available_social_auth_providers": get_available_social_auth_providers(),
             "available_timezones": get_available_timezones_with_offsets(),
         }
