@@ -10,7 +10,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0129_merge_20210223_0757"),
+        ("posthog", "0142_fix_team_data_attributes_default"),
     ]
 
     operations = [
