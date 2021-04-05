@@ -238,6 +238,7 @@ def user(request):
 
     return JsonResponse(
         {
+            "deprecation": "Endpoint has been deprecated. Please use `/api/v2/user/`.",
             "id": user.pk,
             "distinct_id": user.distinct_id,
             "name": user.first_name,
