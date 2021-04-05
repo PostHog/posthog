@@ -5,6 +5,13 @@ from django.db import migrations, models
 import posthog.models.utils
 
 
+def create_user_uuid(apps, schema_editor):
+    User = apps.get_model("posthog", "User")
+    for user in User.objects.all():
+        user.uuid = posthog.models.utils.UUIDT()
+        user.save()
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -12,9 +19,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
+        migrations.AddField(model_name="user", name="uuid", field=models.UUIDField(blank=True, null=True),),
+        migrations.RunPython(create_user_uuid),
+        migrations.AlterField(
             model_name="user",
             name="uuid",
-            field=models.UUIDField(default=posthog.models.utils.UUIDT, editable=False, unique=True),
+            field=models.UUIDField(default=posthog.models.utils.UUIDT, unique=True, editable=False),
         ),
     ]
