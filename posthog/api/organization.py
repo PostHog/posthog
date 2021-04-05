@@ -96,6 +96,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "setup_section_2_completed",
             "plugins_access_level",
             "teams",
+            "available_features",
         ]
         read_only_fields = [
             "id",
