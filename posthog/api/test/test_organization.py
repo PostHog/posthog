@@ -173,6 +173,7 @@ class TestSignup(APIBaseTest):
             response.data,
             {
                 "id": user.pk,
+                "uuid": str(user.uuid),
                 "distinct_id": user.distinct_id,
                 "first_name": "John",
                 "email": "hedgehog@posthog.com",
@@ -248,6 +249,7 @@ class TestSignup(APIBaseTest):
             response.data,
             {
                 "id": user.pk,
+                "uuid": str(user.uuid),
                 "distinct_id": user.distinct_id,
                 "first_name": "Jane",
                 "email": "hedgehog2@posthog.com",
@@ -366,6 +368,7 @@ class TestSignup(APIBaseTest):
             response.data,
             {
                 "id": user.pk,
+                "uuid": str(user.uuid),
                 "distinct_id": user.distinct_id,
                 "first_name": "Jane",
                 "email": "hedgehog75@posthog.com",
@@ -519,7 +522,13 @@ class TestInviteSignup(APIBaseTest):
         user = cast(User, User.objects.order_by("-pk")[0])
         self.assertEqual(
             response.data,
-            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Alice", "email": "test+99@posthog.com"},
+            {
+                "id": user.pk,
+                "uuid": str(user.uuid),
+                "distinct_id": user.distinct_id,
+                "first_name": "Alice",
+                "email": "test+99@posthog.com",
+            },
         )
 
         # User is now a member of the organization
@@ -576,7 +585,13 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(
             response.data,
-            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "", "email": "test+159@posthog.com"},
+            {
+                "id": user.pk,
+                "uuid": str(user.uuid),
+                "distinct_id": user.distinct_id,
+                "first_name": "",
+                "email": "test+159@posthog.com",
+            },
         )
 
         # No new user is created
@@ -637,6 +652,7 @@ class TestInviteSignup(APIBaseTest):
             response.data,
             {
                 "id": user.pk,
+                "uuid": str(user.uuid),
                 "distinct_id": user.distinct_id,
                 "first_name": "",
                 "email": "test+189@posthog.com",
