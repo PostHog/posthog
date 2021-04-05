@@ -3,6 +3,8 @@ import { Framework, PlatformType } from 'scenes/ingestion/types'
 import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { ingestionLogicType } from './ingestionLogicType'
 import { userLogic } from 'scenes/userLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
@@ -18,6 +20,7 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
             framework,
             verify,
         }),
+        setActiveTab: (tab: string) => ({ tab }),
         completeOnboarding: true,
     },
 
@@ -45,18 +48,32 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
                 setState: (_, { verify }) => verify,
             },
         ],
+        activeTab: [
+            'popular',
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
     },
 
     selectors: {
         index: [
             (s) => [s.platform, s.framework, s.verify],
             (platform, framework, verify) => {
+                const featFlags = featureFlagLogic.values.featureFlags
+                if (featFlags[FEATURE_FLAGS.INGESTION_GRID]) {
+                    return (framework && platform ? 1 : 0) + (verify ? 1 : 0)
+                }
                 return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
             },
         ],
         totalSteps: [
             (s) => [s.platform, s.framework, s.verify],
             (platform, framework, verify) => {
+                const featFlags = featureFlagLogic.values.featureFlags
+                if (featFlags[FEATURE_FLAGS.INGESTION_GRID]) {
+                    return 3
+                }
                 // if missing parts of the URL
                 if (verify) {
                     return 4 - (platform ? 0 : 1) - (framework ? 0 : 1)
