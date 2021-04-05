@@ -1,8 +1,10 @@
+import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { userLogicType } from './userLogicType'
 import { UserType, UserUpdateType } from '~/types'
 import posthog from 'posthog-js'
+import { toast } from 'react-toastify'
 
 export const userLogic = kea<userLogicType<UserType, UserUpdateType>>({
     actions: () => ({
@@ -42,7 +44,7 @@ export const userLogic = kea<userLogicType<UserType, UserUpdateType>>({
                 (user?.team?.is_demo && user?.organization?.teams && user.organization.teams.length == 1) || false,
         ],
     }),
-    loaders: {
+    loaders: ({ values }) => ({
         user: [
             null as UserType | null,
             {
@@ -80,13 +82,31 @@ export const userLogic = kea<userLogicType<UserType, UserUpdateType>>({
                     }
                     return null
                 },
+                updateUser: async (payload: Partial<UserType>) => {
+                    if (!values.user) {
+                        throw new Error('Current user has not been loaded yet, so it cannot be updated!')
+                    }
+                    return await api.update('api/users/@me/', payload)
+                },
             },
         ],
-    },
+    }),
     listeners: () => ({
         logout: () => {
             posthog.reset()
             window.location.href = '/logout'
+        },
+        updateUserSuccess: () => {
+            toast.dismiss('updateUser')
+            toast.success(
+                <div>
+                    <h1>User updated successfully!</h1>
+                    <p>Your preferences have been saved. Click here to dismiss.</p>
+                </div>,
+                {
+                    toastId: 'updateUser',
+                }
+            )
         },
     }),
     events: ({ actions }) => ({
