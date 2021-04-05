@@ -2,13 +2,15 @@ import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Checkbox, Spin } from 'antd'
 import { CheckOutlined, WarningOutlined } from '@ant-design/icons'
-import { userLogic } from 'scenes/userLogic'
 import api from 'lib/api'
 import posthog from 'posthog-js'
+import { teamLogic } from 'scenes/teamLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export function OptInPlugins(): JSX.Element {
-    const { userUpdateRequest } = useActions(userLogic)
-    const { user } = useValues(userLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { preflight } = useValues(preflightLogic)
     const [optIn, setOptIn] = useState(false)
     const [serverStatus, setServerStatus] = useState('loading')
 
@@ -32,7 +34,7 @@ export function OptInPlugins(): JSX.Element {
                 Plugins enable you to extend PostHog's core functionality. For example by adding geographical
                 information to your events, normalizing your revenue information to a single currency, etc.
             </div>
-            {!user?.is_multi_tenancy && (
+            {!preflight?.cloud && (
                 <>
                     <div style={{ marginBottom: 20 }}>
                         Plugin support requires the cooperation of the main PostHog application and the{' '}
@@ -66,7 +68,7 @@ export function OptInPlugins(): JSX.Element {
             )}
             <div style={{ marginBottom: 20 }}>
                 <Checkbox checked={optIn} onChange={() => setOptIn(!optIn)} disabled={serverStatus !== 'online'}>
-                    I wish to enable plugins for <b>{user?.team?.name}</b>.
+                    I wish to enable plugins for <b>{currentTeam?.name}</b>.
                 </Checkbox>
             </div>
             <div>
@@ -75,7 +77,7 @@ export function OptInPlugins(): JSX.Element {
                     disabled={!optIn || serverStatus !== 'online'}
                     data-attr="enable-plugins"
                     onClick={() => {
-                        userUpdateRequest({ team: { plugins_opt_in: true } })
+                        updateCurrentTeam({ plugins_opt_in: true })
                         posthog.capture('plugins enabled for project')
                     }}
                 >

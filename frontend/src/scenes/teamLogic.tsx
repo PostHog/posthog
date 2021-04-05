@@ -7,7 +7,7 @@ import { toast } from 'react-toastify'
 import React from 'react'
 import { posthogEvents } from 'lib/utils'
 
-interface EventProperty {
+export interface EventProperty {
     value: string
     label: string
 }
@@ -99,8 +99,8 @@ export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
         eventNames: [(s) => [s.currentTeam], (team): string[] => team?.event_names ?? []],
         customEventNames: [
             (s) => [s.eventNames],
-            (eventNames) => {
-                return eventNames.filter((event): string[] => !event.startsWith('!'))
+            (eventNames): string[] => {
+                return eventNames.filter((event) => !event.startsWith('!'))
             },
         ],
         eventNamesGrouped: [

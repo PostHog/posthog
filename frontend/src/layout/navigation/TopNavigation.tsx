@@ -163,6 +163,7 @@ export function TopNavigation(): JSX.Element {
                     onClick={() =>
                         guardPremiumFeature(
                             user,
+                            preflight,
                             showUpgradeModal,
                             'organizations_projects',
                             'multiple organizations',
@@ -221,6 +222,7 @@ export function TopNavigation(): JSX.Element {
                     onClick={() =>
                         guardPremiumFeature(
                             user,
+                            preflight,
                             showUpgradeModal,
                             'organizations_projects',
                             'multiple projects',

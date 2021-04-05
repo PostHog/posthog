@@ -2,9 +2,9 @@ import { Row, Switch, Tooltip } from 'antd'
 import { useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import React from 'react'
-import { userLogic } from 'scenes/userLogic'
 import { FilterType } from '~/types'
 import { SettingOutlined } from '@ant-design/icons'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function TestAccountFilter({
     filters,
@@ -13,8 +13,8 @@ export function TestAccountFilter({
     filters: Partial<FilterType>
     onChange: (filters: Partial<FilterType>) => void
 }): JSX.Element | null {
-    const { user } = useValues(userLogic)
-    const hasFilters = (user?.team?.test_account_filters || []).length > 0
+    const { currentTeam } = useValues(teamLogic)
+    const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
     return (
         <Tooltip

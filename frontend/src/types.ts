@@ -13,6 +13,8 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 
+export type AvailableFeatures = 'zapier' | 'organizations_projects' | 'google_login' | 'dashboard_collaboration'
+
 export interface UserType {
     id: string
     first_name: string
@@ -73,6 +75,7 @@ export interface OrganizationType extends OrganizationBasicType {
     setup_section_2_completed: boolean
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
+    available_features: AvailableFeatures[]
 }
 
 export interface OrganizationMemberType {
