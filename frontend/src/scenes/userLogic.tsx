@@ -48,7 +48,7 @@ export const userLogic = kea<userLogicType<UserType, UserUpdateType>>({
             {
                 loadUser: async () => {
                     try {
-                        const user: UserType = await api.get('api/v2/user/')
+                        const user: UserType = await api.get('api/users/@me/')
 
                         if (user && user.id) {
                             const Sentry = (window as any).Sentry

@@ -592,6 +592,7 @@ export interface PreflightStatus {
     celery: boolean
     ee_available: boolean
     ee_enabled: boolean
+    db_backend: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
     available_timezones: Record<string, number>
     opt_out_capture: boolean
@@ -600,7 +601,6 @@ export interface PreflightStatus {
     is_debug: boolean
     is_event_property_usage_enabled: boolean
     is_async_event_action_mapping_enabled: boolean
-    db_backend: 'postgres' | 'clickhouse'
 }
 
 export enum DashboardMode { // Default mode is null
