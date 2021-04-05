@@ -171,14 +171,19 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
     lookup_field = "uuid"
 
     def get_object(self) -> Any:
-        return self.request.user
+        lookup_value = self.kwargs[self.lookup_field]
+        if lookup_value == "@me":
+            return self.request.user
+        raise serializers.ValidationError(
+            "Currently this endpoint only supports retrieving `@me` instance.", code="invalid_parameter",
+        )
 
 
 @authenticate_secondarily
 def user(request):
     """
-    DEPRECATED: This endpoint (/api/user/) has been deprecated in favor of /api/v2/user/ 
-    and will be removed in PostHog V2.
+    DEPRECATED: This endpoint (/api/user/) has been deprecated in favor of /api/v2/user/
+    and will be removed soon.
     """
     organization: Optional[Organization] = request.user.organization
     organizations = list(request.user.organizations.order_by("-created_at").values("name", "id"))
