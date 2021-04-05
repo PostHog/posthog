@@ -803,6 +803,8 @@ export function sortedKeys(object: Record<string, any>): Record<string, any> {
     return newObject
 }
 
+export const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+
 export function endWithPunctation(text?: string | null): string {
     let trimmedText = text?.trim()
     if (!trimmedText) {
