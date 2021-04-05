@@ -64,6 +64,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "first_name": "",
                 "created_by": {
                     "id": self.user.id,
+                    "uuid": str(self.user.uuid),
                     "distinct_id": self.user.distinct_id,
                     "email": self.user.email,
                     "first_name": self.user.first_name,
