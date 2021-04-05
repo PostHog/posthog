@@ -8,7 +8,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.util import is_int, is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
-from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
+from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL, GET_LATEST_PERSON_DISTINCT_ID_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
 from posthog.models.property import Property
@@ -54,7 +54,9 @@ def parse_prop_clauses(
             else:
                 final.append(
                     "AND {table_name}distinct_id IN ({filter_query})".format(
-                        filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query),
+                        filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
+                            filters=filter_query, latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
+                        ),
                         table_name=table_name,
                     )
                 )

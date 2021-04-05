@@ -11,6 +11,7 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_SQL
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_LINEAR
 from posthog.models.action import Action
 from posthog.models.entity import Entity
@@ -91,6 +92,7 @@ class ClickhouseFunnel(Funnel):
             extra_select="",
             extra_groupby="",
             within_time="6048000000000000",
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         )
         return sync_execute(query, self.params)
 
@@ -118,6 +120,7 @@ class ClickhouseFunnel(Funnel):
             extra_select="{}(timestamp) as date,".format(get_trunc_func_ch(self._filter.interval)),
             extra_groupby=",{}(timestamp)".format(get_trunc_func_ch(self._filter.interval)),
             within_time="86400000000",
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         )
         results = sync_execute(funnel_query, self.params)
         parsed_results = []

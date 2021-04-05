@@ -1,14 +1,13 @@
 from typing import cast
 
-import pytz
 from rest_framework import status
 
+from posthog.constants import RDBMS
 from posthog.models import User
+from posthog.test.base import APIBaseTest
 
-from .base import BaseTest
 
-
-class TestPreflight(BaseTest):
+class TestPreflight(APIBaseTest):
     def test_preflight_request(self):
         with self.settings(MULTI_TENANCY=False):
             response = self.client.get("/_preflight/")
@@ -26,6 +25,7 @@ class TestPreflight(BaseTest):
                     "db": True,
                     "initiated": True,
                     "cloud": False,
+                    "db_backend": "postgres",
                     "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
                 },
             )
@@ -36,7 +36,7 @@ class TestPreflight(BaseTest):
         self.client.logout()  # make sure it works anonymously
         User.objects.all().delete()
 
-        with self.settings(MULTI_TENANCY=True):
+        with self.settings(MULTI_TENANCY=True, PRIMARY_DB=RDBMS.CLICKHOUSE):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response = response.json()
@@ -52,6 +52,7 @@ class TestPreflight(BaseTest):
                     "db": True,
                     "initiated": False,
                     "cloud": True,
+                    "db_backend": "clickhouse",
                     "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
                 },
             )
@@ -66,6 +67,7 @@ class TestPreflight(BaseTest):
             SOCIAL_AUTH_GOOGLE_OAUTH2_KEY="test_key",
             SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
             MULTI_TENANCY=True,
+            PRIMARY_DB=RDBMS.CLICKHOUSE,
         ):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -82,6 +84,7 @@ class TestPreflight(BaseTest):
                     "db": True,
                     "initiated": False,
                     "cloud": True,
+                    "db_backend": "clickhouse",
                     "available_social_auth_providers": {"google-oauth2": True, "github": False, "gitlab": False},
                 },
             )

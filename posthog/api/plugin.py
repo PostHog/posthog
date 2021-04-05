@@ -288,7 +288,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins(Team.objects.get(id=self.context["team_id"]).organization_id):
             raise ValidationError("Plugin configuration is not available for the current organization!")
-        request = self.context["request"]
         validated_data["team"] = Team.objects.get(id=self.context["team_id"])
         self._fix_formdata_config_json(validated_data)
         plugin_config = super().create(validated_data)

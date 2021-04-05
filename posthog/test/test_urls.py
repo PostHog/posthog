@@ -2,12 +2,10 @@ import uuid
 
 from rest_framework import status
 
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest
 
 
-class TestUrls(BaseTest):
-    TESTS_API = True
-
+class TestUrls(APIBaseTest):
     def test_logout_temporary_token_reset(self):
 
         # update temporary token

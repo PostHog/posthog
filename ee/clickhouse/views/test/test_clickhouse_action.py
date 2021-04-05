@@ -1,6 +1,8 @@
 from unittest.mock import patch
 from uuid import uuid4
 
+from rest_framework import status
+
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_action_people import action_people_test_factory
@@ -38,22 +40,23 @@ class TestAction(
 ):
     @patch("posthog.tasks.calculate_action.calculate_action.delay")
     def test_is_calculating_always_false(self, patch_delay):
-        create = self.client.post("/api/action/", data={"name": "ooh",}, content_type="application/json",).json()
-        self.assertEqual(create["is_calculating"], False)
+        create_response_wrapper = self.client.post("/api/action/", {"name": "ooh"})
+        create_response = create_response_wrapper.json()
+        self.assertEqual(create_response_wrapper.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(create_response["is_calculating"], False)
         self.assertFalse(patch_delay.called)
 
         response = self.client.get("/api/action/").json()
         self.assertEqual(response["results"][0]["is_calculating"], False)
 
-        response = self.client.get("/api/action/%s/" % create["id"]).json()
+        response = self.client.get("/api/action/%s/" % create_response["id"]).json()
         self.assertEqual(response["is_calculating"], False)
 
         # Make sure we're not re-calculating actions
-        response = self.client.patch(
-            "/api/action/%s/" % create["id"], data={"name": "ooh",}, content_type="application/json",
-        ).json()
-        self.assertEqual(response["name"], "ooh")
-        self.assertEqual(response["is_calculating"], False)
+        response = self.client.patch("/api/action/%s/" % create_response["id"], {"name": "ooh"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "ooh")
+        self.assertEqual(response.json()["is_calculating"], False)
         self.assertFalse(patch_delay.called)
 
     def test_only_get_count_on_retrieve(self):

@@ -1,11 +1,8 @@
 from posthog.models import PersonalAPIKey
+from posthog.test.base import APIBaseTest
 
-from .base import TransactionBaseTest
 
-
-class TestPersonalAPIKeysAPI(TransactionBaseTest):
-    TESTS_API = True
-
+class TestPersonalAPIKeysAPI(APIBaseTest):
     def test_create_personal_api_key(self):
         label = "Test key uno"
         response = self.client.post("/api/personal_api_keys", {"label": label})
@@ -74,9 +71,8 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
         self.assertDictEqual(response_data, self.ERROR_RESPONSE_NOT_FOUND)
 
 
-class TestPersonalAPIKeysAPIAuthentication(TransactionBaseTest):
-    TESTS_API = True
-    TESTS_FORCE_LOGIN = False
+class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
 
     def test_no_key(self):
         response = self.client.get("/api/dashboard/")

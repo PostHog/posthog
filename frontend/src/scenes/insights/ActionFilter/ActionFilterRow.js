@@ -25,7 +25,7 @@ const determineFilterLabel = (visible, filter) => {
     return 'Add filters'
 }
 
-export function ActionFilterRow({ logic, filter, index, hideMathSelector, singleFilter, showOr }) {
+export function ActionFilterRow({ logic, filter, index, hideMathSelector, singleFilter, showOr, letter }) {
     const node = useRef()
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
     const {
@@ -97,6 +97,11 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
                 </Row>
             )}
             <Row gutter={8} className="mt">
+                {letter && (
+                    <Col className="action-row-letter">
+                        <span>{letter}</span>
+                    </Col>
+                )}
                 <Col style={{ maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}>
                     <Button
                         data-attr={'trend-element-subject-' + index}
@@ -116,7 +121,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
                         onClose={() => selectFilter(null)}
                     />
                 </Col>
-                <Col style={{ maxWidth: 'calc(50% - 16px)' }}>
+                <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
                     {!hideMathSelector && (
                         <MathSelector
                             math={math}
@@ -258,7 +263,7 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
 
 function MathPropertySelector(props) {
     const applicableProperties = props.properties
-        .filter(({ value }) => value[0] !== '$' && value !== 'distinct_id' && value !== 'token')
+        .filter(({ value }) => (value[0] !== '$' || value === '$time') && value !== 'distinct_id' && value !== 'token')
         .sort((a, b) => (a.value + '').localeCompare(b.value))
 
     return (
