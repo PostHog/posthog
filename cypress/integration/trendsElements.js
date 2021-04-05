@@ -1,6 +1,5 @@
-describe('Trends actions & events', () => {
+describe('Trends', () => {
     beforeEach(() => {
-        // given
         cy.visit('/insights')
     })
 
@@ -81,20 +80,6 @@ describe('Trends actions & events', () => {
     it('Apply date filter', () => {
         cy.get('[data-attr=date-filter]').click()
         cy.contains('Last 30 days').click()
-
-        cy.get('[data-attr=trend-line-graph]').should('exist')
-    })
-
-    it('Apply volume filter', () => {
-        cy.get('[data-attr=shownas-filter]').click()
-        cy.get('[data-attr=shownas-volume-option]').click()
-
-        cy.get('[data-attr=trend-line-graph]').should('exist')
-    })
-
-    it('Apply stickiness filter', () => {
-        cy.get('[data-attr=shownas-filter]').click()
-        cy.get('[data-attr=shownas-stickiness-option]').click()
 
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
