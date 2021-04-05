@@ -11,6 +11,9 @@ import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { actionsModel } from '~/models'
 import { AsyncActionMappingNotice } from 'scenes/project/Settings/WebhookIntegration'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import dayjs from 'dayjs'
+import { compactNumber } from 'lib/utils'
 
 export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, user, temporaryToken }) {
     let logic = actionEditLogic({
@@ -23,6 +26,7 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, use
     const { action, errorActionId } = useValues(logic)
     const { setAction, saveAction } = useActions(logic)
     const { loadActions } = useActions(actionsModel)
+    const { preflight } = useValues(preflightLogic)
 
     const [edited, setEdited] = useState(false)
     const slackEnabled = user?.team?.slack_incoming_webhook
@@ -82,7 +86,21 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, use
                     />
                     {action.count > -1 && (
                         <div>
-                            <small className="text-muted">Matches {action.count} events</small>
+                            <span className="text-muted mb-05">
+                                This action matches <b>{compactNumber(action.count)}</b> events
+                                {preflight.db_backend !== 'clickhouse' && (
+                                    <>
+                                        {' '}
+                                        (last calculated{' '}
+                                        {action.last_calculated_at ? (
+                                            <b>{dayjs(action.last_calculated_at).fromNow()}</b>
+                                        ) : (
+                                            'a while ago'
+                                        )}
+                                        )
+                                    </>
+                                )}
+                            </span>
                         </div>
                     )}
                 </div>

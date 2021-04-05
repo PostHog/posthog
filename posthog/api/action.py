@@ -43,6 +43,8 @@ from .person import PersonSerializer, paginated_result
 
 
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
+    id = serializers.CharField(read_only=False, required=False)
+
     class Meta:
         model = ActionStep
         fields = [
@@ -60,7 +62,7 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class ActionSerializer(serializers.HyperlinkedModelSerializer):
-    steps = serializers.SerializerMethodField()
+    steps = ActionStepSerializer(many=True, required=False)
     count = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
@@ -76,17 +78,86 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
             "deleted",
             "count",
             "is_calculating",
+            "last_calculated_at",
             "created_by",
+            "team_id",
         ]
-
-    def get_steps(self, action: Action):
-        steps = action.steps.all()
-        return ActionStepSerializer(steps, many=True).data
+        extra_kwargs = {"team_id": {"read_only": True}}
 
     def get_count(self, action: Action) -> Optional[int]:
         if hasattr(action, "count"):
             return action.count  # type: ignore
         return None
+
+    def _calculate_action(self, action: Action) -> None:
+        calculate_action.delay(action_id=action.pk)
+
+    def validate(self, attrs):
+        exclude_args = {}
+        if self.instance:
+            include_args = {"team": self.instance.team}
+            exclude_args = {"id": self.instance.pk}
+        else:
+            attrs["team_id"] = self.context["view"].team_id
+            include_args = {"team_id": attrs["team_id"]}
+
+        if Action.objects.filter(name=attrs["name"], deleted=False, **include_args).exclude(**exclude_args).exists():
+            raise serializers.ValidationError(
+                {"name": "This project already has an action with that name."}, code="unique"
+            )
+
+        return attrs
+
+    def create(self, validated_data: Any) -> Any:
+        steps = validated_data.pop("steps", [])
+        validated_data["created_by"] = self.context["request"].user
+        instance = super().create(validated_data)
+
+        for step in steps:
+            ActionStep.objects.create(
+                action=instance, **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
+            )
+
+        self._calculate_action(instance)
+        posthoganalytics.capture(
+            validated_data["created_by"].distinct_id, "action created", instance.get_analytics_metadata()
+        )
+
+        return instance
+
+    def update(self, instance: Any, validated_data: Dict[str, Any]) -> Any:
+
+        steps = validated_data.pop("steps", None)
+        # If there's no steps property at all we just ignore it
+        # If there is a step property but it's an empty array [], we'll delete all the steps
+        if steps is not None:
+            # remove steps not in the request
+            step_ids = [step["id"] for step in steps if step.get("id")]
+            instance.steps.exclude(pk__in=step_ids).delete()
+
+            for step in steps:
+                if step.get("id"):
+                    step_instance = ActionStep.objects.get(pk=step["id"])
+                    step_serializer = ActionStepSerializer(instance=step_instance)
+                    step_serializer.update(step_instance, step)
+                else:
+                    ActionStep.objects.create(
+                        action=instance,
+                        **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
+                    )
+
+        instance = super().update(instance, validated_data)
+        self._calculate_action(instance)
+        instance.refresh_from_db()
+        posthoganalytics.capture(
+            self.context["request"].user.distinct_id,
+            "action updated",
+            {
+                **instance.get_analytics_metadata(),
+                "updated_by_creator": self.context["request"].user == instance.created_by,
+            },
+        )
+        return instance
 
 
 def get_actions(queryset: QuerySet, params: dict, team_id: int) -> QuerySet:
@@ -112,64 +183,6 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
         return get_actions(queryset, self.request.GET.dict(), self.team_id)
-
-    def create(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        action, created = Action.objects.get_or_create(
-            name=request.data["name"],
-            team_id=self.team_id,
-            deleted=False,
-            defaults={"post_to_slack": request.data.get("post_to_slack", False), "created_by": request.user},
-        )
-        if not created:
-            return Response(data={"detail": "action-exists", "id": action.pk}, status=400)
-
-        if request.data.get("steps"):
-            for step in request.data["steps"]:
-                ActionStep.objects.create(
-                    action=action, **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
-                )
-
-        self._calculate_action(action)
-        posthoganalytics.capture(request.user.distinct_id, "action created", action.get_analytics_metadata())
-        return Response(self.serializer_class(action, context={"request": request}).data)
-
-    def _calculate_action(self, action: Action) -> None:
-        calculate_action.delay(action_id=action.pk)
-
-    def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        action = Action.objects.get(pk=kwargs["pk"], team_id=self.team_id)
-
-        # If there's no steps property at all we just ignore it
-        # If there is a step property but it's an empty array [], we'll delete all the steps
-        if "steps" in request.data:
-            steps = request.data.pop("steps")
-            # remove steps not in the request
-            step_ids = [step["id"] for step in steps if step.get("id")]
-            action.steps.exclude(pk__in=step_ids).delete()
-
-            for step in steps:
-                if step.get("id"):
-                    db_step = ActionStep.objects.get(pk=step["id"])
-                    step_serializer = ActionStepSerializer(db_step)
-                    step_serializer.update(db_step, step)
-                else:
-                    ActionStep.objects.create(
-                        action=action,
-                        **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
-                    )
-
-        serializer = ActionSerializer(action, context={"request": request})
-        if "created_by" in request.data:
-            del request.data["created_by"]
-        serializer.update(action, request.data)
-        action.is_calculating = True
-        self._calculate_action(action)
-        posthoganalytics.capture(
-            request.user.distinct_id,
-            "action updated",
-            {**action.get_analytics_metadata(), "updated_by_creator": request.user == action.created_by},
-        )
-        return Response(self.serializer_class(action, context={"request": request}).data)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         actions = self.get_queryset()
