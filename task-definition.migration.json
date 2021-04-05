@@ -65,10 +65,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "IS_DOCKER",
-                    "value": "True"
-                },
-                {
                     "name": "KAFKA_BASE64_KEYS",
                     "value": "True"
                 },
@@ -91,6 +87,10 @@
                 {
                     "name": "BILLING_NO_PLAN_EVENT_ALLOCATION",
                     "value": "10000"
+                },
+                {
+                    "name": "TRUST_ALL_PROXIES",
+                    "value": "True"
                 }
             ],
             "secrets": [

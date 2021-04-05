@@ -10,7 +10,6 @@ import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { ReloadOutlined } from '@ant-design/icons'
 import { red } from '@ant-design/colors'
-import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from './ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
@@ -20,10 +19,15 @@ import { Link } from 'lib/components/Link'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { userLogic } from 'scenes/userLogic'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
+import { RestrictedArea } from '../../../lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from '../../../lib/constants'
+import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
+import { TimezoneConfig } from './TimezoneConfig'
+import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { renameCurrentTeam } = useActions(teamLogic)
+    const { patchCurrentTeam } = useActions(teamLogic)
 
     const [name, setName] = useState(currentTeam?.name || '')
 
@@ -48,7 +52,7 @@ function DisplayName(): JSX.Element {
                 type="primary"
                 onClick={(e) => {
                     e.preventDefault()
-                    renameCurrentTeam(name)
+                    patchCurrentTeam({ name })
                 }}
                 disabled={!name || !currentTeam || name === currentTeam.name}
                 loading={currentTeamLoading}
@@ -59,8 +63,7 @@ function DisplayName(): JSX.Element {
     )
 }
 
-export const ProjectSettings = hot(_ProjectSettings)
-function _ProjectSettings(): JSX.Element {
+export function ProjectSettings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
@@ -72,7 +75,12 @@ function _ProjectSettings(): JSX.Element {
 
     return (
         <div style={{ marginBottom: 128 }}>
-            <PageHeader title="Project Settings" />
+            <PageHeader
+                title="Project Settings"
+                caption={`Organize your analytics within the project. These settings only apply to ${
+                    currentTeam?.name ?? 'the current project'
+                }.`}
+            />
             <Card>
                 <h2 id="name" className="subtitle">
                     Display Name
@@ -117,8 +125,14 @@ function _ProjectSettings(): JSX.Element {
                     actions={[
                         {
                             Icon: ReloadOutlined,
+                            title: 'Reset Project API Key',
                             popconfirmProps: {
-                                title: 'Reset project API key, invalidating the current one?',
+                                title: (
+                                    <>
+                                        Reset the project's API key?{' '}
+                                        <b>This will invalidate the current API key and cannot be undone.</b>
+                                    </>
+                                ),
                                 okText: 'Reset Key',
                                 okType: 'danger',
                                 icon: <ReloadOutlined style={{ color: red.primary }} />,
@@ -127,11 +141,32 @@ function _ProjectSettings(): JSX.Element {
                             callback: resetToken,
                         },
                     ]}
+                    copyDescription="project API key"
                 >
                     {currentTeam?.api_token}
                 </CodeSnippet>
                 Write-only means it can only create new events. It can't read events or any of your other data stored
                 with PostHog, so it's safe to use in public apps.
+                <Divider />
+                <h2 className="subtitle" id="timezone">
+                    Timezone
+                </h2>
+                <p>Set the timezone for your project so that you can see relevant time conversions in PostHog.</p>
+                <TimezoneConfig />
+                <Divider />
+                <h2 className="subtitle" id="internal-users-filtering">
+                    Filter Out Events
+                </h2>
+                <p>
+                    Increase the quality of your analytics results by filtering out events from team members, test
+                    accounts, and development environments. The events will still be captured and logged but will be
+                    excluded from queries, graphs, and other analyses.
+                </p>
+                <p>
+                    For example, <code>email ∌ example.com</code> to exclude all events from users on your team and{' '}
+                    <code>Host ≠ localhost:8000</code> to exclude all events from local development environments.
+                </p>
+                <TestAccountFiltersConfig />
                 <Divider />
                 <h2 className="subtitle" id="urls">
                     Permitted Domains/URLs
@@ -141,6 +176,11 @@ function _ProjectSettings(): JSX.Element {
                     also where you'll be able to create Actions and record sessions.
                 </p>
                 <EditAppUrls />
+                <Divider />
+                <h2 className="subtitle" id="attributes">
+                    Data Attributes
+                </h2>
+                <DataAttributes />
                 <Divider />
                 <h2 className="subtitle" id="webhook">
                     Webhook Integration
@@ -181,10 +221,7 @@ function _ProjectSettings(): JSX.Element {
                     with us!
                 </p>
                 <Divider />
-                <h2 style={{ color: 'var(--danger)' }} className="subtitle">
-                    Danger Zone
-                </h2>
-                <DangerZone />
+                <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
             </Card>
         </div>
     )

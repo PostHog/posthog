@@ -22,20 +22,24 @@ import {
     BlockOutlined,
     CopyOutlined,
     DeliveredProcedureOutlined,
-    ReloadOutlined,
     BarChartOutlined,
     SaveOutlined,
+    ReloadOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { logicFromInsight, ViewType } from 'scenes/insights/insightLogic'
 import { dashboardsModel } from '~/models'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import SaveModal from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { DashboardItemType, DashboardType, DisplayType } from '~/types'
+import { ActionsBarValueGraph } from 'scenes/trends/viz'
+
+import relativeTime from 'dayjs/plugin/relativeTime'
+dayjs.extend(relativeTime)
 
 interface Props {
     item: DashboardItemType
@@ -44,10 +48,10 @@ interface Props {
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
     inSharedMode?: boolean
-    enableWobblyDragging?: () => void
+    isOnEditMode: boolean
+    setEditMode?: () => void
     index: number
     layout?: any
-    onRefresh?: () => void
     footer?: JSX.Element
     onClick?: () => void
     preventLoading?: boolean
@@ -86,6 +90,14 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     ActionsBar: {
         className: 'bar',
         element: ActionsLineGraph,
+        icon: BarChartOutlined,
+        viewText: 'View graph',
+        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
+            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+    },
+    ActionsBarValue: {
+        className: 'bar',
+        element: ActionsBarValueGraph,
         icon: BarChartOutlined,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
@@ -155,10 +167,10 @@ export function DashboardItem({
     loadDashboardItems,
     isDraggingRef,
     inSharedMode,
-    enableWobblyDragging,
+    isOnEditMode,
+    setEditMode,
     index,
     layout,
-    onRefresh,
     footer,
     onClick,
     preventLoading,
@@ -188,7 +200,7 @@ export function DashboardItem({
     const { renameDashboardItem } = useActions(dashboardItemsModel)
     const otherDashboards: DashboardType[] = dashboards.filter((d: DashboardType) => d.id !== dashboardId)
 
-    const longPressProps = useLongPress(enableWobblyDragging, {
+    const longPressProps = useLongPress(setEditMode, {
         ms: 500,
         touch: true,
         click: false,
@@ -211,8 +223,6 @@ export function DashboardItem({
     useEffect(() => {
         if (previousLoading && !resultsLoading && !initialLoaded) {
             setInitialLoaded(true)
-        } else if (previousLoading && !resultsLoading && initialLoaded) {
-            onRefresh && onRefresh()
         }
     }, [resultsLoading])
 
@@ -231,7 +241,7 @@ export function DashboardItem({
                 </div>
             )}
             <div className={`dashboard-item-container ${className}`}>
-                <div className="dashboard-item-header" style={{ cursor: inSharedMode ? 'inherit' : 'move' }}>
+                <div className="dashboard-item-header" style={{ cursor: isOnEditMode ? 'move' : 'inherit' }}>
                     <div className="dashboard-item-title" data-attr="dashboard-item-title">
                         {inSharedMode ? (
                             item.name
@@ -285,11 +295,12 @@ export function DashboardItem({
                                         />
                                     </Tooltip>
                                 ))}
+                            {/* :TODO: Remove individual refresh when addressing https://github.com/PostHog/posthog/issues/3609  */}
                             <Tooltip
                                 title={
                                     <i>
-                                        Refreshed:{' '}
-                                        {item.last_refresh ? moment(item.last_refresh).fromNow() : 'just now'}
+                                        Last updated:{' '}
+                                        {item.last_refresh ? dayjs(item.last_refresh).fromNow() : 'recently'}
                                     </i>
                                 }
                             >

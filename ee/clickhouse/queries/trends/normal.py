@@ -21,7 +21,7 @@ from ee.clickhouse.sql.trends.volume import (
     VOLUME_SQL,
     VOLUME_TOTAL_AGGREGATE_SQL,
 )
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_PIE, TRENDS_TABLE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_DISPLAY_BY_VALUE
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -37,7 +37,9 @@ class ClickhouseTrendsNormal:
         _, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
         props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            props_to_filter, team_id, filter_test_accounts=filter.filter_test_accounts
+        )
 
         aggregate_operation, join_condition, math_params = process_math(entity)
 
@@ -58,7 +60,7 @@ class ClickhouseTrendsNormal:
         params = {**params, **entity_params}
         content_sql_params = {**content_sql_params, **entity_format_params}
 
-        if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
+        if filter.display in TRENDS_DISPLAY_BY_VALUE:
             agg_query = self._determine_single_aggregate_query(filter, entity)
             content_sql = agg_query.format(**content_sql_params)
 
@@ -78,6 +80,7 @@ class ClickhouseTrendsNormal:
                 date_to=filter.date_to.strftime("%Y-%m-%d %H:%M:%S"),
             )
             final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
+
             return final_query, params, self._parse_normal_result(filter)
 
     def _parse_normal_result(self, filter: Filter) -> Callable:

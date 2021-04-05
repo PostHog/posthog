@@ -1,12 +1,16 @@
+import json
 import re
 from typing import Tuple
 
 import requests
+import urllib3
 from celery import Task
 from django.conf import settings
 
 from posthog.celery import app
 from posthog.models import Action, Event, Team
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def get_user_details(event: Event, site_url: str) -> Tuple[str, str]:
@@ -57,6 +61,14 @@ def get_value_of_token(action: Action, event: Event, site_url: str, token_parts:
     elif token_parts[0] == "event":
         if token_parts[1] == "name":
             text = markdown = event.event
+        elif token_parts[1] == "properties" and len(token_parts) > 2:
+            property_name = token_parts[2]
+            if property_name in event.properties:
+                property = event.properties[property_name]
+                text = markdown = property if isinstance(property, str) else json.dumps(property)
+            else:
+                text = markdown = "undefined"
+
     else:
         raise ValueError
     return text, markdown
@@ -103,25 +115,25 @@ def determine_webhook_type(team: Team) -> str:
 @app.task(ignore_result=True, bind=True, max_retries=3)
 def post_event_to_webhook(self: Task, event_id: int, site_url: str) -> None:
     try:
-        event = Event.objects.get(pk=event_id)
+        event = Event.objects.select_related("team").get(pk=event_id)
         team = event.team
-        actions = [action for action in event.action_set.all() if action.post_to_slack]
+        if not team.slack_incoming_webhook:
+            return
 
         if not site_url:
             site_url = settings.SITE_URL
 
-        if team.slack_incoming_webhook and actions:
-            for action in actions:
-                message_text, message_markdown = get_formatted_message(action, event, site_url,)
-                if determine_webhook_type(team) == "slack":
-                    message = {
-                        "text": message_text,
-                        "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": message_markdown},},],
-                    }
-                else:
-                    message = {
-                        "text": message_markdown,
-                    }
-                requests.post(team.slack_incoming_webhook, verify=False, json=message)
+        for action in event.action_set.filter(post_to_slack=True):
+            message_text, message_markdown = get_formatted_message(action, event, site_url,)
+            if determine_webhook_type(team) == "slack":
+                message = {
+                    "text": message_text,
+                    "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": message_markdown},},],
+                }
+            else:
+                message = {
+                    "text": message_markdown,
+                }
+            requests.post(team.slack_incoming_webhook, verify=False, json=message)
     except:
         self.retry(countdown=2 ** self.request.retries)

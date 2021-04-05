@@ -1,4 +1,4 @@
-describe('Dashboards', () => {
+describe('Dashboard', () => {
     beforeEach(() => {
         cy.get('[data-attr=menu-item-dashboards]').click()
         cy.location('pathname').should('include', '/dashboard')
@@ -6,6 +6,17 @@ describe('Dashboards', () => {
 
     it('Dashboards loaded', () => {
         cy.get('h1').should('contain', 'Dashboards')
+    })
+
+    it('Cannot see tags or description (non-FOSS feature)', () => {
+        cy.get('h1').should('contain', 'Dashboards')
+        cy.get('th.ant-table-cell').contains('Description').should('not.exist')
+        cy.get('th.ant-table-cell').contains('Tags').should('not.exist')
+
+        cy.get('[data-attr=dashboard-name]').contains('My App Dashboard').click()
+        cy.get('[data-attr=dashboard-item-0]').should('exist')
+        cy.get('.dashboard-description').should('not.exist')
+        cy.get('[data-attr=dashboard-tags]').should('not.exist')
     })
 
     it('Pinned dashboards on menu', () => {
@@ -16,7 +27,7 @@ describe('Dashboards', () => {
     })
 
     it('Share dashboard', () => {
-        cy.get('[data-attr=dashboard-name]').contains('Default').click()
+        cy.get('[data-attr=dashboard-name]').contains('My App Dashboard').click()
         cy.get('[data-attr=dashboard-item-0]').should('exist')
 
         cy.get('[data-attr=dashboard-share-button]').click()
@@ -26,17 +37,17 @@ describe('Dashboards', () => {
             .then((link) => {
                 cy.wait(200)
                 cy.visit(link)
-                cy.get('[data-attr="dashboard-item-title"').should('contain', 'popular browsers')
+                cy.get('[data-attr="dashboard-item-title"').should('contain', 'Daily Active Users')
             })
     })
 
     it('Create an empty dashboard', () => {
         cy.get('[data-attr="new-dashboard"]').click()
-        cy.get('[data-attr=dashboard-name-input]').clear().type('YDefault')
+        cy.get('[data-attr=dashboard-name-input]').clear().type('New Dashboard')
         cy.get('button').contains('Create').click()
 
-        cy.contains('YDefault').should('exist')
-        cy.contains('There are no panels').should('exist')
+        cy.contains('New Dashboard').should('exist')
+        cy.get('.empty-state').should('exist')
     })
 
     it('Create dashboard from a template', () => {

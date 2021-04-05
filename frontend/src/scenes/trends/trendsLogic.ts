@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { autocorrectInterval, objectsEqual, toParams as toAPIParams } from 'lib/utils'
+import { autocorrectInterval, errorToast, objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
@@ -15,16 +15,20 @@ import {
     ACTION_TYPE,
     ShownAsValue,
 } from 'lib/constants'
-import { ViewType, insightLogic } from '../insights/insightLogic'
+import { ViewType, insightLogic, defaultFilterTestAccounts } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
+import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
-import { ActionType, EntityType, FilterType, PersonType, PropertyFilter } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
-import { toast, ToastId } from 'react-toastify'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
-interface ActionFilter {
+interface TrendResponse {
+    result: TrendResult[]
+    next?: string
+}
+
+export interface ActionFilter {
     id: number | string
     math?: string
     math_property?: string
@@ -32,6 +36,10 @@ interface ActionFilter {
     order: number
     properties: PropertyFilter[]
     type: EntityType
+}
+
+export interface IndexedTrendResult extends TrendResult {
+    id: number
 }
 
 interface TrendPeople {
@@ -72,6 +80,7 @@ function cleanFilters(filters: Partial<FilterType>): Record<string, any> {
         actions: Array.isArray(filters.actions) ? filters.actions : undefined,
         events: Array.isArray(filters.events) ? filters.events : undefined,
         properties: filters.properties || [],
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
     }
 }
 
@@ -126,7 +135,9 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
 // props:
 // - dashboardItemId
 // - filters
-export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeople, PropertyFilter, ToastId>>({
+export const trendsLogic = kea<
+    trendsLogicType<TrendResponse, IndexedTrendResult, TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter>
+>({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
     },
@@ -136,11 +147,11 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
     },
 
     loaders: ({ values, props }) => ({
-        results: {
-            __default: [],
+        _results: {
+            __default: {} as TrendResponse,
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
-                    return props.cachedResults
+                    return { result: props.cachedResults } as TrendResponse
                 }
                 insightLogic.actions.startQuery()
                 let response
@@ -159,13 +170,15 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                         )
                     }
                 } catch (e) {
+                    console.error(e)
                     breakpoint()
-                    insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, false, e)
+                    insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, null, e)
                     return []
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, response.last_refresh)
-                return response.result
+
+                return response
             },
         },
     }),
@@ -189,6 +202,11 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
             breakdown_value,
             next,
         }),
+        setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
+        toggleVisibility: (index: number) => ({ index }),
+        setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
+        loadMoreBreakdownValues: true,
+        setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
     }),
 
     reducers: ({ props }) => ({
@@ -227,9 +245,37 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                 setShowingPeople: ({}, { isShowing }) => isShowing,
             },
         ],
+        indexedResults: [
+            [] as IndexedTrendResult[],
+            {
+                setIndexedResults: ({}, { results }) => results,
+            },
+        ],
+        visibilityMap: [
+            {} as Record<number, any>,
+            {
+                setVisibilityById: (state: Record<number, any>, { entry }: { entry: Record<number, any> }) => ({
+                    ...state,
+                    ...entry,
+                }),
+                toggleVisibility: (state: Record<number, any>, { index }: { index: number }) => ({
+                    ...state,
+                    [`${index}`]: !state[index],
+                }),
+            },
+        ],
+        breakdownValuesLoading: [
+            false,
+            {
+                setBreakdownValuesLoading: (_, { loading }) => loading,
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
+        results: [() => [selectors._results], (response) => response.result],
+        resultsLoading: [() => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
+        loadMoreBreakdownUrl: [() => [selectors._results], (response) => response.next],
         sessionsPageParams: [
             () => [selectors.filters, selectors.people],
             (filters, people) => {
@@ -309,7 +355,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                     },
                 }).actions.saveCohort(cohortParams, filterParams)
             } else {
-                toast.error('Error creating cohort')
+                errorToast(undefined, "We couldn't create your cohort:")
             }
         },
         loadPeople: async ({ label, action, day, breakdown_value }, breakpoint) => {
@@ -370,11 +416,29 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                     insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
                 })
             }
+
+            const indexedResults = values.results.map((element, index) => {
+                actions.setVisibilityById({ [`${index}`]: true })
+                return { ...element, id: index }
+            })
+            actions.setIndexedResults(indexedResults)
         },
         [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
             if (props.dashboardItemId) {
                 actions.setFilters(filters, true)
             }
+        },
+        loadMoreBreakdownValues: async () => {
+            if (!values.loadMoreBreakdownUrl) {
+                return
+            }
+            actions.setBreakdownValuesLoading(true)
+            const response = await api.get(values.loadMoreBreakdownUrl)
+            actions.loadResultsSuccess({
+                result: [...values.results, ...response.result],
+                next: response.next,
+            })
+            actions.setBreakdownValuesLoading(false)
         },
     }),
 
@@ -432,6 +496,7 @@ export const trendsLogic = kea<trendsLogicType<FilterType, ActionType, TrendPeop
                             order: 0,
                         },
                     ]
+                    cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts()
                 }
 
                 if (searchParams.insight === ViewType.STICKINESS) {

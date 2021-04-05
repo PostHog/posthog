@@ -48,7 +48,13 @@ class Funnel(BaseQuery):
                         else {}
                     ),
                 )
-                .filter(properties_to_Q(self._filter.properties, team_id=self._team.pk))
+                .filter(
+                    properties_to_Q(
+                        self._filter.properties,
+                        team_id=self._team.pk,
+                        filter_test_accounts=self._filter.filter_test_accounts,
+                    )
+                )
                 .filter(properties_to_Q(step.properties, team_id=self._team.pk))
             )
             with connection.cursor() as cursor:

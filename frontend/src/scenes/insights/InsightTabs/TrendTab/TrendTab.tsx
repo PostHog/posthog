@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
@@ -14,6 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FilterType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { Formula } from './Formula'
+import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 
 interface TrendTabProps {
     view: string
@@ -24,6 +25,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
+    const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
 
     return featureFlags['remove-shownas'] ? (
         <>
@@ -46,6 +48,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     <hr />
                     <h4 className="secondary">Filters</h4>
                     <PropertyFilters pageKey="trends-filters" />
+                    <TestAccountFilter filters={filters} onChange={setFilters} />
                 </>
             )}
             {(!filters.insight || filters.insight === ViewType.TRENDS) &&
@@ -54,7 +57,16 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     <>
                         <hr />
                         <h4 className="secondary">Formula</h4>
-                        <Formula filters={filters} onChange={(formula: string): void => setFilters({ formula })} />
+                        <Formula
+                            filters={filters}
+                            onFocus={(hasFocus, localFormula) =>
+                                setIsUsingFormulas(hasFocus ? true : localFormula ? true : false)
+                            }
+                            onChange={(formula: string): void => {
+                                setIsUsingFormulas(formula ? true : false)
+                                setFilters({ formula })
+                            }}
+                        />
                     </>
                 )}
             {filters.insight !== ViewType.LIFECYCLE && filters.insight !== ViewType.STICKINESS && (
@@ -69,7 +81,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                             <InfoCircleOutlined className="info-indicator" />
                         </Tooltip>
                     </h4>
-                    <Row>
+                    <Row align="middle">
                         <BreakdownFilter
                             filters={filters}
                             onChange={(breakdown: string, breakdown_type: string): void =>
@@ -79,7 +91,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         {filters.breakdown && (
                             <CloseButton
                                 onClick={(): void => setFilters({ breakdown: false, breakdown_type: null })}
-                                style={{ marginTop: 1, marginLeft: 10 }}
+                                style={{ marginTop: 1, marginLeft: 5 }}
                             />
                         )}
                     </Row>
@@ -95,6 +107,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                 typeKey="trends"
                 hideMathSelector={filters.shown_as === ShownAsValue.LIFECYCLE}
                 copy="Add graph series"
+                showLetters={isUsingFormulas}
                 disabled={
                     filters.shown_as === ShownAsValue.LIFECYCLE && !!(filters.events?.length || filters.actions?.length)
                 }
@@ -102,13 +115,23 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
             <hr />
             <h4 className="secondary">Filters</h4>
             <PropertyFilters pageKey="trends-filters" />
+            <TestAccountFilter filters={filters} onChange={setFilters} />
             {(!filters.insight || filters.insight === ViewType.TRENDS) &&
                 featureFlags['3275-formulas'] &&
                 user?.ee_enabled && (
                     <>
                         <hr />
                         <h4 className="secondary">Formula</h4>
-                        <Formula filters={filters} onChange={(formula: string): void => setFilters({ formula })} />
+                        <Formula
+                            filters={filters}
+                            onFocus={(hasFocus, localFormula) =>
+                                setIsUsingFormulas(hasFocus ? true : localFormula ? true : false)
+                            }
+                            onChange={(formula: string): void => {
+                                setIsUsingFormulas(formula ? true : false)
+                                setFilters({ formula })
+                            }}
+                        />
                     </>
                 )}
             <hr />
@@ -142,7 +165,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     placement="right"
                     title='
                                             Stickiness shows you how many days users performed an action within the timeframe. If a user
-                                            performed an action on Monday and again on Friday, it would be shown 
+                                            performed an action on Monday and again on Friday, it would be shown
                                             as "2 days".'
                 >
                     <InfoCircleOutlined className="info-indicator" />

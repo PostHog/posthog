@@ -6,7 +6,6 @@ from django.db.models.signals import pre_save
 from django.dispatch import receiver
 from django_deprecate_fields import deprecate_field
 
-from posthog.constants import INSIGHT_RETENTION, INSIGHT_SESSIONS, INSIGHT_TRENDS
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
 from posthog.utils import generate_cache_key
@@ -53,6 +52,7 @@ class DashboardItem(models.Model):
 def dashboard_saved(sender, instance: Dashboard, **kwargs):
     for item in instance.items.all():
         dashboard_item_saved(sender, item, dashboard=instance, **kwargs)
+        item.save()
 
 
 @receiver(pre_save, sender=DashboardItem)

@@ -52,7 +52,7 @@ const FilterRow = React.memo(function FilterRow({
                     onClick={() => {
                         remove(index)
                     }}
-                    style={{ cursor: 'pointer', float: 'none' }}
+                    style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
                 />
             )}
             {key && showConditionBadge && index + 1 < totalCount && (
@@ -80,7 +80,7 @@ export function PropertyFilters({
                 filters.map((item, index) => {
                     return (
                         <FilterRow
-                            key={index === filters.length - 1 ? index : `${index}_${Object.keys(item)[0]}`}
+                            key={index}
                             logic={logic}
                             item={item}
                             index={index}

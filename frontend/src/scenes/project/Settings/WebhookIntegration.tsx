@@ -6,7 +6,7 @@ import { userLogic } from 'scenes/userLogic'
 import { logicType } from './WebhookIntegrationType'
 import { UserType } from '~/types'
 import { toast } from 'react-toastify'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { errorToast } from 'lib/utils'
 
 const WEBHOOK_SERVICES: Record<string, string> = {
     Slack: 'slack.com',
@@ -90,15 +90,7 @@ const logic = kea<logicType<UserType>>({
             userLogic.actions.userUpdateRequest({ team: { slack_incoming_webhook: values.editedWebhook } }, 'webhook')
         },
         handleTestError: ({ error }) => {
-            toast.error(
-                <div>
-                    <h1>
-                        {capitalizeFirstLetter(resolveWebhookService(values.editedWebhook))} webhook validation returned
-                        error:
-                    </h1>
-                    <p>{error}</p>
-                </div>
-            )
+            errorToast('Error validating your webhook', 'Your webhook returned the following error response:', error)
         },
         [userLogic.actionTypes.userUpdateSuccess]: ({ updateKey }) => {
             if (updateKey === 'webhook') {
@@ -114,20 +106,32 @@ const logic = kea<logicType<UserType>>({
     }),
 })
 
+export function AsyncActionMappingNotice(): JSX.Element {
+    return (
+        <p>
+            Please note that webhooks and actions may be delayed up to 5 minutes due to open-source PostHog
+            configuration.
+        </p>
+    )
+}
+
 export function WebhookIntegration(): JSX.Element {
     const { isSaving, editedWebhook } = useValues(logic)
     const { testThenSaveWebhook, setEditedWebhook } = useActions(logic)
+    const { user } = useValues(userLogic)
 
     return (
         <div>
             <p>
-                Send notifications when selected Actions are performed by users.
+                Send notifications when selected actions are performed by users.
                 <br />
                 Guidance on integrating with webhooks available in our docs,{' '}
                 <a href="https://posthog.com/docs/integrations/slack">for Slack</a> and{' '}
                 <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>. Discord is also
                 supported.
             </p>
+            {user?.is_async_event_action_mapping_enabled && <AsyncActionMappingNotice />}
+
             <Input
                 value={editedWebhook}
                 addonBefore="Webhook URL"

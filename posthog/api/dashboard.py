@@ -35,6 +35,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "description",
             "pinned",
             "items",
             "created_at",
@@ -42,16 +43,20 @@ class DashboardSerializer(serializers.ModelSerializer):
             "is_shared",
             "share_token",
             "deleted",
+            "creation_mode",
             "use_template",
             "filters",
+            "tags",
         ]
+        read_only_fields = ("creation_mode",)
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         team = Team.objects.get(id=self.context["team_id"])
         use_template: str = validated_data.pop("use_template", None)
-        dashboard = Dashboard.objects.create(team=team, **validated_data)
+        creation_mode = "template" if use_template else "default"
+        dashboard = Dashboard.objects.create(team=team, creation_mode=creation_mode, **validated_data)
 
         if use_template:
             try:

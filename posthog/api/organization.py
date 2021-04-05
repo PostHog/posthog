@@ -5,16 +5,17 @@ from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 from django.urls.base import reverse
-from rest_framework import exceptions, generics, permissions, response, serializers, status, viewsets
+from rest_framework import exceptions, generics, permissions, response, serializers, validators, viewsets
 from rest_framework.request import Request
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.demo import create_demo_team
 from posthog.event_usage import report_onboarding_completed, report_user_joined_organization, report_user_signed_up
+from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.permissions import (
@@ -22,6 +23,7 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     UninitiatedOrCloudOnly,
+    extract_organization,
 )
 from posthog.tasks import user_identify
 from posthog.utils import mask_email_address
@@ -47,6 +49,18 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
         return True
 
 
+class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
+        organization = extract_organization(object)
+        min_level = (
+            OrganizationMembership.Level.OWNER if request.method == "DELETE" else OrganizationMembership.Level.ADMIN
+        )
+        return OrganizationMembership.objects.get(user=request.user, organization=organization).level >= min_level
+
+
 class OrganizationSerializer(serializers.ModelSerializer):
     membership_level = serializers.SerializerMethodField()
     setup = (
@@ -64,6 +78,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "personalization",
             "setup",
             "setup_section_2_completed",
+            "plugins_access_level",
         ]
         read_only_fields = [
             "id",
@@ -86,7 +101,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
     def get_setup(self, instance: Organization) -> Dict[str, Union[bool, int, str, None]]:
 
         if not instance.is_onboarding_active:
-            # As Section 2 is the last one of the setup process (as of today), if it's completed it means the setup process is done
+            # As Section 2 is the last one of the setup process (as of today),
+            # if it's completed it means the setup process is done
             return {"is_active": False, "current_section": None}
 
         non_demo_team_id = next((team.pk for team in instance.teams.filter(is_demo=False)), None)
@@ -110,12 +126,12 @@ class OrganizationSerializer(serializers.ModelSerializer):
         }
 
 
-class OrganizationViewSet(viewsets.ModelViewSet):
+class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     serializer_class = OrganizationSerializer
     permission_classes = [
         permissions.IsAuthenticated,
         OrganizationMemberPermissions,
-        OrganizationAdminWritePermissions,
+        OrganizationPermissionsWithDelete,
     ]
     queryset = Organization.objects.none()
     lookup_field = "id"
@@ -127,16 +143,6 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             # because they require an existing org, unneded anyways because permissions are organization-based
             return [permission() for permission in [permissions.IsAuthenticated, PremiumMultiorganizationPermissions]]
         return super().get_permissions()
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        for member in instance.members.all():
-            if member.organizations.count() <= 1:
-                raise exceptions.ValidationError(
-                    f"Cannot remove organization since that would leave member {member.email} organization-less, which is not supported yet."
-                )
-        self.perform_destroy(instance)
-        return response.Response(status=status.HTTP_204_NO_CONTENT)
 
     def get_queryset(self) -> QuerySet:
         return self.request.user.organizations.all()
@@ -157,7 +163,13 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 
 class OrganizationSignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128)
-    email: serializers.Field = serializers.EmailField()
+    email: serializers.Field = serializers.EmailField(
+        validators=[
+            validators.UniqueValidator(
+                queryset=User.objects.all(), message="There is already an account with this email address."
+            )
+        ]
+    )
     password: serializers.Field = serializers.CharField(allow_null=True)
     organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
@@ -241,7 +253,8 @@ class OrganizationSocialSignupSerializer(serializers.Serializer):
 
 class OrganizationSignupViewset(generics.CreateAPIView):
     serializer_class = OrganizationSignupSerializer
-    permission_classes = (UninitiatedOrCloudOnly,)
+    # Enables E2E testing of signup flow
+    permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (UninitiatedOrCloudOnly,)
 
 
 class OrganizationSocialSignupViewset(generics.CreateAPIView):

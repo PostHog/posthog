@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { uuid, Loading, deleteWithUndo } from 'lib/utils'
+import { uuid, deleteWithUndo } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
@@ -10,24 +10,26 @@ import { InfoCircleOutlined, PlusOutlined, SaveOutlined, DeleteOutlined } from '
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { actionsModel } from '~/models'
+import { AsyncActionMappingNotice } from 'scenes/project/Settings/WebhookIntegration'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import dayjs from 'dayjs'
+import { compactNumber } from 'lib/utils'
 
-export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryToken }) {
+export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, user, temporaryToken }) {
     let logic = actionEditLogic({
         id: actionId,
         apiURL,
+        action: loadedAction,
         onSave: (action, createNew) => onSave(action, !actionId, createNew),
         temporaryToken,
     })
-    const { action, actionLoading, errorActionId } = useValues(logic)
+    const { action, errorActionId } = useValues(logic)
     const { setAction, saveAction } = useActions(logic)
     const { loadActions } = useActions(actionsModel)
+    const { preflight } = useValues(preflightLogic)
 
     const [edited, setEdited] = useState(false)
     const slackEnabled = user?.team?.slack_incoming_webhook
-
-    if (actionLoading || !action) {
-        return <Loading />
-    }
 
     const newAction = () => {
         setAction({ ...action, steps: [...action.steps, { isNew: uuid() }] })
@@ -84,7 +86,21 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                     />
                     {action.count > -1 && (
                         <div>
-                            <small className="text-muted">Matches {action.count} events</small>
+                            <span className="text-muted mb-05">
+                                This action matches <b>{compactNumber(action.count)}</b> events
+                                {preflight.db_backend !== 'clickhouse' && (
+                                    <>
+                                        {' '}
+                                        (last calculated{' '}
+                                        {action.last_calculated_at ? (
+                                            <b>{dayjs(action.last_calculated_at).fromNow()}</b>
+                                        ) : (
+                                            'a while ago'
+                                        )}
+                                        )
+                                    </>
+                                )}
+                            </span>
                         </div>
                     )}
                 </div>
@@ -108,7 +124,6 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                                 step={step}
                                 isEditor={false}
                                 actionId={action.id}
-                                simmer={simmer}
                                 isOnlyStep={action.steps.length === 1}
                                 onDelete={() => {
                                     const identifier = step.id ? 'id' : 'isNew'
@@ -166,6 +181,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                             </Link>
                         </p>
+                        {user?.is_async_event_action_mapping_enabled && <AsyncActionMappingNotice />}
                         {action.post_to_slack && (
                             <>
                                 <Input

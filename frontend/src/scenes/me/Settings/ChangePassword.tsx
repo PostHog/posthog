@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import Form from 'antd/lib/form/Form'
 import FormItem from 'antd/lib/form/FormItem'
+import { errorToast } from 'lib/utils'
 
 export function ChangePassword(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -23,7 +24,7 @@ export function ChangePassword(): JSX.Element {
             loadUser()
             toast.success('Password changed')
         } catch (response) {
-            toast.error(response.error)
+            errorToast(undefined, 'There was a problem changing your password', response.error)
         }
     }
 
@@ -49,6 +50,7 @@ export function ChangePassword(): JSX.Element {
                     autoComplete="current-password"
                     disabled={!!user && !user.has_password}
                     placeholder={user && !user.has_password ? 'signed up with external login' : undefined}
+                    className="ph-ignore-input"
                 />
             </FormItem>
             <FormItem
