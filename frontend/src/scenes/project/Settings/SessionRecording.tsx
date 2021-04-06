@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Input, Switch } from 'antd'
 import { teamLogic } from 'scenes/teamLogic'
@@ -9,7 +9,9 @@ export function SessionRecording(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { preflight } = useValues(preflightLogic)
 
-    const [period, setPeriod] = useState(currentTeam?.session_recording_retention_period_days || null)
+    const [period, setPeriod] = useState(null as null | number)
+
+    useEffect(() => setPeriod(currentTeam?.session_recording_retention_period_days ?? null), [currentTeam])
 
     return (
         <div style={{ marginBottom: 16 }}>
@@ -57,11 +59,14 @@ export function SessionRecording(): JSX.Element {
                                 addonAfter="days"
                                 onChange={(event) => {
                                     const newPeriod = parseFloat(event.target.value)
-                                    updateCurrentTeam({
-                                        session_recording_retention_period_days: newPeriod,
-                                    })
                                     setPeriod(newPeriod)
                                 }}
+                                onBlur={() =>
+                                    updateCurrentTeam({
+                                        session_recording_retention_period_days: period,
+                                    })
+                                }
+                                onPressEnter={(e) => (e.target as HTMLInputElement).blur()}
                                 value={period}
                                 placeholder="Retention period"
                             />

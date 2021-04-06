@@ -13,7 +13,7 @@ export function IPCapture(): JSX.Element {
                 onChange={(checked) => {
                     updateCurrentTeam({ anonymize_ips: checked })
                 }}
-                defaultChecked={currentTeam?.anonymize_ips}
+                checked={currentTeam?.anonymize_ips}
                 loading={currentTeamLoading}
                 disabled={currentTeamLoading}
             />
