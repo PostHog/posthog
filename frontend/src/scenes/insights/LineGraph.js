@@ -209,7 +209,7 @@ export function LineGraph({
                 footerFontStyle: 'italic',
                 callbacks: {
                     label: function (tooltipItem, data) {
-                        let entityData = data.datasets[tooltipItem.datasetIndex]
+                        const entityData = data.datasets[tooltipItem.datasetIndex]
                         if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
                             return null
                         }
@@ -340,7 +340,7 @@ export function LineGraph({
                     mode: 'index',
                     callbacks: {
                         label: function (tooltipItem, data) {
-                            let entityData = data.datasets[tooltipItem.datasetIndex]
+                            const entityData = data.datasets[tooltipItem.datasetIndex]
                             const label = entityData.chartLabel || entityData.labels[tooltipItem.index] || ''
                             const formattedLabel = entityData.action[tooltipItem.index]
                                 ? formatLabel(label, entityData.action[tooltipItem.index])
