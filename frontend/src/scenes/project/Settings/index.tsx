@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { Button, Card, Divider, Input, Tag } from 'antd'
+import { Button, Card, Divider, Input, Skeleton, Tag } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { SessionRecording } from './SessionRecording'
@@ -63,13 +63,15 @@ function DisplayName(): JSX.Element {
 }
 
 export function ProjectSettings(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
 
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
 
     useAnchor(location.hash)
+
+    const LoadingComponent = <Skeleton active />
 
     return (
         <div style={{ marginBottom: 128 }}>
@@ -83,7 +85,7 @@ export function ProjectSettings(): JSX.Element {
                 <h2 id="name" className="subtitle">
                     Display Name
                 </h2>
-                <DisplayName />
+                {currentTeamLoading ? LoadingComponent : <DisplayName />}
                 <Divider />
                 <h2 id="snippet" className="subtitle">
                     Website Event Autocapture
@@ -94,7 +96,7 @@ export function ProjectSettings(): JSX.Element {
                 <br />
                 For more guidance, including on identying users,{' '}
                 <a href="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</a>.
-                <JSSnippet />
+                {currentTeamLoading ? LoadingComponent : <JSSnippet />}
                 <p>
                     You can even test PostHog out on a live site without changing any code.
                     <br />
