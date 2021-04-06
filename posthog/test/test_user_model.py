@@ -2,7 +2,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 from dateutil.relativedelta import relativedelta
-from django.test import tag
 from django.utils.timezone import now
 from freezegun import freeze_time
 

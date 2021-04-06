@@ -14,19 +14,22 @@ const DragHandle = sortableHandle(() => (
         <EllipsisOutlined />
     </span>
 ))
-const SortableActionFilterRow = sortableElement(({ logic, filter, filterIndex, hideMathSelector, filterCount }) => (
-    <div className="draggable-action-filter">
-        {filterCount > 1 && <DragHandle />}
-        <ActionFilterRow
-            logic={logic}
-            filter={filter}
-            // sortableElement requires, yet eats the index prop, so passing via filterIndex here
-            index={filterIndex}
-            key={filterIndex}
-            hideMathSelector={hideMathSelector}
-        />
-    </div>
-))
+const SortableActionFilterRow = sortableElement(
+    ({ logic, filter, filterIndex, hideMathSelector, hidePropertySelector, filterCount }) => (
+        <div className="draggable-action-filter">
+            {filterCount > 1 && <DragHandle />}
+            <ActionFilterRow
+                logic={logic}
+                filter={filter}
+                // sortableElement requires, yet eats the index prop, so passing via filterIndex here
+                index={filterIndex}
+                key={filterIndex}
+                hideMathSelector={hideMathSelector}
+                hidePropertySelector={hidePropertySelector}
+            />
+        </div>
+    )
+)
 const SortableContainer = sortableContainer(({ children }) => {
     return <div>{children}</div>
 })
@@ -36,6 +39,7 @@ export function ActionFilter({
     filters,
     typeKey,
     hideMathSelector,
+    hidePropertySelector = false,
     copy = '',
     disabled = false,
     singleFilter = false,
@@ -80,6 +84,7 @@ export function ActionFilter({
                                     index={index}
                                     filterIndex={index}
                                     hideMathSelector={hideMathSelector}
+                                    hidePropertySelector={hidePropertySelector}
                                     filterCount={localFilters.length}
                                 />
                             </>
@@ -94,6 +99,7 @@ export function ActionFilter({
                             key={index}
                             letter={showLetters && (alphabet[index] || '-')}
                             hideMathSelector={hideMathSelector}
+                            hidePropertySelector={hidePropertySelector}
                             singleFilter={singleFilter}
                             showOr={showOr}
                         />
