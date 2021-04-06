@@ -72,19 +72,13 @@ export function WhoAmI({ user }: { user: UserType }): JSX.Element {
 }
 
 export function TopNavigation(): JSX.Element {
-    const {
-        setMenuCollapsed,
-        setChangelogModalOpen,
-        updateCurrentOrganization,
-        updateCurrentProject,
-        setInviteMembersModalOpen,
-    } = useActions(navigationLogic)
+    const { setMenuCollapsed, setChangelogModalOpen, setInviteMembersModalOpen } = useActions(navigationLogic)
     const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen, inviteMembersModalOpen } = useValues(
         navigationLogic
     )
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
-    const { logout } = useActions(userLogic)
+    const { logout, updateCurrentTeam, updateCurrentOrganization } = useActions(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
     const { sceneConfig } = useValues(sceneLogic)
     const { push } = router.actions
@@ -197,7 +191,7 @@ export function TopNavigation(): JSX.Element {
                 {user?.organization?.teams &&
                     user.organization.teams.map((team) => {
                         return (
-                            <a onClick={() => updateCurrentProject(team.id, '/')} key={team.id}>
+                            <a onClick={() => updateCurrentTeam(team.id, '/')} key={team.id}>
                                 <span style={{ flexGrow: 1 }}>{team.name}</span>
                                 <span
                                     className="settings"
@@ -206,7 +200,7 @@ export function TopNavigation(): JSX.Element {
                                         if (team.id === user?.team?.id) {
                                             push('/project/settings')
                                         } else {
-                                            updateCurrentProject(team.id, '/project/settings')
+                                            updateCurrentTeam(team.id, '/project/settings')
                                         }
                                     }}
                                 >

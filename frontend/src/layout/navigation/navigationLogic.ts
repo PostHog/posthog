@@ -23,8 +23,6 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
         collapseMenu: () => {},
         setSystemStatus: (status: SystemStatus) => ({ status }),
         setChangelogModalOpen: (isOpen: boolean) => ({ isOpen }),
-        updateCurrentOrganization: (id: string) => ({ id }),
-        updateCurrentProject: (id: number, dest: string) => ({ id, dest }),
         setToolbarModalOpen: (isOpen: boolean) => ({ isOpen }),
         setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
         setInviteMembersModalOpen: (isOpen: boolean) => ({ isOpen }),
@@ -147,22 +145,6 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
             if (!values.menuCollapsed && window.innerWidth <= 991) {
                 actions.setMenuCollapsed(true)
             }
-        },
-        updateCurrentOrganization: async ({ id }) => {
-            await api.update('api/user', {
-                user: { current_organization_id: id },
-            })
-            location.href = '/'
-        },
-        updateCurrentProject: async ({ id, dest }) => {
-            if (values.currentTeam === id) {
-                return
-            }
-            // TODO
-            await api.update('api/user', {
-                user: { current_team_id: id },
-            })
-            location.href = dest
         },
         setHotkeyNavigationEngaged: async ({ hotkeyNavigationEngaged }, breakpoint) => {
             if (hotkeyNavigationEngaged) {

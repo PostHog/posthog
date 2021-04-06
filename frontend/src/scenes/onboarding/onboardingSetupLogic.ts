@@ -4,7 +4,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { OrganizationType, TeamType } from '~/types'
 import { onboardingSetupLogicType } from './onboardingSetupLogicType'
 
@@ -46,7 +45,7 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
                     organizationLogic.values.currentOrganization?.setup.is_active &&
                     organizationLogic.values.currentOrganization?.setup.non_demo_team_id
                 if (teamId) {
-                    navigationLogic.actions.updateCurrentProject(teamId, dest)
+                    userLogic.actions.updateCurrentTeam(teamId, dest)
                 }
             }
         },
@@ -65,19 +64,19 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
         ],
         stepInstallation: [
             () => [organizationLogic.selectors.currentOrganization],
-            (organization: OrganizationType) =>
-                organization.setup.is_active && organization.setup.any_project_ingested_events,
+            (organization: OrganizationType | null): boolean =>
+                !!(organization && organization.setup.is_active && organization.setup.any_project_ingested_events),
         ],
         stepVerification: [
             (selectors) => [organizationLogic.selectors.currentOrganization, selectors.stepInstallation],
-            (organization: OrganizationType, stepInstallation: boolean) =>
+            (organization: OrganizationType, stepInstallation: boolean): boolean =>
                 stepInstallation &&
                 organization.setup.is_active &&
                 organization.setup.any_project_completed_snippet_onboarding,
         ],
         currentSection: [
             () => [organizationLogic.selectors.currentOrganization],
-            (organization: OrganizationType): number | null => organization.setup.current_section,
+            (organization: OrganizationType | null): number | null => organization?.setup.current_section ?? null,
         ],
         teamInviteAvailable: [
             () => [preflightLogic.selectors.preflight],

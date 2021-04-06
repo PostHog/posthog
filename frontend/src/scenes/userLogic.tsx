@@ -9,9 +9,8 @@ import { toast } from 'react-toastify'
 export const userLogic = kea<userLogicType<UserType, UserUpdateType>>({
     actions: () => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
-        currentTeamUpdateRequest: (teamId: number) => ({ teamId }), // TODO: Remove
-        currentOrganizationUpdateRequest: (organizationId: string) => ({ organizationId }), // TODO: Remove
-        completedOnboarding: true, // TODO: Remove
+        updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
+        updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
     }),
     reducers: {
@@ -91,7 +90,7 @@ export const userLogic = kea<userLogicType<UserType, UserUpdateType>>({
             },
         ],
     }),
-    listeners: () => ({
+    listeners: ({ values }) => ({
         logout: () => {
             posthog.reset()
             window.location.href = '/logout'
@@ -107,6 +106,22 @@ export const userLogic = kea<userLogicType<UserType, UserUpdateType>>({
                     toastId: 'updateUser',
                 }
             )
+        },
+        updateCurrentTeam: async ({ teamId, destination }, breakpoint) => {
+            if (values.user?.team?.id === teamId) {
+                return
+            }
+            await breakpoint(10)
+            await api.update('api/users/@me/', { set_current_team: teamId })
+            window.location.href = destination || '/'
+        },
+        updateCurrentOrganization: async ({ organizationId, destination }, breakpoint) => {
+            if (values.user?.organization?.id === organizationId) {
+                return
+            }
+            await breakpoint(10)
+            await api.update('api/users/@me/', { set_current_organization: organizationId })
+            window.location.href = destination || '/'
         },
     }),
     events: ({ actions }) => ({
