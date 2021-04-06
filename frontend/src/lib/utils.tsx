@@ -290,10 +290,12 @@ export function formatLabel(label: string, action: ActionFilter): string {
     } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math || '')) {
         label += ` (${action.math} of ${action.math_property}) `
     }
-    console.log(action.properties)
     if (action.properties?.length) {
         label += ` (${action.properties
-            .map((property) => `${operatorMap[property.operator || 'exact'].split(' ')[0]} ${property.value}`)
+            .map(
+                (property) =>
+                    `${property.key} ${operatorMap[property.operator || 'exact'].split(' ')[0]} ${property.value}`
+            )
             .join(', ')})`
     }
     return label
