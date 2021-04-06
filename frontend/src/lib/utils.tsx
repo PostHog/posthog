@@ -293,7 +293,7 @@ export function formatLabel(label: string, action: ActionFilter): string {
     console.log(action.properties)
     if (action.properties?.length) {
         label += ` (${action.properties
-            .map((property) => operatorMap[property.operator || 'exact'].split(' ')[0] + ' ' + property.value)
+            .map((property) => `${operatorMap[property.operator || 'exact'].split(' ')[0]} ${property.value}`)
             .join(', ')})`
     }
     return label
