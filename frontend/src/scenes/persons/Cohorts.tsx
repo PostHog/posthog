@@ -145,7 +145,7 @@ export function Cohorts(): JSX.Element {
                     <Button
                         type="primary"
                         data-attr="create-cohort"
-                        onClick={() => setOpenCohort({ id: 'new', groups: [] })}
+                        onClick={() => setOpenCohort({ id: 'new', groups: [{}] })}
                         icon={<PlusOutlined />}
                     >
                         New Cohort

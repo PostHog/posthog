@@ -37,6 +37,8 @@ function TZConversionHeader(): JSX.Element {
 export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; showSeconds?: boolean }): JSX.Element {
     const parsedTime = dayjs.isDayjs(time) ? time : dayjs(time)
     const { user } = useValues(userLogic)
+    /* We use the team in userLogic because the attribute that we need `timezone` is available in that response,
+     which will be loaded much sooner than `currentTeam`. */
     const currentTeam = user?.team
 
     const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : `${BASE_OUTPUT_FORMAT}:ss`
@@ -100,6 +102,8 @@ export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; sho
 /** Return an explainer component for analytics visualization pages. */
 export function TZIndicator({ style }: { style?: React.CSSProperties }): JSX.Element {
     const { user } = useValues(userLogic)
+    /* We use the team in userLogic because the attribute that we need `timezone` is available in that response,
+     which will be loaded much sooner than `currentTeam`. */
     const currentTeam = user?.team
 
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)

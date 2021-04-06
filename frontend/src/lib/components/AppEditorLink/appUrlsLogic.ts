@@ -27,12 +27,12 @@ export const appUrlsLogic = kea<appUrlsLogicType<TrendResult>>({
                     breakdown: '$current_url',
                     date_from: dayjs().subtract(3, 'days').toISOString(),
                 }
-                const data = (await api.get('api/insight/trend/?' + toParams(params))).result as TrendResult[]
-                if (data && data[0]?.count === 0) {
+                const result = (await api.get('api/insight/trend/?' + toParams(params))).result as TrendResult[]
+                if (result && result[0]?.count === 0) {
                     return []
                 }
                 const domainsSeen: string[] = []
-                return (data || [])
+                return (result || [])
                     .filter((item) => {
                         if (!item.breakdown_value) {
                             return false
