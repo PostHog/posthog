@@ -58,10 +58,15 @@ describe('formatLabel()', () => {
     })
 
     describe('action with properties', () => {
-        given('action', () => ({ properties: [{ value: 'hello' }, { operator: 'gt', value: 5 }] }))
+        given('action', () => ({
+            properties: [
+                { value: 'hello', key: 'greeting' },
+                { operator: 'gt', value: 5 },
+            ],
+        }))
 
         it('is formatted', () => {
-            expect(given.subject).toEqual('some_event (= hello, > 5)')
+            expect(given.subject).toEqual('some_event (greeting = hello, > 5)')
         })
     })
 })
