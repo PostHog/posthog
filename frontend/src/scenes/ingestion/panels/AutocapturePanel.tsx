@@ -3,7 +3,7 @@ import { Alert, Collapse, Tag } from 'antd'
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
-import { BulbOutlined, BookOutlined } from '@ant-design/icons'
+import { BookOutlined, BulbOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { JSInstructions } from '../frameworks'
 import { JSSnippet } from 'lib/components/JSSnippet'
@@ -12,7 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function AutocapturePanel(): JSX.Element {
-    const { index, totalSteps } = useValues(ingestionLogic)
+    const { index, totalSteps, framework } = useValues(ingestionLogic)
     const { setPlatform, setVerify } = useActions(ingestionLogic)
     const { user } = useValues(userLogic)
     const { reportIngestionBookmarkletCollapsible } = useActions(eventUsageLogic)
@@ -22,6 +22,12 @@ export function AutocapturePanel(): JSX.Element {
             reportIngestionBookmarkletCollapsible([shownPanels])
         } else {
             reportIngestionBookmarkletCollapsible(shownPanels)
+        }
+    }
+
+    const scrollToSdk = (e: HTMLDivElement): void => {
+        if (framework?.toString() === 'PURE_JS') {
+            e?.scrollIntoView()
         }
     }
 
@@ -102,7 +108,7 @@ export function AutocapturePanel(): JSX.Element {
                     </li>
                 </ol>
             </div>
-            <div style={{ marginTop: 32 }}>
+            <div ref={scrollToSdk} style={{ marginTop: 32 }}>
                 <h2>Option 2. Javascript Library</h2>
                 <p>
                     Use this option if you want more granular control of how PostHog runs in your website and the events
