@@ -42,15 +42,12 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     filters.shown_as === ShownAsValue.LIFECYCLE && !!(filters.events?.length || filters.actions?.length)
                 }
                 singleFilter={filters.shown_as === ShownAsValue.LIFECYCLE}
+                hidePropertySelector={filters.shown_as === ShownAsValue.LIFECYCLE}
             />
-            {filters.insight !== ViewType.LIFECYCLE && (
-                <>
-                    <hr />
-                    <h4 className="secondary">Filters</h4>
-                    <PropertyFilters pageKey="trends-filters" />
-                    <TestAccountFilter filters={filters} onChange={setFilters} />
-                </>
-            )}
+            <hr />
+            <h4 className="secondary">Filters</h4>
+            <PropertyFilters pageKey="trends-filters" />
+            <TestAccountFilter filters={filters} onChange={setFilters} />
             {(!filters.insight || filters.insight === ViewType.TRENDS) &&
                 featureFlags['3275-formulas'] &&
                 user?.ee_enabled && (
