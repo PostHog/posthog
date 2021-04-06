@@ -24,7 +24,7 @@ export function TestAccountFilter({
                     : "You don't have internal users filtering set up. Click the gear icon to configure it."
             }
         >
-            <Row style={{ alignItems: 'center' }}>
+            <Row style={{ alignItems: 'center', flexWrap: 'nowrap' }}>
                 <Switch
                     disabled={!hasFilters}
                     checked={hasFilters ? filters.filter_test_accounts : false}
