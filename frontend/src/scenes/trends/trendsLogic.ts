@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { autocorrectInterval, objectsEqual, toParams as toAPIParams } from 'lib/utils'
+import { autocorrectInterval, errorToast, objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
@@ -21,8 +21,12 @@ import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constan
 import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
-import { toast, ToastId } from 'react-toastify'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+
+interface TrendResponse {
+    result: TrendResult[]
+    next?: string
+}
 
 export interface ActionFilter {
     id: number | string
@@ -132,7 +136,7 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
 // - dashboardItemId
 // - filters
 export const trendsLogic = kea<
-    trendsLogicType<TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter, ToastId>
+    trendsLogicType<TrendResponse, IndexedTrendResult, TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter>
 >({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
@@ -143,11 +147,11 @@ export const trendsLogic = kea<
     },
 
     loaders: ({ values, props }) => ({
-        results: {
-            __default: [] as TrendResult[],
+        _results: {
+            __default: {} as TrendResponse,
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
-                    return props.cachedResults
+                    return { result: props.cachedResults } as TrendResponse
                 }
                 insightLogic.actions.startQuery()
                 let response
@@ -166,13 +170,15 @@ export const trendsLogic = kea<
                         )
                     }
                 } catch (e) {
+                    console.error(e)
                     breakpoint()
                     insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, null, e)
                     return []
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, response.last_refresh)
-                return response.result
+
+                return response
             },
         },
     }),
@@ -199,6 +205,8 @@ export const trendsLogic = kea<
         setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
         toggleVisibility: (index: number) => ({ index }),
         setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
+        loadMoreBreakdownValues: true,
+        setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
     }),
 
     reducers: ({ props }) => ({
@@ -256,9 +264,18 @@ export const trendsLogic = kea<
                 }),
             },
         ],
+        breakdownValuesLoading: [
+            false,
+            {
+                setBreakdownValuesLoading: (_, { loading }) => loading,
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
+        results: [() => [selectors._results], (response) => response.result],
+        resultsLoading: [() => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
+        loadMoreBreakdownUrl: [() => [selectors._results], (response) => response.next],
         sessionsPageParams: [
             () => [selectors.filters, selectors.people],
             (filters, people) => {
@@ -338,7 +355,7 @@ export const trendsLogic = kea<
                     },
                 }).actions.saveCohort(cohortParams, filterParams)
             } else {
-                toast.error('Error creating cohort')
+                errorToast(undefined, "We couldn't create your cohort:")
             }
         },
         loadPeople: async ({ label, action, day, breakdown_value }, breakpoint) => {
@@ -410,6 +427,18 @@ export const trendsLogic = kea<
             if (props.dashboardItemId) {
                 actions.setFilters(filters, true)
             }
+        },
+        loadMoreBreakdownValues: async () => {
+            if (!values.loadMoreBreakdownUrl) {
+                return
+            }
+            actions.setBreakdownValuesLoading(true)
+            const response = await api.get(values.loadMoreBreakdownUrl)
+            actions.loadResultsSuccess({
+                result: [...values.results, ...response.result],
+                next: response.next,
+            })
+            actions.setBreakdownValuesLoading(false)
         },
     }),
 

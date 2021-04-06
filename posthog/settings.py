@@ -167,7 +167,11 @@ KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=strtobool)
 
-PRIMARY_DB = os.getenv("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
+_primary_db = os.getenv("PRIMARY_DB", "postgres")
+try:
+    PRIMARY_DB = RDBMS(_primary_db)
+except ValueError:
+    PRIMARY_DB = RDBMS.POSTGRES
 
 EE_AVAILABLE = False
 
@@ -182,6 +186,10 @@ ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTER
 ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", False, type_cast=strtobool)
 EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = get_from_env(
     "ASYNC_EVENT_PROPERTY_USAGE_INTERVAL_SECONDS", 60 * 60, type_cast=int
+)
+
+UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = get_from_env(
+    "UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS", 90, type_cast=int
 )
 
 # Quick-start development settings - unsuitable for production
@@ -511,7 +519,7 @@ EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 EMAIL_USE_TLS = get_from_env("EMAIL_USE_TLS", False, type_cast=strtobool)
 EMAIL_USE_SSL = get_from_env("EMAIL_USE_SSL", False, type_cast=strtobool)
 DEFAULT_FROM_EMAIL = os.getenv("EMAIL_DEFAULT_FROM", os.getenv("DEFAULT_FROM_EMAIL", "root@localhost"))
-EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO")
+EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO", None)
 
 MULTI_TENANCY = False  # overriden by posthog-cloud
 

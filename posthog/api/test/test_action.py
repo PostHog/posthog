@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from rest_framework import status
+
 from posthog.models import Action, ActionStep, Element, Event
 from posthog.test.base import APIBaseTest
 
@@ -20,12 +22,17 @@ class TestCreateAction(APIBaseTest):
                 "steps": [{"text": "sign up", "selector": "div > button", "url": "/signup", "isNew": "asdf"}],
             },
             HTTP_ORIGIN="http://testserver",
-        ).json()
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["is_calculating"], False)
+        self.assertIn("last_calculated_at", response.json())
         action = Action.objects.get()
         self.assertEqual(action.name, "user signed up")
         self.assertEqual(action.team, self.team)
         self.assertEqual(action.steps.get().selector, "div > button")
-        self.assertEqual(response["steps"][0]["text"], "sign up")
+        self.assertEqual(response.json()["steps"][0]["text"], "sign up")
+        self.assertEqual(response.json()["steps"][0]["url"], "/signup")
+        self.assertNotIn("isNew", response.json()["steps"][0])
 
         # Assert analytics are sent
         patch_capture.assert_called_once_with(
@@ -52,11 +59,24 @@ class TestCreateAction(APIBaseTest):
         user2 = self._create_user("tim2")
         self.client.force_login(user2)
 
+        count = Action.objects.count()
+        steps_count = ActionStep.objects.count()
+
         # Make sure the endpoint works with and without the trailing slash
-        response = self.client.post(
-            "/api/action", data={"name": "user signed up"}, HTTP_ORIGIN="http://testserver",
-        ).json()
-        self.assertEqual(response["detail"], "action-exists")
+        response = self.client.post("/api/action", {"name": "user signed up"}, HTTP_ORIGIN="http://testserver",)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "unique",
+                "detail": "This project already has an action with that name.",
+                "attr": "name",
+            },
+        )
+
+        self.assertEqual(Action.objects.count(), count)
+        self.assertEqual(ActionStep.objects.count(), steps_count)
 
     @patch("posthoganalytics.capture")
     def test_update_action(self, patch_capture, *args):
@@ -72,14 +92,14 @@ class TestCreateAction(APIBaseTest):
             properties={"$browser": "Chrome"},
             elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div"),],
         )
-
+        action_id = action.steps.get().pk
         response = self.client.patch(
             "/api/action/%s/" % action.pk,
             data={
                 "name": "user signed up 2",
                 "steps": [
                     {
-                        "id": action.steps.get().pk,
+                        "id": action_id,
                         "isNew": "asdf",
                         "text": "sign up NOW",
                         "selector": "div > button",
@@ -96,8 +116,12 @@ class TestCreateAction(APIBaseTest):
                 },
             },
             HTTP_ORIGIN="http://testserver",
-        ).json()
-        self.assertEqual(response["name"], "user signed up 2")
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "user signed up 2")
+        self.assertEqual(response.json()["created_by"], None)
+        self.assertEqual(response.json()["steps"][0]["id"], str(action_id))
+        self.assertEqual(response.json()["steps"][1]["href"], "/a-new-link")
 
         action.refresh_from_db()
         action.calculate_events()
@@ -132,12 +156,18 @@ class TestCreateAction(APIBaseTest):
         with self.assertNumQueries(6):
             self.client.get("/api/action/")
 
-        # test remove steps
+    def test_update_action_remove_all_steps(self, *args):
+
+        action = Action.objects.create(name="user signed up", team=self.team)
+        ActionStep.objects.create(action=action, text="sign me up!")
+
         response = self.client.patch(
             "/api/action/%s/" % action.pk,
             data={"name": "user signed up 2", "steps": [],},
             HTTP_ORIGIN="http://testserver",
-        ).json()
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["steps"]), 0)
         self.assertEqual(ActionStep.objects.count(), 0)
 
     # When we send a user to their own site, we give them a token.
@@ -160,14 +190,14 @@ class TestCreateAction(APIBaseTest):
             data={"name": "user signed up",},
             HTTP_ORIGIN="https://somewebsite.com",
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 201)
 
         response = self.client.post(
             "/api/action/?temporary_token=token123",
             data={"name": "user signed up and post to slack", "post_to_slack": True,},
             HTTP_ORIGIN="https://somewebsite.com",
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["post_to_slack"], True)
 
         list_response = self.client.get("/api/action/", HTTP_ORIGIN="https://evilwebsite.com",)
@@ -189,11 +219,11 @@ class TestCreateAction(APIBaseTest):
             data={"name": "user signed up 22",},
             HTTP_ORIGIN="https://somewebsite.com",
         )
-        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.status_code, 201, response.json())
 
     # This case happens when someone is running behind a proxy, but hasn't set `IS_BEHIND_PROXY`
     def test_http_to_https(self, patch_delay):
         response = self.client.post(
             "/api/action/", data={"name": "user signed up again",}, HTTP_ORIGIN="https://testserver/",
         )
-        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.status_code, 201, response.json())

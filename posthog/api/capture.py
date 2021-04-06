@@ -1,6 +1,5 @@
 import re
 from datetime import datetime
-from random import random
 from typing import Any, Dict, Optional
 
 import statsd

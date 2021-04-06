@@ -43,7 +43,9 @@ export function ActionsPie({
     }
 
     useEffect(() => {
-        updateData()
+        if (results) {
+            updateData()
+        }
     }, [results, color])
 
     return data && !resultsLoading ? (

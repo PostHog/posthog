@@ -182,3 +182,7 @@ export const MATHS: Record<string, any> = {
         type: PROPERTY_MATH_TYPE,
     },
 }
+
+export const FEATURE_FLAGS: Record<string, string> = {
+    INGESTION_GRID: 'ingestion-grid-exp-3',
+}

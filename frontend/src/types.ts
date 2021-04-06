@@ -136,6 +136,7 @@ export interface ActionType {
     deleted?: boolean
     id: number
     is_calculating?: boolean
+    last_calculated_at?: string
     name: string
     post_to_slack?: boolean
     steps?: ActionStepType[]
@@ -601,6 +602,7 @@ export interface PreflightStatus {
     celery: boolean
     available_social_auth_providers: AuthBackends
     available_timezones: Record<string, number>
+    db_backend: 'postgres' | 'clickhouse'
 }
 
 export enum DashboardMode { // Default mode is null

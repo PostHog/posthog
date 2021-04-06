@@ -1,3 +1,4 @@
+import os
 from functools import wraps
 from typing import Dict, List, Union
 
@@ -6,12 +7,13 @@ from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connection, connections
 from django.db.migrations.executor import MigrationExecutor
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
 from posthog.ee import is_ee_enabled
+from posthog.email import is_email_available
 from posthog.models import User
 from posthog.utils import (
     get_redis_info,
@@ -23,6 +25,7 @@ from posthog.utils import (
     is_postgres_alive,
     is_redis_alive,
 )
+from posthog.version import VERSION
 
 from .utils import (
     get_available_social_auth_providers,
@@ -78,6 +81,8 @@ def system_status(request):
 
     metrics: List[Dict[str, Union[str, bool, int, float]]] = []
 
+    metrics.append({"key": "posthog_version", "metric": "PostHog version", "value": VERSION})
+
     metrics.append(
         {
             "key": "analytics_database",
@@ -91,6 +96,15 @@ def system_status(request):
             "key": "ingestion_server",
             "metric": "Event ingestion via",
             "value": "Plugin Server" if settings.PLUGIN_SERVER_INGESTION else "Django",
+        }
+    )
+
+    metrics.append({"key": "plugin_sever_alive", "metric": "Plugin server alive", "value": is_plugin_server_alive()})
+    metrics.append(
+        {
+            "key": "plugin_sever_version",
+            "metric": "Plugin server version",
+            "value": get_plugin_server_version() or "unknown",
         }
     )
 
@@ -153,32 +167,36 @@ def system_status(request):
                 {"metric": "Redis metrics", "value": f"Redis connected but then failed to return metrics: {e}"}
             )
 
-    metrics.append({"key": "plugin_sever_alive", "metric": "Plugin server alive", "value": is_plugin_server_alive()})
-    metrics.append(
-        {
-            "key": "plugin_sever_version",
-            "metric": "Plugin server version",
-            "value": get_plugin_server_version() or "unknown",
-        }
-    )
-
     return JsonResponse({"results": metrics})
 
 
 @never_cache
-def preflight_check(_):
-    return JsonResponse(
-        {
-            "django": True,
-            "redis": is_redis_alive() or settings.TEST,
-            "plugins": is_plugin_server_alive() or settings.TEST,
-            "celery": is_celery_alive() or settings.TEST,
-            "db": is_postgres_alive(),
-            "initiated": User.objects.exists()
-            if not settings.E2E_TESTING
-            else False,  # Enables E2E testing of signup flow
-            "cloud": settings.MULTI_TENANCY,
-            "available_social_auth_providers": get_available_social_auth_providers(),
+def preflight_check(request: HttpRequest) -> JsonResponse:
+
+    response = {
+        "django": True,
+        "redis": is_redis_alive() or settings.TEST,
+        "plugins": is_plugin_server_alive() or settings.TEST,
+        "celery": is_celery_alive() or settings.TEST,
+        "db": is_postgres_alive(),
+        "initiated": User.objects.exists() if not settings.E2E_TESTING else False,  # Enables E2E testing of signup flow
+        "cloud": settings.MULTI_TENANCY,
+        "available_social_auth_providers": get_available_social_auth_providers(),
+    }
+
+    if request.user.is_authenticated:
+        response = {
+            **response,
+            "ee_available": settings.EE_AVAILABLE,
+            "ee_enabled": is_ee_enabled(),
+            "db_backend": settings.PRIMARY_DB.value,
             "available_timezones": get_available_timezones_with_offsets(),
+            "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE", False),
+            "posthog_version": VERSION,
+            "email_service_available": is_email_available(with_absolute_urls=True),
+            "is_debug": settings.DEBUG,
+            "is_event_property_usage_enabled": settings.ASYNC_EVENT_PROPERTY_USAGE,
+            "is_async_event_action_mapping_enabled": settings.ASYNC_EVENT_ACTION_MAPPING,
         }
-    )
+
+    return JsonResponse(response)
