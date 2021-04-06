@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { PropertyFilter } from './PropertyFilter'
-import { Button } from 'antd'
+import { Button, Skeleton } from 'antd'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { Popover, Row } from 'antd'
@@ -72,11 +72,14 @@ export function PropertyFilters({
     showConditionBadge = false,
 }) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
-    const { filters } = useValues(logic)
+    const { filters, filtersLoading } = useValues(logic)
 
     return (
         <div className="mb">
-            {filters.length &&
+            {filtersLoading ? (
+                <Skeleton.Button active />
+            ) : (
+                filters.length &&
                 filters.map((item, index) => {
                     return (
                         <FilterRow
@@ -90,7 +93,8 @@ export function PropertyFilters({
                             showConditionBadge={showConditionBadge}
                         />
                     )
-                })}
+                })
+            )}
         </div>
     )
 }
