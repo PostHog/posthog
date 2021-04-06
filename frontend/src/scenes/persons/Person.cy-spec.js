@@ -6,7 +6,7 @@ describe('<Person /> ', () => {
     const mount = () => helpers.mountPage(<Person />)
 
     beforeEach(() => {
-        cy.intercept('/api/user/', { fixture: 'api/user' })
+        cy.intercept('/api/users/@me/', { fixture: 'api/user' })
         cy.intercept('/api/person/', { fixture: 'api/person' }).as('api_person')
         cy.intercept('/api/event/?', { fixture: 'api/event/single_person_events' }).as('api_event')
 
