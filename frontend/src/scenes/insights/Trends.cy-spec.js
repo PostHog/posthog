@@ -14,6 +14,7 @@ describe('<Insights /> trends', () => {
     }
 
     beforeEach(() => {
+        cy.intercept('/_preflight/', { fixture: 'api/preflight' })
         cy.intercept('/api/users/@me/', { fixture: 'api/user' })
         cy.intercept('/api/dashboard/', { fixture: 'api/dashboard' })
         cy.intercept('/api/personal_api_keys/', { fixture: 'api/personal_api_keys' })
@@ -22,7 +23,7 @@ describe('<Insights /> trends', () => {
         cy.intercept('/api/action/', { fixture: 'api/action/actions' })
         cy.intercept('/api/cohort/', { fixture: 'api/cohort/cohorts' })
         cy.intercept('/api/person/properties/', { fixture: 'api/person/properties' })
-        cy.interceptLazy('/api/insight/', () => ({ fixture: 'api/insight/trends' })).as('api_insight')
+        cy.interceptLazy('/api/insight/', () => ({ fixture: 'api/insight/trends' }))
 
         helpers.mockPosthog()
     })
