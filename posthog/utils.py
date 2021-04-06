@@ -420,7 +420,7 @@ def get_machine_id() -> str:
     return hashlib.md5(uuid.getnode().to_bytes(6, "little")).hexdigest()
 
 
-def get_table_size(table_name):
+def get_table_size(table_name) -> str:
     from django.db import connection
 
     query = (
@@ -430,16 +430,27 @@ def get_table_size(table_name):
     )
     cursor = connection.cursor()
     cursor.execute(query)
-    return dict_from_cursor_fetchall(cursor)
+    return dict_from_cursor_fetchall(cursor)[0]["size"]
 
 
-def get_table_approx_count(table_name):
+def get_table_approx_count(table_name) -> str:
     from django.db import connection
 
     query = f"SELECT reltuples::BIGINT as \"approx_count\" FROM pg_class WHERE relname = '{table_name}'"
     cursor = connection.cursor()
     cursor.execute(query)
-    return dict_from_cursor_fetchall(cursor)
+    return human_format(dict_from_cursor_fetchall(cursor)[0]["approx_count"])
+
+
+def human_format(num: int) -> str:
+    num = float("{:.3g}".format(num))
+    magnitude = 0
+    while abs(num) >= 1000:
+        magnitude += 1
+        num /= 1000.0
+    return "{}{}".format(
+        "{:f}".format(num).rstrip("0").rstrip("."), ["", "K", "M", "B", "T", "P", "E", "Z", "Y"][magnitude]
+    )
 
 
 def is_postgres_alive() -> bool:
