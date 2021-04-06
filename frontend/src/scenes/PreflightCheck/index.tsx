@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { preflightLogic } from './logic'
 import { Row, Col, Space, Card, Button } from 'antd'
@@ -16,13 +16,27 @@ import { volcano, green, red, grey, blue } from '@ant-design/colors'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 
-function PreflightItem({ name, status, caption, failedState }) {
+interface PreflightItemInterface {
+    name: string
+    status: boolean
+    caption?: string
+    failedState?: 'warning' | 'not-required'
+}
+
+interface CheckInterface extends PreflightItemInterface {
+    id: string
+}
+
+type PreflightMode = 'Experimentation' | 'Live'
+
+function PreflightItem({ name, status, caption, failedState }: PreflightItemInterface): JSX.Element {
     /*
     status === undefined -> Item still loading (no positive or negative response yet)
     status === false -> Item not ready (fail to validate)
     status === true -> Item ready (validated)
     */
-    let textColor
+    let textColor: string | undefined
+    const { preflightLoading } = useValues(preflightLogic)
 
     if (status) {
         textColor = green.primary
@@ -38,17 +52,24 @@ function PreflightItem({ name, status, caption, failedState }) {
         textColor = grey.primary
     }
 
+    const icon = (): JSX.Element => {
+        if (preflightLoading) {
+            return <LoadingOutlined style={{ fontSize: 20, color: textColor }} />
+        }
+        if (status) {
+            return <CheckSquareFilled style={{ fontSize: 20, color: textColor }} />
+        } else {
+            if (failedState === 'warning') {
+                return <WarningFilled style={{ fontSize: 20, color: textColor }} />
+            } else {
+                return <CloseSquareFilled style={{ fontSize: 20, color: textColor }} />
+            }
+        }
+    }
+
     return (
         <Col span={12} style={{ textAlign: 'left', marginBottom: 16, display: 'flex', alignItems: 'center' }}>
-            {status === false && failedState !== 'warning' && (
-                <CloseSquareFilled style={{ fontSize: 20, color: textColor }} />
-            )}
-            {status === false && failedState === 'warning' && (
-                <WarningFilled style={{ fontSize: 20, color: textColor }} />
-            )}
-
-            {status === true && <CheckSquareFilled style={{ fontSize: 20, color: textColor }} />}
-            {status !== true && status !== false && <LoadingOutlined style={{ fontSize: 20, color: textColor }} />}
+            {icon()}
             <span style={{ color: textColor, paddingLeft: 8 }}>
                 {name}{' '}
                 {caption && status === false && (
@@ -61,10 +82,10 @@ function PreflightItem({ name, status, caption, failedState }) {
     )
 }
 
-function PreflightCheck() {
-    const [state, setState] = useState({ mode: null })
+function PreflightCheck(): JSX.Element {
+    const [state, setState] = useState({ mode: null } as { mode: PreflightMode | null })
     const { preflight, preflightLoading } = useValues(preflightLogic)
-    const { resetPreflight } = useActions(preflightLogic)
+    const { loadPreflight } = useActions(preflightLogic)
     const isReady =
         preflight &&
         preflight.django &&
@@ -116,28 +137,18 @@ function PreflightCheck() {
                     : 'Install before ingesting real user data',
             failedState: state.mode === 'Experimentation' ? 'not-required' : 'warning',
         },
-    ]
+    ] as CheckInterface[]
 
-    const handleModeChange = (mode) => {
+    const handleModeChange = (mode: PreflightMode | null): void => {
         setState({ ...state, mode })
-        if (mode) {
-            resetPreflight()
-            localStorage.setItem('preflightMode', mode)
-        } else {
-            localStorage.removeItem('preflightMode')
+        if (!mode) {
+            loadPreflight()
         }
     }
 
-    const handlePreflightFinished = () => {
+    const handlePreflightFinished = (): void => {
         router.actions.push('/signup')
     }
-
-    useEffect(() => {
-        const mode = localStorage.getItem('preflightMode')
-        if (mode) {
-            handleModeChange(mode)
-        }
-    }, [])
 
     return (
         <div style={{ minHeight: '100vh' }}>

@@ -18,13 +18,7 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus>>({
         ],
     }),
     actions: {
-        resetPreflight: true,
         registerInstrumentationProps: true,
-    },
-    reducers: {
-        preflight: {
-            resetPreflight: () => null,
-        },
     },
     selectors: {
         socialAuthAvailable: [
@@ -42,11 +36,7 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus>>({
             },
         ],
     },
-    listeners: ({ actions, values }) => ({
-        resetPreflight: async (_, breakpoint) => {
-            await breakpoint(1000)
-            actions.loadPreflight()
-        },
+    listeners: ({ values }) => ({
         registerInstrumentationProps: async (_, breakpoint) => {
             await breakpoint(100)
             if (posthog && values.preflight) {
