@@ -25,7 +25,16 @@ const determineFilterLabel = (visible, filter) => {
     return 'Add filters'
 }
 
-export function ActionFilterRow({ logic, filter, index, hideMathSelector, singleFilter, showOr, letter }) {
+export function ActionFilterRow({
+    logic,
+    filter,
+    index,
+    hideMathSelector,
+    hidePropertySelector,
+    singleFilter,
+    showOr,
+    letter,
+}) {
     const node = useRef()
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
     const {
@@ -159,16 +168,18 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
                     properties={eventPropertiesNumerical}
                 />
             )}
-            <div style={{ paddingTop: 6 }}>
-                <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
-                <Button
-                    className="ant-btn-md"
-                    onClick={() => setEntityFilterVisibility(filter.order, !visible)}
-                    data-attr={'show-prop-filter-' + index}
-                >
-                    {determineFilterLabel(visible, filter)}
-                </Button>
-            </div>
+            {(!hidePropertySelector || (filter.properties && filter.properties.length > 0)) && (
+                <div style={{ paddingTop: 6 }}>
+                    <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
+                    <Button
+                        className="ant-btn-md"
+                        onClick={() => setEntityFilterVisibility(filter.order, !visible)}
+                        data-attr={'show-prop-filter-' + index}
+                    >
+                        {determineFilterLabel(visible, filter)}
+                    </Button>
+                </div>
+            )}
 
             {visible && (
                 <div className="ml">
