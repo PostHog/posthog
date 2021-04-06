@@ -133,7 +133,7 @@ export const propertyFilterLogic = kea({
         afterMount: () => {
             actions.newFilter()
             actions.loadPersonProperties()
-            // TODO: Supporting event properties in sessions is temporarily unsupported (context https://github.com/PostHog/posthog/issues/2735)
+            // TODO: Event properties in sessions is temporarily unsupported (context https://github.com/PostHog/posthog/issues/2735)
             if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
                 actions.setProperties(teamLogic.values.eventProperties)
             }

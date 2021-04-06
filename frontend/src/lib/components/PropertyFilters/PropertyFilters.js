@@ -76,7 +76,7 @@ export function PropertyFilters({
 
     return (
         <div className="mb">
-            {filters &&
+            {filters.length &&
                 filters.map((item, index) => {
                     return (
                         <FilterRow
