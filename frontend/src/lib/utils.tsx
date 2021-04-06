@@ -294,7 +294,9 @@ export function formatLabel(label: string, action: ActionFilter): string {
         label += ` (${action.properties
             .map(
                 (property) =>
-                    `${property.key} ${operatorMap[property.operator || 'exact'].split(' ')[0]} ${property.value}`
+                    `${property.key ? `${property.key} ` : ''}${
+                        operatorMap[property.operator || 'exact'].split(' ')[0]
+                    } ${property.value}`
             )
             .join(', ')})`
     }
