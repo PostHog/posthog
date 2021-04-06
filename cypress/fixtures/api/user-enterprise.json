@@ -28,7 +28,7 @@
         "membership_level": 15,
         "personalization": {
             "role": "engineer",
-            "products": ["web", "website"],
+            "products": ["web"],
             "technical": "technical"
         },
         "setup": {
