@@ -442,7 +442,7 @@ def get_table_approx_count(table_name) -> str:
     return human_format(dict_from_cursor_fetchall(cursor)[0]["approx_count"])
 
 
-def human_format(num: int) -> str:
+def human_format(num: Union[int, float]) -> str:
     num = float("{:.3g}".format(num))
     magnitude = 0
     while abs(num) >= 1000:
