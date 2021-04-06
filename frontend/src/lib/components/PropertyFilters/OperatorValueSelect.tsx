@@ -72,6 +72,11 @@ export function OperatorValueSelect({
     )
 }
 
+type CustomOptionsType = {
+    value: PropertyOperator
+    label: string
+}
+
 export function OperatorSelect({ operator, operators, onChange }: OperatorSelectProps): JSX.Element {
     return (
         <Select
@@ -84,7 +89,7 @@ export function OperatorSelect({ operator, operators, onChange }: OperatorSelect
             }}
             placeholder="Property key"
             onChange={(_value, op) => {
-                const newOperator = op as { value: PropertyOperator } & Record<string, any>
+                const newOperator = op as typeof op & CustomOptionsType
                 onChange(newOperator.value)
             }}
         >
