@@ -30,6 +30,11 @@ export interface PluginsServerConfig extends Record<string, any> {
     TASK_TIMEOUT: number
     CELERY_DEFAULT_QUEUE: string
     DATABASE_URL: string
+    POSTHOG_DB_NAME: string | null
+    POSTHOG_DB_USER: string
+    POSTHOG_DB_PASSWORD: string
+    POSTHOG_POSTGRES_HOST: string
+    POSTHOG_POSTGRES_PORT: number
     CLICKHOUSE_HOST: string
     CLICKHOUSE_DATABASE: string
     CLICKHOUSE_USER: string
@@ -47,6 +52,9 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_FLUSH_FREQUENCY_MS: number
     PLUGINS_CELERY_QUEUE: string
     REDIS_URL: string
+    POSTHOG_REDIS_PASSWORD: string
+    POSTHOG_REDIS_HOST: string
+    POSTHOG_REDIS_PORT: number
     BASE_DIR: string
     PLUGINS_RELOAD_PUBSUB_CHANNEL: string
     DISABLE_WEB: boolean
