@@ -305,17 +305,17 @@ export const keyMapping = {
         },
         $geoip_postal_code: {
             label: 'Postal Code',
-            description: `Estimated postal code matched to this event's IP address.`,
+            description: `Approximated postal code matched to this event's IP address.`,
             examples: ['2000', '600004'],
         },
         $geoip_latitude: {
             label: 'Latitude',
-            description: `Estimated latitude matched to this event's IP address.`,
+            description: `Approximated latitude matched to this event's IP address.`,
             examples: [-33.8591, 13.1337],
         },
         $geoip_longitude: {
             label: 'Longitude',
-            description: `Estimated longitude matched to this event's IP address.`,
+            description: `Approximated longitude matched to this event's IP address.`,
             examples: [151.2, 80.8008],
         },
         $geoip_time_zone: {
