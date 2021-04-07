@@ -16,6 +16,7 @@ const FilterRow = React.memo(function FilterRow({
     pageKey,
     showConditionBadge,
     totalCount,
+    popoverPlacement,
 }) {
     const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
@@ -35,7 +36,7 @@ const FilterRow = React.memo(function FilterRow({
                 onVisibleChange={handleVisibleChange}
                 defaultVisible={false}
                 visible={open}
-                placement="bottomLeft"
+                placement={popoverPlacement || 'bottomLeft'}
                 content={<PropertyFilter key={index} index={index} onComplete={() => setOpen(false)} logic={logic} />}
             >
                 {key ? (
@@ -70,6 +71,7 @@ export function PropertyFilters({
     onChange = null,
     pageKey,
     showConditionBadge = false,
+    popoverPlacement = null,
 }) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
@@ -88,6 +90,7 @@ export function PropertyFilters({
                             filters={filters}
                             pageKey={pageKey}
                             showConditionBadge={showConditionBadge}
+                            popoverPlacement={popoverPlacement}
                         />
                     )
                 })}
