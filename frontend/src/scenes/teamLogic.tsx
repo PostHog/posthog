@@ -17,7 +17,6 @@ export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
         deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,
         deleteTeamFailure: true,
-        setUpdatingTeamPayload: (payload: Partial<TeamType>) => ({ payload }),
     },
     reducers: {
         teamBeingDeleted: [
@@ -28,14 +27,8 @@ export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
                 deleteTeamFailure: () => null,
             },
         ],
-        updatingTeamPayload: [
-            null as Partial<TeamType> | null,
-            {
-                setUpdatingTeamPayload: (_, { payload }) => payload,
-            },
-        ],
     },
-    loaders: ({ values, actions }) => ({
+    loaders: ({ values }) => ({
         currentTeam: [
             null as TeamType | null,
             {
@@ -50,9 +43,36 @@ export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
                     if (!values.currentTeam) {
                         throw new Error('Current team has not been loaded yet, so it cannot be updated!')
                     }
-                    actions.setUpdatingTeamPayload(payload)
                     const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, payload)) as TeamType
                     userLogic.actions.loadUser()
+
+                    /* Notify user the update was successful  */
+                    const updatedAttribute = Object.keys(payload).length === 1 ? Object.keys(payload)[0] : null
+
+                    let description = "Your project's settings have been successfully updated. Click here to dismiss."
+
+                    if (updatedAttribute === 'slack_incoming_webhook') {
+                        description = payload.slack_incoming_webhook
+                            ? `Webhook integration enabled. You should see a message on ${resolveWebhookService(
+                                  payload.slack_incoming_webhook
+                              )}.`
+                            : 'Webhook integration disabled.'
+                    }
+
+                    toast.dismiss('updateCurrentTeam')
+                    toast.success(
+                        <div>
+                            <h1>
+                                {updatedAttribute ? identifierToHuman(updatedAttribute) : 'Project'} updated
+                                successfully!
+                            </h1>
+                            <p>{description}</p>
+                        </div>,
+                        {
+                            toastId: 'updateCurrentTeam',
+                        }
+                    )
+
                     return patchedTeam
                 },
                 createTeam: async (name: string): Promise<TeamType> => await api.create('api/projects/', { name }),
@@ -60,7 +80,7 @@ export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
             },
         ],
     }),
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions }) => ({
         deleteTeam: async ({ team }) => {
             try {
                 await api.delete(`api/projects/${team.id}`)
@@ -75,34 +95,6 @@ export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
         },
         createTeamSuccess: () => {
             window.location.href = '/ingestion'
-        },
-        updateCurrentTeamSuccess: () => {
-            if (!values.updatingTeamPayload) {
-                return
-            }
-            const updatedAttribute =
-                Object.keys(values.updatingTeamPayload).length === 1 ? Object.keys(values.updatingTeamPayload)[0] : null
-
-            let description = "Your project's settings have been successfully updated. Click here to dismiss."
-
-            if (updatedAttribute === 'slack_incoming_webhook') {
-                description = values.updatingTeamPayload.slack_incoming_webhook
-                    ? `Webhook integration enabled. You should see a message on ${resolveWebhookService(
-                          values.updatingTeamPayload.slack_incoming_webhook
-                      )}.`
-                    : 'Webhook integration disabled.'
-            }
-
-            toast.dismiss('updateCurrentTeam')
-            toast.success(
-                <div>
-                    <h1>{updatedAttribute ? identifierToHuman(updatedAttribute) : 'Project'} updated successfully!</h1>
-                    <p>{description}</p>
-                </div>,
-                {
-                    toastId: 'updateCurrentTeam',
-                }
-            )
         },
     }),
     selectors: {

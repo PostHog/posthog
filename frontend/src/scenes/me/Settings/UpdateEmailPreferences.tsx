@@ -10,6 +10,8 @@ export function UpdateEmailPreferences(): JSX.Element {
     return (
         <div>
             <Switch
+                // @ts-expect-error - id works just fine despite not being in CompoundedComponent
+                id="email-preferences"
                 data-attr="email-preferences"
                 onChange={() => {
                     updateUser({ email_opt_in: !user?.email_opt_in })

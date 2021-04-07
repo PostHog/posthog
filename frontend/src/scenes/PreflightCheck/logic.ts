@@ -75,7 +75,7 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus, PreflightM
         setPreflightMode: () => ['/preflight', { mode: values.preflightMode }],
     }),
     urlToAction: ({ actions }) => ({
-        '/preflight': (_, { mode }: { mode: PreflightMode | null }) => {
+        '/preflight': (_: any, { mode }: { mode: PreflightMode | null }) => {
             console.log(mode)
             if (mode) {
                 actions.setPreflightMode(mode, true)
