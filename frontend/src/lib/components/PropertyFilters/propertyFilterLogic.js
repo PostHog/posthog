@@ -105,7 +105,8 @@ export const propertyFilterLogic = kea({
             }
         },
         [teamLogic.actionTypes.loadCurrentTeamSuccess]: async () => {
-            // TODO: Event properties in sessions is temporarily unsupported (context https://github.com/PostHog/posthog/issues/2735)
+            /* Set the event properties in case the `currentTeam` request came later, or the event
+            properties were updated. */
             if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
                 actions.setProperties(teamLogic.values.eventProperties)
             }
@@ -139,10 +140,14 @@ export const propertyFilterLogic = kea({
         filtersLoading: [() => [teamLogic.selectors.currentTeamLoading], (currentTeamLoading) => currentTeamLoading],
     },
 
-    events: ({ actions }) => ({
+    events: ({ actions, props }) => ({
         afterMount: () => {
             actions.newFilter()
             actions.loadPersonProperties()
+            // TODO: Event properties in sessions is temporarily unsupported (context https://github.com/PostHog/posthog/issues/2735)
+            if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
+                actions.setProperties(teamLogic.values.eventProperties)
+            }
         },
     }),
 })
