@@ -1133,6 +1133,7 @@ export const createProcessEventTests = (
             server.postgres,
             3,
             1002,
+            'a73fc995-a63f-4e4e-bf65-2a5e9f93b2b1',
             '01774e2f-0d01-0000-ee94-9a238640c6ee',
             '0174f81e-36f5-0000-7ef8-cc26c1fbab1c'
         )
