@@ -4,7 +4,9 @@ import { PreflightStatus } from '~/types'
 import { preflightLogicType } from './logicType'
 import posthog from 'posthog-js'
 
-export const preflightLogic = kea<preflightLogicType<PreflightStatus>>({
+type PreflightMode = 'experimentation' | 'live'
+
+export const preflightLogic = kea<preflightLogicType<PreflightStatus, PreflightMode>>({
     loaders: ({ actions }) => ({
         preflight: [
             null as PreflightStatus | null,
@@ -19,6 +21,15 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus>>({
     }),
     actions: {
         registerInstrumentationProps: true,
+        setPreflightMode: (mode: PreflightMode | null, noReload?: boolean) => ({ mode, noReload }),
+    },
+    reducers: {
+        preflightMode: [
+            null as PreflightMode | null,
+            {
+                setPreflightMode: (_, { mode }) => mode,
+            },
+        ],
     },
     selectors: {
         socialAuthAvailable: [
@@ -36,7 +47,7 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus>>({
             },
         ],
     },
-    listeners: ({ values }) => ({
+    listeners: ({ values, actions }) => ({
         registerInstrumentationProps: async (_, breakpoint) => {
             await breakpoint(100)
             if (posthog && values.preflight) {
@@ -49,10 +60,26 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus>>({
                 })
             }
         },
+        setPreflightMode: async ({ mode, noReload }) => {
+            if (mode && !noReload) {
+                actions.loadPreflight()
+            }
+        },
     }),
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadPreflight()
+        },
+    }),
+    actionToUrl: ({ values }) => ({
+        setPreflightMode: () => ['/preflight', { mode: values.preflightMode }],
+    }),
+    urlToAction: ({ actions }) => ({
+        '/preflight': (_, { mode }: { mode: PreflightMode | null }) => {
+            console.log(mode)
+            if (mode) {
+                actions.setPreflightMode(mode, true)
+            }
         },
     }),
 })
