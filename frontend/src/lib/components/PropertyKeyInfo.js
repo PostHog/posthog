@@ -278,57 +278,57 @@ export const keyMapping = {
         },
 
         // GeoIP
-        $city_name: {
+        $geoip_city_name: {
             label: 'City Name',
             description: `Name of the city matched to this event's IP address.`,
             examples: ['Sydney', 'Chennai'],
         },
-        $country_name: {
+        $geoip_country_name: {
             label: 'Country Name',
             description: `Name of the country matched to this event's IP address.`,
             examples: ['Australia', 'India'],
         },
-        $country_code: {
+        $geoip_country_code: {
             label: 'Country Code',
             description: `Code of the country matched to this event's IP address.`,
             examples: ['AU', 'IN'],
         },
-        $continent_name: {
+        $geoip_continent_name: {
             label: 'Continent Code',
             description: `Name of the continent matched to this event's IP address.`,
             examples: ['Oceania', 'Asia'],
         },
-        $continent_code: {
+        $geoip_continent_code: {
             label: 'Continent Code',
             description: `Code of the continent matched to this event's IP address.`,
             examples: ['OC', 'AS'],
         },
-        $postal_code: {
+        $geoip_postal_code: {
             label: 'Postal Code',
             description: `Estimated postal code matched to this event's IP address.`,
             examples: ['2000', '600004'],
         },
-        $latitude: {
+        $geoip_latitude: {
             label: 'Latitude',
             description: `Estimated latitude matched to this event's IP address.`,
             examples: [-33.8591, 13.1337],
         },
-        $longitude: {
+        $geoip_longitude: {
             label: 'Longitude',
             description: `Estimated longitude matched to this event's IP address.`,
             examples: [151.2, 80.8008],
         },
-        $time_zone: {
+        $geoip_time_zone: {
             label: 'Timezone',
             description: `Timezone matched to this event's IP address.`,
             examples: ['Australia/Sydney', 'Asia/Kolkata'],
         },
-        $subdivision_1_name: {
+        $geoip_subdivision_1_name: {
             label: 'Subdivision Name',
             description: `Name of the subdivision matched to this event's IP address.`,
             examples: ['New South Wales', 'Tamil Nadu'],
         },
-        $subdivision_1_code: {
+        $geoip_subdivision_1_code: {
             label: 'Subdivision Code',
             description: `Code of the subdivision matched to this event's IP address.`,
             examples: ['NSW', 'TN'],
