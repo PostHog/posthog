@@ -296,42 +296,42 @@ export const keyMapping = {
         $continent_name: {
             label: 'Continent Code',
             description: `Name of the continent matched to this event's IP address.`,
-            examples: ['', 'Asia'],
+            examples: ['Oceania', 'Asia'],
         },
         $continent_code: {
             label: 'Continent Code',
             description: `Code of the continent matched to this event's IP address.`,
-            examples: ['', 'AS'],
+            examples: ['OC', 'AS'],
         },
         $postal_code: {
             label: 'Postal Code',
             description: `Estimated postal code matched to this event's IP address.`,
-            examples: ['', '600004'],
+            examples: ['2000', '600004'],
         },
         $latitude: {
             label: 'Latitude',
             description: `Estimated latitude matched to this event's IP address.`,
-            examples: ['', 13.1337],
+            examples: [-33.8591, 13.1337],
         },
         $longitude: {
             label: 'Longitude',
             description: `Estimated longitude matched to this event's IP address.`,
-            examples: ['', 80.8008],
+            examples: [151.2, 80.8008],
         },
         $time_zone: {
             label: 'Timezone',
             description: `Timezone matched to this event's IP address.`,
-            examples: ['', 'Asia/Kolkata'],
+            examples: ['Australia/Sydney', 'Asia/Kolkata'],
         },
         $subdivision_1_name: {
             label: 'Subdivision Name',
             description: `Name of the subdivision matched to this event's IP address.`,
-            examples: ['', 'Tamil Nadu'],
+            examples: ['New South Wales', 'Tamil Nadu'],
         },
         $subdivision_1_code: {
             label: 'Subdivision Code',
             description: `Code of the subdivision matched to this event's IP address.`,
-            examples: ['', 'TN'],
+            examples: ['NSW', 'TN'],
         },
     },
     element: {
