@@ -50,7 +50,7 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                 </>
             ),
             dataSource:
-                currentTeam?.event_names_with_usage.map((event) => ({
+                (currentTeam?.event_names_with_usage ?? []).map((event) => ({
                     key: EntityTypes.EVENTS + event.event,
                     name: event.event,
                     ...event,
