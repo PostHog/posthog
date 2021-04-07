@@ -118,27 +118,25 @@ def system_status(request):
                 "value": f"{postgres_version // 10000}.{(postgres_version // 100) % 100}.{postgres_version % 100}",
             }
         )
-        event_table_count = get_table_approx_count(Event._meta.db_table)[0]["approx_count"]
-        event_table_size = get_table_size(Event._meta.db_table)[0]["size"]
+        event_table_count = get_table_approx_count(Event._meta.db_table)
+        event_table_size = get_table_size(Event._meta.db_table)
 
-        element_table_count = get_table_approx_count(Element._meta.db_table)[0]["approx_count"]
-        element_table_size = get_table_size(Element._meta.db_table)[0]["size"]
+        element_table_count = get_table_approx_count(Element._meta.db_table)
+        element_table_size = get_table_size(Element._meta.db_table)
 
-        session_recording_event_table_count = get_table_approx_count(SessionRecordingEvent._meta.db_table)[0][
-            "approx_count"
-        ]
-        session_recording_event_table_size = get_table_size(SessionRecordingEvent._meta.db_table)[0]["size"]
+        session_recording_event_table_count = get_table_approx_count(SessionRecordingEvent._meta.db_table)
+        session_recording_event_table_size = get_table_size(SessionRecordingEvent._meta.db_table)
 
         metrics.append(
-            {"metric": "Postgres elements table size", "value": f"~{element_table_count} rows (~{element_table_size})"}
+            {"metric": "Postgres elements table size", "value": f"{element_table_count} rows (~{element_table_size})"}
         )
         metrics.append(
-            {"metric": "Postgres events table size", "value": f"~{event_table_count} rows (~{event_table_size})"}
+            {"metric": "Postgres events table size", "value": f"{event_table_count} rows (~{event_table_size})"}
         )
         metrics.append(
             {
                 "metric": "Postgres session recording table size",
-                "value": f"~{session_recording_event_table_count} rows (~{session_recording_event_table_size})",
+                "value": f"{session_recording_event_table_count} rows (~{session_recording_event_table_size})",
             }
         )
 
