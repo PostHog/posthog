@@ -439,18 +439,19 @@ def get_table_approx_count(table_name) -> str:
     query = f"SELECT reltuples::BIGINT as \"approx_count\" FROM pg_class WHERE relname = '{table_name}'"
     cursor = connection.cursor()
     cursor.execute(query)
-    return human_format(dict_from_cursor_fetchall(cursor)[0]["approx_count"])
+    return compact_number(dict_from_cursor_fetchall(cursor)[0]["approx_count"])
 
 
-def human_format(num: Union[int, float]) -> str:
-    num = float("{:.3g}".format(num))
+def compact_number(value: Union[int, float]) -> str:
+    """Return a number in a compact format, with a SI suffix if applicable.
+    Server-side equivalent: utils.py#compact_number.
+    """
+    value = float("{:.3g}".format(value))
     magnitude = 0
-    while abs(num) >= 1000:
+    while abs(value) >= 1000:
         magnitude += 1
-        num /= 1000.0
-    return "{}{}".format(
-        "{:f}".format(num).rstrip("0").rstrip("."), ["", "K", "M", "B", "T", "P", "E", "Z", "Y"][magnitude]
-    )
+        value /= 1000.0
+    return "{:f}".format(value).rstrip("0").rstrip(".") + ["", "K", "M", "B", "T", "P", "E", "Z", "Y"][magnitude]
 
 
 def is_postgres_alive() -> bool:
