@@ -39,14 +39,17 @@ function PropertyPaneContents({
         optionGroups.push({
             type: 'element',
             label: 'Elements',
-            options: ['tag_name', 'text', 'href', 'selector'].map((value) => ({ value, label: value })),
+            options: ['tag_name', 'text', 'href', 'selector'].map((option) => ({
+                value: option,
+                label: option,
+            })),
         })
     }
 
     return (
         <>
             <Row gutter={8} className="full-width" wrap={false}>
-                <Col flex={'1'}>
+                <Col flex={1} style={{ minWidth: '11rem' }}>
                     <PropertySelect
                         value={
                             type === 'cohort'
@@ -58,12 +61,12 @@ function PropertyPaneContents({
                                           propkey,
                                   }
                         }
-                        onChange={(type, value) =>
+                        onChange={(newType, newValue) =>
                             setThisFilter(
-                                value,
+                                newValue,
                                 undefined,
-                                value === '$active_feature_flags' ? 'icontains' : operator,
-                                type
+                                newValue === '$active_feature_flags' ? 'icontains' : operator,
+                                newType
                             )
                         }
                         optionGroups={optionGroups}
@@ -84,7 +87,12 @@ function PropertyPaneContents({
                                 onComplete()
                             }
                         }}
-                        columnOptions={{ flex: '1' }}
+                        columnOptions={{
+                            flex: 1,
+                            style: {
+                                maxWidth: '50vw',
+                            },
+                        }}
                     />
                 )}
             </Row>
@@ -139,9 +147,10 @@ export function PropertyFilter({ index, onComplete, logic }) {
     let { key, value, operator, type } = filters[index]
     const [activeKey, setActiveKey] = useState(type === 'cohort' ? 'cohort' : 'property')
 
-    const setThisFilter = useCallback((key, value, operator, type) => setFilter(index, key, value, operator, type), [
-        index,
-    ])
+    const setThisFilter = useCallback(
+        (newKey, newValue, newOperator, newType) => setFilter(index, newKey, newValue, newOperator, newType),
+        [index]
+    )
 
     const displayOperatorAndValue = key && type !== 'cohort'
 
