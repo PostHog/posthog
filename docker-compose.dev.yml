@@ -21,7 +21,7 @@ services:
             dockerfile: dev.Dockerfile
         command: ./bin/docker-worker-celery --with-scheduler
         volumes:
-            # Do not override /code which has node/pip dependencies already installed
+            # Do not override /code which has node dependencies already installed
             - .:/code2
 
             # Do not mount node_modules to improve perf on mac
