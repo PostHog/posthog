@@ -28,14 +28,12 @@ RUN pip install -r requirements.txt --no-cache-dir
 COPY requirements-dev.txt .
 RUN pip install -r requirements-dev.txt --compile --no-cache-dir
 
-COPY package.json yarn.lock ./
-
-RUN yarn install
-
 RUN mkdir plugins
 COPY plugins/package.json plugins/yarn.lock ./plugins/
-
 RUN yarn install --cwd plugins
+
+COPY package.json yarn.lock ./
+RUN yarn install
 
 COPY webpack.config.js .
 COPY postcss.config.js .
