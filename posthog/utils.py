@@ -444,7 +444,7 @@ def get_table_approx_count(table_name) -> str:
 
 def compact_number(value: Union[int, float]) -> str:
     """Return a number in a compact format, with a SI suffix if applicable.
-    Server-side equivalent: utils.py#compact_number.
+    Client-side equivalent: utils.tsx#compactNumber.
     """
     value = float("{:.3g}".format(value))
     magnitude = 0
