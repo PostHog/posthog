@@ -14,8 +14,10 @@ describe('<Insights /> trends', () => {
     }
 
     beforeEach(() => {
-        cy.intercept('/_preflight/', { fixture: 'api/preflight' })
-        cy.intercept('/api/users/@me/', { fixture: 'api/user' })
+        cy.intercept('/_preflight/', { fixture: '_preflight' })
+        cy.intercept('/_system_status/', { fixture: '_system_status' })
+        cy.intercept('/api/users/@me/', { fixture: 'api/users/@me' })
+        cy.intercept('/api/organizations/@current/', { fixture: 'api/organizations/@current' })
         cy.intercept('/api/dashboard/', { fixture: 'api/dashboard' })
         cy.intercept('/api/personal_api_keys/', { fixture: 'api/personal_api_keys' })
         cy.intercept('/api/projects/@current/', { fixture: 'api/projects/@current' })
