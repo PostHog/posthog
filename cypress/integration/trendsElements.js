@@ -39,6 +39,7 @@ describe('Trends', () => {
     it('Apply specific filter on default pageview event', () => {
         cy.get('[data-attr=show-prop-filter-0]').click()
         cy.get('[data-attr=new-prop-filter-0-\\$pageview-filter]').click()
+        cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'watched_movie')
         cy.get('[data-attr=property-filter-dropdown]').click()
         cy.get('[data-attr=prop-filter-event-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
@@ -47,6 +48,7 @@ describe('Trends', () => {
     })
 
     it('Apply 1 overall filter', () => {
+        cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'watched_movie')
         cy.get('[data-attr=new-prop-filter-trends-filters]').click()
         cy.get('[data-attr=property-filter-dropdown]').click()
         cy.get('[data-attr=prop-filter-event-1]').click({ force: true })

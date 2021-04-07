@@ -11,6 +11,7 @@ describe('Trends sessions', () => {
     })
 
     it('Apply 1 overall filter', () => {
+        cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'watched_movie')
         cy.get('[data-attr=new-prop-filter-trends-sessions]').click()
         cy.get('[data-attr=property-filter-dropdown]').click()
         cy.get('[data-attr=prop-filter-event-1]').click({ force: true })
