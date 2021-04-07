@@ -3,7 +3,13 @@ import { Pool, PoolClient } from 'pg'
 import { defaultConfig } from '../../src/shared/config'
 import { delay, UUIDT } from '../../src/shared/utils'
 import { Plugin, PluginAttachmentDB, PluginConfig, PluginsServer, PluginsServerConfig, Team } from '../../src/types'
-import { commonOrganizationId, commonOrganizationMembershipId, commonUserId, makePluginObjects } from './plugins'
+import {
+    commonOrganizationId,
+    commonOrganizationMembershipId,
+    commonUserId,
+    commonUserUuid,
+    makePluginObjects,
+} from './plugins'
 
 export interface ExtraDatabaseRows {
     plugins?: Omit<Plugin, 'id'>[]
@@ -74,11 +80,13 @@ export async function createUserTeamAndOrganization(
     db: Pool,
     teamId: number,
     userId: number = commonUserId,
+    userUuid: string = commonUserUuid,
     organizationId: string = commonOrganizationId,
     organizationMembershipId: string = commonOrganizationMembershipId
 ): Promise<void> {
     await insertRow(db, 'posthog_user', {
         id: userId,
+        uuid: userUuid,
         password: 'gibberish',
         first_name: 'PluginTest',
         last_name: 'User',
