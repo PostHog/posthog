@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any, Callable, Dict, List, Tuple
 
 from django.utils import timezone
@@ -64,10 +65,24 @@ class ClickhouseTrendsNormal:
             agg_query = self._determine_single_aggregate_query(filter, entity)
             content_sql = agg_query.format(**content_sql_params)
 
+            date_from = filter.date_from
+            date_to = filter.date_to
+            delta = timedelta(seconds=seconds_in_interval)
+            days = []
+            while date_from <= date_to:
+                days.append(
+                    date_from.strftime(
+                        "%Y-%m-%d{}".format(
+                            " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else ""
+                        )
+                    )
+                )
+                date_from += delta
+
             return (
                 content_sql,
                 params,
-                lambda result: [{"aggregated_value": result[0][0] if result and len(result) else 0}],
+                lambda result: [{"aggregated_value": result[0][0] if result and len(result) else 0, "days": days}],
             )
         else:
             content_sql = self._determine_trend_aggregate_query(filter, entity)
