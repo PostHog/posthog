@@ -130,7 +130,7 @@ export async function createUserTeamAndOrganization(
         ingested_event: true,
         uuid: new UUIDT().toString(),
         session_recording_opt_in: true,
-        plugins_opt_in: true,
+        plugins_opt_in: false,
         opt_out_capture: false,
         is_demo: false,
         api_token: `THIS IS NOT A TOKEN FOR TEAM ${teamId}`,

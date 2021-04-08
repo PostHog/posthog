@@ -7,8 +7,7 @@ function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
        LEFT JOIN posthog_organization ON posthog_organization.id = posthog_team.organization_id
        LEFT JOIN posthog_plugin ON posthog_plugin.id = posthog_pluginconfig.plugin_id
        WHERE (
-           (posthog_team.id IS NULL OR posthog_team.plugins_opt_in='t')
-           AND posthog_pluginconfig.enabled='t' AND posthog_organization.plugins_access_level > 0
+           posthog_pluginconfig.enabled='t' AND posthog_organization.plugins_access_level > 0
            AND (posthog_plugin.organization_id = posthog_organization.id OR posthog_plugin.is_global)
        )`
 }
