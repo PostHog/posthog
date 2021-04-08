@@ -1,9 +1,10 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { userLogic } from 'scenes/userLogic'
 import { billingLogicType } from './billingLogicType'
-import { BillingSubscription, PlanInterface, UserType, FormattedNumber } from '~/types'
+import { PlanInterface, UserType, BillingType } from '~/types'
 import { sceneLogic, Scene } from 'scenes/sceneLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import posthog from 'posthog-js'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -13,8 +14,24 @@ export enum BillingAlertType {
     UsageNearLimit = 'usage_near_limit',
 }
 
-export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscription, UserType, FormattedNumber>>({
-    loaders: {
+export const billingLogic = kea<billingLogicType<PlanInterface, UserType, BillingType>>({
+    actions: {
+        registerInstrumentationProps: true,
+    },
+    loaders: ({ actions }) => ({
+        billing: [
+            null as BillingType | null,
+            {
+                loadBilling: async () => {
+                    const response = await api.get('api/billing/')
+                    if (!response?.plan) {
+                        actions.loadPlans()
+                    }
+                    actions.registerInstrumentationProps()
+                    return response as BillingType
+                },
+            },
+        ],
         plans: [
             [] as PlanInterface[],
             {
@@ -25,29 +42,23 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
             },
         ],
         billingSubscription: [
-            null as BillingSubscription | null,
+            null as BillingType | null,
             {
                 subscribe: async (plan) => {
                     return await api.create('billing/subscribe', { plan })
                 },
             },
         ],
-    },
+    }),
     selectors: {
-        eventAllocation: [() => [userLogic.selectors.user], (user: UserType) => user.billing?.event_allocation],
+        eventAllocation: [(s) => [s.billing], (billing: BillingType) => billing?.event_allocation],
         percentage: [
-            (s) => [s.eventAllocation, userLogic.selectors.user],
-            (eventAllocation: FormattedNumber | number | null | undefined, user: UserType) => {
-                if (!eventAllocation || !user.billing?.current_usage) {
+            (s) => [s.eventAllocation, s.billing],
+            (eventAllocation: number | null, billing: BillingType) => {
+                if (!eventAllocation || !billing?.current_usage) {
                     return null
                 }
-                // :TODO: Temporary support for legacy FormattedNumber
-                const allocation = typeof eventAllocation === 'number' ? eventAllocation : eventAllocation.value
-                const usage =
-                    typeof user.billing.current_usage === 'number'
-                        ? user.billing.current_usage
-                        : user.billing.current_usage.value
-                return Math.min(Math.round((usage / allocation) * 100) / 100, 1)
+                return Math.min(Math.round((billing.current_usage / eventAllocation) * 100) / 100, 1)
             },
         ],
         strokeColor: [
@@ -72,31 +83,22 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
             },
         ],
         alertToShow: [
-            (s) => [s.eventAllocation, userLogic.selectors.user, sceneLogic.selectors.scene],
-            (
-                eventAllocation: FormattedNumber | number | null | undefined,
-                user: UserType,
-                scene: Scene
-            ): BillingAlertType | undefined => {
+            (s) => [s.eventAllocation, s.billing, sceneLogic.selectors.scene],
+            (eventAllocation: number | null, billing: BillingType, scene: Scene): BillingAlertType | undefined => {
                 // Determines which billing alert/warning to show to the user (if any)
 
                 // Priority 1: In-progress incomplete billing setup
-                if (user?.billing?.should_setup_billing && user?.billing.subscription_url) {
+                if (billing?.should_setup_billing && billing?.subscription_url) {
                     return BillingAlertType.SetupBilling
                 }
 
                 // Priority 2: Event allowance near limit
                 // :TODO: Temporary support for legacy FormattedNumber
-                const allocation = typeof eventAllocation === 'number' ? eventAllocation : eventAllocation?.value
-                const usage =
-                    typeof user?.billing?.current_usage === 'number'
-                        ? user.billing.current_usage
-                        : user?.billing?.current_usage?.value
                 if (
                     scene !== Scene.Billing &&
-                    allocation &&
-                    usage &&
-                    usage / allocation >= ALLOCATION_THRESHOLD_ALERT
+                    eventAllocation &&
+                    billing.current_usage &&
+                    billing.current_usage / eventAllocation >= ALLOCATION_THRESHOLD_ALERT
                 ) {
                     return BillingAlertType.UsageNearLimit
                 }
@@ -105,16 +107,29 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
     },
     events: ({ actions }) => ({
         afterMount: () => {
-            const user = userLogic.values.user
-            if (user?.is_multi_tenancy && !user?.billing?.plan) {
-                actions.loadPlans()
+            if (preflightLogic.values.preflight?.cloud) {
+                actions.loadBilling()
             }
         },
     }),
-    listeners: () => ({
+    listeners: ({ values }) => ({
         subscribeSuccess: ({ billingSubscription }) => {
             if (billingSubscription?.subscription_url) {
                 window.location.href = billingSubscription.subscription_url
+            }
+        },
+        registerInstrumentationProps: async (_, breakpoint) => {
+            await breakpoint(100)
+            if (posthog && values.billing) {
+                posthog.register({
+                    has_billing_plan: !!values.billing?.plan,
+                    metered_billing: values.billing.plan?.is_metered_billing,
+                    event_allocation: values.billing.event_allocation,
+                    allocation_used:
+                        values.billing.event_allocation && values.billing.current_usage !== null
+                            ? values.billing.current_usage / values.billing.event_allocation
+                            : undefined,
+                })
             }
         },
     }),

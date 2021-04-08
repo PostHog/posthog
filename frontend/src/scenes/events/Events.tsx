@@ -8,7 +8,7 @@ import { EventsTable } from './EventsTable'
 import { EventsVolumeTable } from './EventsVolumeTable'
 import { PropertiesVolumeTable } from './PropertiesVolumeTable'
 import { eventsLogicType } from './EventsType'
-import { userLogic } from 'scenes/userLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 const eventsLogic = kea<eventsLogicType>({
     actions: {
@@ -56,8 +56,8 @@ function UsageDisabledWarning({ tab }: { tab: string }): JSX.Element {
 export function ManageEvents(): JSX.Element {
     const { tab } = useValues(eventsLogic)
     const { setTab } = useActions(eventsLogic)
+    const { preflight } = useValues(preflightLogic)
 
-    const { user } = useValues(userLogic)
     return (
         <div className="manage-events" data-attr="manage-events-table">
             <PageHeader title="Events" />
@@ -75,14 +75,14 @@ export function ManageEvents(): JSX.Element {
                     <br />
                     <br />
                     <EventsVolumeTable />
-                    {!user?.is_event_property_usage_enabled && <UsageDisabledWarning tab="Events Stats" />}
+                    {!preflight?.is_event_property_usage_enabled && <UsageDisabledWarning tab="Events Stats" />}
                 </Tabs.TabPane>
                 <Tabs.TabPane tab="Properties Stats" key="properties">
                     See all property keys that have ever been sent to this team, including the volume and how often
                     queries where made using this property key.
                     <br />
                     <br />
-                    {user?.is_event_property_usage_enabled ? (
+                    {preflight?.is_event_property_usage_enabled ? (
                         <PropertiesVolumeTable />
                     ) : (
                         <UsageDisabledWarning tab="Properties Stats" />

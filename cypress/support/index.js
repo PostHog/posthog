@@ -16,7 +16,7 @@ beforeEach(() => {
     } else {
         if (Cypress.spec.name.includes('Premium')) {
             cy.visit('/login')
-            cy.intercept('/api/user/', { fixture: 'api/user-enterprise' })
+            cy.intercept('/api/users/@me/', { fixture: 'api/user-enterprise' })
             logIn()
         } else {
             cy.visit('/')
