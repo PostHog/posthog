@@ -8,6 +8,7 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import parse_response, process_math
 from ee.clickhouse.queries.util import (
     date_from_clause,
+    format_ch_timestamp,
     get_earliest_timestamp,
     get_time_diff,
     get_trunc_func_ch,
@@ -16,12 +17,13 @@ from ee.clickhouse.queries.util import (
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
 from ee.clickhouse.sql.trends.volume import (
+    ACTIVE_USER_SQL,
     VOLUME__TOTAL_AGGREGATE_ACTIONS_SQL,
     VOLUME_ACTIONS_SQL,
     VOLUME_SQL,
     VOLUME_TOTAL_AGGREGATE_SQL,
 )
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_DISPLAY_BY_VALUE
+from posthog.constants import MONTHLY_ACTIVE, TREND_FILTER_TYPE_ACTIONS, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -50,7 +52,6 @@ class ClickhouseTrendsNormal:
             "parsed_date_from": date_from_clause(interval_annotation, round_interval),
             "parsed_date_to": parsed_date_to,
             "timestamp": "timestamp",
-            "team_id": team_id,
             "filters": prop_filters,
             "event_join": join_condition,
             "aggregate_operation": aggregate_operation,
@@ -71,6 +72,10 @@ class ClickhouseTrendsNormal:
                 params,
                 lambda result: [{"aggregated_value": result[0][0] if result and len(result) else 0}],
             )
+        elif entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+            sql_params = self.get_active_user_params(filter, entity, team_id)
+            final_query = ACTIVE_USER_SQL.format(**content_sql_params, **sql_params)
+            return final_query, params, self._parse_normal_result(filter)
         else:
             content_sql = VOLUME_SQL.format(**content_sql_params)
 
@@ -109,3 +114,19 @@ class ClickhouseTrendsNormal:
             params = {"event": entity.id}
 
         return params, content_sql_params
+
+    def get_active_user_params(self, filter: Filter, entity: Entity, team_id: int) -> Dict[str, Any]:
+        params = {}
+        params.update({"interval": "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 day"})
+
+        if filter.date_from:
+            params.update({"parsed_date_from_prev_range": format_ch_timestamp(filter.date_from, filter)})
+        else:
+            try:
+                earliest_date = get_earliest_timestamp(team_id)
+            except IndexError:
+                raise ValueError("Active User queries require a lower date bound")
+            else:
+                params.update({"parsed_date_from_prev_range": format_ch_timestamp(earliest_date, filter)})
+
+        return params

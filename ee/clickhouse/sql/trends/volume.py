@@ -1,12 +1,12 @@
 VOLUME_SQL = """
-SELECT {aggregate_operation} as data, toDateTime({interval}({timestamp}), 'UTC') as date from events {event_join} where team_id = {team_id} {entity_query} {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
+SELECT {aggregate_operation} as data, toDateTime({interval}({timestamp}), 'UTC') as date from events {event_join} where team_id = %(team_id)s {entity_query} {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
 """
 
 VOLUME_TOTAL_AGGREGATE_SQL = """
-SELECT {aggregate_operation} as data from events {event_join} where team_id = {team_id} {entity_query} {filters} {parsed_date_from} {parsed_date_to}
+SELECT {aggregate_operation} as data from events {event_join} where team_id = %(team_id)s {entity_query} {filters} {parsed_date_from} {parsed_date_to}
 """
 
-ACTIVE_USER_ACTIONS_SQL = """
+ACTIVE_USER_SQL = """
 SELECT 
 groupArray(day) as date,
 groupArray(counts) as data

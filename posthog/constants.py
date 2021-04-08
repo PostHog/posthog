@@ -94,3 +94,7 @@ DISTINCT_ID_FILTER = "distinct_id"
 class RDBMS(str, Enum):
     POSTGRES = "postgres"
     CLICKHOUSE = "clickhouse"
+
+
+WEEKLY_ACTIVE = "weekly_active"
+MONTHLY_ACTIVE = "monthly_active"
