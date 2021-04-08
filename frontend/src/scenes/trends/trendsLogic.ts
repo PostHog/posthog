@@ -132,6 +132,28 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
     return toAPIParams({ ...params, ...restParams })
 }
 
+function getDefaultFilters(currentFilters: Partial<FilterType>, eventNames: string[]): Partial<FilterType> {
+    /* Opening /insights without any params, will set $pageview as the default event (or
+    the first random event). We load this default events when `currentTeam` is loaded (because that's when
+    `eventNames` become available) and on every view change (through the urlToAction map) */
+    if (!currentFilters.actions?.length && !currentFilters.events?.length && eventNames.length) {
+        const event = eventNames.includes(PAGEVIEW) ? PAGEVIEW : eventNames.includes(SCREEN) ? SCREEN : eventNames[0]
+
+        const defaultFilters = {
+            [EntityTypes.EVENTS]: [
+                {
+                    id: event,
+                    name: event,
+                    type: EntityTypes.EVENTS,
+                    order: 0,
+                },
+            ],
+        }
+        return defaultFilters
+    }
+    return {}
+}
+
 // props:
 // - dashboardItemId
 // - filters
@@ -186,7 +208,6 @@ export const trendsLogic = kea<
     actions: () => ({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
-
         loadPeople: (action, label, day, breakdown_value) => ({ action, label, day, breakdown_value }),
         saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
         loadMorePeople: true,
@@ -441,28 +462,7 @@ export const trendsLogic = kea<
             actions.setBreakdownValuesLoading(false)
         },
         [teamLogic.actionTypes.loadCurrentTeamSuccess]: async () => {
-            /* Opening /insights without any params, will just set $pageview as the default event (or
-            the first random event). We have this logic here because we also need to wait for the
-           `currentTeam` to be loaded. */
-            if (!values.filters.actions?.length && !values.filters.events?.length) {
-                const event = values.eventNames.includes(PAGEVIEW)
-                    ? PAGEVIEW
-                    : values.eventNames.includes(SCREEN)
-                    ? SCREEN
-                    : values.eventNames[0]
-
-                const newFilters = {
-                    [EntityTypes.EVENTS]: [
-                        {
-                            id: event,
-                            name: event,
-                            type: EntityTypes.EVENTS,
-                            order: 0,
-                        },
-                    ],
-                }
-                actions.setFilters(newFilters, true)
-            }
+            actions.setFilters(getDefaultFilters(values.filters, values.eventNames), true)
         },
     }),
 
@@ -518,6 +518,8 @@ export const trendsLogic = kea<
                 if (searchParams.date_from === 'all' || searchParams.shown_as === ShownAsValue.LIFECYCLE) {
                     cleanSearchParams['compare'] = false
                 }
+
+                Object.assign(cleanSearchParams, getDefaultFilters(values.filters, values.eventNames))
 
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)

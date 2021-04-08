@@ -71,7 +71,7 @@ export function ProjectSettings(): JSX.Element {
 
     useAnchor(location.hash)
 
-    const LoadingComponent = <Skeleton active />
+    const loadingComponent = <Skeleton active />
 
     return (
         <div style={{ marginBottom: 128 }}>
@@ -85,7 +85,7 @@ export function ProjectSettings(): JSX.Element {
                 <h2 id="name" className="subtitle">
                     Display Name
                 </h2>
-                {currentTeamLoading ? LoadingComponent : <DisplayName />}
+                {currentTeamLoading ? loadingComponent : <DisplayName />}
                 <Divider />
                 <h2 id="snippet" className="subtitle">
                     Website Event Autocapture
@@ -96,7 +96,7 @@ export function ProjectSettings(): JSX.Element {
                 <br />
                 For more guidance, including on identying users,{' '}
                 <a href="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</a>.
-                {currentTeamLoading ? LoadingComponent : <JSSnippet />}
+                {currentTeamLoading ? loadingComponent : <JSSnippet />}
                 <p>
                     You can even test PostHog out on a live site without changing any code.
                     <br />
