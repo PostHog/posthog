@@ -1,7 +1,10 @@
 import { responsiveMap } from 'antd/lib/_util/responsiveObserve'
 
+const sidebarAndPaddingWidth = 176
+const gridBasis = 24
+
 export function getMinColumnWidth(breakpoint: number, windowWidth: number): number {
-    return breakpoint < 768 ? windowWidth / 3 : windowWidth / 24
+    return breakpoint < 768 ? windowWidth / 3 : windowWidth / gridBasis
 }
 
 export function getMaxColumnWidth(breakpoint: number, windowWidth: number): number {
@@ -10,8 +13,6 @@ export function getMaxColumnWidth(breakpoint: number, windowWidth: number): numb
 
 export function getFullwidthColumnSize(span: number = 1, breakpoint: number): number {
     const { innerWidth: width } = window
-    const sidebarAndPaddingWidth = 176
-    const gridBasis = 24
     const minWidth = getMinColumnWidth(breakpoint, width)
     const columnWidth = Math.floor(((width - sidebarAndPaddingWidth) / gridBasis) * span)
     return Math.max(columnWidth, minWidth)

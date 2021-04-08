@@ -14,11 +14,6 @@ export type ResizableColumnType = {
     span: number
 }
 
-type InternalColumnType = ResizableColumnType & {
-    onHeaderCell: (props: any) => React.HTMLAttributes<HTMLElement>
-    width: number
-}
-
 function ResizableTitle(props: any): JSX.Element {
     const { children, onResize, width, minConstraints, maxConstraints, ...restProps } = props
     if (!width) {
@@ -48,13 +43,22 @@ function ResizableTitle(props: any): JSX.Element {
     )
 }
 
+interface ResizableTableProps<T> extends TableProps<T> {
+    columns: ResizableColumnType[]
+}
+
+type InternalColumnType = ResizableColumnType & {
+    onHeaderCell: (props: any) => React.HTMLAttributes<HTMLElement>
+    width: number
+}
+
 // Type matches antd.Table
 // eslint-disable-next-line @typescript-eslint/ban-types
 export function ResizableTable<RecordType extends object = any>({
     columns: initialColumns = [],
     components,
     ...props
-}: Omit<TableProps<RecordType>, 'columns'> & { columns: ResizableColumnType[] }): JSX.Element {
+}: ResizableTableProps<RecordType>): JSX.Element {
     const breakpoint = getActiveBreakpoint()
     const minConstraints = [getMinColumnWidth(breakpoint, window.innerWidth), 0]
     const maxConstraints = [getMaxColumnWidth(breakpoint, window.innerWidth), 0]
