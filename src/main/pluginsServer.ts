@@ -32,7 +32,6 @@ export async function startPluginsServer(
         ...config,
     }
 
-    status.info('⚡', `posthog-plugin-server v${version}`)
     status.info('ℹ️', `${serverConfig.WORKER_CONCURRENCY} workers, ${serverConfig.TASKS_PER_WORKER} tasks per worker`)
 
     let pubSub: Redis.Redis | undefined
