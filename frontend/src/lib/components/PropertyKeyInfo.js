@@ -294,7 +294,7 @@ export const keyMapping = {
             examples: ['AU', 'IN'],
         },
         $geoip_continent_name: {
-            label: 'Continent Code',
+            label: 'Continent Name',
             description: `Name of the continent matched to this event's IP address.`,
             examples: ['Oceania', 'Asia'],
         },
