@@ -3,6 +3,7 @@ import json
 from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from semantic_version import Version
 
 from posthog.models import Plugin, PluginAttachment, PluginConfig
 from posthog.models.organization import Organization, OrganizationMembership
@@ -19,6 +20,7 @@ from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP,
 )
 from posthog.test.base import APIBaseTest
+from posthog.version import VERSION
 
 
 def mocked_plugin_reload(*args, **kwargs):
@@ -351,6 +353,79 @@ class TestPluginAPI(APIBaseTest):
         )
         self.assertEqual(Plugin.objects.count(), 1)
         self.assertEqual(mock_reload.call_count, 1)
+
+    def test_create_plugin_version_ranges(self, mock_get, mock_reload):
+        response = self.client.post(
+            "/api/organizations/@current/plugins/",
+            {"url": f"https://github.com/posthog-plugin/version-equals/commit/{VERSION}"},
+        )
+        self.assertEqual(response.status_code, 201)
+
+        for plugin in Plugin.objects.all():
+            plugin.delete()
+
+        response = self.client.post(
+            "/api/organizations/@current/plugins/",
+            {"url": f"https://github.com/posthog-plugin/version-equals/commit/{Version(VERSION).next_minor()}"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            str(response.data["detail"]),
+            f'PostHog version "{Version(VERSION).next_minor()}" required, but "{VERSION}" is installed.',
+        )
+
+        for plugin in Plugin.objects.all():
+            plugin.delete()
+
+        response = self.client.post(
+            "/api/organizations/@current/plugins/",
+            {"url": f"https://github.com/posthog-plugin/version-greater-than/commit/0.0.0"},
+        )
+        self.assertEqual(response.status_code, 201)
+
+        for plugin in Plugin.objects.all():
+            plugin.delete()
+
+        response = self.client.post(
+            "/api/organizations/@current/plugins/",
+            {"url": f"https://github.com/posthog-plugin/version-greater-than/commit/{Version(VERSION).next_major()}"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            str(response.data["detail"]),
+            f'PostHog version ">= {Version(VERSION).next_major()}" required, but "{VERSION}" is installed.',
+        )
+
+        for plugin in Plugin.objects.all():
+            plugin.delete()
+
+        response = self.client.post(
+            "/api/organizations/@current/plugins/",
+            {"url": f"https://github.com/posthog-plugin/version-less/commit/{VERSION}"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            str(response.data["detail"]), f'PostHog version "< {VERSION}" required, but "{VERSION}" is installed.'
+        )
+
+        for plugin in Plugin.objects.all():
+            plugin.delete()
+
+        response = self.client.post(
+            "/api/organizations/@current/plugins/",
+            {"url": f"https://github.com/posthog-plugin/version-less/commit/{Version(VERSION).next_major()}"},
+        )
+        self.assertEqual(response.status_code, 201)
+
+        for plugin in Plugin.objects.all():
+            plugin.delete()
+
+        response = self.client.post(
+            "/api/organizations/@current/plugins/",
+            {"url": f"https://github.com/posthog-plugin/version-less/commit/..."},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(str(response.data["detail"]), 'Invalid PostHog version range "< ..."')
 
     def test_create_plugin_source(self, mock_get, mock_reload):
         self.assertEqual(mock_reload.call_count, 0)

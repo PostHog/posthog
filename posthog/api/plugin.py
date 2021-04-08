@@ -15,6 +15,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
+from semantic_version import SimpleSpec, Version
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
@@ -30,7 +31,7 @@ from posthog.plugins import (
 )
 from posthog.plugins.access import can_globally_manage_plugins
 from posthog.plugins.utils import load_json_file
-from posthog.utils import is_plugin_server_alive
+from posthog.version import VERSION
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
@@ -144,8 +145,9 @@ class PluginSerializer(serializers.ModelSerializer):
             validated_data["archive"] = None
             validated_data["name"] = json.get("name", json_path.split("/")[-2])
             validated_data["description"] = json.get("description", "")
-            validated_data["config_schema"] = json.get("config", {})
+            validated_data["config_schema"] = json.get("config", [])
             validated_data["source"] = None
+            posthog_version = json.get("posthogVersion", None)
         else:
             parsed_url = parse_url(url, get_latest_if_none=True)
             if parsed_url:
@@ -157,8 +159,9 @@ class PluginSerializer(serializers.ModelSerializer):
                     raise ValidationError("Could not find plugin.json in the plugin")
                 validated_data["name"] = plugin_json["name"]
                 validated_data["description"] = plugin_json.get("description", "")
-                validated_data["config_schema"] = plugin_json.get("config", {})
+                validated_data["config_schema"] = plugin_json.get("config", [])
                 validated_data["source"] = None
+                posthog_version = plugin_json.get("posthogVersion", None)
             else:
                 raise ValidationError("Must be a GitHub/GitLab repository or a npm package URL!")
 
@@ -168,6 +171,14 @@ class PluginSerializer(serializers.ModelSerializer):
                 and validated_data.get("plugin_type", None) != Plugin.PluginType.REPOSITORY
             ):
                 validated_data["plugin_type"] = Plugin.PluginType.CUSTOM
+
+        if posthog_version:
+            try:
+                spec = SimpleSpec(posthog_version.replace(" ", ""))
+            except ValueError:
+                raise ValidationError(f'Invalid PostHog version range "{posthog_version}"')
+            if not (Version(VERSION) in spec):
+                raise ValidationError(f'PostHog version "{posthog_version}" required, but "{VERSION}" is installed.')
 
         return validated_data
 
