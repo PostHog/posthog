@@ -1,4 +1,8 @@
 name: automerge
+
+env:
+    MERGE_METHOD: squash
+
 on:
     pull_request:
         types:
@@ -10,13 +14,11 @@ on:
             - ready_for_review
             - reopened
             - unlocked
-    pull_request_review:
-        types:
-            - submitted
     check_suite:
         types:
             - completed
     status: {}
+
 jobs:
     automerge:
         runs-on: ubuntu-latest
