@@ -287,7 +287,7 @@ export function formatProperty(property: Record<string, any>): string {
 // Format a label that gets returned from the /insights api
 export function formatLabel(label: string, action: ActionFilter): string {
     if (action.math === 'dau') {
-        label += ` (Active Users) `
+        label += ` (Unique users) `
     } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math || '')) {
         label += ` (${action.math} of ${action.math_property}) `
     }
