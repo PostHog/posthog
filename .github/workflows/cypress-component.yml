@@ -41,7 +41,6 @@ jobs:
             - name: Yarn build
               run: |
                   yarn build
-              if: steps.yarn-build-cache.outputs.cache-hit != 'true'
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:

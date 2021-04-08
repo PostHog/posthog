@@ -43,7 +43,6 @@ jobs:
                   python -m pip install -U pip
                   python -m pip install -r requirements.txt
                   python -m pip install -r requirements-dev.txt
-              if: steps.cache.outputs.cache-hit != 'true'
 
             - name: Check formatting
               run: |
@@ -110,7 +109,6 @@ jobs:
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
                   python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
-              if: steps.cache.outputs.cache-hit != 'true'
 
             - name: Check migrations
               env:
@@ -201,7 +199,6 @@ jobs:
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
                   python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
-              if: steps.cache-master.outputs.cache-hit != 'true'
 
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
@@ -231,7 +228,6 @@ jobs:
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
                   python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
-              if: steps.cache-current-branch.outputs.cache-hit != 'true'
 
             - name: Link posthog-cloud at current branch
               run: |
@@ -322,7 +318,6 @@ jobs:
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
                   python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
-              if: steps.cache.outputs.cache-hit != 'true'
 
             - name: Remove ee
               run: |
