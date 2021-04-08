@@ -176,9 +176,11 @@ class PluginSerializer(serializers.ModelSerializer):
             try:
                 spec = SimpleSpec(posthog_version.replace(" ", ""))
             except ValueError:
-                raise ValidationError(f'Invalid PostHog version range "{posthog_version}"')
+                raise ValidationError(f'Invalid required PostHog version range "{posthog_version}"!')
             if not (Version(VERSION) in spec):
-                raise ValidationError(f'PostHog version "{posthog_version}" required, but "{VERSION}" is installed.')
+                raise ValidationError(
+                    f'This plugin requires PostHog version in range "{posthog_version}", while the version currently running is {VERSION}!'
+                )
 
         return validated_data
 
