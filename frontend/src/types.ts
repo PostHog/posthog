@@ -78,6 +78,7 @@ export interface OrganizationType {
     available_features: string[]
     billing_plan: string
     billing: OrganizationBilling
+    users_left: number
     teams?: TeamType[]
     membership_level: OrganizationMembershipLevel | null
     setup: SetupState

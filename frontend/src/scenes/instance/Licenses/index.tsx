@@ -24,6 +24,12 @@ const columns = [
         dataIndex: 'plan',
     },
     {
+        title: 'Max # of users',
+        render: function renderMaxUsers(license: any) {
+            return license.max_users === 0 ? 'Unlimited' : license.max_users
+        },
+    },
+    {
         title: 'Key',
         render: function renderActive(license: any) {
             return <CodeSnippet>{license.key}</CodeSnippet>

@@ -11,13 +11,8 @@ from ee.models.license import License, LicenseError
 class LicenseSerializer(serializers.ModelSerializer):
     class Meta:
         model = License
-        fields = [
-            "created_at",
-            "plan",
-            "key",
-            "valid_until",
-        ]
-        read_only_fields = ["created_at", "plan", "valid_until"]
+        fields = ["created_at", "plan", "key", "valid_until", "max_users"]
+        read_only_fields = ["created_at", "plan", "valid_until", "max_users"]
 
 
 class LicenseViewSet(viewsets.ModelViewSet):

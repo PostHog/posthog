@@ -20,13 +20,15 @@ class LicenseError(Exception):
 
 class LicenseManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any) -> "License":
-        validate = requests.post("https://license.posthog.com/licenses/activate", data={"key": kwargs["key"]})
+        validate = requests.post("http://127.0.0.1:3000/licenses/activate", data={"key": kwargs["key"]})
         resp = validate.json()
         if not validate.ok:
+            print(resp)
             raise LicenseError(resp["code"], resp["detail"])
 
         kwargs["valid_until"] = resp["valid_until"]
         kwargs["plan"] = resp["plan"]
+        kwargs["max_users"] = resp["max_users"]
         return cast(License, super().create(*args, **kwargs))
 
     def first_valid(self) -> Optional["License"]:
@@ -40,12 +42,17 @@ class License(models.Model):
     plan: models.CharField = models.CharField(max_length=200)
     valid_until: models.DateTimeField = models.DateTimeField()
     key: models.CharField = models.CharField(max_length=200)
+    max_users: models.IntegerField = models.IntegerField(default=0)
 
     ENTERPRISE_PLAN = "enterprise"
-    ENTERPRISE_FEATURES = ["zapier", "organizations_projects", "google_login", "dashboard_collaboration"]
+    ENTERPRISE_FEATURES = ["clickhouse", "zapier", "organizations_projects", "google_login", "dashboard_collaboration"]
     PLANS = {
         ENTERPRISE_PLAN: ENTERPRISE_FEATURES,
     }
+
+    FREE_CLICKHOUSE_PLAN = "free_clickhouse"
+    FREE_CLICKHOUSE_FEATURES = ["clickhouse"]
+    PLANS = {FREE_CLICKHOUSE_PLAN: FREE_CLICKHOUSE_FEATURES}
 
     @property
     def available_features(self) -> List[str]:

@@ -113,6 +113,23 @@ class Organization(UUIDModel):
             return License.PLANS.get(plan, [])
         return self.billing.available_features  # type: ignore
 
+    @property
+    def users_left(self) -> int:
+        # Number of users you're allowed to invite
+        # -1 means unlimited
+        if License is not None:
+            license = License.objects.first_valid()
+            if license:
+                if license.max_users == 0:
+                    return -1
+                from posthog.models.user import User
+
+                users_left = license.max_users - User.objects.count() - OrganizationInvite.objects.count()
+                if users_left < 0:
+                    return 0
+                return users_left
+        return -1
+
     def is_feature_available(self, feature: str) -> bool:
         return feature in self.available_features
 
