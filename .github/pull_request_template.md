@@ -9,4 +9,4 @@
 - [ ] Django backend tests
 - [ ] Jest frontend tests
 - [ ] Cypress end-to-end tests
-- [ ] Migrations are safe to run on cloud. Present proof if not obvious.
+- [ ] Migrations are safe to run at scale (e.g. PostHog Cloud) – present proof if not obvious
