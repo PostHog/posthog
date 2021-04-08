@@ -31,9 +31,9 @@ jobs:
               with:
                   python-version: 3.8
 
-            - uses: actions/cache@v1
+            - uses: actions/cache@v2
               with:
-                  path: ~/.cache/pip
+                  path: ${{ env.pythonLocation }}/lib/python3.*/site-packages/
                   key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt', '**/requirements-dev.txt') }}
                   restore-keys: |
                       ${{ runner.os }}-pip-
@@ -98,9 +98,9 @@ jobs:
               with:
                   python-version: ${{ matrix.python-version }}
 
-            - uses: actions/cache@v1
+            - uses: actions/cache@v2
               with:
-                  path: ~/.cache/pip
+                  path: ${{ env.pythonLocation }}/lib/python3.*/site-packages/
                   key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements.txt') }}
                   restore-keys: |
                       ${{ runner.os }}-pip-${{ matrix.python-version }}-
@@ -190,7 +190,7 @@ jobs:
             - uses: actions/cache@v2
               id: cache-master
               with:
-                  path: ~/.cache/pip
+                  path: ${{ env.pythonLocation }}/lib/python3.*/site-packages/
                   key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
                   restore-keys: |
                       ${{ runner.os }}-pip-
@@ -220,7 +220,7 @@ jobs:
             - uses: actions/cache@v2
               id: cache-current-branch
               with:
-                  path: ~/.cache/pip
+                  path: ${{ env.pythonLocation }}/lib/python3.*/site-packages/
                   key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
                   restore-keys: |
                       ${{ runner.os }}-pip-
@@ -310,9 +310,9 @@ jobs:
               with:
                   python-version: 3.8
 
-            - uses: actions/cache@v1
+            - uses: actions/cache@v2
               with:
-                  path: ~/.cache/pip
+                  path: ${{ env.pythonLocation }}/lib/python3.*/site-packages/
                   key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
                   restore-keys: |
                       ${{ runner.os }}-pip-
