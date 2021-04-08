@@ -15,8 +15,7 @@ afterEach(async () => {
 })
 
 test('getPluginAttachmentRows', async () => {
-    const rows1 = await getPluginAttachmentRows(server)
-    expect(rows1).toEqual([
+    const rowsExpected = [
         {
             content_type: 'application/octet-stream',
             contents: Buffer.from([116, 101, 115, 116]),
@@ -27,16 +26,18 @@ test('getPluginAttachmentRows', async () => {
             plugin_config_id: 39,
             team_id: 2,
         },
-    ])
+    ]
+
+    const rows1 = await getPluginAttachmentRows(server)
+    expect(rows1).toEqual(rowsExpected)
     await server.db.postgresQuery("update posthog_team set plugins_opt_in='f'")
     const rows2 = await getPluginAttachmentRows(server)
-    expect(rows2).toEqual([])
+    expect(rows2).toEqual(rowsExpected)
 })
 
 test('getPluginConfigRows', async () => {
     await resetTestDatabase(`const processEvent = event => event`)
-    const rows1 = await getPluginConfigRows(server)
-    expect(rows1).toEqual([
+    const rowsExpected = [
         {
             config: {
                 localhostIP: '94.224.212.175',
@@ -50,16 +51,18 @@ test('getPluginConfigRows', async () => {
             created_at: expect.anything(),
             updated_at: expect.anything(),
         },
-    ])
+    ]
+
+    const rows1 = await getPluginConfigRows(server)
+    expect(rows1).toEqual(rowsExpected)
     await server.db.postgresQuery("update posthog_team set plugins_opt_in='f'")
     const rows2 = await getPluginConfigRows(server)
-    expect(rows2).toEqual([])
+    expect(rows2).toEqual(rowsExpected)
 })
 
 test('getPluginRows', async () => {
     await resetTestDatabase(`const processEvent = event => event`)
-    const rows1 = await getPluginRows(server)
-    expect(rows1).toEqual([
+    const rowsExpected = [
         {
             archive: expect.any(Buffer),
             config_schema: {
@@ -98,10 +101,13 @@ test('getPluginRows', async () => {
             created_at: expect.anything(),
             updated_at: expect.anything(),
         },
-    ])
+    ]
+
+    const rows1 = await getPluginRows(server)
+    expect(rows1).toEqual(rowsExpected)
     await server.db.postgresQuery("update posthog_team set plugins_opt_in='f'")
     const rows2 = await getPluginRows(server)
-    expect(rows2).toEqual([])
+    expect(rows2).toEqual(rowsExpected)
 })
 
 test('setError', async () => {
