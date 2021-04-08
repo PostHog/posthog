@@ -1,0 +1,29 @@
+name: automerge
+
+env:
+    MERGE_METHOD: 'squash'
+
+on:
+    pull_request:
+        types:
+            - labeled
+            - unlabeled
+            - synchronize
+            - opened
+            - edited
+            - ready_for_review
+            - reopened
+            - unlocked
+    check_suite:
+        types:
+            - completed
+    status: {}
+
+jobs:
+    automerge:
+        runs-on: ubuntu-latest
+        steps:
+            - name: automerge
+              uses: 'pascalgn/automerge-action@v0.13.1'
+              env:
+                  GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
