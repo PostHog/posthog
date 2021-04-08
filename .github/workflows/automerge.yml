@@ -1,7 +1,7 @@
 name: automerge
 
 env:
-    MERGE_METHOD: squash
+    MERGE_METHOD: 'squash'
 
 on:
     pull_request:
