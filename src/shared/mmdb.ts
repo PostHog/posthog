@@ -11,7 +11,7 @@ import { delay } from './utils'
 
 const MMDB_ENDPOINT = 'https://mmdb.posthog.net/'
 const MMDB_ATTACHMENT_KEY = '@posthog/mmdb'
-const MMDB_STALE_AGE_DAYS = 14
+const MMDB_STALE_AGE_DAYS = 45
 const MMDB_STATUS_REDIS_KEY = '@posthog-plugin-server/mmdb-status'
 
 enum MmdbStatus {
