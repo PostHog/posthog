@@ -2,6 +2,7 @@ name: automerge
 
 env:
     MERGE_METHOD: 'squash'
+    MERGE_RETRY_SLEEP: 300000
 
 on:
     pull_request:
