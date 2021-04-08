@@ -74,11 +74,8 @@ export function ManageEvents(): JSX.Element {
                     queries where made using this event.
                     <br />
                     <br />
-                    {user?.is_event_property_usage_enabled ? (
-                        <EventsVolumeTable />
-                    ) : (
-                        <UsageDisabledWarning tab="Events Stats" />
-                    )}
+                    <EventsVolumeTable />
+                    {!user?.is_event_property_usage_enabled && <UsageDisabledWarning tab="Events Stats" />}
                 </Tabs.TabPane>
                 <Tabs.TabPane tab="Properties Stats" key="properties">
                     See all property keys that have ever been sent to this team, including the volume and how often
