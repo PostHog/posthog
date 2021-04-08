@@ -29,7 +29,7 @@ import { Drawer } from 'lib/components/Drawer'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/es/date-picker/generatePicker'
-import { ResizableTable } from 'lib/components/ResizableTable'
+import { ResizableTable, ResizableColumnType } from 'lib/components/ResizableTable'
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 interface SessionsTableProps {
@@ -82,7 +82,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 : enableSessionRecordingCTA
             : undefined
 
-    const columns = [
+    const columns: ResizableColumnType[] = [
         {
             title: 'Person',
             key: 'person',
@@ -94,30 +94,35 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 )
             },
             ellipsis: true,
+            span: 4,
         },
         {
             title: 'Event Count',
             render: function RenderDuration(session: SessionType) {
                 return <span>{session.event_count}</span>
             },
+            span: 2,
         },
         {
             title: 'Session duration',
             render: function RenderDuration(session: SessionType) {
                 return <span>{humanFriendlyDuration(session.length)}</span>
             },
+            span: 2,
         },
         {
             title: 'Start Time',
             render: function RenderStartTime(session: SessionType) {
                 return <span>{humanFriendlyDetailedTime(session.start_time)}</span>
             },
+            span: 4,
         },
         {
             title: 'End Time',
             render: function RenderEndTime(session: SessionType) {
                 return <span>{humanFriendlyDetailedTime(session.end_time)}</span>
             },
+            span: 4,
         },
         {
             title: 'Start Point',
@@ -126,6 +131,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
+            span: 4,
         },
         {
             title: 'End Point',
@@ -136,6 +142,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
+            span: 4,
         },
         {
             title: (
@@ -168,6 +175,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 return <SessionsPlayerButton session={session} />
             },
             ellipsis: true,
+            span: 4,
         },
     ]
 
