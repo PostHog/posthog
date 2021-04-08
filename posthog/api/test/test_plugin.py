@@ -1,5 +1,6 @@
 import base64
 import json
+from typing import Dict, cast
 from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -370,7 +371,7 @@ class TestPluginAPI(APIBaseTest):
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(
-                str(response.data["detail"]),
+                cast(Dict[str, str], response.data)["detail"],
                 f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement "{Version(VERSION).next_minor()}".',
             )
 
@@ -392,7 +393,7 @@ class TestPluginAPI(APIBaseTest):
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(
-                str(response.data["detail"]),
+                cast(Dict[str, str], response.data["detail"]),
                 f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement ">= {Version(VERSION).next_major()}".',
             )
 
@@ -404,7 +405,7 @@ class TestPluginAPI(APIBaseTest):
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(
-                str(response.data["detail"]),
+                cast(Dict[str, str], response.data["detail"]),
                 f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement "< {VERSION}".',
             )
 
@@ -423,7 +424,9 @@ class TestPluginAPI(APIBaseTest):
                 {"url": f"https://github.com/posthog-plugin/version-less-than/commit/..."},
             )
             self.assertEqual(response.status_code, 400)
-            self.assertEqual(str(response.data["detail"]), 'Invalid PostHog semantic version requirement "< ..."!')
+            self.assertEqual(
+                cast(Dict[str, str], response.data["detail"]), 'Invalid PostHog semantic version requirement "< ..."!'
+            )
 
     def test_create_plugin_version_range_gt_next_major_ignore_on_cloud(self, mock_get, mock_reload):
         with self.settings(MULTI_TENANCY=True):
