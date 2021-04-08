@@ -10,19 +10,6 @@ describe('Trends sessions', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
-    it('Apply 1 overall filter', () => {
-        cy.get('[data-attr=trend-element-subject-0]').click()
-        cy.get('[datakey=eventswatched_movie]').click()
-        cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'watched_movie')
-        cy.get('[data-attr=new-prop-filter-trends-sessions]').click()
-        cy.get('[data-attr=property-filter-dropdown]').click()
-        cy.get('[data-attr=prop-filter-event-1]').click({ force: true })
-        cy.get('[data-attr=prop-val]').click()
-        cy.get('[data-attr=prop-val-1]').click({ force: true })
-
-        cy.get('[data-attr=trend-line-graph]').should('exist')
-    })
-
     /*     it('Apply table filter', () => {
         cy.get('[data-attr=chart-filter]').click()
         cy.contains('Table').click()
