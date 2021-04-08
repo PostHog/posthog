@@ -34,7 +34,7 @@ export async function createActionFromEvent(event, increment, recurse = createAc
         steps: [
             {
                 event: event.event,
-                ...(event.event === '$pageview'
+                ...(event.event === '$pageview' || event.event === '$autocapture'
                     ? {
                           url: event.properties.$current_url,
                           url_matching: 'exact',
