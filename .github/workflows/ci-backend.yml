@@ -188,19 +188,20 @@ jobs:
                   python-version: 3.8
 
             - uses: actions/cache@v2
+              id: cache-master
               with:
                   path: ~/.cache/pip
                   key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
                   restore-keys: |
                       ${{ runner.os }}-pip-
 
-            - name: Install requirements.txt dependencies with pip
+            - name: Install requirements.txt dependencies with pip at master
               run: |
                   cd deploy
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
                   python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
-              if: steps.cache.outputs.cache-hit != 'true'
+              if: steps.cache-master.outputs.cache-hit != 'true'
 
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
@@ -215,6 +216,22 @@ jobs:
               uses: actions/checkout@v2
               with:
                   path: 'deploy/'
+
+            - uses: actions/cache@v2
+              id: cache-current-branch
+              with:
+                  path: ~/.cache/pip
+                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pip-
+
+            - name: Install requirements.txt dependencies with pip at current branch
+              run: |
+                  cd deploy
+                  python -m pip install --upgrade pip
+                  python -m pip install -r requirements.txt
+                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
+              if: steps.cache-current-branch.outputs.cache-hit != 'true'
 
             - name: Link posthog-cloud at current branch
               run: |
@@ -244,7 +261,7 @@ jobs:
                   touch frontend/dist/shared_dashboard.html
                   pytest posthog --reuse-db -m "not skip_on_multitenancy"
 
-            - name: Run cloud tests (posthog-cloud)
+            - name: Run Cloud tests (posthog-cloud)
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   PRIMARY_DB: 'clickhouse'
