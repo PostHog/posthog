@@ -24,6 +24,11 @@ interface EventOrPropType {
 }
 
 export function VolumeTable({ type, data }: { type: 'event' | 'property'; data: EventOrPropType[] }): JSX.Element {
+    const [searchTerm, setSearchTerm] = useState(false as string | false)
+    const [dataWithWarnings, setDataWithWarnings] = useState([] as EventOrPropType[])
+    const num_warnings = dataWithWarnings.reduce((prev, item) => {
+        return prev + (item.warnings?.length || 0)
+    }, 0)
     const columns = [
         {
             title: type,
@@ -33,7 +38,7 @@ export function VolumeTable({ type, data }: { type: 'event' | 'property'; data: 
             sorter: (a: EventOrPropType, b: EventOrPropType) => ('' + a[type]).localeCompare(b[type]),
         },
         {
-            title: 'Warnings',
+            title: `Warnings (${num_warnings})`,
             render: function RenderEvent(item: EventOrPropType): JSX.Element {
                 return (
                     <>
@@ -87,8 +92,6 @@ export function VolumeTable({ type, data }: { type: 'event' | 'property'; data: 
                 a.usage_count == b.usage_count ? a.volume - b.volume : a.usage_count - b.usage_count,
         },
     ]
-    const [searchTerm, setSearchTerm] = useState(false as string | false)
-    const [dataWithWarnings, setDataWithWarnings] = useState([] as EventOrPropType[])
     useEffect(() => {
         setDataWithWarnings(
             data.map(
