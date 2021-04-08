@@ -1008,6 +1008,46 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/611271?v=4",
       "profile": "https://www.linkedin.com/in/adrien-brault-4b987426/",
       "contributions": [
+        "code",
+        "test",
+        "bug",
+        "content",
+        "doc"
+      ]
+    },
+    {
+      "login": "leggetter",
+      "name": "Phil Leggetter",
+      "avatar_url": "https://avatars.githubusercontent.com/u/328367?v=4",
+      "profile": "https://leggetter.co.uk",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "wushaobo",
+      "name": "Shaobo Wu",
+      "avatar_url": "https://avatars.githubusercontent.com/u/491264?v=4",
+      "profile": "https://github.com/wushaobo",
+      "contributions": [
+        "question"
+      ]
+    },
+    {
+      "login": "jonathanclarke",
+      "name": "Jonathan Clarke",
+      "avatar_url": "https://avatars.githubusercontent.com/u/11335?v=4",
+      "profile": "http://www.jonathanclarke.ie",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "imgbot[bot]",
+      "name": "imgbot[bot]",
+      "avatar_url": "https://avatars.githubusercontent.com/in/4706?v=4",
+      "profile": "https://github.com/apps/imgbot",
+      "contributions": [
         "code"
       ]
     },

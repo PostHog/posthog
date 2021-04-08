@@ -266,7 +266,7 @@ jobs:
                   CLICKHOUSE_VERIFY: 'False'
               run: |
                   cd deploy/
-                  pytest ee
+                  pytest ee -s
 
     foss:
         name: Django tests – FOSS

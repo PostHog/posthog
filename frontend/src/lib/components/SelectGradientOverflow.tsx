@@ -1,7 +1,8 @@
 import React, { ReactElement, RefObject, useEffect, useRef } from 'react'
-import { Select } from 'antd'
+import { Select, Tag, Tooltip } from 'antd'
 import { SelectProps } from 'antd/lib/select'
 import './SelectGradientOverflow.scss'
+import { CloseButton } from './CloseButton'
 
 interface DropdownGradientRendererProps {
     updateScrollGradient: () => void
@@ -18,6 +19,22 @@ function DropdownGradientRenderer({
         updateScrollGradient()
     })
     return <div ref={innerRef}>{menu}</div>
+}
+
+/**
+ * Ant Design Tag with custom styling in .scss to match default style
+ */
+type CustomTagProps = Parameters<Exclude<SelectProps<any>['tagRender'], undefined>>[0]
+
+function CustomTag({ label, onClose, value }: CustomTagProps): JSX.Element {
+    return (
+        <Tooltip title={value.toString()}>
+            <Tag>
+                <span className="label">{label}</span>
+                <CloseButton onClick={onClose} />
+            </Tag>
+        </Tooltip>
+    )
 }
 
 /**
@@ -53,6 +70,7 @@ export function SelectGradientOverflow(props: SelectProps<any>): JSX.Element {
             onPopupScroll={() => {
                 updateScrollGradient()
             }}
+            tagRender={CustomTag}
             dropdownRender={(menu) => (
                 <DropdownGradientRenderer
                     menu={menu}

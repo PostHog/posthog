@@ -122,7 +122,6 @@ export interface TeamType {
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     session_recording_retention_period_days: number | null
-    plugins_opt_in: boolean
     ingested_event: boolean
     is_demo: boolean
     test_account_filters: FilterType[]
@@ -136,6 +135,7 @@ export interface ActionType {
     deleted?: boolean
     id: number
     is_calculating?: boolean
+    last_calculated_at?: string
     name: string
     post_to_slack?: boolean
     steps?: ActionStepType[]
@@ -601,6 +601,7 @@ export interface PreflightStatus {
     celery: boolean
     available_social_auth_providers: AuthBackends
     available_timezones: Record<string, number>
+    db_backend: 'postgres' | 'clickhouse'
 }
 
 export enum DashboardMode { // Default mode is null
