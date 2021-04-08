@@ -1079,6 +1079,16 @@
       "contributions": [
         "userTesting"
       ]
+    },
+    {
+      "login": "rethab",
+      "name": "rethab",
+      "avatar_url": "https://avatars.githubusercontent.com/u/2222044?v=4",
+      "profile": "https://github.com/rethab",
+      "contributions": [
+        "code",
+        "doc"
+      ]
     }
   ],
   "contributorsPerLine": 7,
