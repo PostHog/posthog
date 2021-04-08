@@ -192,8 +192,6 @@ jobs:
               with:
                   path: ~/.cache/pip
                   key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-
 
             - name: Install requirements.txt dependencies with pip at master
               run: |
@@ -222,8 +220,6 @@ jobs:
               with:
                   path: ~/.cache/pip
                   key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-
 
             - name: Install requirements.txt dependencies with pip at current branch
               run: |
@@ -261,7 +257,7 @@ jobs:
                   touch frontend/dist/shared_dashboard.html
                   pytest posthog --reuse-db -m "not skip_on_multitenancy"
 
-            - name: Run Cloud tests (posthog-cloud)
+            - name: Run posthog-cloud tests
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   PRIMARY_DB: 'clickhouse'
