@@ -46,7 +46,7 @@ describe('Trends', () => {
         cy.get('[data-attr=prop-filter-event-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
-        cy.get('[data-attr=trend-line-graph]').should('exist')
+        cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
     })
 
     it('Apply 1 overall filter', () => {
