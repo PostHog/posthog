@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { Table, TableProps } from 'antd'
 import { Resizable } from 'react-resizable'
 import { SessionType } from '~/types'
@@ -55,6 +55,25 @@ export function ResizableTable<RecordType extends object = any>({
     components,
     ...props
 }: Omit<TableProps<RecordType>, 'columns'> & { columns: ResizableColumnType[] }): JSX.Element {
+    const breakpoint = getActiveBreakpoint()
+    const minConstraints = [getMinColumnWidth(breakpoint, window.innerWidth), 0]
+    const maxConstraints = [getMaxColumnWidth(breakpoint, window.innerWidth), 0]
+    const scrollWrapper = useRef<HTMLDivElement>(null)
+    function updateScrollGradient(): void {
+        const wrapper = scrollWrapper.current
+        if (!wrapper) {
+            return
+        }
+        const overlay: HTMLDivElement | null = wrapper.querySelector('.table-gradient-overlay')
+        if (!overlay) {
+            return
+        }
+        if (overlay.offsetWidth + overlay.scrollLeft < overlay.scrollWidth) {
+            overlay.classList.add('scrollable-right')
+        } else {
+            overlay.classList.remove('scrollable-right')
+        }
+    }
     const handleResize = (index: number) => (_: unknown, { size: { width } }: { size: { width: number } }) => {
         setColumns((columns: InternalColumnType[]) => {
             const nextColumns = [...columns]
@@ -65,9 +84,6 @@ export function ResizableTable<RecordType extends object = any>({
             return nextColumns
         })
     }
-    const breakpoint = getActiveBreakpoint()
-    const minConstraints = [getMinColumnWidth(breakpoint, window.innerWidth), 0]
-    const maxConstraints = [getMaxColumnWidth(breakpoint, window.innerWidth), 0]
     const [columns, setColumns] = useState(() =>
         initialColumns.map(
             (column, index) =>
@@ -84,19 +100,21 @@ export function ResizableTable<RecordType extends object = any>({
         )
     )
     return (
-        <div className="resizable-table-scroll-container">
-            <Table
-                columns={columns}
-                components={{
-                    ...components,
-                    header: {
-                        ...(components?.header || {}),
-                        cell: ResizableTitle,
-                    },
-                }}
-                tableLayout="fixed"
-                {...props}
-            />
+        <div ref={scrollWrapper} className="resizable-table-scroll-container" onScroll={updateScrollGradient}>
+            <div className="table-gradient-overlay scrollable-right">
+                <Table
+                    columns={columns}
+                    components={{
+                        ...components,
+                        header: {
+                            ...components?.header,
+                            cell: ResizableTitle,
+                        },
+                    }}
+                    tableLayout="fixed"
+                    {...props}
+                />
+            </div>
         </div>
     )
 }

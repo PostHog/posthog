@@ -3,6 +3,15 @@
 .resizable-table-scroll-container {
     max-width: 100%;
     overflow-x: scroll;
+    position: relative;
+    .table-gradient-overlay {
+        overflow-y: hidden;
+        &.scrollable-right::after {
+            @extend .mixin-gradient-overlay-right;
+            right: 0;
+            width: 150px;
+        }
+    }
 }
 .react-resizable {
     .th-inner-wrapper {
