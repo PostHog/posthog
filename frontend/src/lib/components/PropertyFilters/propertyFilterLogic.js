@@ -24,7 +24,6 @@ export const propertyFilterLogic = kea({
     key: (props) => props.pageKey,
 
     actions: () => ({
-        loadEventProperties: true,
         setProperties: (properties) => ({ properties }),
         update: (filters) => ({ filters }),
         setFilter: (index, key, value, operator, type) => ({ index, key, value, operator, type }),
