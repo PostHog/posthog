@@ -46,21 +46,21 @@ jobs:
 
             - name: Check formatting
               run: |
-                  black --check .
-                  isort --check-only .
+                  python -m black --check .
+                  python -m isort --check-only .
 
             - name: Lint with flake8
               run: |
                   # stop the build if there are Python syntax errors or undefined names
-                  flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+                  python -m flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
                   # exit-zero treats all errors as warnings
-                  flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+                  python -m flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
 
             - name: Typecheck
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
               run: |
-                  mypy .
+                  python -m mypy .
 
     django:
         name: Django tests – Py ${{ matrix.python-version }}
@@ -123,7 +123,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python3 -m pytest posthog/
+                  python -m pytest posthog/
             - name: Run EE tests
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
@@ -137,7 +137,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python3 -m pytest ee/
+                  python -m pytest ee/
 
     cloud:
         name: Django tests – Cloud
@@ -255,7 +255,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python3 -m pytest posthog --reuse-db -m "not skip_on_multitenancy"
+                  python -m pytest posthog --reuse-db -m "not skip_on_multitenancy"
 
             - name: Run Cloud tests (posthog-cloud)
               env:
@@ -268,7 +268,7 @@ jobs:
               run: |
                   source .env.template
                   cd deploy
-                  python3 -m pytest multi_tenancy messaging -m "not skip_on_multitenancy"
+                  python -m pytest multi_tenancy messaging -m "not skip_on_multitenancy"
             - name: Run EE tests
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
@@ -279,7 +279,7 @@ jobs:
                   CLICKHOUSE_VERIFY: 'False'
               run: |
                   cd deploy/
-                  python3 -m pytest ee -s
+                  python -m pytest ee -s
 
     foss:
         name: Django tests – FOSS
@@ -336,4 +336,4 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python3 -m pytest -m "not ee"
+                  python -m pytest -m "not ee"
