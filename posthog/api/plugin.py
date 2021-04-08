@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional, Set
 
 import requests
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
 from django.db.models import Model, Q
@@ -172,7 +173,7 @@ class PluginSerializer(serializers.ModelSerializer):
             ):
                 validated_data["plugin_type"] = Plugin.PluginType.CUSTOM
 
-        if posthog_version:
+        if posthog_version and not settings.MULTI_TENANCY:
             try:
                 spec = SimpleSpec(posthog_version.replace(" ", ""))
             except ValueError:
