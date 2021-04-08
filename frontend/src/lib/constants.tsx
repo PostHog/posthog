@@ -67,6 +67,7 @@ export const MATHS: Record<string, any> = {
             <>
                 Total event volume.
                 <br />
+                <br />
                 If a user performs an event 3 times in a given day/week/month, it counts as 3.
             </>
         ),
@@ -78,6 +79,7 @@ export const MATHS: Record<string, any> = {
         description: (
             <>
                 Unique users who performed the event in the specified time interval.
+                <br />
                 <br />
                 If a single user performs an event 3 times in a given day/week/month, it counts only as 1.
             </>
@@ -91,6 +93,7 @@ export const MATHS: Record<string, any> = {
             <>
                 Event property sum.
                 <br />
+                <br />
                 For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 42.
             </>
         ),
@@ -102,6 +105,7 @@ export const MATHS: Record<string, any> = {
         description: (
             <>
                 Event property average.
+                <br />
                 <br />
                 For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 14.
             </>
@@ -115,6 +119,7 @@ export const MATHS: Record<string, any> = {
             <>
                 Event property minimum.
                 <br />
+                <br />
                 For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 10.
             </>
         ),
@@ -126,6 +131,7 @@ export const MATHS: Record<string, any> = {
         description: (
             <>
                 Event property maximum.
+                <br />
                 <br />
                 For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 20.
             </>
@@ -139,6 +145,7 @@ export const MATHS: Record<string, any> = {
             <>
                 Event property median (50th percentile).
                 <br />
+                <br />
                 For example 100 events captured with property <code>amount</code> equal to 101..200, result in 150.
             </>
         ),
@@ -150,6 +157,7 @@ export const MATHS: Record<string, any> = {
         description: (
             <>
                 Event property 90th percentile.
+                <br />
                 <br />
                 For example 100 events captured with property <code>amount</code> equal to 101..200, result in 190.
             </>
@@ -163,6 +171,7 @@ export const MATHS: Record<string, any> = {
             <>
                 Event property 95th percentile.
                 <br />
+                <br />
                 For example 100 events captured with property <code>amount</code> equal to 101..200, result in 195.
             </>
         ),
@@ -174,6 +183,7 @@ export const MATHS: Record<string, any> = {
         description: (
             <>
                 Event property 90th percentile.
+                <br />
                 <br />
                 For example 100 events captured with property <code>amount</code> equal to 101..200, result in 199.
             </>
