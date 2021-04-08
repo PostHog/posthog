@@ -1068,6 +1068,15 @@
       "contributions": [
         "ideas"
       ]
+    },
+    {
+      "login": "gempain",
+      "name": "Geoffroy Empain",
+      "avatar_url": "https://avatars.githubusercontent.com/u/13135149?v=4",
+      "profile": "https://github.com/gempain",
+      "contributions": [
+        "userTesting"
+      ]
     }
   ],
   "contributorsPerLine": 7,
