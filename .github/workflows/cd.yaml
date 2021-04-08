@@ -177,6 +177,7 @@ jobs:
                   branch: plugin-server-${{ env.REPO_VERSION }}
                   delete-branch: true
                   title: Update plugin server to ${{ env.REPO_VERSION }}
+                  labels: automerge
                   body: |
                       ## Changes
 
