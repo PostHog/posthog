@@ -1,48 +1,36 @@
-import * as yargs from 'yargs'
-
 import { initApp } from './init'
 import { startPluginsServer } from './main/pluginsServer'
-import { configHelp, defaultConfig } from './shared/config'
-import { PluginsServerConfig } from './types'
+import { defaultConfig, formatConfigHelp } from './shared/config'
+import { Status } from './shared/status'
 import { makePiscina } from './worker/piscina'
 
-type Argv = {
-    config: string
-    disableWeb: boolean
-    webPort: number
-    webHostname: string
-    concurrency: number
+const { version } = require('../package.json')
+const { argv } = process
+
+enum AlternativeMode {
+    Help = 'HELP',
+    Version = 'VRSN',
 }
 
-let app: any = yargs
-    .wrap(yargs.terminalWidth())
-    .scriptName('posthog-plugins')
-    .option('config', { alias: 'c', describe: 'Config options JSON.', type: 'string' })
-
-for (const [key, value] of Object.entries(defaultConfig)) {
-    app = app.option(key.toLowerCase().split('_').join('-'), {
-        describe: `${configHelp[key] || key} [${value}]`,
-        type: typeof value,
-    })
+let alternativeMode: AlternativeMode | undefined
+if (argv.includes('--help') || argv.includes('-h')) {
+    alternativeMode = AlternativeMode.Help
+} else if (argv.includes('--version') || argv.includes('-v')) {
+    alternativeMode = AlternativeMode.Version
 }
 
-const { config: configArg, ...otherArgs }: Argv = app.help().argv
+const status = new Status(alternativeMode)
 
-const configJson = configArg || process.env.CONFIG
-const config: PluginsServerConfig = { ...defaultConfig, ...(configJson ? JSON.parse(configJson) : {}) }
+status.info('⚡', `@posthog/plugin-server v${version}`)
 
-for (const [key, value] of Object.entries(otherArgs)) {
-    if (typeof value !== 'undefined') {
-        // convert camelCase argument keys to under_score
-        const newKey = key
-            .replace(/(?:^|\.?)([A-Z])/g, (x, y) => '_' + y.toUpperCase())
-            .replace(/^_/, '')
-            .toUpperCase()
-        if (newKey in defaultConfig) {
-            config[newKey] = value
-        }
-    }
+switch (alternativeMode) {
+    case AlternativeMode.Version:
+        break
+    case AlternativeMode.Help:
+        status.info('⚙️', `Supported configuration environment variables:\n${formatConfigHelp(7)}`)
+        break
+    default:
+        initApp(defaultConfig)
+        void startPluginsServer(defaultConfig, makePiscina) // void the returned promise
+        break
 }
-
-initApp(config)
-void startPluginsServer(config, makePiscina) // void the returned promise

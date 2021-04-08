@@ -98,6 +98,13 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
     }
 }
 
+export function formatConfigHelp(indentation = 0): string {
+    const spaces = Array(indentation).fill(' ').join('')
+    return Object.entries(getConfigHelp())
+        .map(([variable, description]) => `${spaces}- ${variable} - ${description}`)
+        .join('\n')
+}
+
 export function overrideWithEnv(
     config: PluginsServerConfig,
     env: Record<string, string | undefined> = process.env
