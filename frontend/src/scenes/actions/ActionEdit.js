@@ -14,8 +14,9 @@ import { AsyncActionMappingNotice } from 'scenes/project/Settings/WebhookIntegra
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import dayjs from 'dayjs'
 import { compactNumber } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
-export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, user, temporaryToken }) {
+export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, temporaryToken }) {
     let logic = actionEditLogic({
         id: actionId,
         apiURL,
@@ -27,9 +28,10 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, use
     const { setAction, saveAction } = useActions(logic)
     const { loadActions } = useActions(actionsModel)
     const { preflight } = useValues(preflightLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const [edited, setEdited] = useState(false)
-    const slackEnabled = user?.team?.slack_incoming_webhook
+    const slackEnabled = currentTeam?.slack_incoming_webhook
 
     const newAction = () => {
         setAction({ ...action, steps: [...action.steps, { isNew: uuid() }] })
@@ -181,7 +183,7 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, use
                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                             </Link>
                         </p>
-                        {user?.is_async_event_action_mapping_enabled && <AsyncActionMappingNotice />}
+                        {preflight?.is_async_event_action_mapping_enabled && <AsyncActionMappingNotice />}
                         {action.post_to_slack && (
                             <>
                                 <Input

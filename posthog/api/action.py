@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from rest_hooks.signals import raw_hook_event
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserSerializer
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.celery import update_cache_item_task
@@ -59,12 +59,19 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
             "url_matching",
             "properties",
         ]
+        extra_kwargs = {
+            "event": {"trim_whitespace": False},
+            "tag_name": {"trim_whitespace": False},
+            "text": {"trim_whitespace": False},
+            "href": {"trim_whitespace": False},
+            "name": {"trim_whitespace": False},
+        }
 
 
 class ActionSerializer(serializers.HyperlinkedModelSerializer):
     steps = ActionStepSerializer(many=True, required=False)
     count = serializers.SerializerMethodField()
-    created_by = UserSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = Action

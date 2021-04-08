@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
 import { useValues } from 'kea'
 import { Alert, Button, Table, Tooltip } from 'antd'
-import { userLogic } from 'scenes/userLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { PropertyUsageType } from '~/types'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { humanizeNumber } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 const columns = [
     {
@@ -60,7 +60,7 @@ const columns = [
 ]
 
 export function PropertiesVolumeTable(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
     const [showPostHogProps, setShowPostHogProps] = useState(true)
     return (
         <div>
@@ -69,17 +69,17 @@ export function PropertiesVolumeTable(): JSX.Element {
             </Button>
             <br />
             <br />
-            {user?.team.event_properties_with_usage[0]?.volume === null && (
+            {currentTeam?.event_properties_with_usage[0]?.volume === null && (
                 <>
                     <Alert
                         type="warning"
-                        description="We haven't been able to get usage and volume data yet. Please check back later"
+                        message="We haven't been able to get usage and volume data yet. Please check back later."
                     />
                     <br />
                 </>
             )}
             <Table
-                dataSource={user?.team.event_properties_with_usage
+                dataSource={currentTeam?.event_properties_with_usage
                     .filter((item: PropertyUsageType) => (keyMapping.event[item.key] ? showPostHogProps : true))
                     .filter((item: PropertyUsageType) =>
                         keyMapping.event[item.key] && keyMapping.event[item.key].hide ? false : true

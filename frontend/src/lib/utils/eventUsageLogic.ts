@@ -80,6 +80,7 @@ export const eventUsageLogic = kea<
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportHotkeyNavigation: (scope: 'global' | 'insights', hotkey: HotKeys | GlobalHotKeys) => ({ scope, hotkey }),
+        reportIngestionLandingSeen: (isGridView: boolean) => ({ isGridView }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
             project_timezone?: string,
@@ -103,7 +104,7 @@ export const eventUsageLogic = kea<
                     content_length: annotation.content.length,
                     scope: annotation.scope,
                     deleted: annotation.deleted,
-                    created_by_me: annotation.created_by && annotation.created_by?.id === userLogic.values.user?.id,
+                    created_by_me: annotation.created_by && annotation.created_by?.uuid === userLogic.values.user?.id,
                     creation_type: annotation.creation_type,
                     created_at: annotation.created_at,
                     updated_at: annotation.updated_at,
@@ -327,6 +328,9 @@ export const eventUsageLogic = kea<
                 }),
             }
             posthog.capture('test account filters updated', payload)
+        },
+        reportIngestionLandingSeen: async ({ isGridView }) => {
+            posthog.capture('ingestion landing seen', { grid_view: isGridView })
         },
     },
 })

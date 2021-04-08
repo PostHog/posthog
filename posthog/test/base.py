@@ -29,19 +29,20 @@ class ErrorResponsesMixin:
         "attr": None,
     }
 
-    ERROR_RESPONSE_NOT_FOUND: Dict[str, Optional[str]] = {
-        "type": "invalid_request",
-        "code": "not_found",
-        "detail": "Not found.",
-        "attr": None,
-    }
-
     ERROR_INVALID_CREDENTIALS = {
         "type": "validation_error",
         "code": "invalid_credentials",
         "detail": "Invalid email or password.",
         "attr": None,
     }
+
+    def not_found_response(self, message: str = "Not found.") -> Dict[str, Optional[str]]:
+        return {
+            "type": "invalid_request",
+            "code": "not_found",
+            "detail": message,
+            "attr": None,
+        }
 
     def permission_denied_response(
         self, message: str = "You do not have permission to perform this action.",
@@ -50,6 +51,14 @@ class ErrorResponsesMixin:
             "type": "authentication_error",
             "code": "permission_denied",
             "detail": message,
+            "attr": None,
+        }
+
+    def method_not_allowed_response(self, method: str) -> Dict[str, Optional[str]]:
+        return {
+            "type": "invalid_request",
+            "code": "method_not_allowed",
+            "detail": f'Method "{method}" not allowed.',
             "attr": None,
         }
 

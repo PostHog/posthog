@@ -152,11 +152,9 @@ export function Insights(): JSX.Element {
                   },
                   k: {
                       action: () => handleHotkeyNavigation(ViewType.STICKINESS, 'k'),
-                      disabled: !featureFlags['remove-shownas'],
                   },
                   l: {
                       action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
-                      disabled: !featureFlags['remove-shownas'],
                   },
               }
             : {}
@@ -232,53 +230,49 @@ export function Insights(): JSX.Element {
                         }
                         key={ViewType.PATHS}
                     />
-                    {featureFlags['remove-shownas'] && (
-                        <TabPane
-                            tab={
-                                <Tooltip
-                                    placement="bottom"
-                                    title={
-                                        <>
-                                            Stickiness shows you how many days users performed an action repeteadely
-                                            within a timeframe.
-                                            <br />
-                                            <br />
-                                            <i>
-                                                Example: If a user performed an action on Monday and again on Friday, it
-                                                would be shown as "2 days".
-                                            </i>
-                                        </>
-                                    }
-                                    data-attr="insight-stickiness-tab"
-                                >
-                                    Stickiness
-                                    <InsightHotkey hotkey="k" />
-                                </Tooltip>
-                            }
-                            key={ViewType.STICKINESS}
-                        />
-                    )}
-                    {featureFlags['remove-shownas'] && (
-                        <TabPane
-                            tab={
-                                <Tooltip
-                                    placement="bottom"
-                                    title={
-                                        <>
-                                            Lifecycle will show you new, resurrected, returning and dormant users so you
-                                            understand how your user base is composed. This can help you understand
-                                            where your user growth is coming from.
-                                        </>
-                                    }
-                                    data-attr="insight-lifecycle-tab"
-                                >
-                                    Lifecycle
-                                    <InsightHotkey hotkey="l" />
-                                </Tooltip>
-                            }
-                            key={ViewType.LIFECYCLE}
-                        />
-                    )}
+                    <TabPane
+                        tab={
+                            <Tooltip
+                                placement="bottom"
+                                title={
+                                    <>
+                                        Stickiness shows you how many days users performed an action repeteadely within
+                                        a timeframe.
+                                        <br />
+                                        <br />
+                                        <i>
+                                            Example: If a user performed an action on Monday and again on Friday, it
+                                            would be shown as "2 days".
+                                        </i>
+                                    </>
+                                }
+                                data-attr="insight-stickiness-tab"
+                            >
+                                Stickiness
+                                <InsightHotkey hotkey="k" />
+                            </Tooltip>
+                        }
+                        key={ViewType.STICKINESS}
+                    />
+                    <TabPane
+                        tab={
+                            <Tooltip
+                                placement="bottom"
+                                title={
+                                    <>
+                                        Lifecycle will show you new, resurrected, returning and dormant users so you
+                                        understand how your user base is composed. This can help you understand where
+                                        your user growth is coming from.
+                                    </>
+                                }
+                                data-attr="insight-lifecycle-tab"
+                            >
+                                Lifecycle
+                                <InsightHotkey hotkey="l" />
+                            </Tooltip>
+                        }
+                        key={ViewType.LIFECYCLE}
+                    />
                 </Tabs>
             </Row>
             <Row gutter={16}>
@@ -297,23 +291,17 @@ export function Insights(): JSX.Element {
                                 These are insight specific filters.
                                 They each have insight specific logics
                                 */}
-                                    {featureFlags['remove-shownas']
-                                        ? {
-                                              [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
-                                              [`${ViewType.STICKINESS}`]: <TrendTab view={ViewType.STICKINESS} />,
-                                              [`${ViewType.LIFECYCLE}`]: <TrendTab view={ViewType.LIFECYCLE} />,
-                                              [`${ViewType.SESSIONS}`]: <SessionTab />,
-                                              [`${ViewType.FUNNELS}`]: <FunnelTab />,
-                                              [`${ViewType.RETENTION}`]: <RetentionTab />,
-                                              [`${ViewType.PATHS}`]: <PathTab />,
-                                          }[activeView]
-                                        : {
-                                              [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
-                                              [`${ViewType.SESSIONS}`]: <SessionTab />,
-                                              [`${ViewType.FUNNELS}`]: <FunnelTab />,
-                                              [`${ViewType.RETENTION}`]: <RetentionTab />,
-                                              [`${ViewType.PATHS}`]: <PathTab />,
-                                          }[activeView]}
+                                    {
+                                        {
+                                            [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
+                                            [`${ViewType.STICKINESS}`]: <TrendTab view={ViewType.STICKINESS} />,
+                                            [`${ViewType.LIFECYCLE}`]: <TrendTab view={ViewType.LIFECYCLE} />,
+                                            [`${ViewType.SESSIONS}`]: <SessionTab />,
+                                            [`${ViewType.FUNNELS}`]: <FunnelTab />,
+                                            [`${ViewType.RETENTION}`]: <RetentionTab />,
+                                            [`${ViewType.PATHS}`]: <PathTab />,
+                                        }[activeView]
+                                    }
                                 </div>
                             </Card>
                             {activeView === ViewType.FUNNELS && (
@@ -407,19 +395,11 @@ export function Insights(): JSX.Element {
                                             <ErrorMessage />
                                         ) : showTimeoutMessage ? (
                                             <TimeOut isLoading={isLoading} />
-                                        ) : featureFlags['remove-shownas'] ? (
+                                        ) : (
                                             {
                                                 [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
                                                 [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
                                                 [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
-                                                [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
-                                                [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                [`${ViewType.PATHS}`]: <Paths />,
-                                            }[activeView]
-                                        ) : (
-                                            {
-                                                [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
                                                 [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
                                                 [`${ViewType.FUNNELS}`]: <FunnelInsight />,
                                                 [`${ViewType.RETENTION}`]: <RetentionContainer />,
