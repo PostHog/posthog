@@ -4,16 +4,13 @@ from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models import Action, ActionStep, Cohort, Event, Organization, Person
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
-
-from .base import TransactionBaseTest
+from posthog.test.base import APIBaseTest
 
 
 def action_people_test_factory(event_factory, person_factory, action_factory, cohort_factory):
-    class TestActionPeople(AbstractIntervalTest, TransactionBaseTest):
-        TESTS_API = True
-
+    class TestActionPeople(AbstractIntervalTest, APIBaseTest):
         def _create_events(self, use_time=False):
-            no_events = action_factory(team=self.team, name="no events")
+            action_factory(team=self.team, name="no events")
 
             sign_up_action = action_factory(team=self.team, name="sign up")
 
@@ -63,7 +60,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
         def _create_breakdown_events(self):
             freeze_without_time = ["2020-01-02"]
 
-            sign_up_action = action_factory(team=self.team, name="sign up")
+            action_factory(team=self.team, name="sign up")
 
             with freeze_time(freeze_without_time[0]):
                 for i in range(25):
@@ -384,15 +381,15 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             return (person1, person2, person3, person4)
 
         def test_breakdown_by_cohort_people_endpoint(self):
-            person1, person2, person3, person4 = self._create_multiple_people()
+            person1, _, _, _ = self._create_multiple_people()
             cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"name": "person1"}}])
-            cohort2 = cohort_factory(name="cohort2", team=self.team, groups=[{"properties": {"name": "person2"}}])
-            cohort3 = cohort_factory(
+            cohort_factory(name="cohort2", team=self.team, groups=[{"properties": {"name": "person2"}}])
+            cohort_factory(
                 name="cohort3",
                 team=self.team,
                 groups=[{"properties": {"name": "person1"}}, {"properties": {"name": "person2"}},],
             )
-            action = action_factory(name="watched movie", team=self.team)
+            action_factory(name="watched movie", team=self.team)
 
             people = self.client.get(
                 "/api/action/people/",

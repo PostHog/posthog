@@ -11,6 +11,7 @@ import { midEllipsis } from 'lib/utils'
 import { DownOutlined, DeleteOutlined, MergeCellsOutlined, LoadingOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { MergePerson } from './MergePerson'
+import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { NewPropertyComponent } from './NewPropertyComponent'
 
@@ -22,6 +23,7 @@ const { TabPane } = Tabs
 
 export function Person(): JSX.Element {
     const [activeTab, setActiveTab] = useState('events')
+    const [activeCardTab, setActiveCardTab] = useState('properties')
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
 
     const { person, personLoading, deletedPersonLoading, hasNewKeys } = useValues(personsLogic)
@@ -131,26 +133,39 @@ export function Person(): JSX.Element {
                         {!person && personLoading && <Skeleton paragraph={{ rows: 4 }} active />}
                     </Card>
                     <Card className="card-elevated person-properties" style={{ marginTop: 16 }}>
-                        <Tabs>
+                        <Tabs
+                            defaultActiveKey={activeCardTab}
+                            onChange={(tab) => {
+                                setActiveCardTab(tab)
+                            }}
+                        >
                             <TabPane
                                 tab={<span data-attr="persons-properties-tab">Properties</span>}
                                 key="properties"
                                 disabled={personLoading}
                             />
+                            <TabPane
+                                tab={<span data-attr="persons-cohorts-tab">Cohorts</span>}
+                                key="cohorts"
+                                disabled={personLoading}
+                            />
                         </Tabs>
-                        {person && (
-                            <div style={{ maxWidth: '100%', overflow: 'hidden' }}>
-                                <NewPropertyComponent />
-                                <h3 className="l3">Properties list</h3>
-                                <PropertiesTable
-                                    properties={person.properties}
-                                    onEdit={editProperty}
-                                    sortProperties={!hasNewKeys}
-                                    onDelete={(key) => editProperty(key, undefined)}
-                                    className="persons-page-props-table"
-                                />
-                            </div>
-                        )}
+                        {person &&
+                            (activeCardTab == 'properties' ? (
+                                <div style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                                    <NewPropertyComponent />
+                                    <h3 className="l3">Properties list</h3>
+                                    <PropertiesTable
+                                        properties={person.properties}
+                                        onEdit={editProperty}
+                                        sortProperties={!hasNewKeys}
+                                        onDelete={(key) => editProperty(key, undefined)}
+                                        className="persons-page-props-table"
+                                    />
+                                </div>
+                            ) : (
+                                <PersonCohorts />
+                            ))}
                         {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}
                     </Card>
                 </Col>

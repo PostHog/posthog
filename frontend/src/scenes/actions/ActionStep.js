@@ -7,102 +7,13 @@ import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 import { Card, Col, Input, Radio } from 'antd'
 import { ExportOutlined } from '@ant-design/icons'
 
-let getSafeText = (el) => {
-    if (!el.childNodes || !el.childNodes.length) {
-        return
-    }
-    let elText = ''
-    el.childNodes.forEach((child) => {
-        if (child.nodeType !== 3 || !child.textContent) {
-            return
-        }
-        elText += child.textContent
-            .trim()
-            .replace(/[\r\n]/g, ' ')
-            .replace(/[ ]+/g, ' ') // normalize whitespace
-            .substring(0, 255)
-    })
-    return elText
-}
-
 export class ActionStep extends Component {
     constructor(props) {
         super(props)
         this.state = {
             step: props.step,
-            inspecting: false,
         }
         this.AutocaptureFields = this.AutocaptureFields.bind(this)
-
-        this.box = document.createElement('div')
-        document.body.appendChild(this.box)
-    }
-    drawBox(element) {
-        let rect = element.getBoundingClientRect()
-        this.box.style.display = 'block'
-        this.box.style.position = 'absolute'
-        this.box.style.top = `${rect.top + window.pageYOffset}px`
-        this.box.style.left = `${rect.left + window.pageXOffset}px`
-        this.box.style.width = `${rect.right - rect.left}px`
-        this.box.style.height = `${rect.bottom - rect.top}px`
-        this.box.style.background = '#007bff'
-        this.box.style.opacity = '0.5'
-        this.box.style.zIndex = '9999999999'
-    }
-    onMouseOver = (event) => {
-        let el = event.currentTarget
-        this.drawBox(el)
-        let query = this.props.simmer(el)
-        // Turn tags into lower cases
-        query = query.replace(/(^[A-Z]+| [A-Z]+)/g, (d) => d.toLowerCase())
-        let tagName = el.tagName.toLowerCase()
-
-        let step = {
-            ...this.props.step,
-            event: '$autocapture',
-            tag_name: tagName,
-            href: el.getAttribute('href') || '',
-            name: el.getAttribute('name') || '',
-            text: getSafeText(el) || '',
-            selector: query || '',
-            url: window.location.protocol + '//' + window.location.host + window.location.pathname,
-        }
-        this.setState(
-            {
-                element: el,
-            },
-            () => this.sendStep(step)
-        )
-    }
-    onKeyDown = (event) => {
-        // stop selecting if esc key was pressed
-        if (event.keyCode === 27) {
-            this.stop()
-        }
-    }
-    start() {
-        this.setState({ inspecting: true })
-        document.querySelectorAll('a, button, input, select, textarea, label').forEach((element) => {
-            element.addEventListener('mouseover', this.onMouseOver, {
-                capture: true,
-            })
-        })
-        document.addEventListener('keydown', this.onKeyDown)
-        document.body.style.transition = '0.7s box-shadow'
-        // document.body.style.boxShadow = 'inset 0 0px 13px -2px #dc3545';
-        document.body.style.boxShadow = 'inset 0 0px 30px -5px #007bff'
-        this.box.addEventListener('click', this.stop)
-    }
-    stop = () => {
-        this.setState({ inspecting: false })
-        this.box.style.display = 'none'
-        document.body.style.boxShadow = 'none'
-        document.querySelectorAll('a, button, input, select, textarea, label').forEach((element) => {
-            element.removeEventListener('mouseover', this.onMouseOver, {
-                capture: true,
-            })
-        })
-        document.removeEventListener('keydown', this.onKeyDown)
     }
     sendStep = (step) => {
         this.props.onChange(step)
@@ -255,14 +166,16 @@ export class ActionStep extends Component {
                             )}
                             {step.event != null && step.event !== '$autocapture' && step.event !== '$pageview' && (
                                 <div style={{ marginTop: '2rem' }}>
-                                    <label>Event name: {step.event}</label>
+                                    <label>
+                                        <b>Event name: </b>
+                                    </label>
                                     <EventName
                                         value={step.event}
                                         isActionStep={true}
                                         onChange={(value) =>
                                             this.sendStep({
                                                 ...step,
-                                                event: value,
+                                                event: value || '',
                                             })
                                         }
                                     />
@@ -311,6 +224,5 @@ export class ActionStep extends Component {
 }
 ActionStep.propTypes = {
     step: PropTypes.object,
-    simmer: PropTypes.func,
     index: PropTypes.number.isRequired,
 }

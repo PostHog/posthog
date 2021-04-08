@@ -2,6 +2,7 @@ describe('Cohorts', () => {
     beforeEach(() => {
         cy.get('[data-attr=menu-item-cohorts]').click()
     })
+
     it('Cohorts new and list', () => {
         // load an empty page
         cy.get('h1').should('contain', 'Cohorts')
@@ -31,5 +32,18 @@ describe('Cohorts', () => {
         // back to cohorts
         cy.get('.ant-drawer-close').click({ force: true })
         cy.get('.ant-table-tbody').contains('Test Cohort')
+
+        // Navigate to person and back again
+        cy.log('Can navigate to person and back again')
+
+        cy.get('[data-test-cohort-row]').first().click()
+        cy.get('[data-test-goto-person]').first().click()
+        cy.url().should('include', '/person/')
+
+        cy.get('[data-attr="persons-cohorts-tab"]').click()
+        cy.get('[data-test-cohort-row]').first().click()
+
+        cy.url().should('include', '/cohorts/')
+        cy.get('[data-attr="cohort-name"]').should('have.value', 'Test Cohort')
     })
 })

@@ -161,6 +161,7 @@ export function Cohorts(): JSX.Element {
                     rowClassName="cursor-pointer"
                     onRow={(cohort) => ({
                         onClick: () => setOpenCohort(cohort),
+                        'data-test-cohort-row': cohort.id,
                     })}
                     dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
                 />

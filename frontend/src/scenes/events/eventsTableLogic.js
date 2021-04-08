@@ -71,7 +71,7 @@ export const eventsTableLogic = kea({
             },
         ],
         eventFilter: [
-            false,
+            '',
             {
                 setEventFilter: (_, { event }) => event,
             },

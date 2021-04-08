@@ -11,10 +11,10 @@ import { IllustrationDanger } from 'lib/components/icons'
 
 export function FunnelViz({
     steps: stepsParam,
-    filters: defaultFilters,
-    dashboardItemId,
-    cachedResults,
-    inSharedMode,
+    filters: defaultFilters = undefined,
+    dashboardItemId = undefined,
+    cachedResults = undefined,
+    inSharedMode = undefined,
     color = 'white',
 }) {
     const container = useRef(null)

@@ -1,10 +1,10 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { Alert, Table, Tooltip } from 'antd'
-import { userLogic } from 'scenes/userLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { EventUsageType } from '~/types'
 import { humanizeNumber } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function EventsVolumeTable(): JSX.Element {
     const columns = [
@@ -51,10 +51,10 @@ export function EventsVolumeTable(): JSX.Element {
                 a.usage_count == b.usage_count ? a.volume - b.volume : a.usage_count - b.usage_count,
         },
     ]
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
     return (
         <>
-            {user?.team?.event_names_with_usage[0]?.volume === null && (
+            {currentTeam?.event_names_with_usage[0]?.volume === null && (
                 <>
                     <Alert
                         type="warning"
@@ -64,7 +64,7 @@ export function EventsVolumeTable(): JSX.Element {
                 </>
             )}
             <Table
-                dataSource={user?.team?.event_names_with_usage}
+                dataSource={currentTeam?.event_names_with_usage}
                 columns={columns}
                 rowKey="event"
                 size="small"

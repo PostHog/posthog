@@ -11,8 +11,12 @@ import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { actionsModel } from '~/models'
 import { AsyncActionMappingNotice } from 'scenes/project/Settings/WebhookIntegration'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import dayjs from 'dayjs'
+import { compactNumber } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
-export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, user, simmer, temporaryToken }) {
+export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, temporaryToken }) {
     let logic = actionEditLogic({
         id: actionId,
         apiURL,
@@ -23,9 +27,11 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, use
     const { action, errorActionId } = useValues(logic)
     const { setAction, saveAction } = useActions(logic)
     const { loadActions } = useActions(actionsModel)
+    const { preflight } = useValues(preflightLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const [edited, setEdited] = useState(false)
-    const slackEnabled = user?.team?.slack_incoming_webhook
+    const slackEnabled = currentTeam?.slack_incoming_webhook
 
     const newAction = () => {
         setAction({ ...action, steps: [...action.steps, { isNew: uuid() }] })
@@ -82,7 +88,21 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, use
                     />
                     {action.count > -1 && (
                         <div>
-                            <small className="text-muted">Matches {action.count} events</small>
+                            <span className="text-muted mb-05">
+                                This action matches <b>{compactNumber(action.count)}</b> events
+                                {preflight.db_backend !== 'clickhouse' && (
+                                    <>
+                                        {' '}
+                                        (last calculated{' '}
+                                        {action.last_calculated_at ? (
+                                            <b>{dayjs(action.last_calculated_at).fromNow()}</b>
+                                        ) : (
+                                            'a while ago'
+                                        )}
+                                        )
+                                    </>
+                                )}
+                            </span>
                         </div>
                     )}
                 </div>
@@ -106,7 +126,6 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, use
                                 step={step}
                                 isEditor={false}
                                 actionId={action.id}
-                                simmer={simmer}
                                 isOnlyStep={action.steps.length === 1}
                                 onDelete={() => {
                                     const identifier = step.id ? 'id' : 'isNew'
@@ -164,7 +183,7 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, use
                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                             </Link>
                         </p>
-                        {user?.is_async_event_action_mapping_enabled && <AsyncActionMappingNotice />}
+                        {preflight?.is_async_event_action_mapping_enabled && <AsyncActionMappingNotice />}
                         {action.post_to_slack && (
                             <>
                                 <Input
