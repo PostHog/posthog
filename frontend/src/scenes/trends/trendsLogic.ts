@@ -519,7 +519,7 @@ export const trendsLogic = kea<
                     cleanSearchParams['compare'] = false
                 }
 
-                Object.assign(cleanSearchParams, getDefaultFilters(values.filters, values.eventNames))
+                Object.assign(cleanSearchParams, getDefaultFilters(cleanSearchParams, values.eventNames))
 
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)
