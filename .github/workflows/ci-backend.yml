@@ -31,9 +31,9 @@ jobs:
               with:
                   python-version: 3.8
 
-            - uses: actions/cache@v2
+            - uses: actions/cache@v1
               with:
-                  path: ${{ env.pythonLocation }}/lib/python3.*/site-packages/
+                  path: ~/.cache/pip
                   key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt', '**/requirements-dev.txt') }}
                   restore-keys: |
                       ${{ runner.os }}-pip-
@@ -43,24 +43,25 @@ jobs:
                   python -m pip install -U pip
                   python -m pip install -r requirements.txt
                   python -m pip install -r requirements-dev.txt
+              if: steps.cache.outputs.cache-hit != 'true'
 
             - name: Check formatting
               run: |
-                  python -m black --check .
-                  python -m isort --check-only .
+                  black --check .
+                  isort --check-only .
 
             - name: Lint with flake8
               run: |
                   # stop the build if there are Python syntax errors or undefined names
-                  python -m flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+                  flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
                   # exit-zero treats all errors as warnings
-                  python -m flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+                  flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
 
             - name: Typecheck
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
               run: |
-                  python -m mypy .
+                  mypy .
 
     django:
         name: Django tests – Py ${{ matrix.python-version }}
@@ -97,9 +98,9 @@ jobs:
               with:
                   python-version: ${{ matrix.python-version }}
 
-            - uses: actions/cache@v2
+            - uses: actions/cache@v1
               with:
-                  path: ${{ env.pythonLocation }}/lib/python3.*/site-packages/
+                  path: ~/.cache/pip
                   key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements.txt') }}
                   restore-keys: |
                       ${{ runner.os }}-pip-${{ matrix.python-version }}-
@@ -109,6 +110,7 @@ jobs:
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
                   python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
+              if: steps.cache.outputs.cache-hit != 'true'
 
             - name: Check migrations
               env:
@@ -123,7 +125,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python -m pytest posthog/
+                  pytest posthog/
             - name: Run EE tests
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
@@ -137,7 +139,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python -m pytest ee/
+                  pytest ee/
 
     cloud:
         name: Django tests – Cloud
@@ -185,15 +187,7 @@ jobs:
               with:
                   python-version: 3.8
 
-            - uses: actions/cache@v2
-              id: cache-master
-              with:
-                  path: ${{ env.pythonLocation }}/lib/python3.*/site-packages/
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-
-
-            - name: Install requirements.txt dependencies with pip at master
+            - name: Install requirements.txt dependencies with pip
               run: |
                   cd deploy
                   python -m pip install --upgrade pip
@@ -213,14 +207,6 @@ jobs:
               uses: actions/checkout@v2
               with:
                   path: 'deploy/'
-
-            - uses: actions/cache@v2
-              id: cache-current-branch
-              with:
-                  path: ${{ env.pythonLocation }}/lib/python3.*/site-packages/
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-
 
             - name: Install requirements.txt dependencies with pip at current branch
               run: |
@@ -255,9 +241,9 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python -m pytest posthog --reuse-db -m "not skip_on_multitenancy"
+                  pytest posthog --reuse-db -m "not skip_on_multitenancy"
 
-            - name: Run Cloud tests (posthog-cloud)
+            - name: Run cloud tests (posthog-cloud)
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   PRIMARY_DB: 'clickhouse'
@@ -268,7 +254,7 @@ jobs:
               run: |
                   source .env.template
                   cd deploy
-                  python -m pytest multi_tenancy messaging -m "not skip_on_multitenancy"
+                  pytest multi_tenancy messaging -m "not skip_on_multitenancy"
             - name: Run EE tests
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
@@ -279,7 +265,7 @@ jobs:
                   CLICKHOUSE_VERIFY: 'False'
               run: |
                   cd deploy/
-                  python -m pytest ee -s
+                  pytest ee -s
 
     foss:
         name: Django tests – FOSS
@@ -306,9 +292,9 @@ jobs:
               with:
                   python-version: 3.8
 
-            - uses: actions/cache@v2
+            - uses: actions/cache@v1
               with:
-                  path: ${{ env.pythonLocation }}/lib/python3.*/site-packages/
+                  path: ~/.cache/pip
                   key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
                   restore-keys: |
                       ${{ runner.os }}-pip-
@@ -318,6 +304,7 @@ jobs:
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
                   python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
+              if: steps.cache.outputs.cache-hit != 'true'
 
             - name: Remove ee
               run: |
@@ -336,4 +323,4 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python -m pytest -m "not ee"
+                  pytest -m "not ee"
