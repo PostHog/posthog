@@ -43,6 +43,7 @@ import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import posthog from 'posthog-js'
 import { debugCHQueries } from './DebugCHQueries'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -596,7 +597,7 @@ export const commandPaletteLogic = kea<
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver:
                     userLogic.values.user?.is_staff ||
-                    userLogic.values.user?.is_debug ||
+                    preflightLogic.values.preflight?.is_debug ||
                     userLogic.values.user?.is_impersonated
                         ? {
                               icon: PlusOutlined,

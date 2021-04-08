@@ -53,7 +53,7 @@ export function Plugins({ user }: { user: UserType }): JSX.Element | null {
                         </TabPane>
                     )}
                     <TabPane tab="Advanced" key={PluginTab.Advanced}>
-                        <AdvancedTab user={user} />
+                        <AdvancedTab />
                     </TabPane>
                 </Tabs>
             ) : (
