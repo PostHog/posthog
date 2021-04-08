@@ -54,6 +54,9 @@ class ClickhouseTrendsNormal:
             "filters": prop_filters,
             "event_join": join_condition,
             "aggregate_operation": aggregate_operation,
+            "entity_query": "AND {actions_query}"
+            if entity.type == TREND_FILTER_TYPE_ACTIONS
+            else "AND event = %(event)s",
         }
 
         entity_params, entity_format_params = self._populate_entity_params(entity)
@@ -61,8 +64,7 @@ class ClickhouseTrendsNormal:
         content_sql_params = {**content_sql_params, **entity_format_params}
 
         if filter.display in TRENDS_DISPLAY_BY_VALUE:
-            agg_query = self._determine_single_aggregate_query(filter, entity)
-            content_sql = agg_query.format(**content_sql_params)
+            content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(**content_sql_params)
 
             return (
                 content_sql,
@@ -70,8 +72,7 @@ class ClickhouseTrendsNormal:
                 lambda result: [{"aggregated_value": result[0][0] if result and len(result) else 0}],
             )
         else:
-            content_sql = self._determine_trend_aggregate_query(filter, entity)
-            content_sql = content_sql.format(**content_sql_params)
+            content_sql = VOLUME_SQL.format(**content_sql_params)
 
             null_sql = NULL_SQL.format(
                 interval=interval_annotation,
@@ -108,15 +109,3 @@ class ClickhouseTrendsNormal:
             params = {"event": entity.id}
 
         return params, content_sql_params
-
-    def _determine_single_aggregate_query(self, filter: Filter, entity: Entity) -> str:
-        if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            return VOLUME__TOTAL_AGGREGATE_ACTIONS_SQL
-        else:
-            return VOLUME_TOTAL_AGGREGATE_SQL
-
-    def _determine_trend_aggregate_query(self, filter: Filter, entity: Entity) -> str:
-        if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            return VOLUME_ACTIONS_SQL
-        else:
-            return VOLUME_SQL
