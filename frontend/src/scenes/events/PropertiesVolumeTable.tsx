@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-import { VolumeTable, UsageDisabledWarning } from './EventsVolumeTable'
+import { VolumeTable, UsageDisabledWarning, EventOrPropType } from './EventsVolumeTable'
 import { Alert } from 'antd'
 
 export function PropertiesVolumeTable(): JSX.Element | null {
@@ -20,7 +20,7 @@ export function PropertiesVolumeTable(): JSX.Element | null {
                     </>
                 )
             )}
-            <VolumeTable data={user?.team?.event_properties_with_usage} type="key" />
+            <VolumeTable data={user?.team?.event_properties_with_usage as EventOrPropType[]} type="key" />
         </>
     ) : null
 }

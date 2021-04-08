@@ -6,7 +6,7 @@ import Fuse from 'fuse.js'
 import { InfoCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { humanizeNumber } from 'lib/utils'
 
-const searchEvents = (sources: EventOrPropType[], search: string, key: 'event' | 'property'): EventOrPropType[] => {
+const searchEvents = (sources: EventOrPropType[], search: string, key: 'event' | 'key'): EventOrPropType[] => {
     return new Fuse(sources, {
         keys: [key],
         threshold: 0.3,
@@ -15,15 +15,15 @@ const searchEvents = (sources: EventOrPropType[], search: string, key: 'event' |
         .map((result) => result.item)
 }
 
-interface EventOrPropType {
+export interface EventOrPropType {
     event?: string
-    property?: string
+    key?: string
     usage_count: number
     volume: number
     warnings: string[]
 }
 
-export function VolumeTable({ type, data }: { type: 'event' | 'property'; data: EventOrPropType[] }): JSX.Element {
+export function VolumeTable({ type, data }: { type: 'event' | 'key'; data: EventOrPropType[] }): JSX.Element {
     const [searchTerm, setSearchTerm] = useState(false as string | false)
     const [dataWithWarnings, setDataWithWarnings] = useState([] as EventOrPropType[])
     const num_warnings = dataWithWarnings.reduce((prev, item) => {
@@ -35,7 +35,7 @@ export function VolumeTable({ type, data }: { type: 'event' | 'property'; data: 
             render: function RenderEvent(item: EventOrPropType): JSX.Element {
                 return <span className="ph-no-capture">{item[type]}</span>
             },
-            sorter: (a: EventOrPropType, b: EventOrPropType) => ('' + a[type]).localeCompare(b[type]),
+            sorter: (a: EventOrPropType, b: EventOrPropType) => ('' + a[type]).localeCompare(b[type] || ''),
         },
         {
             title: `Warnings (${num_warnings})`,
@@ -167,7 +167,7 @@ export function EventsVolumeTable(): JSX.Element | null {
                     </>
                 )
             )}
-            <VolumeTable data={user?.team?.event_names_with_usage} type="event" />
+            <VolumeTable data={user?.team?.event_names_with_usage as EventOrPropType[]} type="event" />
         </>
     ) : null
 }
