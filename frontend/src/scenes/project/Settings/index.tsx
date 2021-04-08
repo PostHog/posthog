@@ -46,6 +46,7 @@ function DisplayName(): JSX.Element {
                     setName(event.target.value)
                 }}
                 style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
+                disabled={currentTeamLoading}
             />
             <Button
                 type="primary"
@@ -85,7 +86,7 @@ export function ProjectSettings(): JSX.Element {
                 <h2 id="name" className="subtitle">
                     Display Name
                 </h2>
-                {currentTeamLoading ? loadingComponent : <DisplayName />}
+                {currentTeamLoading && !currentTeam ? loadingComponent : <DisplayName />}
                 <Divider />
                 <h2 id="snippet" className="subtitle">
                     Website Event Autocapture
@@ -96,7 +97,7 @@ export function ProjectSettings(): JSX.Element {
                 <br />
                 For more guidance, including on identying users,{' '}
                 <a href="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</a>.
-                {currentTeamLoading ? loadingComponent : <JSSnippet />}
+                {currentTeamLoading && !currentTeam ? loadingComponent : <JSSnippet />}
                 <p>
                     You can even test PostHog out on a live site without changing any code.
                     <br />
