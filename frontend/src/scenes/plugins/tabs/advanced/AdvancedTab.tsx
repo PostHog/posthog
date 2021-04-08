@@ -5,14 +5,13 @@ import React from 'react'
 import { SourcePlugin } from 'scenes/plugins/tabs/advanced/SourcePlugin'
 import { CustomPlugin } from 'scenes/plugins/tabs/advanced/CustomPlugin'
 import { LocalPlugin } from 'scenes/plugins/tabs/advanced/LocalPlugin'
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { DangerZone } from 'scenes/plugins/tabs/advanced/DangerZone'
-import { userLogic } from 'scenes/userLogic'
+import { UserType } from 'src/types'
 
-export function AdvancedTab(): JSX.Element {
-    const { user } = useValues(userLogic)
+export function AdvancedTab({ user }: { user: UserType }): JSX.Element {
     const { setPluginTab } = useActions(pluginsLogic)
+
     return (
         <>
             <Alert
@@ -40,7 +39,6 @@ export function AdvancedTab(): JSX.Element {
             <SourcePlugin />
             <CustomPlugin />
             {user && !user.is_multi_tenancy && <LocalPlugin />}
-            {user?.team?.plugins_opt_in && <DangerZone />}
         </>
     )
 }

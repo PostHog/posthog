@@ -776,28 +776,17 @@ export function pluralize(count: number, singular: string, plural?: string, incl
     return includeNumber ? `${count} ${form}` : form
 }
 
-function suffixFormatted(value: number, base: number, suffix: string, maxDecimals: number): string {
-    /* Helper function for compactNumber */
-    const multiplier = 10 ** maxDecimals
-    return `${Math.round((value * multiplier) / base) / multiplier}${suffix}`
-}
-
-export function compactNumber(value: number, maxDecimals: number = 1): string {
-    /*
-    Returns a number in a compact format with a thousands or millions suffix if applicable.
-    Server-side equivalent posthog_filters.py#compact_number
-    Example:
-      compactNumber(5500000)
-      =>  "5.5M"
-    */
-    if (value < 1000) {
-        return Math.floor(value).toString()
-    } else if (value < 1000000) {
-        return suffixFormatted(value, 1000, 'K', maxDecimals)
-    } else if (value < 1000000000) {
-        return suffixFormatted(value, 1000000, 'M', maxDecimals)
+/** Return a number in a compact format, with a SI suffix if applicable.
+ *  Server-side equivalent: utils.py#compact_number.
+ */
+export function compactNumber(value: number): string {
+    value = parseFloat(value.toPrecision(3))
+    let magnitude = 0
+    while (Math.abs(value) >= 1000) {
+        magnitude++
+        value /= 1000
     }
-    return suffixFormatted(value, 1000000000, 'B', maxDecimals)
+    return value.toString() + ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y'][magnitude]
 }
 
 export function sortedKeys(object: Record<string, any>): Record<string, any> {
