@@ -354,16 +354,14 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(Plugin.objects.count(), 1)
         self.assertEqual(mock_reload.call_count, 1)
 
-    def test_create_plugin_version_ranges(self, mock_get, mock_reload):
+    def test_create_plugin_version_range_eq_current(self, mock_get, mock_reload):
         response = self.client.post(
             "/api/organizations/@current/plugins/",
             {"url": f"https://github.com/posthog-plugin/version-equals/commit/{VERSION}"},
         )
         self.assertEqual(response.status_code, 201)
 
-        for plugin in Plugin.objects.all():
-            plugin.delete()
-
+    def test_create_plugin_version_range_eq_next_minor(self, mock_get, mock_reload):
         response = self.client.post(
             "/api/organizations/@current/plugins/",
             {"url": f"https://github.com/posthog-plugin/version-equals/commit/{Version(VERSION).next_minor()}"},
@@ -371,21 +369,17 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             str(response.data["detail"]),
-            f'PostHog version "{Version(VERSION).next_minor()}" required, but "{VERSION}" is installed.',
+            f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement "{Version(VERSION).next_minor()}".',
         )
 
-        for plugin in Plugin.objects.all():
-            plugin.delete()
-
+    def test_create_plugin_version_range_gt_current(self, mock_get, mock_reload):
         response = self.client.post(
             "/api/organizations/@current/plugins/",
             {"url": f"https://github.com/posthog-plugin/version-greater-than/commit/0.0.0"},
         )
         self.assertEqual(response.status_code, 201)
 
-        for plugin in Plugin.objects.all():
-            plugin.delete()
-
+    def test_create_plugin_version_range_gt_next_major(self, mock_get, mock_reload):
         response = self.client.post(
             "/api/organizations/@current/plugins/",
             {"url": f"https://github.com/posthog-plugin/version-greater-than/commit/{Version(VERSION).next_major()}"},
@@ -393,39 +387,34 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             str(response.data["detail"]),
-            f'PostHog version ">= {Version(VERSION).next_major()}" required, but "{VERSION}" is installed.',
+            f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement ">= {Version(VERSION).next_major()}".',
         )
 
-        for plugin in Plugin.objects.all():
-            plugin.delete()
-
+    def test_create_plugin_version_range_lt_current(self, mock_get, mock_reload):
         response = self.client.post(
             "/api/organizations/@current/plugins/",
-            {"url": f"https://github.com/posthog-plugin/version-less/commit/{VERSION}"},
+            {"url": f"https://github.com/posthog-plugin/version-less-than/commit/{VERSION}"},
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
-            str(response.data["detail"]), f'PostHog version "< {VERSION}" required, but "{VERSION}" is installed.'
+            str(response.data["detail"]),
+            f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement "< {VERSION}".',
         )
 
-        for plugin in Plugin.objects.all():
-            plugin.delete()
-
+    def test_create_plugin_version_range_lt_next_major(self, mock_get, mock_reload):
         response = self.client.post(
             "/api/organizations/@current/plugins/",
-            {"url": f"https://github.com/posthog-plugin/version-less/commit/{Version(VERSION).next_major()}"},
+            {"url": f"https://github.com/posthog-plugin/version-less-than/commit/{Version(VERSION).next_major()}"},
         )
         self.assertEqual(response.status_code, 201)
 
-        for plugin in Plugin.objects.all():
-            plugin.delete()
-
+    def test_create_plugin_version_range_lt_invalid(self, mock_get, mock_reload):
         response = self.client.post(
             "/api/organizations/@current/plugins/",
-            {"url": f"https://github.com/posthog-plugin/version-less/commit/..."},
+            {"url": f"https://github.com/posthog-plugin/version-less-than/commit/..."},
         )
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(str(response.data["detail"]), 'Invalid PostHog version range "< ..."')
+        self.assertEqual(str(response.data["detail"]), 'Invalid PostHog semantic version requirement "< ..."!')
 
     def test_create_plugin_source(self, mock_get, mock_reload):
         self.assertEqual(mock_reload.call_count, 0)

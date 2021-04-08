@@ -103,7 +103,7 @@ def mocked_plugin_requests_get(*args, **kwargs):
 
     # https://github.com/posthog-plugin/version-equals/commit/{vesrion}
     # https://github.com/posthog-plugin/version-greater-than/commit/{vesrion}
-    # https://github.com/posthog-plugin/version-less/commit/{vesrion}
+    # https://github.com/posthog-plugin/version-less-than/commit/{vesrion}
     if args[0].startswith(f"https://github.com/posthog-plugin/version-"):
         url_repo = args[0].split("/")[4]
         url_version = args[0].split("/")[6].split(".zip")[0]
@@ -115,7 +115,7 @@ def mocked_plugin_requests_get(*args, **kwargs):
         if url_repo == "version-greater-than":
             plugin_json["posthogVersion"] = f">= {plugin_json['posthogVersion']}"
 
-        if url_repo == "version-less":
+        if url_repo == "version-less-than":
             plugin_json["posthogVersion"] = f"< {plugin_json['posthogVersion']}"
 
         archive = put_json_into_zip_archive(archive, plugin_json, "plugin.json")
