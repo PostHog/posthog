@@ -16,13 +16,7 @@ from ee.clickhouse.queries.util import (
 )
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
-from ee.clickhouse.sql.trends.volume import (
-    ACTIVE_USER_SQL,
-    VOLUME__TOTAL_AGGREGATE_ACTIONS_SQL,
-    VOLUME_ACTIONS_SQL,
-    VOLUME_SQL,
-    VOLUME_TOTAL_AGGREGATE_SQL,
-)
+from ee.clickhouse.sql.trends.volume import ACTIVE_USER_SQL, VOLUME_SQL, VOLUME_TOTAL_AGGREGATE_SQL
 from posthog.constants import MONTHLY_ACTIVE, TREND_FILTER_TYPE_ACTIONS, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
 from posthog.models.action import Action
 from posthog.models.entity import Entity
