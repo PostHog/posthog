@@ -2,7 +2,6 @@ import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import Client from '../shared/celery/client'
 import { status } from '../shared/status'
 import { sanitizeEvent, UUIDT } from '../shared/utils'
 import { IngestEventResponse, PluginsServer, Queue } from '../types'
@@ -53,7 +52,6 @@ export async function startQueue(
 
 function startQueueRedis(server: PluginsServer, piscina: Piscina | undefined, workerMethods: WorkerMethods): Queue {
     const celeryQueue = new CeleryQueueWorker(server.db, server.PLUGINS_CELERY_QUEUE)
-    const client = new Client(server.db, server.CELERY_DEFAULT_QUEUE)
 
     celeryQueue.register(
         'posthog.tasks.process_event.process_event_with_plugins',
