@@ -56,7 +56,6 @@ class ClickhouseTrendsNormal:
 
         entity_params, entity_format_params = self._populate_entity_params(entity)
         params = {**params, **entity_params}
-        content_sql_params = {**content_sql_params, **entity_format_params}
 
         if filter.display in TRENDS_DISPLAY_BY_VALUE:
             content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(**content_sql_params)
@@ -71,7 +70,7 @@ class ClickhouseTrendsNormal:
             final_query = ACTIVE_USER_SQL.format(**content_sql_params, **sql_params)
             return final_query, params, self._parse_normal_result(filter)
         else:
-            content_sql = VOLUME_SQL.format(**content_sql_params)
+            content_sql = VOLUME_SQL.format(**content_sql_params).format(**entity_format_params)
 
             null_sql = NULL_SQL.format(
                 interval=interval_annotation,
