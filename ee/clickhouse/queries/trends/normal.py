@@ -70,7 +70,9 @@ class ClickhouseTrendsNormal:
             final_query = ACTIVE_USER_SQL.format(**content_sql_params, **sql_params)
             return final_query, params, self._parse_normal_result(filter)
         else:
-            content_sql = VOLUME_SQL.format(**content_sql_params).format(**entity_format_params)
+            content_sql = VOLUME_SQL.format(**content_sql_params).format(
+                **entity_format_params
+            )  # entity_format_params depends on format clause from content_sql_params
 
             null_sql = NULL_SQL.format(
                 interval=interval_annotation,
