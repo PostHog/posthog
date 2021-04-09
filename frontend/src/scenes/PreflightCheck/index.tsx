@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React from 'react'
 import { useValues, useActions } from 'kea'
 import { preflightLogic } from './logic'
 import { Row, Col, Space, Card, Button } from 'antd'
@@ -15,14 +15,27 @@ import {
 import { volcano, green, red, grey, blue } from '@ant-design/colors'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
+import { capitalizeFirstLetter } from 'lib/utils'
 
-function PreflightItem({ name, status, caption, failedState }) {
+interface PreflightItemInterface {
+    name: string
+    status: boolean
+    caption?: string
+    failedState?: 'warning' | 'not-required'
+}
+
+interface CheckInterface extends PreflightItemInterface {
+    id: string
+}
+
+function PreflightItem({ name, status, caption, failedState }: PreflightItemInterface): JSX.Element {
     /*
     status === undefined -> Item still loading (no positive or negative response yet)
     status === false -> Item not ready (fail to validate)
     status === true -> Item ready (validated)
     */
-    let textColor
+    let textColor: string | undefined
+    const { preflightLoading } = useValues(preflightLogic)
 
     if (status) {
         textColor = green.primary
@@ -38,17 +51,24 @@ function PreflightItem({ name, status, caption, failedState }) {
         textColor = grey.primary
     }
 
+    const icon = (): JSX.Element => {
+        if (preflightLoading) {
+            return <LoadingOutlined style={{ fontSize: 20, color: textColor }} />
+        }
+        if (status) {
+            return <CheckSquareFilled style={{ fontSize: 20, color: textColor }} />
+        } else {
+            if (failedState === 'warning') {
+                return <WarningFilled style={{ fontSize: 20, color: textColor }} />
+            } else {
+                return <CloseSquareFilled style={{ fontSize: 20, color: textColor }} />
+            }
+        }
+    }
+
     return (
         <Col span={12} style={{ textAlign: 'left', marginBottom: 16, display: 'flex', alignItems: 'center' }}>
-            {status === false && failedState !== 'warning' && (
-                <CloseSquareFilled style={{ fontSize: 20, color: textColor }} />
-            )}
-            {status === false && failedState === 'warning' && (
-                <WarningFilled style={{ fontSize: 20, color: textColor }} />
-            )}
-
-            {status === true && <CheckSquareFilled style={{ fontSize: 20, color: textColor }} />}
-            {status !== true && status !== false && <LoadingOutlined style={{ fontSize: 20, color: textColor }} />}
+            {icon()}
             <span style={{ color: textColor, paddingLeft: 8 }}>
                 {name}{' '}
                 {caption && status === false && (
@@ -61,17 +81,16 @@ function PreflightItem({ name, status, caption, failedState }) {
     )
 }
 
-function PreflightCheck() {
-    const [state, setState] = useState({ mode: null })
-    const { preflight, preflightLoading } = useValues(preflightLogic)
-    const { resetPreflight } = useActions(preflightLogic)
+function PreflightCheck(): JSX.Element {
+    const { preflight, preflightLoading, preflightMode } = useValues(preflightLogic)
+    const { setPreflightMode } = useActions(preflightLogic)
     const isReady =
         preflight &&
         preflight.django &&
         preflight.db &&
         preflight.redis &&
         preflight.celery &&
-        (state.mode === 'Experimentation' || preflight.plugins)
+        (preflightMode === 'experimentation' || preflight.plugins)
 
     const checks = [
         {
@@ -98,8 +117,8 @@ function PreflightCheck() {
             id: 'plugins',
             name: 'Plugin server (Node)',
             status: preflight?.plugins,
-            caption: state.mode === 'Experimentation' ? 'Required in production environments' : '',
-            failedState: state.mode === 'Experimentation' ? 'warning' : 'error',
+            caption: preflightMode === 'experimentation' ? 'Required in production environments' : '',
+            failedState: preflightMode === 'experimentation' ? 'warning' : 'error',
         },
         {
             id: 'frontend',
@@ -111,33 +130,16 @@ function PreflightCheck() {
             name: 'SSL/TLS certificate',
             status: window.location.protocol === 'https:',
             caption:
-                state.mode === 'Experimentation'
+                preflightMode === 'experimentation'
                     ? 'Not required for development or testing'
                     : 'Install before ingesting real user data',
-            failedState: state.mode === 'Experimentation' ? 'not-required' : 'warning',
+            failedState: preflightMode === 'experimentation' ? 'not-required' : 'warning',
         },
-    ]
+    ] as CheckInterface[]
 
-    const handleModeChange = (mode) => {
-        setState({ ...state, mode })
-        if (mode) {
-            resetPreflight()
-            localStorage.setItem('preflightMode', mode)
-        } else {
-            localStorage.removeItem('preflightMode')
-        }
-    }
-
-    const handlePreflightFinished = () => {
+    const handlePreflightFinished = (): void => {
         router.actions.push('/signup')
     }
-
-    useEffect(() => {
-        const mode = localStorage.getItem('preflightMode')
-        if (mode) {
-            handleModeChange(mode)
-        }
-    }, [])
 
     return (
         <div style={{ minHeight: '100vh' }}>
@@ -173,18 +175,19 @@ function PreflightCheck() {
                 >
                     <Card style={{ width: '100%' }}>
                         <Row style={{ display: 'flex', justifyContent: 'space-between', lineHeight: '32px' }}>
-                            {!state.mode && <b style={{ fontSize: 16 }}>Select preflight mode</b>}
-                            {state.mode && (
+                            {!preflightMode ? (
+                                <b style={{ fontSize: 16 }}>Select preflight mode</b>
+                            ) : (
                                 <>
                                     <b style={{ fontSize: 16 }}>
                                         <span>
                                             <span
                                                 style={{ color: blue.primary, cursor: 'pointer' }}
-                                                onClick={() => handleModeChange(null)}
+                                                onClick={() => setPreflightMode(null)}
                                             >
                                                 Select preflight mode
                                             </span>{' '}
-                                            &gt; {state.mode}
+                                            &gt; {capitalizeFirstLetter(preflightMode)}
                                         </span>
                                     </b>
                                     <Button
@@ -199,7 +202,7 @@ function PreflightCheck() {
                                 </>
                             )}
                         </Row>
-                        {!state.mode && (
+                        {!preflightMode && (
                             <div>
                                 What's your plan for this installation? We'll make infrastructure checks accordingly.
                             </div>
@@ -208,12 +211,12 @@ function PreflightCheck() {
                             className="text-center"
                             style={{ padding: '24px 0', display: 'flex', justifyContent: 'center', maxWidth: 533 }}
                         >
-                            {!state.mode && (
+                            {!preflightMode && (
                                 <>
                                     <Button
                                         type="default"
                                         data-attr="preflight-experimentation"
-                                        onClick={() => handleModeChange('Experimentation')}
+                                        onClick={() => setPreflightMode('experimentation')}
                                         icon={<ApiTwoTone />}
                                     >
                                         Just experimenting
@@ -222,7 +225,7 @@ function PreflightCheck() {
                                         type="primary"
                                         style={{ marginLeft: 16 }}
                                         data-attr="preflight-live"
-                                        onClick={() => handleModeChange('Live')}
+                                        onClick={() => setPreflightMode('live')}
                                         icon={<RocketFilled />}
                                     >
                                         Live implementation
@@ -230,7 +233,7 @@ function PreflightCheck() {
                                 </>
                             )}
 
-                            {state.mode && (
+                            {preflightMode && (
                                 <>
                                     <Row>
                                         {checks.map((item) => (
@@ -245,7 +248,7 @@ function PreflightCheck() {
                             We will not enforce some security requirements in experimentation mode.
                         </div>
                     </Card>
-                    {state.mode && (
+                    {preflightMode && (
                         <>
                             <div className="space-top text-center" data-attr="preflightStatus">
                                 {isReady ? (
@@ -258,7 +261,7 @@ function PreflightCheck() {
                                 <Button
                                     type="primary"
                                     data-attr="preflight-complete"
-                                    data-source={state.mode}
+                                    data-source={preflightMode}
                                     disabled={!isReady}
                                     onClick={handlePreflightFinished}
                                 >

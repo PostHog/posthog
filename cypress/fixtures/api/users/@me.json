@@ -28,7 +28,7 @@
         "membership_level": 15,
         "personalization": {
             "role": "engineer",
-            "products": ["web"],
+            "products": ["web", "website"],
             "technical": "technical"
         },
         "setup": {
@@ -53,7 +53,7 @@
                 "timezone": "UTC"
             }
         ],
-        "available_features": ["zapier", "organizations_projects", "google_login", "dashboard_collaboration"]
+        "available_features": []
     },
     "organizations": [{ "id": "01787e47-5558-0000-bae1-6bc513b42abe", "name": "Hogflix Movies" }]
 }

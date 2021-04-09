@@ -10,6 +10,7 @@ import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/
 import { featureFlagLogic } from './logic/featureFlagLogic'
 import { open } from '@papercups-io/chat-widget'
 import posthog from 'posthog-js'
+import { WEBHOOK_SERVICES } from 'lib/constants'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
@@ -829,4 +830,13 @@ export function humanTzOffset(timezone?: string): string {
     const hourForm = absoluteOffset === 1 ? 'hour' : 'hours'
     const direction = offset > 0 ? 'ahead' : 'behind'
     return `${absoluteOffset} ${hourForm} ${direction}`
+}
+
+export function resolveWebhookService(webhookUrl: string): string {
+    for (const [service, domain] of Object.entries(WEBHOOK_SERVICES)) {
+        if (webhookUrl.includes(domain + '/')) {
+            return service
+        }
+    }
+    return 'your webhook service'
 }

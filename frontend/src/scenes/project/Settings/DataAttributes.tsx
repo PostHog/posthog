@@ -1,12 +1,14 @@
 import { Button, Skeleton, Select } from 'antd'
 import { useActions, useValues } from 'kea'
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function DataAttributes(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const { patchCurrentTeam } = useActions(teamLogic)
-    const [value, setValue] = useState(currentTeam?.data_attributes || [])
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const [value, setValue] = useState([] as string[])
+
+    useEffect(() => setValue(currentTeam?.data_attributes || []), [currentTeam])
 
     if (!currentTeam) {
         return <Skeleton paragraph={{ rows: 0 }} active />
@@ -40,13 +42,13 @@ export function DataAttributes(): JSX.Element {
                     value={value}
                     data-attr="data-attribute-select"
                     placeholder={'data-attr, ...'}
+                    loading={currentTeamLoading}
+                    disabled={currentTeamLoading}
                 />
                 <Button
                     type="primary"
                     onClick={() =>
-                        patchCurrentTeam({
-                            data_attributes: value.map((s) => s.trim()).filter((a) => a) || [],
-                        })
+                        updateCurrentTeam({ data_attributes: value.map((s) => s.trim()).filter((a) => a) || [] })
                     }
                 >
                     Save

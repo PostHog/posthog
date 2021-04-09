@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import { useValues } from 'kea'
 import { Alert, Input, Table, Tooltip } from 'antd'
-import { userLogic } from 'scenes/userLogic'
 import Fuse from 'fuse.js'
 import { InfoCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { humanizeNumber } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 const searchEvents = (sources: EventOrPropType[], search: string, key: 'event' | 'key'): EventOrPropType[] => {
     return new Fuse(sources, {
@@ -151,14 +152,15 @@ export function UsageDisabledWarning({ tab }: { tab: string }): JSX.Element {
 }
 
 export function EventsVolumeTable(): JSX.Element | null {
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { preflight } = useValues(preflightLogic)
 
-    return user?.team?.event_names_with_usage ? (
+    return currentTeam?.event_names_with_usage ? (
         <>
-            {!user?.is_event_property_usage_enabled ? (
+            {preflight && !preflight?.is_event_property_usage_enabled ? (
                 <UsageDisabledWarning tab="Properties Stats" />
             ) : (
-                user?.team?.event_names_with_usage[0]?.volume === null && (
+                currentTeam?.event_names_with_usage[0]?.volume === null && (
                     <>
                         <Alert
                             type="warning"
@@ -167,7 +169,7 @@ export function EventsVolumeTable(): JSX.Element | null {
                     </>
                 )
             )}
-            <VolumeTable data={user?.team?.event_names_with_usage as EventOrPropType[]} type="event" />
+            <VolumeTable data={currentTeam?.event_names_with_usage as EventOrPropType[]} type="event" />
         </>
     ) : null
 }

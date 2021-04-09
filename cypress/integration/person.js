@@ -1,6 +1,6 @@
 describe('Person Visualization Check', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-persons]').click()
+        cy.get('[data-attr=menu-item-persons]').click().click()
         cy.get('.ant-spin-spinning').should('not.exist') // Wait until initial table load to be able to use the search
         cy.get('[data-attr=persons-search]').type('deb').should('have.value', 'deb')
         cy.get('.ant-input-search-button').click()
