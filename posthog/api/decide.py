@@ -1,4 +1,3 @@
-import json
 import secrets
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
@@ -6,10 +5,12 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from rest_framework import status
 
+from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
-from posthog.utils import RequestParsingError, cors_response, load_data_from_request
+from posthog.utils import cors_response, load_data_from_request
 
 from .capture import _get_project_id, _get_token
 
@@ -81,10 +82,7 @@ def get_decide(request: HttpRequest):
             data = load_data_from_request(request)
         except RequestParsingError as error:
             return cors_response(
-                request,
-                JsonResponse(
-                    {"code": "validation", "message": "Malformed request data. %s" % (str(error)),}, status=400,
-                ),
+                request, generate_exception_response(f"Malformed request data: {error}", code="malformed_data"),
             )
         token = _get_token(data, request)
         team = Team.objects.get_team_from_token(token)
@@ -94,19 +92,24 @@ def get_decide(request: HttpRequest):
             if not project_id:
                 return cors_response(
                     request,
-                    JsonResponse(
-                        {
-                            "code": "validation",
-                            "message": "Project API key invalid. You can find your project API key in PostHog project settings.",
-                        },
-                        status=401,
+                    generate_exception_response(
+                        "Project API key invalid. You can find your project API key in PostHog project settings.",
+                        code="invalid_api_key",
+                        type="authentication_error",
+                        status_code=status.HTTP_401_UNAUTHORIZED,
                     ),
                 )
 
             user = User.objects.get_from_personal_api_key(token)
             if user is None:
                 return cors_response(
-                    request, JsonResponse({"code": "validation", "message": "Personal API key invalid.",}, status=401,),
+                    request,
+                    generate_exception_response(
+                        "Invalid Personal API key.",
+                        code="invalid_personal_key",
+                        type="authentication_error",
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                    ),
                 )
             team = user.teams.get(id=project_id)
         if team:

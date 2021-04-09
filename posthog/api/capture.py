@@ -1,6 +1,5 @@
 import re
 from datetime import datetime
-from random import random
 from typing import Any, Dict, Optional
 
 import statsd
@@ -12,11 +11,12 @@ from django.views.decorators.csrf import csrf_exempt
 
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
+from posthog.exceptions import RequestParsingError
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
-from posthog.utils import RequestParsingError, cors_response, get_ip_address, load_data_from_request
+from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
     from ee.clickhouse.process_event import log_event, process_event_ee

@@ -36,6 +36,7 @@ from django.utils import timezone
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception, push_scope
 
+from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 from posthog.settings import print_warning
 
@@ -85,14 +86,6 @@ def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.
     )  # very start of the previous Monday
 
     return (period_start, period_end)
-
-
-def exception_reporting(exception: BaseException, context: Dict) -> None:
-    """
-    Determines which exceptions to report to Sentry and sends them.
-    """
-    if not isinstance(exception, APIException):
-        capture_exception(exception)
 
 
 def relative_date_parse(input: str) -> datetime.datetime:
@@ -301,7 +294,7 @@ def dict_from_cursor_fetchall(cursor):
 
 def convert_property_value(input: Union[str, bool, dict, list, int]) -> str:
     if isinstance(input, bool):
-        if input == True:
+        if input is True:
             return "true"
         return "false"
     if isinstance(input, dict) or isinstance(input, list):
@@ -310,7 +303,7 @@ def convert_property_value(input: Union[str, bool, dict, list, int]) -> str:
 
 
 def get_compare_period_dates(
-    date_from: datetime.datetime, date_to: datetime.datetime
+    date_from: datetime.datetime, date_to: datetime.datetime,
 ) -> Tuple[datetime.datetime, datetime.datetime]:
     new_date_to = date_from
     diff = date_to - date_from
@@ -343,16 +336,15 @@ def get_celery_heartbeat() -> Union[str, int]:
 
 
 def base64_decode(data):
+    """
+    Decodes base64 bytes into string taking into account necessary transformations to match client libraries.
+    """
     if not isinstance(data, str):
         data = data.decode()
 
     data = base64.b64decode(data.replace(" ", "+") + "===")
 
     return data.decode("utf8", "surrogatepass").encode("utf-16", "surrogatepass")
-
-
-class RequestParsingError(Exception):
-    pass
 
 
 # Used by non-DRF endpoins from capture.py and decide.py (/decide, /batch, /capture, etc)
@@ -365,6 +357,7 @@ def load_data_from_request(request):
             data = request.POST.get("data")
     else:
         data = request.GET.get("data")
+
     if not data:
         return None
 
@@ -398,7 +391,7 @@ def load_data_from_request(request):
     base64_decoded = None
     try:
         base64_decoded = base64_decode(data)
-    except:
+    except Exception:
         pass
 
     if base64_decoded:
