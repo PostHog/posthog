@@ -1,17 +1,19 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { VolumeTable, UsageDisabledWarning, EventOrPropType } from './EventsVolumeTable'
 import { Alert } from 'antd'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function PropertiesVolumeTable(): JSX.Element | null {
-    const { user } = useValues(userLogic)
-    return user?.team?.event_properties_with_usage ? (
+    const { currentTeam } = useValues(teamLogic)
+    const { preflight } = useValues(preflightLogic)
+    return currentTeam?.event_properties_with_usage ? (
         <>
-            {!user?.is_event_property_usage_enabled ? (
+            {preflight && !preflight?.is_event_property_usage_enabled ? (
                 <UsageDisabledWarning tab="Properties Stats" />
             ) : (
-                user?.team?.event_properties_with_usage[0]?.volume === null && (
+                currentTeam?.event_properties_with_usage[0]?.volume === null && (
                     <>
                         <Alert
                             type="warning"
@@ -20,7 +22,7 @@ export function PropertiesVolumeTable(): JSX.Element | null {
                     </>
                 )
             )}
-            <VolumeTable data={user?.team?.event_properties_with_usage as EventOrPropType[]} type="key" />
+            <VolumeTable data={currentTeam?.event_properties_with_usage as EventOrPropType[]} type="key" />
         </>
     ) : null
 }
