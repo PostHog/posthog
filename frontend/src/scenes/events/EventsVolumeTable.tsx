@@ -6,6 +6,7 @@ import { InfoCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { humanizeNumber } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { ColumnsType } from 'antd/lib/table'
 
 export interface EventOrPropType {
     event?: string
@@ -29,35 +30,38 @@ const searchEvents = (sources: EventOrPropType[], search: string, key: EventTabl
 export function VolumeTable({ type, data }: { type: EventTableType; data: EventOrPropType[] }): JSX.Element {
     const [searchTerm, setSearchTerm] = useState(false as string | false)
     const [dataWithWarnings, setDataWithWarnings] = useState([] as EventOrPropType[])
-    const num_warnings = dataWithWarnings.reduce((prev, item) => {
-        return prev + (item.warnings?.length || 0)
-    }, 0)
 
     const key = type === 'property' ? 'key' : type // Properties are stored under `key`
 
-    const columns = [
+    const columns: ColumnsType<EventOrPropType> = [
         {
             title: type,
             render: function RenderEvent(item: EventOrPropType): JSX.Element {
-                return <span className="ph-no-capture">{item[key]}</span>
-            },
-            sorter: (a: EventOrPropType, b: EventOrPropType) => ('' + a[key]).localeCompare(b[key] || ''),
-        },
-        {
-            title: `Warnings (${num_warnings})`,
-            render: function RenderEvent(item: EventOrPropType): JSX.Element {
                 return (
-                    <>
-                        {!item.warnings?.length && '-'}
+                    <span>
+                        <span className="ph-no-capture">{item[key]}</span>
                         {item.warnings?.map((warning) => (
-                            <Tooltip key={warning} color="orange" title={<>Warning! {warning}</>}>
-                                <WarningOutlined style={{ color: 'var(--warning)' }} />
+                            <Tooltip
+                                key={warning}
+                                color="orange"
+                                title={
+                                    <>
+                                        <b>Warning!</b> {warning}
+                                    </>
+                                }
+                            >
+                                <WarningOutlined style={{ color: 'var(--warning)', marginLeft: 6 }} />
                             </Tooltip>
                         ))}
-                    </>
+                    </span>
                 )
             },
-            sorter: (a: EventOrPropType, b: EventOrPropType) => b.warnings.length - a.warnings.length,
+            sorter: (a: EventOrPropType, b: EventOrPropType) => ('' + a[key]).localeCompare(b[key] || ''),
+            filters: [
+                { text: 'Has warnings', value: 'warnings' },
+                { text: 'No warnings', value: 'noWarnings' },
+            ],
+            onFilter: (value, record) => (value === 'warnings' ? !!record.warnings.length : !record.warnings.length),
         },
         {
             title: function VolumeTitle() {
