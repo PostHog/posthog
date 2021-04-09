@@ -24,8 +24,8 @@ def generate_exception_response(
     code: str = "invalid",
     type: str = "validation_error",
     attr: Optional[str] = None,
-    status_code: status = status.HTTP_400_BAD_REQUEST,
-) -> Dict[str, Optional[str]]:
+    status_code: int = status.HTTP_400_BAD_REQUEST,
+) -> JsonResponse:
     """
     Generates a friendly JSON error response in line with drf-exceptions-hog for endpoints not under DRF.
     """
