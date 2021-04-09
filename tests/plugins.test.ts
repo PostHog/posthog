@@ -69,7 +69,7 @@ test('setupPlugins and runPlugins', async () => {
     })
     expect(pluginConfig.vm).toBeDefined()
     const vm = await pluginConfig.vm!.resolveInternalVm
-    expect(Object.keys(vm!.methods)).toEqual(['processEvent', 'processEventBatch'])
+    expect(Object.keys(vm!.methods)).toEqual(['setupPlugin', 'teardownPlugin', 'processEvent', 'processEventBatch'])
 
     expect(clearError).toHaveBeenCalledWith(mockServer, pluginConfig)
 

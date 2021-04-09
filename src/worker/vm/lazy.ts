@@ -41,6 +41,10 @@ export class LazyPluginVM {
         return (await this.resolveInternalVm)?.methods.processEventBatch || null
     }
 
+    async getTeardownPlugin(): Promise<PluginConfigVMReponse['methods']['teardownPlugin'] | null> {
+        return (await this.resolveInternalVm)?.methods.teardownPlugin || null
+    }
+
     async getTask(name: string): Promise<PluginTask | null> {
         return (await this.resolveInternalVm)?.tasks[name] || null
     }
