@@ -66,7 +66,6 @@ export function VolumeTable({ type, data }: { type: 'event' | 'key'; data: Event
                     </Tooltip>
                 )
             },
-            // eslint-disable-next-line react/display-name
             render: function RenderVolume(item: EventOrPropType) {
                 return <span className="ph-no-capture">{humanizeNumber(item.volume)}</span>
             },
@@ -78,7 +77,7 @@ export function VolumeTable({ type, data }: { type: 'event' | 'key'; data: Event
                 return (
                     <Tooltip
                         placement="right"
-                        title={<>Number of queries in PostHog that included a filter on this {type}.</>}
+                        title={`Number of queries in PostHog that included a filter on this ${type}`}
                     >
                         30 day queries (delayed by up to an hour)
                         <InfoCircleOutlined className="info-indicator" />
