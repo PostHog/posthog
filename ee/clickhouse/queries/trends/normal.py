@@ -65,14 +65,14 @@ class ClickhouseTrendsNormal:
                 params,
                 lambda result: [{"aggregated_value": result[0][0] if result and len(result) else 0}],
             )
-        elif entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
-            sql_params = self.get_active_user_params(filter, entity, team_id)
-            final_query = ACTIVE_USER_SQL.format(**content_sql_params, **sql_params)
-            return final_query, params, self._parse_normal_result(filter)
         else:
-            content_sql = VOLUME_SQL.format(**content_sql_params).format(
-                **entity_format_params
-            )  # entity_format_params depends on format clause from content_sql_params
+
+            if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+                sql_params = self.get_active_user_params(filter, entity, team_id)
+                content_sql = ACTIVE_USER_SQL.format(**content_sql_params, **sql_params)
+            else:
+                # entity_format_params depends on format clause from content_sql_params
+                content_sql = VOLUME_SQL.format(**content_sql_params).format(**entity_format_params)
 
             null_sql = NULL_SQL.format(
                 interval=interval_annotation,
@@ -81,7 +81,6 @@ class ClickhouseTrendsNormal:
                 date_to=filter.date_to.strftime("%Y-%m-%d %H:%M:%S"),
             )
             final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
-
             return final_query, params, self._parse_normal_result(filter)
 
     def _parse_normal_result(self, filter: Filter) -> Callable:
@@ -112,16 +111,20 @@ class ClickhouseTrendsNormal:
 
     def get_active_user_params(self, filter: Filter, entity: Entity, team_id: int) -> Dict[str, Any]:
         params = {}
-        params.update({"interval": "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 day"})
+        params.update({"prev_interval": "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 day"})
 
         if filter.date_from:
-            params.update({"parsed_date_from_prev_range": format_ch_timestamp(filter.date_from, filter)})
+            params.update(
+                {"parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(filter.date_from, filter)}'"}
+            )
         else:
             try:
                 earliest_date = get_earliest_timestamp(team_id)
             except IndexError:
                 raise ValueError("Active User queries require a lower date bound")
             else:
-                params.update({"parsed_date_from_prev_range": format_ch_timestamp(earliest_date, filter)})
+                params.update(
+                    {"parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(earliest_date, filter)}'"}
+                )
 
         return params
