@@ -1,7 +1,4 @@
-import { BigQuery } from '@google-cloud/bigquery'
-import * as crypto from 'crypto'
-import fetch from 'node-fetch'
-import snowflake from 'snowflake-sdk'
+import { randomBytes } from 'crypto'
 import { VM } from 'vm2'
 
 import { PluginConfig, PluginConfigVMReponse, PluginsServer } from '../../types'
@@ -11,6 +8,7 @@ import { createGeoIp } from './extensions/geoip'
 import { createGoogle } from './extensions/google'
 import { createPosthog } from './extensions/posthog'
 import { createStorage } from './extensions/storage'
+import { imports } from './imports'
 import { transformCode } from './transforms'
 
 export async function createPluginConfigVM(
@@ -18,12 +16,6 @@ export async function createPluginConfigVM(
     pluginConfig: PluginConfig, // NB! might have team_id = 0
     indexJs: string
 ): Promise<PluginConfigVMReponse> {
-    const imports = {
-        crypto: crypto,
-        'node-fetch': fetch,
-        'snowflake-sdk': snowflake,
-        '@google-cloud/bigquery': { BigQuery },
-    }
     const transformedCode = transformCode(indexJs, server, imports)
 
     // Create virtual machine
@@ -37,7 +29,7 @@ export async function createPluginConfigVM(
     vm.freeze(createPosthog(server, pluginConfig), 'posthog')
 
     // Add non-PostHog utilities to virtual machine
-    vm.freeze(fetch, 'fetch')
+    vm.freeze(imports['node-fetch'], 'fetch')
     vm.freeze(createGoogle(), 'google')
 
     vm.freeze(imports, '__pluginHostImports')
@@ -86,7 +78,7 @@ export async function createPluginConfigVM(
         ${transformedCode};
     `)
 
-    const responseVar = `__pluginDetails${crypto.randomBytes(64).toString('hex')}`
+    const responseVar = `__pluginDetails${randomBytes(64).toString('hex')}`
 
     // Explicitly passing __asyncGuard to the returned function from `vm.run` in order
     // to make it harder to override the global `__asyncGuard = noop` inside plugins.
@@ -141,8 +133,10 @@ export async function createPluginConfigVM(
 
             // export various functions
             const __methods = {
+                setupPlugin: __asyncFunctionGuard(__bindMeta('setupPlugin')),
+                teardownPlugin: __asyncFunctionGuard(__bindMeta('teardownPlugin')),
                 processEvent: __asyncFunctionGuard(__bindMeta('processEvent')),
-                processEventBatch: __asyncFunctionGuard(__bindMeta('processEventBatch'))
+                processEventBatch: __asyncFunctionGuard(__bindMeta('processEventBatch')),
             };
 
             // gather the runEveryX commands and export in __tasks
@@ -159,18 +153,11 @@ export async function createPluginConfigVM(
                 }
             }
 
-            // run the plugin setup script, if present
-            const __setupPlugin = __asyncFunctionGuard(async () => __callWithMeta('setupPlugin'));
-
-            ${responseVar} = {
-                __methods,
-                __tasks,
-                __setupPlugin
-            }
+            ${responseVar} = { __methods, __tasks, }
         })
     `)(asyncGuard)
 
-    await vm.run(`${responseVar}.__setupPlugin()`)
+    await vm.run(`${responseVar}.__methods.setupPlugin?.()`)
 
     return {
         vm,

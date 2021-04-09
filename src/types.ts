@@ -181,6 +181,8 @@ export interface PluginTask {
 export interface PluginConfigVMReponse {
     vm: VM
     methods: {
+        setupPlugin: () => Promise<void>
+        teardownPlugin: () => Promise<void>
         processEvent: (event: PluginEvent) => Promise<PluginEvent>
         processEventBatch: (batch: PluginEvent[]) => Promise<PluginEvent[]>
     }

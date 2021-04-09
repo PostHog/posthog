@@ -171,3 +171,15 @@ export function onQuery(server: PluginsServer, onQueryCallback: (queryText: stri
         })
     }
 }
+
+export async function getErrorForPluginConfig(id: number): Promise<any> {
+    const db = new Pool({ connectionString: defaultConfig.DATABASE_URL })
+    let error
+    try {
+        const response = await db.query('SELECT * FROM posthog_pluginconfig WHERE id = $1', [id])
+        error = response.rows[0]['error']
+    } catch {}
+
+    await db.end()
+    return error
+}

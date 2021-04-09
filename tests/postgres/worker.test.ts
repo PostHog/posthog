@@ -11,6 +11,7 @@ import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
 import { makePiscina } from '../../src/worker/piscina'
 import { runPlugins, runPluginsOnBatch, runPluginTask } from '../../src/worker/plugins/run'
 import { loadSchedule, setupPlugins } from '../../src/worker/plugins/setup'
+import { teardownPlugins } from '../../src/worker/plugins/teardown'
 import { createTaskRunner } from '../../src/worker/worker'
 import { resetTestDatabase } from '../helpers/sql'
 import { setupPiscina } from '../helpers/worker'
@@ -20,6 +21,7 @@ jest.mock('../../src/shared/status')
 jest.mock('../../src/worker/ingestion/ingest-event')
 jest.mock('../../src/worker/plugins/run')
 jest.mock('../../src/worker/plugins/setup')
+jest.mock('../../src/worker/plugins/teardown')
 jest.setTimeout(600000) // 600 sec timeout
 
 function createEvent(index = 0): PluginEvent {
@@ -75,9 +77,8 @@ test('piscina worker test', async () => {
     const ingestResponse2 = await ingestEvent({ ...createEvent(), uuid: new UUIDT().toString() })
     expect(ingestResponse2).toEqual({ success: true })
 
-    try {
-        await piscina.destroy()
-    } catch {}
+    await delay(2000)
+    await piscina.destroy()
 })
 
 test('assume that the workerThreads and tasksPerWorker values behave as expected', async () => {
@@ -299,6 +300,12 @@ describe('createTaskRunner()', () => {
         await taskRunner({ task: 'reloadSchedule' })
 
         expect(loadSchedule).toHaveBeenCalled()
+    })
+
+    it('handles `teardownPlugin` task', async () => {
+        await taskRunner({ task: 'teardownPlugins' })
+
+        expect(teardownPlugins).toHaveBeenCalled()
     })
 
     it('handles `flushKafkaMessages` task', async () => {

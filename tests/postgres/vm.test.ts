@@ -38,7 +38,12 @@ test('empty plugins', async () => {
     const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
 
     expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'vm'])
-    expect(Object.keys(vm.methods).sort()).toEqual(['processEvent', 'processEventBatch'])
+    expect(Object.keys(vm.methods).sort()).toEqual([
+        'processEvent',
+        'processEventBatch',
+        'setupPlugin',
+        'teardownPlugin',
+    ])
     expect(vm.methods.processEvent).toEqual(undefined)
     expect(vm.methods.processEventBatch).toEqual(undefined)
 })
@@ -74,6 +79,30 @@ test('setupPlugin async', async () => {
     const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
     const newEvent = await vm.methods.processEvent({ ...defaultEvent })
     expect(newEvent.event).toEqual('haha')
+})
+
+test('teardownPlugin', async () => {
+    const indexJs = `
+        function setupPlugin (meta) {
+            meta.global.data = 'haha'
+        }
+        function teardownPlugin (meta) {
+            fetch('https://google.com/results.json?query=' + meta.global.data)
+        }
+        function processEvent (event, meta) {
+            meta.global.data = event.properties.haha
+            return event
+        }
+    `
+    await resetTestDatabase(indexJs)
+    const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
+    await vm.methods.processEvent({
+        ...defaultEvent,
+        properties: { haha: 'hoho' },
+    })
+    expect(fetch).not.toHaveBeenCalled()
+    await vm.methods.teardownPlugin()
+    expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=hoho')
 })
 
 test('processEvent', async () => {
