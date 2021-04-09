@@ -7,15 +7,6 @@ import { humanizeNumber } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
-const searchEvents = (sources: EventOrPropType[], search: string, key: 'event' | 'key'): EventOrPropType[] => {
-    return new Fuse(sources, {
-        keys: [key],
-        threshold: 0.3,
-    })
-        .search(search)
-        .map((result) => result.item)
-}
-
 export interface EventOrPropType {
     event?: string
     key?: string
@@ -24,19 +15,33 @@ export interface EventOrPropType {
     warnings: string[]
 }
 
-export function VolumeTable({ type, data }: { type: 'event' | 'key'; data: EventOrPropType[] }): JSX.Element {
+type EventTableType = 'event' | 'property'
+
+const searchEvents = (sources: EventOrPropType[], search: string, key: EventTableType): EventOrPropType[] => {
+    return new Fuse(sources, {
+        keys: [key],
+        threshold: 0.3,
+    })
+        .search(search)
+        .map((result) => result.item)
+}
+
+export function VolumeTable({ type, data }: { type: EventTableType; data: EventOrPropType[] }): JSX.Element {
     const [searchTerm, setSearchTerm] = useState(false as string | false)
     const [dataWithWarnings, setDataWithWarnings] = useState([] as EventOrPropType[])
     const num_warnings = dataWithWarnings.reduce((prev, item) => {
         return prev + (item.warnings?.length || 0)
     }, 0)
+
+    const key = type === 'property' ? 'key' : type // Properties are stored under `key`
+
     const columns = [
         {
             title: type,
             render: function RenderEvent(item: EventOrPropType): JSX.Element {
-                return <span className="ph-no-capture">{item[type]}</span>
+                return <span className="ph-no-capture">{item[key]}</span>
             },
-            sorter: (a: EventOrPropType, b: EventOrPropType) => ('' + a[type]).localeCompare(b[type] || ''),
+            sorter: (a: EventOrPropType, b: EventOrPropType) => ('' + a[key]).localeCompare(b[key] || ''),
         },
         {
             title: `Warnings (${num_warnings})`,
@@ -97,10 +102,10 @@ export function VolumeTable({ type, data }: { type: 'event' | 'key'; data: Event
             data.map(
                 (item): EventOrPropType => {
                     item.warnings = []
-                    if (item[type]?.endsWith(' ')) {
+                    if (item[key]?.endsWith(' ')) {
                         item.warnings.push(`This ${type} ends with a space.`)
                     }
-                    if (item[type]?.startsWith(' ')) {
+                    if (item[key]?.startsWith(' ')) {
                         item.warnings.push(`This ${type} starts with a space.`)
                     }
                     return item
@@ -117,6 +122,7 @@ export function VolumeTable({ type, data }: { type: 'event' | 'key'; data: Event
                 onChange={(e) => {
                     setSearchTerm(e.target.value)
                 }}
+                placeholder={`Filter ${type === 'property' ? 'properties' : 'events'}....`}
             />
             <br />
             <br />
@@ -135,15 +141,16 @@ export function VolumeTable({ type, data }: { type: 'event' | 'key'; data: Event
 export function UsageDisabledWarning({ tab }: { tab: string }): JSX.Element {
     return (
         <Alert
-            type="warning"
-            message={
+            type="info"
+            showIcon
+            message={`${tab} is not enabled for your instance.`}
+            description={
                 <>
-                    {tab} is not enabled on your instance. If you want to enable event usage please set the follow
-                    environment variable: <pre style={{ display: 'inline' }}>ASYNC_EVENT_PROPERTY_USAGE=1</pre>
-                    <br />
-                    <br />
-                    Please note, enabling this environment variable can increase load considerably if you have a large
-                    volume of events.
+                    You will still see the list of events and properties, but usage information will be unavailable. If
+                    you want to enable event usage please set the follow environment variable:{' '}
+                    <pre style={{ display: 'inline' }}>ASYNC_EVENT_PROPERTY_USAGE=1</pre>. Please note, enabling this
+                    environment variable <b>may increase load considerably in your infrastructure</b>, particularly if
+                    you have a large volume of events.
                 </>
             }
         />
@@ -157,7 +164,7 @@ export function EventsVolumeTable(): JSX.Element | null {
     return currentTeam?.event_names_with_usage ? (
         <>
             {preflight && !preflight?.is_event_property_usage_enabled ? (
-                <UsageDisabledWarning tab="Properties Stats" />
+                <UsageDisabledWarning tab="Events Stats" />
             ) : (
                 currentTeam?.event_names_with_usage[0]?.volume === null && (
                     <>

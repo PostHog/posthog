@@ -22,7 +22,7 @@ export function PropertiesVolumeTable(): JSX.Element | null {
                     </>
                 )
             )}
-            <VolumeTable data={currentTeam?.event_properties_with_usage as EventOrPropType[]} type="key" />
+            <VolumeTable data={currentTeam?.event_properties_with_usage as EventOrPropType[]} type="property" />
         </>
     ) : null
 }
