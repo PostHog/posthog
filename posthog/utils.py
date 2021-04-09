@@ -33,8 +33,7 @@ from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
-from rest_framework.exceptions import APIException
-from sentry_sdk import capture_exception, push_scope
+from sentry_sdk import push_scope
 
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
@@ -405,7 +404,7 @@ def load_data_from_request(request):
     except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
         raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
 
-    # FIXME: data can also be an array, function assumes it's either None or a dictionary.
+    # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data
 
 
@@ -415,7 +414,7 @@ class SingletonDecorator:
         self.instance = None
 
     def __call__(self, *args, **kwds):
-        if self.instance == None:
+        if self.instance is None:
             self.instance = self.klass(*args, **kwds)
         return self.instance
 
@@ -589,10 +588,10 @@ def get_safe_cache(cache_key: str):
     try:
         cached_result = cache.get(cache_key)  # cache.get is safe in most cases
         return cached_result
-    except:  # if it errors out, the cache is probably corrupted
+    except Exception:  # if it errors out, the cache is probably corrupted
         try:
             cache.delete(cache_key)  # in that case, try to delete the cache
-        except:
+        except Exception:
             pass
     return None
 
@@ -647,7 +646,7 @@ class GenericEmails:
         at_location = email.find("@")
         if at_location == -1:
             return False
-        return self.emails.get(email[at_location + 1 :], False)
+        return self.emails.get(email[(at_location + 1) :], False)
 
 
 def get_available_timezones_with_offsets() -> Dict[str, float]:
@@ -656,7 +655,7 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
     for tz in pytz.common_timezones:
         try:
             offset = pytz.timezone(tz).utcoffset(now)
-        except:
+        except Exception:
             offset = pytz.timezone(tz).utcoffset(now + dt.timedelta(hours=2))
         if offset is None:
             continue

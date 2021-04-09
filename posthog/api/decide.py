@@ -6,6 +6,7 @@ from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
+from sentry_sdk import capture_exception
 
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Team, User
@@ -81,6 +82,7 @@ def get_decide(request: HttpRequest):
         try:
             data = load_data_from_request(request)
         except RequestParsingError as error:
+            capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
             return cors_response(
                 request, generate_exception_response(f"Malformed request data: {error}", code="malformed_data"),
             )
