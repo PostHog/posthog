@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useLayoutEffect, useRef, useState } from 'react'
 import { Table, TableProps } from 'antd'
 import { Resizable } from 'react-resizable'
 import { SessionType } from '~/types'
@@ -60,22 +60,27 @@ export function ResizableTable<RecordType extends object = any>({
     ...props
 }: ResizableTableProps<RecordType>): JSX.Element {
     const breakpoint = getActiveBreakpoint()
-    const minConstraints = [getMinColumnWidth(breakpoint, window.innerWidth), 0]
-    const maxConstraints = [getMaxColumnWidth(breakpoint, window.innerWidth), 0]
-    const scrollWrapper = useRef<HTMLDivElement>(null)
+    const minConstraints = [getMinColumnWidth(breakpoint), 0]
+    const maxConstraints = [getMaxColumnWidth(breakpoint), 0]
+    const scrollWrapperRef = useRef<HTMLDivElement>(null)
+    const overlayRef = useRef<HTMLDivElement>(null)
+    function getTotalWidth(columns: InternalColumnType[]): number {
+        return columns.reduce((total, current) => total + current.width, 0)
+    }
+    function setScrollableRight(value: boolean): void {
+        if (value) {
+            return overlayRef?.current?.classList.add('scrollable-right')
+        }
+        return overlayRef?.current?.classList.remove('scrollable-right')
+    }
     function updateScrollGradient(): void {
-        const wrapper = scrollWrapper.current
-        if (!wrapper) {
-            return
-        }
-        const overlay: HTMLDivElement | null = wrapper.querySelector('.table-gradient-overlay')
-        if (!overlay) {
-            return
-        }
-        if (overlay.offsetWidth + overlay.scrollLeft < overlay.scrollWidth) {
-            overlay.classList.add('scrollable-right')
-        } else {
-            overlay.classList.remove('scrollable-right')
+        if (overlayRef.current) {
+            const overlay = overlayRef.current
+            if (overlay.offsetWidth + overlay.scrollLeft < overlay.scrollWidth) {
+                setScrollableRight(true)
+            } else {
+                setScrollableRight(false)
+            }
         }
     }
     const handleResize = (index: number) => (_: unknown, { size: { width } }: { size: { width: number } }) => {
@@ -87,13 +92,15 @@ export function ResizableTable<RecordType extends object = any>({
             }
             return nextColumns
         })
+        updateScrollGradient()
     }
-    const [columns, setColumns] = useState(() =>
-        initialColumns.map(
+    const [columns, setColumns] = useState(() => {
+        const defaultColumnWidth = getFullwidthColumnSize({})
+        return initialColumns.map(
             (column, index) =>
                 ({
                     ...column,
-                    width: getFullwidthColumnSize(column.span, breakpoint),
+                    width: defaultColumnWidth,
                     onHeaderCell: ({ width }: { width: number }) => ({
                         onResize: handleResize(index),
                         minConstraints,
@@ -102,10 +109,30 @@ export function ResizableTable<RecordType extends object = any>({
                     }),
                 } as InternalColumnType)
         )
-    )
+    })
+    useLayoutEffect(() => {
+        // Calculate relative column widths (px) once the wrapper is mounted.
+        if (scrollWrapperRef.current) {
+            const wrapperWidth = scrollWrapperRef.current.clientWidth
+            const columnWidth = getFullwidthColumnSize({
+                wrapperWidth,
+                breakpoint,
+            })
+            setColumns((cols) => {
+                const nextColumns = cols.map((column) => ({
+                    ...column,
+                    width: columnWidth * column.span,
+                }))
+                if (getTotalWidth(nextColumns) > wrapperWidth) {
+                    setScrollableRight(true)
+                }
+                return nextColumns
+            })
+        }
+    }, [])
     return (
-        <div ref={scrollWrapper} className="resizable-table-scroll-container" onScroll={updateScrollGradient}>
-            <div className="table-gradient-overlay scrollable-right">
+        <div ref={scrollWrapperRef} className="resizable-table-scroll-container" onScroll={updateScrollGradient}>
+            <div ref={overlayRef} className="table-gradient-overlay">
                 <Table
                     columns={columns}
                     components={{

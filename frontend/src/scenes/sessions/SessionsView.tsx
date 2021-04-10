@@ -95,35 +95,35 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 )
             },
             ellipsis: true,
-            span: 4,
+            span: 3,
         },
         {
             title: 'Event Count',
             render: function RenderDuration(session: SessionType) {
                 return <span>{session.event_count}</span>
             },
-            span: 2,
+            span: 1.5,
         },
         {
             title: 'Session duration',
             render: function RenderDuration(session: SessionType) {
                 return <span>{humanFriendlyDuration(session.length)}</span>
             },
-            span: 2,
+            span: 1.5,
         },
         {
             title: 'Start Time',
             render: function RenderStartTime(session: SessionType) {
                 return <span>{humanFriendlyDetailedTime(session.start_time)}</span>
             },
-            span: 4,
+            span: 3,
         },
         {
             title: 'End Time',
             render: function RenderEndTime(session: SessionType) {
                 return <span>{humanFriendlyDetailedTime(session.end_time)}</span>
             },
-            span: 4,
+            span: 3,
         },
         {
             title: 'Start Point',
@@ -132,7 +132,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
-            span: 4,
+            span: 3,
         },
         {
             title: 'End Point',
@@ -143,7 +143,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
-            span: 4,
+            span: 3,
         },
         {
             title: (
@@ -176,7 +176,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 return <SessionsPlayerButton session={session} />
             },
             ellipsis: true,
-            span: 4,
+            span: 2.5,
         },
     ]
 
