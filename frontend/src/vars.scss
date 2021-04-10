@@ -79,7 +79,17 @@ $gosha_sans: 'GoshaSans-Bold', -apple-system, BlinkMacSystemFont, 'Segoe UI', Ro
     content: '';
     width: 100%;
     height: 3rem;
-    background: linear-gradient(to top, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0));
+    background: linear-gradient(to top, #fff, transparent);
+    position: absolute;
+    pointer-events: none;
+    bottom: 0;
+}
+
+.mixin-gradient-overlay-right {
+    content: '';
+    width: 3rem;
+    height: 100%;
+    background: linear-gradient(to left, #fff, transparent);
     position: absolute;
     pointer-events: none;
     bottom: 0;
