@@ -9,6 +9,7 @@ import PropertyFilterButton from './PropertyFilterButton'
 import '../../../scenes/actions/Actions.scss'
 
 const FilterRow = React.memo(function FilterRow({
+    buttonStyle,
     item,
     index,
     filters,
@@ -47,7 +48,7 @@ const FilterRow = React.memo(function FilterRow({
                 content={<PropertyFilter key={index} index={index} onComplete={() => setOpen(false)} logic={logic} />}
             >
                 {key ? (
-                    <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />
+                    <PropertyFilterButton onClick={() => setOpen(!open)} item={item} style={buttonStyle || {}} />
                 ) : (
                     <Button type="default" shape="round" data-attr={'new-prop-filter-' + pageKey}>
                         Add filter
@@ -73,6 +74,7 @@ const FilterRow = React.memo(function FilterRow({
 })
 
 export function PropertyFilters({
+    buttonStyle,
     endpoint = null,
     propertyFilters = null,
     onChange = null,
@@ -89,6 +91,7 @@ export function PropertyFilters({
                 filters.map((item, index) => {
                     return (
                         <FilterRow
+                            buttonStyle={buttonStyle}
                             key={index}
                             logic={logic}
                             item={item}

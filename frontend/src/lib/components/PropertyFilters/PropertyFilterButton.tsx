@@ -9,13 +9,22 @@ import { keyMapping } from '../PropertyKeyInfo'
 export interface Props {
     item: PropertyFilter
     onClick?: () => void
+    style?: React.CSSProperties
 }
 
-const PropertyFilterButton: React.FunctionComponent<Props> = ({ item, onClick }: Props) => {
+const PropertyFilterButton: React.FunctionComponent<Props> = ({ item, onClick, style }: Props) => {
     const { cohorts } = useValues(cohortsModel)
 
     return (
-        <Button type="primary" shape="round" style={{ maxWidth: '75%' }} onClick={onClick}>
+        <Button
+            type="primary"
+            shape="round"
+            style={{
+                maxWidth: '75%',
+                ...style,
+            }}
+            onClick={onClick}
+        >
             <span className="ph-no-capture" style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {formatPropertyLabel(item, cohorts, keyMapping)}
             </span>

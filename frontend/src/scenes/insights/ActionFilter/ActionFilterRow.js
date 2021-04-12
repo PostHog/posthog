@@ -182,6 +182,9 @@ export function ActionFilterRow({
             {visible && (
                 <div className="ml">
                     <PropertyFilters
+                        buttonStyle={{
+                            maxWidth: 'calc(100% - 24px)',
+                        }}
                         pageKey={`${index}-${value}-filter`}
                         properties={eventProperties}
                         propertyFilters={filter.properties}
