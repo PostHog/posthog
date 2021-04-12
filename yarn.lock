@@ -1387,10 +1387,10 @@
     "@types/yargs" "^15.0.0"
     chalk "^4.0.0"
 
-"@maxmind/geoip2-node@^2.2.0":
-  version "2.2.0"
-  resolved "https://registry.yarnpkg.com/@maxmind/geoip2-node/-/geoip2-node-2.2.0.tgz#693a97152797f220afb4f4db620e93e87715e321"
-  integrity sha512-dq9mfUb3+w3xw9+R1Wm4qvpsp4aDIw6ZftMXwNsAtjkxk7AxYNGbOuai/XWjjBxlAjiISiPJAv7QYVDIJhi2Wg==
+"@maxmind/geoip2-node@^2.3.1":
+  version "2.3.1"
+  resolved "https://registry.yarnpkg.com/@maxmind/geoip2-node/-/geoip2-node-2.3.1.tgz#f465bfec300b9a24ce14fc1acdd2b0d931b5674a"
+  integrity sha512-iWxQiymqUJeZOm2GibQlOebZgEFly6SvTL1iALennYGPAsbBX+Iu50tz6xFGsO+2uoohDjPglx0h2TFZO7N2kQ==
   dependencies:
     camelcase-keys "^6.0.1"
     ip6addr "^0.2.3"
@@ -1456,10 +1456,12 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-contrib/-/plugin-contrib-0.0.3.tgz#d0772c6dd9ec9944ebee9dc475e1e781256b0b5f"
   integrity sha512-0HrE8AuPv3OLZA93RrJDbljn9u5D/wmiIkBCeckU3LL67LNozDIJgKsY4Td91zgc+b4Rlx/X0MJNp2l6BHbQqg==
 
-"@posthog/plugin-scaffold@0.4.1":
-  version "0.4.1"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.4.1.tgz#f6e27cdda89fe39fad20e20f5661c1746d3aaef2"
-  integrity sha512-x2gYuWKf/bRXZP/ZssRIIdkMvnsZBZNvKLeR+3cOn6lSD/C5qTTwYji7JyyKAoNQ0t7aRraJdHZAOKRJ46Aq8g==
+"@posthog/plugin-scaffold@0.5.0":
+  version "0.5.0"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.5.0.tgz#0d46d0f39700ebf3cf613ba80a2c9a4dc6d13805"
+  integrity sha512-gE12hy/gYdMOYLP/PhbC2XfqvCeoXrdkFeR9HFfSK31RWU+aW+JMK7pi+CATatXfNpMCvjGxIYJk3QBPwm0WDA==
+  dependencies:
+    "@maxmind/geoip2-node" "^2.3.1"
 
 "@protobufjs/aspromise@^1.1.1", "@protobufjs/aspromise@^1.1.2":
   version "1.1.2"

@@ -56,6 +56,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         REDIS_POOL_MAX_SIZE: 3,
         DISABLE_MMDB: isTestEnv,
         DISTINCT_ID_LRU_SIZE: 10000,
+        INTERNAL_MMDB_SERVER_PORT: 0,
     }
 }
 
@@ -95,6 +96,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         REDIS_POOL_MAX_SIZE: 'maximum number of Redis connections to use per thread',
         DISABLE_MMDB: 'whether to disable fetching MaxMind database for IP location',
         DISTINCT_ID_LRU_SIZE: 'size of persons distinct ID LRU cache',
+        INTERNAL_MMDB_SERVER_PORT: 'port of the internal server used for IP location (0 means random)',
     }
 }
 
