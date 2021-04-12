@@ -16,7 +16,7 @@ import { ViewType } from 'scenes/insights/insightLogic'
 export type AvailableFeatures = 'zapier' | 'organizations_projects' | 'google_login' | 'dashboard_collaboration'
 
 export interface UserType {
-    id: string
+    uuid: string
     first_name: string
     email: string
     email_opt_in: boolean
