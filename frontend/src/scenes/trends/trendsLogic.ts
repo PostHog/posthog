@@ -228,6 +228,7 @@ export const trendsLogic = kea<
         setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
+        toggleLifecycles: (lifecycleNames: string) => ({ lifecycleNames })
     }),
 
     reducers: ({ props }) => ({
@@ -349,6 +350,10 @@ export const trendsLogic = kea<
     listeners: ({ actions, values, props }) => ({
         setDisplay: async ({ display }) => {
             actions.setFilters({ display })
+        },
+        toggleLifecycles: ({ lifecycleNames }) => {
+            const toggledResults = values.results.filter(result => lifecycleNames === result.status).map((result, idx) => ({ ...result, id: idx }))
+            actions.setIndexedResults(toggledResults)
         },
         refreshCohort: () => {
             cohortLogic({

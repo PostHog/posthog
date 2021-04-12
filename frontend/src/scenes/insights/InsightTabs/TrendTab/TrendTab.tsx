@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Tooltip, Row, Skeleton } from 'antd'
+import { Tooltip, Row, Skeleton, Switch } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined } from '@ant-design/icons'
@@ -25,6 +25,8 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
+    const { toggleLifecycles } = useActions(trendsLogic)
+    const lifecycleNames = ['new', 'resurrecting', 'returning', 'dormant']
 
     return (
         <>
@@ -50,6 +52,23 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                 />
             )}
 
+            <hr />
+            {filters.insight === ViewType.LIFECYCLE && (
+                <>
+                <h4 className="secondary">Lifecycle Toggles</h4>
+                {filtersLoading ? (
+                    <Skeleton active />
+                ) : (
+                    <div className="toggle">
+                        {lifecycleNames.map((cycle, idx) =>
+                            <div key={idx}>
+                                {cycle} <Switch size="small" defaultChecked onChange={() => toggleLifecycles(cycle)}></Switch>
+                            </div>
+                            )}
+                    </div>
+                )}
+                </>
+            )}
             <hr />
             <h4 className="secondary">Filters</h4>
             {filtersLoading ? (
