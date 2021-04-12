@@ -68,7 +68,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         response = self.client.get(f"/api/personal_api_keys/{other_key.id}/")
         self.assertEqual(response.status_code, 404)
         response_data = response.json()
-        self.assertDictEqual(response_data, self.ERROR_RESPONSE_NOT_FOUND)
+        self.assertDictEqual(response_data, self.not_found_response())
 
 
 class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):

@@ -4,29 +4,26 @@ import { PluginDrawer } from 'scenes/plugins/edit/PluginDrawer'
 import { RepositoryTab } from 'scenes/plugins/tabs/repository/RepositoryTab'
 import { InstalledTab } from 'scenes/plugins/tabs/installed/InstalledTab'
 import { useActions, useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { pluginsLogic } from './pluginsLogic'
-import { Spin, Tabs, Tag } from 'antd'
-import { OptInPlugins } from 'scenes/plugins/optin/OptInPlugins'
+import { Tag, Tabs } from 'antd'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
 import { canGloballyManagePlugins, canInstallPlugins, canViewPlugins } from './access'
+import { UserType } from '../../types'
 
-export function Plugins(): JSX.Element | null {
-    const { user } = useValues(userLogic)
+export function Plugins({ user }: { user: UserType }): JSX.Element | null {
     const { pluginTab } = useValues(pluginsLogic)
     const { setPluginTab } = useActions(pluginsLogic)
     const { TabPane } = Tabs
 
-    if (!user) {
-        return <Spin />
-    }
+    useEffect(() => {
+        if (!canViewPlugins(user.organization)) {
+            window.location.href = '/'
+        }
+    }, [user])
 
     if (!canViewPlugins(user.organization)) {
-        useEffect(() => {
-            window.location.href = '/'
-        }, [])
         return null
     }
 
@@ -43,35 +40,26 @@ export function Plugins(): JSX.Element | null {
                         </sup>
                     </>
                 }
-                caption={user.team?.plugins_opt_in ? "Plugins enable you to extend PostHog's core functionality." : ''}
+                caption="Plugins enable you to extend PostHog's core data processing functionality."
             />
-
-            {user.team?.plugins_opt_in ? (
-                <>
-                    {canInstallPlugins(user.organization) ? (
-                        <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}>
-                            <TabPane tab="Installed" key={PluginTab.Installed}>
-                                <InstalledTab />
-                            </TabPane>
-                            {canGloballyManagePlugins(user.organization) && (
-                                <TabPane tab="Repository" key={PluginTab.Repository}>
-                                    <RepositoryTab />
-                                </TabPane>
-                            )}
-                            <TabPane tab="Advanced" key={PluginTab.Advanced}>
-                                <AdvancedTab />
-                            </TabPane>
-                        </Tabs>
-                    ) : (
+            {canInstallPlugins(user.organization) ? (
+                <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}>
+                    <TabPane tab="Installed" key={PluginTab.Installed}>
                         <InstalledTab />
+                    </TabPane>
+                    {canGloballyManagePlugins(user.organization) && (
+                        <TabPane tab="Repository" key={PluginTab.Repository}>
+                            <RepositoryTab />
+                        </TabPane>
                     )}
-                    <PluginDrawer />
-                </>
+                    <TabPane tab="Advanced" key={PluginTab.Advanced}>
+                        <AdvancedTab />
+                    </TabPane>
+                </Tabs>
             ) : (
-                <div style={{ maxWidth: 600, marginTop: 20 }}>
-                    <OptInPlugins />
-                </div>
+                <InstalledTab />
             )}
+            <PluginDrawer />
         </div>
     )
 }

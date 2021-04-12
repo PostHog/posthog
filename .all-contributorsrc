@@ -39,7 +39,9 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/4550621?v=4",
       "profile": "https://github.com/Twixes",
       "contributions": [
-        "code"
+        "code",
+        "test",
+        "design"
       ]
     },
     {
@@ -1008,7 +1010,11 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/611271?v=4",
       "profile": "https://www.linkedin.com/in/adrien-brault-4b987426/",
       "contributions": [
-        "code"
+        "code",
+        "test",
+        "bug",
+        "content",
+        "doc"
       ]
     },
     {
@@ -1036,6 +1042,54 @@
       "profile": "http://www.jonathanclarke.ie",
       "contributions": [
         "code"
+      ]
+    },
+    {
+      "login": "imgbot[bot]",
+      "name": "imgbot[bot]",
+      "avatar_url": "https://avatars.githubusercontent.com/in/4706?v=4",
+      "profile": "https://github.com/apps/imgbot",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "well-balanced",
+      "name": "Woosik Kim",
+      "avatar_url": "https://avatars.githubusercontent.com/u/48206623?v=4",
+      "profile": "http://well-balanced.medium.com",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "jeduden",
+      "name": "jeduden",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1117699?v=4",
+      "profile": "https://github.com/jeduden",
+      "contributions": [
+        "ideas",
+        "code",
+        "doc"
+      ]
+    },
+    {
+      "login": "gempain",
+      "name": "Geoffroy Empain",
+      "avatar_url": "https://avatars.githubusercontent.com/u/13135149?v=4",
+      "profile": "https://github.com/gempain",
+      "contributions": [
+        "userTesting"
+      ]
+    },
+    {
+      "login": "rethab",
+      "name": "rethab",
+      "avatar_url": "https://avatars.githubusercontent.com/u/2222044?v=4",
+      "profile": "https://github.com/rethab",
+      "contributions": [
+        "code",
+        "doc"
       ]
     }
   ],

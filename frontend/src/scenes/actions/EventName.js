@@ -1,10 +1,10 @@
 import React from 'react'
 import { Select } from 'antd'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function EventName({ value, onChange, isActionStep }) {
-    const { eventNamesGrouped } = useValues(userLogic)
+    const { eventNamesGrouped } = useValues(teamLogic)
 
     return (
         <span>

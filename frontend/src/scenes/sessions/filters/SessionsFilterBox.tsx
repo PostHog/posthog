@@ -9,14 +9,14 @@ import { ActionInfo } from 'scenes/insights/ActionFilter/ActionFilterDropdown'
 import { FilterSelector, sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { Link } from 'lib/components/Link'
 import { cohortsModel } from '~/models/cohortsModel'
-import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function SessionsFilterBox({ selector }: { selector: FilterSelector }): JSX.Element | null {
     const { openFilter, personProperties } = useValues(sessionsFiltersLogic)
 
     const { closeFilterSelect, dropdownSelected } = useActions(sessionsFiltersLogic)
 
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { actions } = useValues(actionsModel)
     const { cohorts } = useValues(cohortsModel)
 
@@ -50,7 +50,7 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                 </>
             ),
             dataSource:
-                user?.team?.event_names_with_usage.map((event) => ({
+                (currentTeam?.event_names_with_usage ?? []).map((event) => ({
                     key: EntityTypes.EVENTS + event.event,
                     name: event.event,
                     ...event,

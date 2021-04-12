@@ -32,7 +32,7 @@ export function createdByColumn(items: Record<string, any>[]): Record<string, an
                 }
                 return {
                     text: item.created_by?.first_name || item.created_by?.email,
-                    value: item.created_by?.id,
+                    value: item.created_by?.uuid,
                 }
             }),
             (item) => item?.value
@@ -47,7 +47,7 @@ export function createdByColumn(items: Record<string, any>[]): Record<string, an
             return (a.text + '').localeCompare(b.text + '')
         }),
         onFilter: (value: string, item: Record<string, any>) =>
-            (value === null && item.created_by === null) || item.created_by?.id === value,
+            (value === null && item.created_by === null) || item.created_by?.uuid === value,
         sorter: (a: Record<string, any>, b: Record<string, any>) =>
             (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
                 b.created_by?.first_name || b.created_by?.email || ''
