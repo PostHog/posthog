@@ -8,7 +8,7 @@ type PropertyOption = EventProperty
 
 interface Props {
     optionGroups: Array<PropertyOptionGroup>
-    value: PropertyOption | null
+    value: Partial<PropertyOption> | null
     onChange: (type: PropertyOptionGroup['type'], value: string) => void
     placeholder: string
     autoOpenIfEmpty?: boolean
