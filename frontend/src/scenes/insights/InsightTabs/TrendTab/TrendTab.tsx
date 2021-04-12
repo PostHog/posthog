@@ -25,7 +25,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
-    const { toggleLifecycles } = useActions(trendsLogic)
+    const { toggleLifecycle } = useActions(trendsLogic)
     const lifecycleNames = ['new', 'resurrecting', 'returning', 'dormant']
 
     return (
@@ -55,18 +55,23 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
             <hr />
             {filters.insight === ViewType.LIFECYCLE && (
                 <>
-                <h4 className="secondary">Lifecycle Toggles</h4>
-                {filtersLoading ? (
-                    <Skeleton active />
-                ) : (
-                    <div className="toggle">
-                        {lifecycleNames.map((cycle, idx) =>
-                            <div key={idx}>
-                                {cycle} <Switch size="small" defaultChecked onChange={() => toggleLifecycles(cycle)}></Switch>
-                            </div>
-                            )}
-                    </div>
-                )}
+                    <h4 className="secondary">Lifecycle Toggles</h4>
+                    {filtersLoading ? (
+                        <Skeleton active />
+                    ) : (
+                        <div className="toggle">
+                            {lifecycleNames.map((cycle, idx) => (
+                                <div key={idx}>
+                                    {cycle}{' '}
+                                    <Switch
+                                        size="small"
+                                        defaultChecked
+                                        onChange={() => toggleLifecycle(cycle)}
+                                     />
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </>
             )}
             <hr />

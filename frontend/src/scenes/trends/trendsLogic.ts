@@ -228,7 +228,7 @@ export const trendsLogic = kea<
         setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
-        toggleLifecycles: (lifecycleNames: string) => ({ lifecycleNames })
+        toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
     }),
 
     reducers: ({ props }) => ({
@@ -271,6 +271,16 @@ export const trendsLogic = kea<
             [] as IndexedTrendResult[],
             {
                 setIndexedResults: ({}, { results }) => results,
+            },
+        ],
+        toggledLifecycles: [
+            ['new', 'resurrecting', 'returning', 'dormant'],
+            {
+                toggleLifecycle: (state, { lifecycleName }) => {
+                    return state.includes(lifecycleName)
+                        ? state.filter((lifecycles) => lifecycles !== lifecycleName)
+                        : state.push(lifecycleName) && state
+                },
             },
         ],
         visibilityMap: [
@@ -351,8 +361,10 @@ export const trendsLogic = kea<
         setDisplay: async ({ display }) => {
             actions.setFilters({ display })
         },
-        toggleLifecycles: ({ lifecycleNames }) => {
-            const toggledResults = values.results.filter(result => lifecycleNames === result.status).map((result, idx) => ({ ...result, id: idx }))
+        toggleLifecycle: () => {
+            const toggledResults = values.results
+                .filter((result) => values.toggledLifecycles.includes(result.status))
+                .map((result, idx) => ({ ...result, id: idx }))
             actions.setIndexedResults(toggledResults)
         },
         refreshCohort: () => {
