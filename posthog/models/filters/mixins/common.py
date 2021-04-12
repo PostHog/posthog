@@ -321,12 +321,3 @@ class EntityTypeMixin(BaseParamMixin):
     @include_dict
     def entity_type_to_dict(self):
         return {"entity_type": self.target_entity_type} if self.target_entity_type else {}
-
-# class LifecycleToggleMixin(BaseParamMixin):
-#     @cached_property
-#     def shown_as(self) -> Optional[str]:
-#         return self._data.get(SHOWN_AS, None)
-
-#     @include_dict
-#     def shown_as_to_dict(self):
-#         return {"shown_as": self.shown_as} if self.shown_as else {}
