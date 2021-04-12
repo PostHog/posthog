@@ -74,7 +74,7 @@ const FilterRow = React.memo(function FilterRow({
 })
 
 export function PropertyFilters({
-    buttonStyle,
+    buttonStyle = {},
     endpoint = null,
     propertyFilters = null,
     onChange = null,
