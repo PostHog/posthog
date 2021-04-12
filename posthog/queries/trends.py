@@ -287,13 +287,15 @@ def process_math(query: QuerySet, entity: Entity) -> QuerySet:
             where=['jsonb_typeof("posthog_event"."properties"->%s) = \'number\''], params=[entity.math_property],
         )
     elif entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
-        query = query.annotate(
-            count=Count(
-                "person_id",
-                distinct=True,
-                filter=Q(timestamp__date__range=(F("timestamp") - datetime.timedelta(days=7), F("timestamp"))),
-            )
+        subquery_count = (
+            query.annotate(dummy_group_by=Value(1))
+            .values("dummy_group_by")
+            .annotate(count=Count("person_id", distinct=True))
+            .filter(timestamp__date__range=(OuterRef("timestamp") - datetime.timedelta(days=7), OuterRef("timestamp")))
+            .values("count")
         )
+
+        query = query.annotate(count=Subquery(subquery_count))
 
     return query
 
