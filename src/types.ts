@@ -70,6 +70,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     REDIS_POOL_MAX_SIZE: number
     DISABLE_MMDB: boolean
     DISTINCT_ID_LRU_SIZE: number
+    INTERNAL_MMDB_SERVER_PORT: number
 }
 export interface PluginsServer extends PluginsServerConfig {
     // active connections to Postgres, Redis, ClickHouse, Kafka, StatsD
@@ -80,8 +81,6 @@ export interface PluginsServer extends PluginsServerConfig {
     kafka?: Kafka
     kafkaProducer?: KafkaProducerWrapper
     statsd?: StatsD
-    mmdb: ReaderModel | null
-    mmdbUpdateJob: Job | null
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
     pluginConfigs: Map<PluginConfigId, PluginConfig>

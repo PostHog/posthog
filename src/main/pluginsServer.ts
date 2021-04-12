@@ -1,10 +1,13 @@
+import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { FastifyInstance } from 'fastify'
 import Redis from 'ioredis'
+import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../shared/config'
+import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from '../shared/mmdb'
 import { createServer } from '../shared/server'
 import { status } from '../shared/status'
 import { createRedis, delay } from '../shared/utils'
@@ -20,6 +23,8 @@ export type ServerInstance = {
     server: PluginsServer
     piscina: Piscina
     queue: Queue
+    mmdb?: ReaderModel
+    mmdbUpdateJob?: schedule.Job
     stop: () => Promise<void>
 }
 
@@ -43,6 +48,7 @@ export async function startPluginsServer(
     let queue: Queue | undefined
     let closeServer: () => Promise<void> | undefined
     let scheduleControl: ScheduleControl | undefined
+    let mmdbServer: net.Server | undefined
 
     let shutdownStatus = 0
 
@@ -66,21 +72,54 @@ export async function startPluginsServer(
         pingJob && schedule.cancelJob(pingJob)
         statsJob && schedule.cancelJob(statsJob)
         await scheduleControl?.stopSchedule()
+        await new Promise<void>((resolve, reject) =>
+            !mmdbServer
+                ? resolve()
+                : mmdbServer.close((error) => {
+                      if (error) {
+                          reject(error)
+                      } else {
+                          status.info('🛑', 'Closed internal MMDB server!')
+                          resolve()
+                      }
+                  })
+        )
         if (piscina) {
             await stopPiscina(piscina)
         }
         await closeServer?.()
-
+        status.info('👋', 'Over and out!')
         // wait an extra second for any misc async task to finish
         await delay(1000)
     }
 
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-        process.on(signal, closeJobs)
+        process.on(signal, () => process.emit('beforeExit', 0))
     }
+
+    process.on('beforeExit', async () => {
+        // This makes async exit possible with the process waiting until jobs are closed
+        await closeJobs()
+        process.exit(0)
+    })
 
     try {
         ;[server, closeServer] = await createServer(serverConfig, null)
+
+        const serverInstance: Partial<ServerInstance> & Pick<ServerInstance, 'server'> = {
+            server,
+        }
+
+        if (!serverConfig.DISABLE_MMDB) {
+            serverInstance.mmdb = (await prepareMmdb(serverInstance)) ?? undefined
+            serverInstance.mmdbUpdateJob = schedule.scheduleJob(
+                '0 */4 * * *',
+                async () => await performMmdbStalenessCheck(serverInstance)
+            )
+            mmdbServer = await createMmdbServer(serverInstance)
+            serverConfig.INTERNAL_MMDB_SERVER_PORT = (mmdbServer.address() as AddressInfo).port
+            server.INTERNAL_MMDB_SERVER_PORT = serverConfig.INTERNAL_MMDB_SERVER_PORT
+        }
 
         piscina = makePiscina(serverConfig)
         if (!server.DISABLE_WEB) {
@@ -112,7 +151,6 @@ export async function startPluginsServer(
             })
             await server!.db!.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
         })
-
         // every 10 seconds sends stuff to StatsD
         statsJob = schedule.scheduleJob('*/10 * * * * *', () => {
             if (piscina) {
@@ -122,20 +160,19 @@ export async function startPluginsServer(
             }
         })
 
-        status.info('🚀', 'All systems go.')
+        serverInstance.piscina = piscina
+        serverInstance.queue = queue
+        serverInstance.stop = closeJobs
+
+        status.info('🚀', 'All systems go')
+
+        return serverInstance as ServerInstance
     } catch (error) {
         Sentry.captureException(error)
         status.error('💥', 'Launchpad failure!', error)
         void Sentry.flush() // flush in the background
         await closeJobs()
         process.exit(1)
-    }
-
-    return {
-        server,
-        piscina,
-        queue,
-        stop: closeJobs,
     }
 }
 
