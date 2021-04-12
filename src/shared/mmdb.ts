@@ -277,28 +277,28 @@ export async function createMmdbServer(serverInstance: MMDBPrepServerInstance): 
     })
 }
 
-export async function fetchIpLocationInternally(
-    ipAddress: string,
-    serverConfig: PluginsServerConfig
-): Promise<City | null> {
-    if (serverConfig.DISABLE_MMDB) {
+export async function fetchIpLocationInternally(ipAddress: string, server: PluginsServer): Promise<City | null> {
+    if (server.DISABLE_MMDB) {
         throw new Error(MMDBRequestStatus.ServiceUnavailable)
     }
+    const mmdbRequestTimer = new Date()
     const result = await new Promise<City | null>((resolve, reject) => {
         const client = new net.Socket()
-        client.connect(serverConfig.INTERNAL_MMDB_SERVER_PORT, 'localhost', () => {
+        client.connect(server.INTERNAL_MMDB_SERVER_PORT, 'localhost', () => {
             client.write(ipAddress)
             client.end()
         })
 
         client.on('data', (data) => {
             const result = deserialize(data)
-            if (typeof result !== 'string') {
-                // String means a RequestStatus error
-                resolve(result as City | null)
-            } else {
-                reject(new Error(result))
-            }
+            client.end(() => {
+                if (typeof result !== 'string') {
+                    // String means a RequestStatus error
+                    resolve(result as City | null)
+                } else {
+                    reject(new Error(result))
+                }
+            })
         })
 
         client.setTimeout(MMDB_INTERNAL_SERVER_TIMEOUT_SECONDS * 1000).on('timeout', () => {
@@ -315,5 +315,6 @@ export async function fetchIpLocationInternally(
             }
         })
     })
+    server.statsd?.timing('mmdb.internal_request', mmdbRequestTimer)
     return result
 }
