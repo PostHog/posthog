@@ -1,17 +1,15 @@
 import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { Button, Tooltip, Col, Row, Select } from 'antd'
+import { Button, Col, Row } from 'antd'
 import { EntityTypes } from '../../trends/trendsLogic'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
+import { MATHS } from 'lib/constants'
 import { DownOutlined, DeleteOutlined } from '@ant-design/icons'
-import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import './ActionFilterRow.scss'
 import { teamLogic } from 'scenes/teamLogic'
-
-const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
-const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
+import { MathSelector } from './MathSelector'
+import { MathPropertySelector } from './MathPropertySelector'
 
 const determineFilterLabel = (visible, filter) => {
     if (visible) {
@@ -95,7 +93,7 @@ export function ActionFilterRow({
         value = entity.id || filter.id
     }
     return (
-        <div>
+        <div className="action-filter-row">
             {showOr && (
                 <Row align="center">
                     {index > 0 && (
@@ -193,122 +191,5 @@ export function ActionFilterRow({
                 </div>
             )}
         </div>
-    )
-}
-
-function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAvailable, style }) {
-    const numericalNotice = `This can only be used on properties that have at least one number type occurence in your events.${
-        areEventPropertiesNumericalAvailable ? '' : ' None have been found yet!'
-    }`
-
-    return (
-        <Select
-            style={{ width: 150, ...style }}
-            value={math || 'total'}
-            onChange={(value) => onMathSelect(index, value)}
-            data-attr={`math-selector-${index}`}
-        >
-            <Select.OptGroup key="event aggregates" label="Event aggregation">
-                {EVENT_MATH_ENTRIES.map(([key, { name, description, onProperty }]) => {
-                    const disabled = onProperty && !areEventPropertiesNumericalAvailable
-                    return (
-                        <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`} disabled={disabled}>
-                            <Tooltip
-                                title={
-                                    onProperty ? (
-                                        <>
-                                            {description}
-                                            <br />
-                                            {numericalNotice}
-                                        </>
-                                    ) : (
-                                        description
-                                    )
-                                }
-                                placement="right"
-                            >
-                                <div
-                                    style={{
-                                        height: '100%',
-                                        width: '100%',
-                                        paddingRight: 8,
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                    }}
-                                >
-                                    {name}
-                                </div>
-                            </Tooltip>
-                        </Select.Option>
-                    )
-                })}
-            </Select.OptGroup>
-            <Select.OptGroup key="property aggregates" label="Property aggregation">
-                {PROPERTY_MATH_ENTRIES.map(([key, { name, description, onProperty }]) => {
-                    const disabled = onProperty && !areEventPropertiesNumericalAvailable
-                    return (
-                        <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`} disabled={disabled}>
-                            <Tooltip
-                                title={
-                                    onProperty ? (
-                                        <>
-                                            {description}
-                                            <br />
-                                            {numericalNotice}
-                                        </>
-                                    ) : (
-                                        description
-                                    )
-                                }
-                                placement="right"
-                            >
-                                <div style={{ height: '100%', width: '100%' }}>{name}</div>
-                            </Tooltip>
-                        </Select.Option>
-                    )
-                })}
-            </Select.OptGroup>
-        </Select>
-    )
-}
-
-function MathPropertySelector(props) {
-    const applicableProperties = props.properties
-        .filter(({ value }) => (value[0] !== '$' || value === '$time') && value !== 'distinct_id' && value !== 'token')
-        .sort((a, b) => (a.value + '').localeCompare(b.value))
-
-    return (
-        <SelectGradientOverflow
-            showSearch
-            style={{ width: 150 }}
-            onChange={(_, payload) => props.onMathPropertySelect(props.index, payload && payload.value)}
-            className="property-select"
-            value={props.mathProperty}
-            data-attr="math-property-select"
-            dropdownMatchSelectWidth={350}
-            placeholder={'Select property'}
-        >
-            {applicableProperties.map(({ value, label }) => (
-                <Select.Option
-                    key={`math-property-${value}-${props.index}`}
-                    value={value}
-                    data-attr={`math-property-${value}-${props.index}`}
-                >
-                    <Tooltip
-                        title={
-                            <>
-                                Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>.
-                                Note that only {props.name} occurences where <code>{label}</code> is set and a number
-                                will be taken into account.
-                            </>
-                        }
-                        placement="right"
-                        overlayStyle={{ zIndex: 9999999999 }}
-                    >
-                        {label}
-                    </Tooltip>
-                </Select.Option>
-            ))}
-        </SelectGradientOverflow>
     )
 }
