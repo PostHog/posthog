@@ -83,7 +83,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
         {
             title: 'URL / Screen',
             key: 'url',
-            span: 5,
+            span: 4,
             render: function renderURL({ event }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
@@ -122,7 +122,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
         {
             title: 'When',
             key: 'when',
-            span: 4,
+            span: 3,
             render: function renderWhen({ event }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
