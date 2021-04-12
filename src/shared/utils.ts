@@ -374,13 +374,12 @@ export async function tryTwice<T extends any>(
 }
 
 export async function createRedis(serverConfig: PluginsServerConfig): Promise<Redis.Redis> {
-    const credentials: Partial<RedisOptions> | undefined =
-        !serverConfig.REDIS_URL && serverConfig.POSTHOG_REDIS_HOST
-            ? {
-                  password: serverConfig.POSTHOG_DB_PASSWORD,
-                  port: serverConfig.POSTHOG_REDIS_PORT,
-              }
-            : undefined
+    const credentials: Partial<RedisOptions> | undefined = serverConfig.POSTHOG_REDIS_HOST
+        ? {
+              password: serverConfig.POSTHOG_DB_PASSWORD,
+              port: serverConfig.POSTHOG_REDIS_PORT,
+          }
+        : undefined
 
     const redis = new Redis(credentials ? serverConfig.POSTHOG_REDIS_HOST : serverConfig.REDIS_URL, {
         ...credentials,
