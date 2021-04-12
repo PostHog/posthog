@@ -24,7 +24,14 @@ from django.db.models.expressions import ExpressionWrapper, F, RawSQL, Subquery
 from django.db.models.fields import DateTimeField
 from django.db.models.functions import Cast
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE, TRENDS_LIFECYCLE
+from posthog.constants import (
+    MONTHLY_ACTIVE,
+    TREND_FILTER_TYPE_ACTIONS,
+    TRENDS_CUMULATIVE,
+    TRENDS_DISPLAY_BY_VALUE,
+    TRENDS_LIFECYCLE,
+    WEEKLY_ACTIVE,
+)
 from posthog.models import (
     Action,
     ActionStep,
@@ -279,6 +286,15 @@ def process_math(query: QuerySet, entity: Entity) -> QuerySet:
         query = query.extra(
             where=['jsonb_typeof("posthog_event"."properties"->%s) = \'number\''], params=[entity.math_property],
         )
+    elif entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+        query = query.annotate(
+            count=Count(
+                "person_id",
+                distinct=True,
+                filter=Q(timestamp__date__range=(F("timestamp") - datetime.timedelta(days=7), F("timestamp"))),
+            )
+        )
+
     return query
 
 
