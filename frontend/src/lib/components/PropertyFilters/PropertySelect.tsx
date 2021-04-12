@@ -26,16 +26,22 @@ interface SelectionOptionType {
     type: 'event' | 'person' | 'element'
 }
 
-export function PropertySelect({ optionGroups, value, onChange, placeholder, autoOpenIfEmpty }: Props): JSX.Element {
+export function PropertySelect({
+    optionGroups,
+    value: propertyOption,
+    onChange,
+    placeholder,
+    autoOpenIfEmpty,
+}: Props): JSX.Element {
     return (
         <SelectGradientOverflow
             showSearch
-            autoFocus={autoOpenIfEmpty && !value}
-            defaultOpen={autoOpenIfEmpty && !value}
+            autoFocus={autoOpenIfEmpty && !propertyOption?.value}
+            defaultOpen={autoOpenIfEmpty && !propertyOption?.value}
             placeholder={placeholder}
             data-attr="property-filter-dropdown"
             labelInValue
-            value={value || undefined}
+            value={propertyOption || undefined}
             filterOption={(input, option) => option?.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
             onChange={(_: null, selection) => {
                 const { value: val, type } = selection as SelectionOptionType
