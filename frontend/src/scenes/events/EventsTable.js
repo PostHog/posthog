@@ -177,7 +177,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                         }}
                     />
                 </Col>
-                <Col span={pageKey === 'events' ? 2 : 4}>
+                <Col span={pageKey === 'events' ? 2 : 4} className="text-right">
                     <Tooltip title="Up to 100,000 latest events.">
                         <Button
                             type="default"
