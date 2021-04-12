@@ -1,7 +1,6 @@
 import React, { useLayoutEffect, useRef, useState } from 'react'
 import { Table, TableProps } from 'antd'
 import { Resizable } from 'react-resizable'
-import { SessionType } from '~/types'
 import { getActiveBreakpoint, getFullwidthColumnSize, getMaxColumnWidth, getMinColumnWidth } from './responsiveUtils'
 
 import './index.scss'
@@ -9,7 +8,7 @@ import './index.scss'
 export type ResizableColumnType = {
     title: string | JSX.Element
     key?: string
-    render: (session: SessionType) => JSX.Element
+    render: (...props: any) => JSX.Element
     ellipsis?: boolean
     span: number
 }

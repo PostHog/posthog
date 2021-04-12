@@ -1,5 +1,5 @@
 import React, { useRef } from 'react'
-import { Button, Table } from 'antd'
+import { Button } from 'antd'
 import { Link } from 'lib/components/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { CohortType, PersonType } from '~/types'
@@ -12,6 +12,7 @@ import { PersonHeader } from './PersonHeader'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
+import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
 dayjs.extend(relativeTime)
 
 interface PersonsTableType {
@@ -44,14 +45,11 @@ export function PersonsTable({
 
     const topRef = useRef<HTMLSpanElement>(null)
 
-    const columns: {
-        title: string
-        key: string
-        render: (_: string, person: PersonType, index: number) => JSX.Element
-    }[] = [
+    const columns: ResizableColumnType[] = [
         {
             title: 'Email',
             key: 'email',
+            span: 6,
             render: function Render(_: string, person: PersonType) {
                 return (
                     <Link to={linkToPerson(person)} data-attr="goto-person-email">
@@ -63,9 +61,10 @@ export function PersonsTable({
         {
             title: 'ID',
             key: 'id',
+            span: 8,
             render: function Render(_: string, person: PersonType) {
                 return (
-                    <div>
+                    <div style={{ overflow: 'hidden' }}>
                         {person.distinct_ids.length && (
                             <CopyToClipboardInline
                                 explicitValue={person.distinct_ids[0]}
@@ -86,6 +85,7 @@ export function PersonsTable({
         columns.push({
             title: 'First seen',
             key: 'created',
+            span: 3,
             render: function Render(_: string, person: PersonType) {
                 return person.created_at ? <TZLabel time={person.created_at} /> : <></>
             },
@@ -95,6 +95,7 @@ export function PersonsTable({
     columns.push({
         key: 'actions',
         title: '',
+        span: 2,
         render: function Render(_: string, person: PersonType, index: number) {
             return (
                 <>
@@ -110,7 +111,7 @@ export function PersonsTable({
     return (
         <>
             <span ref={topRef} />
-            <Table
+            <ResizableTable
                 size="small"
                 columns={columns}
                 loading={loading}

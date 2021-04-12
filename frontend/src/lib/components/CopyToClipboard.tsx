@@ -39,6 +39,7 @@ export function CopyToClipboardInline({
                     display: 'flex',
                     alignItems: 'center',
                     flexDirection: iconPosition === 'end' ? 'row' : 'row-reverse',
+                    flexWrap: iconPosition === 'end' ? 'wrap' : 'wrap-reverse',
                 }}
                 onClick={() => {
                     copyToClipboard(explicitValue ?? children.toString(), description)
