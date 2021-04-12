@@ -2,7 +2,6 @@ import React from 'react'
 import { ActionEdit } from './ActionEdit'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { userLogic } from 'scenes/userLogic'
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import api from 'lib/api'
 import { kea } from 'kea'
@@ -68,7 +67,6 @@ export function Action({ id }) {
     const fixedFilters = { action_id: id }
 
     const { push } = useActions(router)
-    const { user } = useValues(userLogic)
     const { fetchEvents } = useActions(eventsTableLogic({ fixedFilters }))
     const { isComplete, action } = useValues(actionLogic({ id, onComplete: fetchEvents }))
     const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
@@ -79,7 +77,6 @@ export function Action({ id }) {
                 <ActionEdit
                     apiURL=""
                     actionId={id}
-                    user={user}
                     action={action}
                     onSave={(action) => {
                         if (!id) {

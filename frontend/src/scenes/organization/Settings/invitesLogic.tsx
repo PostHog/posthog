@@ -6,7 +6,7 @@ import { CheckCircleOutlined } from '@ant-design/icons'
 import { OrganizationInviteType } from '~/types'
 import { invitesLogicType } from './invitesLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { userLogic } from 'scenes/userLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export const invitesLogic = kea<invitesLogicType>({
     loaders: ({ values }) => ({
@@ -47,7 +47,7 @@ export const invitesLogic = kea<invitesLogicType>({
             const nameProvided = false // TODO: Change when adding support for names on invites
             eventUsageLogic.actions.reportInviteAttempted(
                 nameProvided,
-                !!userLogic.values.user?.email_service_available
+                !!preflightLogic.values.preflight?.email_service_available
             )
         },
     },
