@@ -63,7 +63,7 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
     }
 
 
-def get_active_user_params(self, filter: Filter, entity: Entity, team_id: int) -> Dict[str, Any]:
+def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Dict[str, Any]:
     params = {}
     params.update({"prev_interval": "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 day"})
 

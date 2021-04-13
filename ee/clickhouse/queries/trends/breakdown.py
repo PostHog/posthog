@@ -129,17 +129,21 @@ class ClickhouseTrendsBreakdown:
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
                 active_user_params = get_active_user_params(filter, entity, team_id)
-                conditions = BREAKDOWN_CONDITIONS_SQL.format(**breakdown_filter_params, **active_user_params)
+                conditions = BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL.format(
+                    **breakdown_filter_params, **active_user_params
+                )
                 inner_sql = BREAKDOWN_ACTIVE_USER_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
                     event_join=join_condition,
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    conditions=conditions ** active_user_params,
+                    conditions=conditions,
+                    **active_user_params,
+                    **breakdown_filter_params
                 )
             else:
-                conditions = BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL.format(**breakdown_filter_params)
+                conditions = BREAKDOWN_CONDITIONS_SQL.format(**breakdown_filter_params)
                 inner_sql = BREAKDOWN_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
                     event_join=join_condition,
