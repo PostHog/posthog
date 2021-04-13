@@ -322,24 +322,24 @@
 
     @keyframes keyframes1 {
         0% {
-            transform: rotate(-0.5deg);
+            transform: rotate(-0.2deg);
             animation-timing-function: ease-in;
         }
 
         50% {
-            transform: rotate(0.75deg);
+            transform: rotate(0.2deg);
             animation-timing-function: ease-out;
         }
     }
 
     @keyframes keyframes2 {
         0% {
-            transform: rotate(0.5deg);
+            transform: rotate(0.2deg);
             animation-timing-function: ease-in;
         }
 
         50% {
-            transform: rotate(-0.75deg);
+            transform: rotate(-0.2deg);
             animation-timing-function: ease-out;
         }
     }

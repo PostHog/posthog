@@ -16,6 +16,7 @@ import { PluginField } from 'scenes/plugins/edit/PluginField'
 import { endWithPunctation } from 'lib/utils'
 import { canGloballyManagePlugins, canInstallPlugins } from '../access'
 import { ExtraPluginButtons } from '../plugin/PluginCard'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 function EnabledDisabledSwitch({
     value,
@@ -45,6 +46,7 @@ const SecretFieldIcon = (): JSX.Element => (
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
     const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
     const {
         editPlugin,
@@ -113,7 +115,7 @@ export function PluginDrawer(): JSX.Element {
                                         </Button>
                                     </Popconfirm>
                                 )}
-                            {user?.is_multi_tenancy &&
+                            {preflight?.cloud &&
                                 editingPlugin &&
                                 canGloballyManagePlugins(user?.organization) &&
                                 (editingPlugin.is_global ? (

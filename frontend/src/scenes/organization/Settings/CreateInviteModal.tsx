@@ -7,11 +7,13 @@ import Modal from 'antd/lib/modal/Modal'
 import { isEmail } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 import { UserAddOutlined } from '@ant-design/icons'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Element {
     const { createInvite } = useActions(invitesLogic)
     const { push } = useActions(router)
     const { location } = useValues(router)
+    const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
 
     const [isVisible, setIsVisible] = useState(false)
@@ -36,7 +38,7 @@ export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Eleme
         } else {
             createInvite({ targetEmail: potentialEmail })
             closeModal()
-            if (location.pathname !== '/organization/members' && !user?.email_service_available) {
+            if (location.pathname !== '/organization/members' && !preflight?.email_service_available) {
                 push('/organization/members')
             }
         }
@@ -57,7 +59,7 @@ export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Eleme
             </Button>
             <Modal
                 title={`Inviting Team Member${user?.organization ? ' to ' + user?.organization?.name : ''}`}
-                okText={user?.email_service_available ? 'Send Invite' : 'Create Invite Link'}
+                okText={preflight?.email_service_available ? 'Send Invite' : 'Create Invite Link'}
                 cancelText="Cancel"
                 onOk={user?.organization.users_left !== 0 && handleSubmit}
                 onCancel={closeModal}

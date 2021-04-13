@@ -187,20 +187,12 @@ jobs:
               with:
                   python-version: 3.8
 
-            - uses: actions/cache@v2
-              with:
-                  path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-
-
             - name: Install requirements.txt dependencies with pip
               run: |
                   cd deploy
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
                   python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
-              if: steps.cache.outputs.cache-hit != 'true'
 
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
@@ -215,6 +207,13 @@ jobs:
               uses: actions/checkout@v2
               with:
                   path: 'deploy/'
+
+            - name: Install requirements.txt dependencies with pip at current branch
+              run: |
+                  cd deploy
+                  python -m pip install --upgrade pip
+                  python -m pip install -r requirements.txt
+                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
 
             - name: Link posthog-cloud at current branch
               run: |

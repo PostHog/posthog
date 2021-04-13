@@ -2098,6 +2098,13 @@
     hoist-non-react-statics "^3.3.0"
     redux "^4.0.0"
 
+"@types/react-resizable@^1.7.2":
+  version "1.7.2"
+  resolved "https://registry.yarnpkg.com/@types/react-resizable/-/react-resizable-1.7.2.tgz#ff7f6d67394abb6f64207fcc574ffccb932d8a97"
+  integrity sha512-6c6L94+VOksr9838LDrlYeucic2+0qkGnwolGE77YJztYHCWSucQV0e9+Qyl+uHpJTBRS95A5JESBg5NgCAC3A==
+  dependencies:
+    "@types/react" "*"
+
 "@types/react-syntax-highlighter@^11.0.4":
   version "11.0.5"
   resolved "https://registry.yarnpkg.com/@types/react-syntax-highlighter/-/react-syntax-highlighter-11.0.5.tgz#0d546261b4021e1f9d85b50401c0a42acb106087"
@@ -9422,10 +9429,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.9.6:
-  version "1.9.6"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.9.6.tgz#af32b315992948366650a8f215ffbc26ffd4ed3e"
-  integrity sha512-+o/4pMEZS9s77y+1UCrhBQ+7V9+/0yZ8FHnAJ/2bRWiJbG0lSgliRIdKtFFtMjASs9GQoEfaod6preICz2Fxtw==
+posthog-js@1.9.7:
+  version "1.9.7"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.9.7.tgz#2ef27f3ab4e7608262c4b414e9c652499bb0dcbd"
+  integrity sha512-eTcR9+anOUyTsm69E0Efb7L4sOYAPuOiLQsGkD99w8T9PYCSt26NoFI/u6A8apZLtSDClDUnRsbsFtpHEfxCyw==
   dependencies:
     fflate "^0.4.1"
 
@@ -10184,6 +10191,14 @@ react-resizable@^1.10.0:
   version "1.11.0"
   resolved "https://registry.yarnpkg.com/react-resizable/-/react-resizable-1.11.0.tgz#0b237c4aff16937b7663de1045861749683227ad"
   integrity sha512-VoGz2ddxUFvildS8r8/29UZJeyiM3QJnlmRZSuXm+FpTqq/eIrMPc796Y9XQLg291n2hFZJtIoP1xC3hSTw/jg==
+  dependencies:
+    prop-types "15.x"
+    react-draggable "^4.0.3"
+
+react-resizable@^1.11.1:
+  version "1.11.1"
+  resolved "https://registry.yarnpkg.com/react-resizable/-/react-resizable-1.11.1.tgz#02ca6850afa7a22c1b3e623e64aef71ee252af69"
+  integrity sha512-S70gbLaAYqjuAd49utRHibtHLrHXInh7GuOR+6OO6RO6uleQfuBnWmZjRABfqNEx3C3Z6VPLg0/0uOYFrkfu9Q==
   dependencies:
     prop-types "15.x"
     react-draggable "^4.0.3"

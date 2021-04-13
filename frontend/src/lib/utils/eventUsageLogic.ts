@@ -104,7 +104,7 @@ export const eventUsageLogic = kea<
                     content_length: annotation.content.length,
                     scope: annotation.scope,
                     deleted: annotation.deleted,
-                    created_by_me: annotation.created_by && annotation.created_by?.id === userLogic.values.user?.id,
+                    created_by_me: annotation.created_by && annotation.created_by?.uuid === userLogic.values.user?.id,
                     creation_type: annotation.creation_type,
                     created_at: annotation.created_at,
                     updated_at: annotation.updated_at,

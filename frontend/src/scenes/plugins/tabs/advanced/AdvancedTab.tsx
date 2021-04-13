@@ -5,11 +5,12 @@ import React from 'react'
 import { SourcePlugin } from 'scenes/plugins/tabs/advanced/SourcePlugin'
 import { CustomPlugin } from 'scenes/plugins/tabs/advanced/CustomPlugin'
 import { LocalPlugin } from 'scenes/plugins/tabs/advanced/LocalPlugin'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { UserType } from 'src/types'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
-export function AdvancedTab({ user }: { user: UserType }): JSX.Element {
+export function AdvancedTab(): JSX.Element {
+    const { preflight } = useValues(preflightLogic)
     const { setPluginTab } = useActions(pluginsLogic)
 
     return (
@@ -38,7 +39,7 @@ export function AdvancedTab({ user }: { user: UserType }): JSX.Element {
             <Subtitle subtitle="Advanced Options" />
             <SourcePlugin />
             <CustomPlugin />
-            {user && !user.is_multi_tenancy && <LocalPlugin />}
+            {preflight && !preflight.cloud && <LocalPlugin />}
         </>
     )
 }

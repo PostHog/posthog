@@ -16,6 +16,7 @@ const ERROR_FILTER_WHITELIST = [
     'loadResults', // Special error handling on insights
     'authenticate', // Special error handling on login
     'signup', // Special error handling on login
+    'loadLatestVersion',
 ]
 
 export function initKea(): void {

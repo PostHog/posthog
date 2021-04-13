@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { Responsive, WidthProvider } from 'react-grid-layout'
 
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
-import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
+import { isMobile, triggerResize, triggerResizeAfterADelay } from 'lib/utils'
 import { DashboardItemType, DashboardMode } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -27,7 +27,9 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
     // can not click links when dragging and 250ms after
     const isDragging = useRef(false)
     const dragEndTimeout = useRef<number | null>(null)
-    const className = 'layout' + (dashboardMode === DashboardMode.Edit ? ' dragging-items wobbly' : '')
+    const className =
+        'layout' +
+        (dashboardMode === DashboardMode.Edit ? (isMobile() ? ' dragging-items wobbly' : ' dragging-items') : '')
 
     return (
         <ReactGridLayout
