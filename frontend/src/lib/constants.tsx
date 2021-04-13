@@ -85,6 +85,32 @@ export const MATHS: Record<string, any> = {
         onProperty: false,
         type: EVENT_MATH_TYPE,
     },
+    weekly_active: {
+        name: 'Weekly Active',
+        description: (
+            <>
+                Users active in the past week (7 days).
+                <br />
+                This is a trailing count that aggregates distinct users in the past 7 days for each day in the time
+                series
+            </>
+        ),
+        onProperty: false,
+        type: EVENT_MATH_TYPE,
+    },
+    monthly_active: {
+        name: 'Monthly Active',
+        description: (
+            <>
+                Users active in the past month (30 days).
+                <br />
+                This is a trailing count that aggregates distinct users in the past 30 days for each day in the time
+                series
+            </>
+        ),
+        onProperty: false,
+        type: EVENT_MATH_TYPE,
+    },
     sum: {
         name: 'Sum',
         description: (
