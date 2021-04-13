@@ -4,9 +4,9 @@ import { identifierToHuman, delay } from 'lib/utils'
 import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
 import posthog from 'posthog-js'
-import { userLogic } from './userLogic'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from '../lib/utils/eventUsageLogic'
+import { preflightLogic } from './PreflightCheck/logic'
 
 export enum Scene {
     Dashboards = 'dashboards',
@@ -260,10 +260,10 @@ export const sceneLogic = kea<sceneLogicType>({
         },
         takeToPricing: () => {
             posthog.capture('upgrade modal pricing interaction')
-            if (userLogic.values.user?.is_multi_tenancy) {
+            if (preflightLogic.values.preflight?.cloud) {
                 return router.actions.push('/organization/billing')
             }
-            const pricingTab = userLogic.values.user?.is_multi_tenancy ? 'cloud' : 'vpc'
+            const pricingTab = preflightLogic.values.preflight?.cloud ? 'cloud' : 'vpc'
             window.open(`https://posthog.com/pricing?o=${pricingTab}`)
         },
         setScene: () => {

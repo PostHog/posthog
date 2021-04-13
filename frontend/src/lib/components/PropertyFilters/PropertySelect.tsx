@@ -2,7 +2,7 @@ import React from 'react'
 import { Select } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import { EventProperty } from 'scenes/userLogic'
+import { EventProperty } from 'scenes/teamLogic'
 
 type PropertyOption = EventProperty
 

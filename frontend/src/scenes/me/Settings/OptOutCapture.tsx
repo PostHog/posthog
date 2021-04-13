@@ -1,12 +1,11 @@
-import React, { useState } from 'react'
-import { useValues } from 'kea'
+import React from 'react'
+import { useActions, useValues } from 'kea'
 import { Switch } from 'antd'
-import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
-export function OptOutCapture() {
-    const { user } = useValues(userLogic)
-    const [saved, setSaved] = useState(false)
+export function OptOutCapture(): JSX.Element {
+    const { user, userLoading } = useValues(userLogic)
+    const { updateUser } = useActions(userLogic)
 
     return (
         <div>
@@ -19,15 +18,11 @@ export function OptOutCapture() {
                 data. If you would like to anonymize your personal usage data, just tick the box below.
             </p>
             <Switch
-                id="anonymize-data-collection"
-                onChange={(checked) => {
-                    api.update('api/user', {
-                        user: {
-                            anonymize_data: checked,
-                        },
-                    }).then(() => setSaved(true))
-                }}
-                defaultChecked={user.anonymize_data}
+                data-attr="anonymize-data-collection"
+                onChange={(checked) => updateUser({ anonymize_data: checked })}
+                defaultChecked={user?.anonymize_data}
+                loading={userLoading}
+                disabled={userLoading}
             />
             <label
                 htmlFor="anonymize-data-collection"
@@ -37,11 +32,6 @@ export function OptOutCapture() {
             >
                 Anonymize my data
             </label>
-            {saved && (
-                <p className="text-success">
-                    Preference saved. <a href="/me/settings">Refresh the page for the change to take effect.</a>
-                </p>
-            )}
         </div>
     )
 }

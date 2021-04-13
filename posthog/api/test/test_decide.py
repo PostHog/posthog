@@ -2,6 +2,7 @@ import base64
 import json
 
 from django.test.client import Client
+from rest_framework import status
 
 from posthog.models import FeatureFlag, Person, PersonalAPIKey
 from posthog.test.base import BaseTest
@@ -104,10 +105,17 @@ class TestDecide(BaseTest):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
-        Person.objects.create(team=self.team, distinct_ids=["example_id"])
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user,
         )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=self.user,
+        )  # Should be enabled for everyone
 
         # Test number of queries with multiple property filter feature flags
         FeatureFlag.objects.create(
@@ -120,19 +128,23 @@ class TestDecide(BaseTest):
         )
         FeatureFlag.objects.create(
             team=self.team,
-            filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
-            rollout_percentage=50,
+            filters={"groups": [{"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]}]},
             name="Filter by property 2",
             key="filer-by-property-2",
             created_by=self.user,
         )
-        with self.assertNumQueries(5):
-            response = self._post_decide().json()
-        self.assertEqual(response["featureFlags"][0], "beta-feature")
 
         with self.assertNumQueries(5):
-            response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"}).json()
-        self.assertEqual(len(response["featureFlags"]), 0)
+            response = self._post_decide()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("default-flag", response.json()["featureFlags"])
+        self.assertIn("beta-feature", response.json()["featureFlags"])
+        self.assertIn("filer-by-property-2", response.json()["featureFlags"])
+
+        with self.assertNumQueries(5):
+            response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["featureFlags"], ["default-flag"])
 
     def test_feature_flags_with_personal_api_key(self):
         key = PersonalAPIKey(label="X", user=self.user)
@@ -141,10 +153,19 @@ class TestDecide(BaseTest):
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user,
         )
+        FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=100, name="Disabled", key="disabled", created_by=self.user, active=False,
+        )  # disabled flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            key="default-flag",
+            created_by=self.user,
+        )  # enabled for everyone
         response = self._post_decide(
             {"distinct_id": "example_id", "api_key": key.value, "project_id": self.team.id}
         ).json()
-        self.assertEqual(len(response["featureFlags"]), 1)
+        self.assertEqual(response["featureFlags"], ["test", "default-flag"])
 
     def test_personal_api_key_without_project_id(self):
         key = PersonalAPIKey(label="X", user=self.user)

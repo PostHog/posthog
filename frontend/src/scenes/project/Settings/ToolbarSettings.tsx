@@ -1,12 +1,12 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useValues, useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { Col, Row, Switch } from 'antd'
 
-export function ToolbarSettings() {
-    const { user } = useValues(userLogic)
-    const { userUpdateRequest } = useActions(userLogic)
-    const [saved, setSaved] = useState(false)
+/* TODO: This should be moved to user's settings (good first issue) */
+export function ToolbarSettings(): JSX.Element {
+    const { user, userLoading } = useValues(userLogic)
+    const { updateUser } = useActions(userLogic)
 
     return (
         <div>
@@ -14,14 +14,13 @@ export function ToolbarSettings() {
                 <Col>
                     <Switch
                         onChange={() => {
-                            userUpdateRequest({
-                                user: {
-                                    toolbar_mode: user.toolbar_mode === 'disabled' ? 'toolbar' : 'disabled',
-                                },
+                            updateUser({
+                                toolbar_mode: user?.toolbar_mode === 'disabled' ? 'toolbar' : 'disabled',
                             })
-                            setSaved(true)
                         }}
-                        defaultChecked={user.toolbar_mode !== 'disabled'}
+                        defaultChecked={user?.toolbar_mode !== 'disabled'}
+                        disabled={userLoading}
+                        loading={userLoading}
                     />
                 </Col>
                 <Col>
@@ -35,12 +34,6 @@ export function ToolbarSettings() {
                     </label>
                 </Col>
             </Row>
-            {saved && (
-                <p className="text-success" style={{ marginTop: 10 }}>
-                    Preference saved.
-                    {user.toolbar_mode !== 'disabled' && <> Please click on "Toolbar" in the sidebar!</>}
-                </p>
-            )}
         </div>
     )
 }

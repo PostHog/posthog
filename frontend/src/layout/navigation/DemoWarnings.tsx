@@ -30,7 +30,7 @@ export function DemoWarnings(): JSX.Element | null {
 
     const WARNINGS: WarningsInterface = {
         welcome: {
-            message: `Welcome ${user?.name}! Ready to explore?`,
+            message: `Welcome ${user?.first_name}! Ready to explore?`,
             description: (
                 <span>
                     We want you to try all the power of PostHog right away. Explore everything in this full-fledged demo
@@ -45,7 +45,7 @@ export function DemoWarnings(): JSX.Element | null {
             type: 'info',
         },
         incomplete_setup_on_demo_project: {
-            message: `Get started using Posthog, ${user?.name}!`,
+            message: `Get started using Posthog, ${user?.first_name}!`,
             description: (
                 <span>
                     You're currently viewing <b>demo data</b>. Go to <Link to="/setup">setup</Link> to start sending
@@ -63,7 +63,7 @@ export function DemoWarnings(): JSX.Element | null {
             ),
         },
         incomplete_setup_on_real_project: {
-            message: `Finish setting up Posthog, ${user?.name}!`,
+            message: `Finish setting up Posthog, ${user?.first_name}!`,
             description: (
                 <span>
                     You're very close. Go to <Link to="/setup">setup</Link> to finish up configuring PostHog.

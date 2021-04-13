@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useState } from 'react'
 import { Col, Row, Select, Tabs } from 'antd'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { cohortsModel } from '../../../models/cohortsModel'
@@ -147,12 +147,10 @@ export function PropertyFilter({ index, onComplete, logic }) {
     let { key, value, operator, type } = filters[index]
     const [activeKey, setActiveKey] = useState(type === 'cohort' ? 'cohort' : 'property')
 
-    const setThisFilter = useCallback(
-        (newKey, newValue, newOperator, newType) => setFilter(index, newKey, newValue, newOperator, newType),
-        [index]
-    )
-
     const displayOperatorAndValue = key && type !== 'cohort'
+
+    const setThisFilter = (newKey, newValue, newOperator, newType) =>
+        setFilter(index, newKey, newValue, newOperator, newType)
 
     return (
         <Tabs

@@ -3,7 +3,6 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { autocorrectInterval, errorToast, objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
-import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 import {
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -22,6 +21,7 @@ import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendRe
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { teamLogic } from 'scenes/teamLogic'
 
 interface TrendResponse {
     result: TrendResult[]
@@ -132,6 +132,28 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
     return toAPIParams({ ...params, ...restParams })
 }
 
+function getDefaultFilters(currentFilters: Partial<FilterType>, eventNames: string[]): Partial<FilterType> {
+    /* Opening /insights without any params, will set $pageview as the default event (or
+    the first random event). We load this default events when `currentTeam` is loaded (because that's when
+    `eventNames` become available) and on every view change (through the urlToAction map) */
+    if (!currentFilters.actions?.length && !currentFilters.events?.length && eventNames.length) {
+        const event = eventNames.includes(PAGEVIEW) ? PAGEVIEW : eventNames.includes(SCREEN) ? SCREEN : eventNames[0]
+
+        const defaultFilters = {
+            [EntityTypes.EVENTS]: [
+                {
+                    id: event,
+                    name: event,
+                    type: EntityTypes.EVENTS,
+                    order: 0,
+                },
+            ],
+        }
+        return defaultFilters
+    }
+    return {}
+}
+
 // props:
 // - dashboardItemId
 // - filters
@@ -143,7 +165,7 @@ export const trendsLogic = kea<
     },
 
     connect: {
-        values: [userLogic, ['eventNames'], actionsModel, ['actions']],
+        values: [teamLogic, ['eventNames'], actionsModel, ['actions']],
     },
 
     loaders: ({ values, props }) => ({
@@ -186,7 +208,6 @@ export const trendsLogic = kea<
     actions: () => ({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
-
         loadPeople: (action, label, day, breakdown_value) => ({ action, label, day, breakdown_value }),
         saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
         loadMorePeople: true,
@@ -272,12 +293,13 @@ export const trendsLogic = kea<
         ],
     }),
 
-    selectors: ({ selectors }) => ({
-        results: [() => [selectors._results], (response) => response.result],
-        resultsLoading: [() => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
-        loadMoreBreakdownUrl: [() => [selectors._results], (response) => response.next],
+    selectors: () => ({
+        filtersLoading: [() => [teamLogic.selectors.currentTeamLoading], (currentTeamLoading) => currentTeamLoading],
+        results: [(selectors) => [selectors._results], (response) => response.result],
+        resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
+        loadMoreBreakdownUrl: [(selectors) => [selectors._results], (response) => response.next],
         sessionsPageParams: [
-            () => [selectors.filters, selectors.people],
+            (selectors) => [selectors.filters, selectors.people],
             (filters, people) => {
                 if (!people) {
                     return {}
@@ -312,9 +334,8 @@ export const trendsLogic = kea<
                 }
             },
         ],
-
         peopleModalURL: [
-            () => [selectors.sessionsPageParams],
+            (selectors) => [selectors.sessionsPageParams],
             (params) => ({
                 sessions: `/sessions?${toAPIParams(params)}`,
                 recordings: `/sessions?${toAPIParams({
@@ -440,6 +461,9 @@ export const trendsLogic = kea<
             })
             actions.setBreakdownValuesLoading(false)
         },
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: async () => {
+            actions.setFilters(getDefaultFilters(values.filters, values.eventNames), true)
+        },
     }),
 
     events: ({ actions, props }) => ({
@@ -476,26 +500,7 @@ export const trendsLogic = kea<
 
                 const keys = Object.keys(searchParams)
 
-                // opening /trends without any params, just open $pageview, $screen or the first random event
-                if (
-                    (keys.length === 0 || (!searchParams.actions && !searchParams.events)) &&
-                    values.eventNames &&
-                    values.eventNames[0]
-                ) {
-                    const event = values.eventNames.includes(PAGEVIEW)
-                        ? PAGEVIEW
-                        : values.eventNames.includes(SCREEN)
-                        ? SCREEN
-                        : values.eventNames[0]
-
-                    cleanSearchParams[EntityTypes.EVENTS] = [
-                        {
-                            id: event,
-                            name: event,
-                            type: EntityTypes.EVENTS,
-                            order: 0,
-                        },
-                    ]
+                if (keys.length === 0 || (!searchParams.actions && !searchParams.events)) {
                     cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts()
                 }
 
@@ -513,6 +518,8 @@ export const trendsLogic = kea<
                 if (searchParams.date_from === 'all' || searchParams.shown_as === ShownAsValue.LIFECYCLE) {
                     cleanSearchParams['compare'] = false
                 }
+
+                Object.assign(cleanSearchParams, getDefaultFilters(cleanSearchParams, values.eventNames))
 
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)

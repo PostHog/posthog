@@ -3,6 +3,7 @@ import { kea } from 'kea'
 import { systemStatusLogicType } from './systemStatusLogicType'
 import { userLogic } from 'scenes/userLogic'
 import { SystemStatus } from '~/types'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus>>({
     actions: {
@@ -13,8 +14,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus>>({
             [] as SystemStatus[],
             {
                 loadSystemStatus: async () => {
-                    const { user } = userLogic.values
-                    if (user?.is_multi_tenancy && !user.is_staff) {
+                    if (preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
                         return []
                     }
                     return (await api.get('_system_status')).results

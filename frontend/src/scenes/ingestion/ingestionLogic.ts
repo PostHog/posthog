@@ -2,14 +2,14 @@ import { kea } from 'kea'
 import { Framework, PlatformType } from 'scenes/ingestion/types'
 import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { ingestionLogicType } from './ingestionLogicType'
-import { userLogic } from 'scenes/userLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
     connect: {
-        actions: [userLogic, ['userUpdateSuccess']],
+        actions: [teamLogic, ['updateCurrentTeamSuccess']],
     },
     actions: {
         setPlatform: (platform: PlatformType) => ({ platform }),
@@ -120,9 +120,11 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
 
     listeners: () => ({
         completeOnboarding: () => {
-            userLogic.actions.userUpdateRequest({ team: { completed_snippet_onboarding: true } })
+            teamLogic.actions.updateCurrentTeam({
+                completed_snippet_onboarding: true,
+            })
         },
-        userUpdateSuccess: () => {
+        updateCurrentTeamSuccess: () => {
             const usingOnboardingSetup = organizationLogic.values.currentOrganization?.setup.is_active
             // If user is under the new setup state (#2822), take them back to start section II of the setup
             window.location.href = usingOnboardingSetup ? '/setup' : '/insights'
