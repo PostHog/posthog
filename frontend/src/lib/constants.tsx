@@ -77,9 +77,8 @@ export const MATHS: Record<string, any> = {
         name: 'Active users',
         description: (
             <>
-                Users active in the time interval.
-                <br />
-                If a user performs an event 3 times in a given day/week/month, it counts only as 1.
+                Users active in the time interval. If a user performs an event 3 times in a given day/week/month, it
+                counts only as 1.
             </>
         ),
         onProperty: false,
@@ -89,10 +88,8 @@ export const MATHS: Record<string, any> = {
         name: 'Weekly Active',
         description: (
             <>
-                Users active in the past week (7 days).
-                <br />
-                This is a trailing count that aggregates distinct users in the past 7 days for each day in the time
-                series
+                Users active in the past week (7 days). This is a trailing count that aggregates distinct users in the
+                past 7 days for each day in the time series
             </>
         ),
         onProperty: false,
