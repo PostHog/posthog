@@ -18,6 +18,15 @@
     window.JS_POSTHOG_API_KEY = {{js_posthog_api_key | safe}};
     window.JS_POSTHOG_HOST = {{js_posthog_host | safe}};
     window.JS_POSTHOG_SELF_CAPTURE = {{self_capture | yesno:"true,false" }};
+
+    // Handle Antd bug with error logging
+    const consoleError = console.error
+    console.error = function (...args) { 
+        if (args.length > 0 && args[0] === 'Change:::') {
+            return
+        }
+        consoleError(...args)
+    }
     </script>
 {% endif %}
 {% if sentry_dsn %}
