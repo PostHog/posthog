@@ -114,7 +114,7 @@ export function TopNavigation(): JSX.Element {
                                 ) : (
                                     <>
                                         Unavailable{' '}
-                                        <Tooltip title="We can't show your current bill amount. If you keep seeing this message contact us.">
+                                        <Tooltip title="We can't show your current bill amount right now. If you keep seeing this message, contact us.">
                                             <InfoCircleOutlined />
                                         </Tooltip>
                                     </>
