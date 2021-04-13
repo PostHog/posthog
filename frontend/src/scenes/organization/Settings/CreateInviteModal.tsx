@@ -61,7 +61,7 @@ export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Eleme
                 title={`Inviting Team Member${user?.organization ? ' to ' + user?.organization?.name : ''}`}
                 okText={preflight?.email_service_available ? 'Send Invite' : 'Create Invite Link'}
                 cancelText="Cancel"
-                onOk={user?.organization.users_left !== 0 && handleSubmit}
+                onOk={() => user?.organization?.users_left !== 0 && handleSubmit()}
                 onCancel={closeModal}
                 visible={isVisible}
             >
@@ -98,7 +98,7 @@ export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Eleme
                         </div>
                         {errorMessage && <Alert message={errorMessage} type="error" style={{ marginBottom: '1rem' }} />}
 
-                        {!user?.email_service_available && (
+                        {!preflight?.email_service_available && (
                             <Alert
                                 type="warning"
                                 message={

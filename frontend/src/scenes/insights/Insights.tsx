@@ -51,6 +51,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
 import { Link } from 'lib/components/Link'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
@@ -163,7 +164,8 @@ export function Insights(): JSX.Element {
     )
 
     const { user } = useValues(userLogic)
-    if (!user?.is_multi_tenancy && !user?.organization?.available_features.includes('clickhouse') && user?.ee_enabled) {
+    const { preflight } = useValues(preflightLogic)
+    if (!preflight?.cloud && !user?.organization?.available_features.includes('clickhouse') && preflight?.ee_enabled) {
         return (
             <Alert
                 style={{ marginTop: '3rem' }}

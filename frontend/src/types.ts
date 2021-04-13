@@ -13,7 +13,12 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 
-export type AvailableFeatures = 'zapier' | 'organizations_projects' | 'google_login' | 'dashboard_collaboration'
+export type AvailableFeatures =
+    | 'zapier'
+    | 'organizations_projects'
+    | 'google_login'
+    | 'dashboard_collaboration'
+    | 'clickhouse'
 
 export interface UserType {
     id: string

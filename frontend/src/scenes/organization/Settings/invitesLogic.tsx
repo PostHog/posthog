@@ -7,6 +7,7 @@ import { OrganizationInviteType } from '~/types'
 import { invitesLogicType } from './invitesLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { userLogic } from 'scenes/userLogic'
 
 export const invitesLogic = kea<invitesLogicType>({
     loaders: ({ values }) => ({

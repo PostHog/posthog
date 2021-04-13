@@ -33,7 +33,7 @@ export const licenseLogic = kea<licenseLogicType<License, Error>>({
             addLicense: (state: Array<License>, { license }) => [license, ...state],
         },
         error: [
-            false,
+            null as null | Error,
             {
                 setError: (_, { error }) => error,
             },
@@ -46,7 +46,7 @@ export const licenseLogic = kea<licenseLogicType<License, Error>>({
             try {
                 new_license = await api.create('api/license', license.license)
             } catch (response) {
-                actions.setError(response)
+                actions.setError(response as Error)
                 return
             }
             toast(
