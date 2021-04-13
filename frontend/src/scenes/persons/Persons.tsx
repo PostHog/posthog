@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { PersonsTable } from './PersonsTable'
 import { Button, Row, Radio } from 'antd'
@@ -16,12 +16,19 @@ export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading } = useValues(personsLogic)
 
+    useEffect(() => {
+        if (cohort) {
+            setListFilters({ cohort: cohort.id })
+            loadPersons()
+        }
+    }, [])
+
     return (
         <div className="persons-list">
             {!cohort && <PageHeader title="Persons" />}
             <Row style={{ gap: '0.75rem' }} className="mb">
                 <div style={{ flexGrow: 1, maxWidth: 600 }}>
-                    <PersonsSearch cohort={cohort} />
+                    <PersonsSearch />
                     <div className="text-muted text-small">
                         You can also filter persons that have a certain property set (e.g. <code>has:email</code> or{' '}
                         <code>has:name</code>)
