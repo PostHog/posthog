@@ -1,7 +1,9 @@
 from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple
 
+from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
+from posthog.constants import WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 
@@ -59,3 +61,24 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
         "days": days,
         **additional_values,
     }
+
+
+def get_active_user_params(self, filter: Filter, entity: Entity, team_id: int) -> Dict[str, Any]:
+    params = {}
+    params.update({"prev_interval": "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 day"})
+
+    if filter.date_from:
+        params.update(
+            {"parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(filter.date_from, filter)}'"}
+        )
+    else:
+        try:
+            earliest_date = get_earliest_timestamp(team_id)
+        except IndexError:
+            raise ValueError("Active User queries require a lower date bound")
+        else:
+            params.update(
+                {"parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(earliest_date, filter)}'"}
+            )
+
+    return params

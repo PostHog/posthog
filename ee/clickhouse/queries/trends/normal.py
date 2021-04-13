@@ -5,15 +5,8 @@ from django.utils import timezone
 from ee.clickhouse.client import format_sql, sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.trends.util import parse_response, process_math
-from ee.clickhouse.queries.util import (
-    date_from_clause,
-    format_ch_timestamp,
-    get_earliest_timestamp,
-    get_time_diff,
-    get_trunc_func_ch,
-    parse_timestamps,
-)
+from ee.clickhouse.queries.trends.util import get_active_user_params, parse_response, process_math
+from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
 from ee.clickhouse.sql.trends.volume import ACTIVE_USER_SQL, VOLUME_SQL, VOLUME_TOTAL_AGGREGATE_SQL
@@ -68,7 +61,7 @@ class ClickhouseTrendsNormal:
         else:
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
-                sql_params = self.get_active_user_params(filter, entity, team_id)
+                sql_params = get_active_user_params(filter, entity, team_id)
                 content_sql = ACTIVE_USER_SQL.format(**content_sql_params, **sql_params)
             else:
                 # entity_format_params depends on format clause from content_sql_params
@@ -108,23 +101,3 @@ class ClickhouseTrendsNormal:
             params = {"event": entity.id}
 
         return params, content_sql_params
-
-    def get_active_user_params(self, filter: Filter, entity: Entity, team_id: int) -> Dict[str, Any]:
-        params = {}
-        params.update({"prev_interval": "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 day"})
-
-        if filter.date_from:
-            params.update(
-                {"parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(filter.date_from, filter)}'"}
-            )
-        else:
-            try:
-                earliest_date = get_earliest_timestamp(team_id)
-            except IndexError:
-                raise ValueError("Active User queries require a lower date bound")
-            else:
-                params.update(
-                    {"parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(earliest_date, filter)}'"}
-                )
-
-        return params
