@@ -24,7 +24,7 @@ const getDisplayName = (frameworks: Record<string, string>, item: Framework | st
     if (item?.toString() === 'PURE_JS') {
         return 'JAVASCRIPT SDK'
     } else if (item?.toString() === 'AUTOCAPTURE') {
-        return 'Auto Capture (HTML Tag)'
+        return 'Auto Capture (JS Snippet)'
     } else if (item?.toString() === 'NODEJS') {
         return 'NODE JS'
     } else {
