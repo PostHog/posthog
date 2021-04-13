@@ -341,6 +341,7 @@ export interface BillingType {
     event_allocation: number | null
     current_usage: number | null
     subscription_url: string
+    current_bill_amount: number | null
 }
 
 export interface PlanInterface {
