@@ -14,6 +14,7 @@ import { FilterType } from '~/types'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import './TrendTab.scss'
 
 interface TrendTabProps {
     view: string
@@ -59,15 +60,11 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     {filtersLoading ? (
                         <Skeleton active />
                     ) : (
-                        <div className="toggle">
+                        <div className="toggles">
                             {lifecycleNames.map((cycle, idx) => (
                                 <div key={idx}>
                                     {cycle}{' '}
-                                    <Switch
-                                        size="small"
-                                        defaultChecked
-                                        onChange={() => toggleLifecycle(cycle)}
-                                     />
+                                    <Switch size="small" defaultChecked onChange={() => toggleLifecycle(cycle)} />
                                 </div>
                             ))}
                         </div>
