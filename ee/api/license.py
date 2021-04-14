@@ -2,20 +2,31 @@ from typing import Any
 
 from django.conf import settings
 from django.db.models import QuerySet
-from rest_framework import authentication, exceptions, request, response, serializers, viewsets
-from rest_framework.response import Response
+from rest_framework import mixins, serializers, viewsets
 
-from ee.models.license import License, LicenseError
+from ee.models.license import License
 
 
 class LicenseSerializer(serializers.ModelSerializer):
     class Meta:
         model = License
-        fields = ["created_at", "plan", "key", "valid_until", "max_users"]
-        read_only_fields = ["created_at", "plan", "valid_until", "max_users"]
+        fields = [
+            "id",
+            "key",
+            "plan",
+            "valid_until",
+            "max_users",
+            "created_at",
+        ]
+        read_only_fields = ["plan", "valid_until", "max_users"]
+
+    def create(self, validated_data: Any) -> Any:
+        return super().create({"key": validated_data.get("key")})
 
 
-class LicenseViewSet(viewsets.ModelViewSet):
+class LicenseViewSet(
+    mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet,
+):
     queryset = License.objects.all()
     serializer_class = LicenseSerializer
 
@@ -24,11 +35,3 @@ class LicenseViewSet(viewsets.ModelViewSet):
             return License.objects.none()
 
         return super().get_queryset()
-
-    def create(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        try:
-            license = License.objects.create(key=request.data["key"])
-        except LicenseError as e:
-            return Response(data={"detail": e.detail, "code": e.code}, status=400)
-
-        return Response(LicenseSerializer(license, context={"request": request}).data)

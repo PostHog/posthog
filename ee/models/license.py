@@ -1,17 +1,20 @@
-from typing import Any, List, Optional, cast
+from typing import Any, ClassVar, List, Optional, cast
 
 import requests
 from django.db import models
 from django.utils import timezone
+from rest_framework import exceptions, status
 
 
-class LicenseError(Exception):
-    """Exception raised for licensing errors.
-
-    Attributes:
-        code -- code of the exception
-        detail -- message of the exception
+class LicenseError(exceptions.APIException):
     """
+    Exception raised for licensing errors.
+    """
+
+    default_type: ClassVar[str] = "license_error"
+    default_code: ClassVar[str] = "license_error"
+    status_code: ClassVar[int] = status.HTTP_400_BAD_REQUEST
+    default_detail: ClassVar[str] = "There was a problem with your current license."
 
     def __init__(self, code, detail):
         self.code = code
@@ -20,10 +23,9 @@ class LicenseError(Exception):
 
 class LicenseManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any) -> "License":
-        validate = requests.post("http://127.0.0.1:3000/licenses/activate", data={"key": kwargs["key"]})
+        validate = requests.post("https://license.posthog.com/licenses/activate", data={"key": kwargs["key"]})
         resp = validate.json()
         if not validate.ok:
-            print(resp)
             raise LicenseError(resp["code"], resp["detail"])
 
         kwargs["valid_until"] = resp["valid_until"]
@@ -45,14 +47,11 @@ class License(models.Model):
     max_users: models.IntegerField = models.IntegerField(default=0)
 
     ENTERPRISE_PLAN = "enterprise"
-    ENTERPRISE_FEATURES = ["clickhouse", "zapier", "organizations_projects", "google_login", "dashboard_collaboration"]
+    BASE_CLICKHOUSE_PLAN = "base_clickhouse"
     PLANS = {
-        ENTERPRISE_PLAN: ENTERPRISE_FEATURES,
+        ENTERPRISE_PLAN: ["clickhouse", "zapier", "organizations_projects", "google_login", "dashboard_collaboration"],
+        BASE_CLICKHOUSE_PLAN: ["clickhouse"],
     }
-
-    FREE_CLICKHOUSE_PLAN = "free_clickhouse"
-    FREE_CLICKHOUSE_FEATURES = ["clickhouse"]
-    PLANS = {FREE_CLICKHOUSE_PLAN: FREE_CLICKHOUSE_FEATURES}
 
     @property
     def available_features(self) -> List[str]:
