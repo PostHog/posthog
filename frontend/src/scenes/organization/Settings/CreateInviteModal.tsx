@@ -61,13 +61,15 @@ export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Eleme
                 title={`Inviting Team Member${user?.organization ? ' to ' + user?.organization?.name : ''}`}
                 okText={preflight?.email_service_available ? 'Send Invite' : 'Create Invite Link'}
                 cancelText="Cancel"
-                onOk={() => user?.organization?.users_left !== 0 && handleSubmit()}
+                onOk={handleSubmit}
                 onCancel={closeModal}
+                okButtonProps={{ disabled: preflight?.licensed_users_available === 0 }}
                 visible={isVisible}
             >
-                {user?.organization?.users_left === 0 ? (
+                {preflight?.licensed_users_available === 0 ? (
                     <Alert
                         type="warning"
+                        showIcon
                         message={
                             <>
                                 You've hit the limit of users you can invite to your PostHog instance given your

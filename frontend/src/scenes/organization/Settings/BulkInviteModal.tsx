@@ -98,9 +98,10 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
             cancelButtonProps={{ disabled: invitedTeamMembersLoading }}
             closable={!invitedTeamMembersLoading}
         >
-            {user?.organization?.users_left === 0 ? (
+            {preflight?.licensed_users_available === 0 ? (
                 <Alert
                     type="warning"
+                    showIcon
                     message={
                         <>
                             You've hit the limit of users you can invite to your PostHog instance given your license.
