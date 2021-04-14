@@ -81,7 +81,6 @@ export interface OrganizationType extends OrganizationBasicType {
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeatures[]
-    users_left: number
 }
 
 export interface OrganizationMemberType {
@@ -90,6 +89,13 @@ export interface OrganizationMemberType {
     level: OrganizationMembershipLevel
     joined_at: string
     updated_at: string
+}
+
+export interface APIErrorType {
+    type: 'authentication_error' | 'invalid_request' | 'server_error' | 'throttled_error' | 'validation_error'
+    code: string
+    detail: string
+    attr: string | null
 }
 
 export interface EventUsageType {
@@ -607,6 +613,7 @@ export interface PreflightStatus {
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
     is_async_event_action_mapping_enabled?: boolean
+    licensed_users_available: number | null
 }
 
 export enum DashboardMode { // Default mode is null

@@ -2,17 +2,12 @@ import api from 'lib/api'
 import { kea } from 'kea'
 import { toast } from 'react-toastify'
 import { licenseLogicType } from './logicType'
-
-interface Error {
-    detail: string
-    code: string
-}
-
+import { APIErrorType } from '~/types'
 interface License {
     key: string
 }
 
-export const licenseLogic = kea<licenseLogicType<License, Error>>({
+export const licenseLogic = kea<licenseLogicType<License, APIErrorType>>({
     actions: {
         setError: (error: Error) => ({ error }),
         addLicense: (license: License) => ({ license }),
@@ -33,7 +28,7 @@ export const licenseLogic = kea<licenseLogicType<License, Error>>({
             addLicense: (state: Array<License>, { license }) => [license, ...state],
         },
         error: [
-            null as null | Error,
+            null as null | APIErrorType,
             {
                 setError: (_, { error }) => error,
             },
@@ -46,14 +41,14 @@ export const licenseLogic = kea<licenseLogicType<License, Error>>({
             try {
                 new_license = await api.create('api/license', license.license)
             } catch (response) {
-                actions.setError(response as Error)
+                actions.setError(response as APIErrorType)
                 return
             }
             toast(
                 `Your license key was succesfully activated. You can now use all the features in the ${new_license.plan} plan.`
             )
             actions.addLicense(new_license)
-            actions.setError(false)
+            actions.setError(null)
         },
     }),
     events: ({ actions }) => ({

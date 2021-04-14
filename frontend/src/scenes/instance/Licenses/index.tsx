@@ -1,10 +1,11 @@
 import React from 'react'
-import { Alert, Form, Button, Table, Input } from 'antd'
+import { Alert, Form, Button, Table, Input, Tooltip } from 'antd'
 import { licenseLogic } from './logic'
 import { useValues, useActions } from 'kea'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { PageHeader } from 'lib/components/PageHeader'
+import { InfoCircleOutlined } from '@ant-design/icons'
 
 const columns = [
     {
@@ -24,9 +25,19 @@ const columns = [
         dataIndex: 'plan',
     },
     {
-        title: 'Max # of users',
+        title: function Render() {
+            return (
+                <Tooltip
+                    placement="right"
+                    title="Maximum number of team members that you can have across all organizations with your current license."
+                >
+                    Max # of team members
+                    <InfoCircleOutlined className="info-indicator" />
+                </Tooltip>
+            )
+        },
         render: function renderMaxUsers(license: any) {
-            return license.max_users === 0 ? 'Unlimited' : license.max_users
+            return license.max_users === null ? 'Unlimited' : license.max_users
         },
     },
     {
