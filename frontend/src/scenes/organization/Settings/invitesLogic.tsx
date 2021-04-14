@@ -7,7 +7,6 @@ import { OrganizationInviteType } from '~/types'
 import { invitesLogicType } from './invitesLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { userLogic } from 'scenes/userLogic'
 
 export const invitesLogic = kea<invitesLogicType>({
     loaders: ({ values }) => ({
@@ -20,7 +19,7 @@ export const invitesLogic = kea<invitesLogicType>({
                 const newInvite: OrganizationInviteType = await api.create('api/organizations/@current/invites/', {
                     target_email: targetEmail,
                 })
-                userLogic.actions.loadUser() // Make sure users_left is updated
+                preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
 
                 if (newInvite.emailing_attempt_made) {
                     toast(
@@ -35,7 +34,7 @@ export const invitesLogic = kea<invitesLogicType>({
             },
             deleteInvite: async (invite: OrganizationInviteType) => {
                 await api.delete(`api/organizations/@current/invites/${invite.id}/`)
-                userLogic.actions.loadUser() // Make sure users_left is updated
+                preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
                 toast(
                     <div className="text-success">
                         <CheckCircleOutlined /> Invite for {invite.target_email} removed!

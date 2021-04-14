@@ -11,7 +11,7 @@ import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Card, Button, Tooltip, Alert } from 'antd'
+import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -49,9 +49,6 @@ import { TZIndicator } from 'lib/components/TimezoneAware'
 import { DisplayType, FilterType, HotKeys } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { userLogic } from 'scenes/userLogic'
-import { Link } from 'lib/components/Link'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
@@ -162,26 +159,6 @@ export function Insights(): JSX.Element {
               }
             : {}
     )
-
-    const { user } = useValues(userLogic)
-    const { preflight } = useValues(preflightLogic)
-    if (!preflight?.cloud && !user?.organization?.available_features.includes('clickhouse') && preflight?.ee_enabled) {
-        return (
-            <Alert
-                style={{ marginTop: '3rem' }}
-                type="warning"
-                message={
-                    <>
-                        You've set up Clickhouse, but you don't have an active license to use Clickhouse yet. Contact{' '}
-                        <a href="mailto:sales@posthog.com">sales@posthog.com</a> to get a license.
-                        <br />
-                        <br />
-                        Already have a license key? <Link to="">Click here</Link> to activate.
-                    </>
-                }
-            />
-        )
-    }
 
     return (
         <div className="insights-page">
