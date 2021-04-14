@@ -363,7 +363,7 @@ export const trendsLogic = kea<
         },
         toggleLifecycle: () => {
             const toggledResults = values.results
-                .filter((result) => values.toggledLifecycles.includes(result.status))
+                .filter((result) => values.toggledLifecycles.includes(String(result.status)))
                 .map((result, idx) => ({ ...result, id: idx }))
             actions.setIndexedResults(toggledResults)
         },
@@ -463,7 +463,7 @@ export const trendsLogic = kea<
                 })
             } else {
                 indexedResults = values.results
-                    .filter((result) => values.toggledLifecycles.includes(result.status))
+                    .filter((result) => values.toggledLifecycles.includes(String(result.status)))
                     .map((result, idx) => {
                         actions.setVisibilityById({ [`${idx}`]: true })
                         return { ...result, id: idx }
