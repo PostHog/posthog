@@ -183,7 +183,7 @@ export function ActionFilterRow({
                 <div className="ml">
                     <PropertyFilters
                         buttonStyle={{
-                            maxWidth: 'calc(100% - 24px)',
+                            maxWidth: 'calc(100% - 24px)', // 24px is padding on .ant-card-body
                         }}
                         pageKey={`${index}-${value}-filter`}
                         properties={eventProperties}
