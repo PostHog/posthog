@@ -14,7 +14,8 @@ describe('<Insights /> trends', () => {
     }
 
     beforeEach(() => {
-        cy.intercept('/api/user/', { fixture: 'api/user' })
+        cy.intercept('/_preflight/', { fixture: '_preflight' })
+        cy.intercept('/api/users/@me/', { fixture: 'api/users/@me' })
         cy.intercept('/api/dashboard/', { fixture: 'api/dashboard' })
         cy.intercept('/api/personal_api_keys/', { fixture: 'api/personal_api_keys' })
         cy.intercept('/api/projects/@current/', { fixture: 'api/projects/@current' })
@@ -84,14 +85,14 @@ describe('<Insights /> trends', () => {
         cy.get('body').click()
 
         cy.wait(1000)
-        cy.get('.graph-container').toMatchImageSnapshot()
+        cy.get('.graph-container').should('be.visible')
 
         cy.get('[data-attr=chart-filter]').click()
         cy.contains('Time').click()
         cy.get('body').click()
 
         cy.wait(1000)
-        cy.get('.graph-container').toMatchImageSnapshot()
+        cy.get('.graph-container').should('be.visible')
     })
 
     describe('filtered in url', () => {
@@ -236,30 +237,6 @@ describe('<Insights /> trends', () => {
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
             cy.get('[data-attr="property-filter-0"]').should('contain', 'Chrome')
             cy.get('[data-attr="property-filter-1"]').should('contain', 'http://posthog.com')
-        })
-
-        it('reponds to shown as parameter', () => {
-            helpers.setLocation('/insights', {
-                insight: 'TRENDS',
-                interval: 'day',
-                display: 'ActionsLineGraph',
-                events: [
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                        order: 0,
-                    },
-                ],
-                properties: [],
-                shown_as: 'Stickiness',
-            })
-            mount()
-            cy.wait('@api_insight').map(helpers.getSearchParameters).should('include', {
-                shown_as: 'Stickiness',
-            })
-            cy.get('[data-attr="trend-line-graph"]').should('be.visible')
-            cy.get('[data-attr="shownas-filter"]').should('contain', 'Stickiness')
         })
 
         it('responds to breakdown paramters', () => {

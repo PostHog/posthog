@@ -2,8 +2,8 @@ admin: 0003_logentry_add_action_flag_choices
 auth: 0011_update_proxy_permissions
 axes: 0006_remove_accesslog_trusted
 contenttypes: 0002_remove_content_type_name
-ee: 0002_hook
-posthog: 0136_global_plugin_attachments
+ee: 0003_license_max_users
+posthog: 0143_user_uuid
 rest_hooks: 0002_swappable_hook_model
 sessions: 0001_initial
 social_django: 0008_partial_timestamp

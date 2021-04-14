@@ -1,6 +1,5 @@
 import re
 from datetime import datetime
-from random import random
 from typing import Any, Dict, Optional
 
 import statsd
@@ -175,7 +174,10 @@ def get_event(request):
     else:
         events = [data]
 
-    events = preprocess_session_recording_events(events)
+    try:
+        events = preprocess_session_recording_events(events)
+    except ValueError as e:
+        return cors_response(request, JsonResponse({"code": "validation", "message": str(e),}, status=400,),)
 
     for event in events:
         try:
@@ -241,13 +243,8 @@ def get_event(request):
                     event_uuid=event_uuid,
                 )
         else:
-            task_name = "posthog.tasks.process_event.process_event"
-            if settings.PLUGIN_SERVER_INGESTION or team.plugins_opt_in:
-                task_name += "_with_plugins"
-                celery_queue = settings.PLUGINS_CELERY_QUEUE
-            else:
-                celery_queue = settings.CELERY_DEFAULT_QUEUE
-
+            task_name = "posthog.tasks.process_event.process_event_with_plugins"
+            celery_queue = settings.PLUGINS_CELERY_QUEUE
             celery_app.send_task(
                 name=task_name,
                 queue=celery_queue,

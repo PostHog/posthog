@@ -26,6 +26,7 @@ export const toolbarLogic = kea<toolbarLogicType>({
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
+        dataAttributes: [(props.dataAttributes || []) as string[]],
     }),
 
     selectors: ({ selectors }) => ({

@@ -11,9 +11,7 @@ import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
-import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { BackTo } from 'lib/components/BackTo'
 import { Papercups } from 'lib/components/Papercups'
@@ -23,11 +21,9 @@ function Toast(): JSX.Element {
 }
 
 export function App(): JSX.Element | null {
-    const { user } = useValues(userLogic)
-    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { user, userLoading } = useValues(userLogic)
     const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, preflightLoading } = useValues(preflightLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -47,40 +43,44 @@ export function App(): JSX.Element | null {
                 replace('/')
                 return
             }
+
             // Redirect to org/project creation if there's no org/project respectively, unless using invite
             if (scene !== Scene.InviteSignup) {
-                if (!currentOrganizationLoading && !currentOrganization?.id) {
+                if (!user.organization) {
                     if (location.pathname !== '/organization/create') {
                         replace('/organization/create')
                     }
                     return
-                } else if (!currentTeamLoading && !currentTeam?.id) {
+                } else if (!user.team) {
                     if (location.pathname !== '/project/create') {
                         replace('/project/create')
                     }
                     return
                 }
             }
-        }
 
-        // If ingestion tutorial not completed, redirect to it
-        if (
-            currentTeam?.id &&
-            !currentTeam.completed_snippet_onboarding &&
-            !location.pathname.startsWith('/ingestion') &&
-            !location.pathname.startsWith('/personalization')
-        ) {
-            replace('/ingestion')
-            return
+            // If ingestion tutorial not completed, redirect to it
+            if (
+                !user.team?.completed_snippet_onboarding &&
+                !location.pathname.startsWith('/ingestion') &&
+                !location.pathname.startsWith('/personalization')
+            ) {
+                replace('/ingestion')
+                return
+            }
         }
-    }, [scene, user, currentOrganization, currentOrganizationLoading, currentTeam, currentTeamLoading])
+    }, [scene, user])
+
+    if ((userLoading && !user) || (preflightLoading && !preflight)) {
+        return <SceneLoading />
+    }
 
     const SceneComponent = loadedScenes[scene]?.component || (() => <SceneLoading />)
 
     const essentialElements = (
         // Components that should always be mounted inside Layout
         <>
-            {featureFlags['papercups-enabled'] && <Papercups user={user} />}
+            {featureFlags['papercups-enabled'] && <Papercups />}
             <Toast />
         </>
     )
@@ -104,13 +104,8 @@ export function App(): JSX.Element | null {
         )
     }
 
-    if (!currentOrganization?.id || !currentTeam?.id) {
-        return null
-    }
-
     return (
         <>
-            <UpgradeModal />
             <Layout>
                 <MainNavigation />
                 <Layout className={`${sceneConfig.dark ? 'bg-mid' : ''}`} style={{ minHeight: '100vh' }}>
@@ -127,6 +122,7 @@ export function App(): JSX.Element | null {
                 </Layout>
                 {essentialElements}
             </Layout>
+            <UpgradeModal />
             <CommandPalette />
         </>
     )

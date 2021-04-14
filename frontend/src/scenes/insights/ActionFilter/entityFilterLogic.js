@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { EntityTypes } from '../../trends/trendsLogic'
-import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function toLocalFilters(filters) {
     return [
@@ -33,7 +33,7 @@ export function toFilters(localFilters) {
 export const entityFilterLogic = kea({
     key: (props) => props.typeKey,
     connect: {
-        values: [userLogic, ['eventNames'], actionsModel, ['actions']],
+        values: [teamLogic, ['eventNames'], actionsModel, ['actions']],
     },
     actions: () => ({
         selectFilter: (filter) => ({ filter }),

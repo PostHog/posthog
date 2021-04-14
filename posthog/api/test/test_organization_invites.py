@@ -5,8 +5,7 @@ from django.core import mail
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationInvite, OrganizationMembership
-
-from .base import APIBaseTest
+from posthog.test.base import APIBaseTest
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
@@ -65,6 +64,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "first_name": "",
                 "created_by": {
                     "id": self.user.id,
+                    "uuid": str(self.user.uuid),
                     "distinct_id": self.user.distinct_id,
                     "email": self.user.email,
                     "first_name": self.user.first_name,
@@ -85,6 +85,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "email_available": True,
             },
         )
+
+        # Assert invite email is sent
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].reply_to, [self.user.email])  # Reply-To is set to the inviting user
 
     def test_can_create_invites_for_the_same_email_multiple_times(self):
         email = "x@posthog.com"

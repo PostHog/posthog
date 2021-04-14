@@ -6,6 +6,7 @@ import { getContext, useValues } from 'kea'
 import { initKea } from '~/initKea'
 import { GlobalStyles } from '~/GlobalStyles'
 import { userLogic } from 'scenes/userLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import posthog from 'posthog-js'
 import { toParams } from '~/lib/utils'
 
@@ -14,15 +15,16 @@ export const mountPage = (component) => {
     return mount(
         <Provider store={getContext().store}>
             <GlobalStyles />
-            <WaitUntilUserMounted>{component}</WaitUntilUserMounted>
+            <WaitUntilEssentialLogicsAreMounted>{component}</WaitUntilEssentialLogicsAreMounted>
         </Provider>
     )
 }
 
-function WaitUntilUserMounted({ children }) {
+function WaitUntilEssentialLogicsAreMounted({ children }) {
     const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
 
-    return user ? children : null
+    return user && preflight ? children : null
 }
 
 export const setLocation = (path, params = null) => {

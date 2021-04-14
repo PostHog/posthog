@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { personsLogicType } from './personsLogicType'
-import { PersonType } from '~/types'
+import { CohortType, PersonType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface PersonPaginatedResponse {
@@ -14,7 +14,7 @@ interface PersonPaginatedResponse {
 
 const FILTER_WHITELIST: string[] = ['is_identified', 'search', 'cohort']
 
-export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, PersonType>>({
+export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, PersonType, CohortType>>({
     connect: {
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
     },
@@ -22,6 +22,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
         setListFilters: (payload) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         setHasNewKeys: true,
+        navigateToCohort: (cohort: CohortType) => ({ cohort }),
     },
     reducers: {
         listFilters: [
@@ -97,6 +98,9 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 )
             }
         },
+        navigateToCohort: ({ cohort }) => {
+            router.actions.push(`/cohorts/${cohort.id}`)
+        },
     }),
     loaders: ({ values, actions }) => ({
         persons: [
@@ -134,6 +138,15 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 setPerson: (person: PersonType): PersonType => {
                     // Used after merging persons to update the view without an additional request
                     return person
+                },
+            },
+        ],
+        cohorts: [
+            null as CohortType[] | null,
+            {
+                loadCohorts: async (): Promise<CohortType[] | null> => {
+                    const response = await api.get(`api/person/cohorts/?person_id=${values.person?.id}`)
+                    return response.results
                 },
             },
         ],

@@ -13,37 +13,33 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 
+export type AvailableFeatures =
+    | 'zapier'
+    | 'organizations_projects'
+    | 'google_login'
+    | 'dashboard_collaboration'
+    | 'clickhouse'
+
 export interface UserType {
-    anonymize_data: boolean
-    distinct_id: string
+    id: string
+    first_name: string
     email: string
     email_opt_in: boolean
-    id: number
-    name: string
-    posthog_version: string
-    organization: OrganizationType | null
-    team: TeamType | null
+    anonymize_data: boolean
+    distinct_id: string
     toolbar_mode: 'disabled' | 'toolbar'
-    organizations: OrganizationType[]
-    teams: TeamType[]
-    current_organization_id: string
-    current_team_id: number
     has_password: boolean
-    is_multi_tenancy: boolean
     is_staff: boolean
-    is_debug: boolean
     is_impersonated: boolean
-    ee_enabled: boolean
-    email_service_available: boolean
-    realm: 'cloud' | 'hosted'
-    billing?: OrganizationBilling
-    is_event_property_usage_enabled: boolean
-    is_async_event_action_mapping_enabled: boolean
+    organization: OrganizationType | null
+    team: TeamBasicType | null
+    organizations: OrganizationBasicType[]
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
-export interface UserNestedType {
+export interface UserBasicType {
     id: number
+    uuid: string
     distinct_id: string
     first_name: string
     email: string
@@ -70,29 +66,36 @@ export interface PersonalAPIKeyType {
     user_id: string
 }
 
-export interface OrganizationType {
+export interface OrganizationBasicType {
     id: string
     name: string
+}
+
+export interface OrganizationType extends OrganizationBasicType {
     created_at: string
-    updated_at: boolean
-    available_features: string[]
-    billing_plan: string
-    billing: OrganizationBilling
-    teams?: TeamType[]
+    updated_at: string
     membership_level: OrganizationMembershipLevel | null
-    setup: SetupState
     personalization: PersonalizationData
+    setup: SetupState
+    setup_section_2_completed: boolean
     plugins_access_level: PluginsAccessLevel
+    teams: TeamBasicType[] | null
+    available_features: AvailableFeatures[]
 }
 
 export interface OrganizationMemberType {
-    joined_at: string
+    id: string
+    user: UserBasicType
     level: OrganizationMembershipLevel
-    membership_id: string
+    joined_at: string
     updated_at: string
-    user_email: string
-    user_first_name: string
-    user_id: number
+}
+
+export interface APIErrorType {
+    type: 'authentication_error' | 'invalid_request' | 'server_error' | 'throttled_error' | 'validation_error'
+    code: string
+    detail: string
+    attr: string | null
 }
 
 export interface EventUsageType {
@@ -106,14 +109,21 @@ export interface PropertyUsageType {
     usage_count: number
     volume: number
 }
-
-export interface TeamType {
+export interface TeamBasicType {
     id: number
-    name: string
-    anonymize_ips: boolean
+    uuid: string
+    organization: string // Organization ID
     api_token: string
-    app_urls: string[]
+    name: string
     completed_snippet_onboarding: boolean
+    ingested_event: boolean
+    is_demo: boolean
+    timezone: string
+}
+
+export interface TeamType extends TeamBasicType {
+    anonymize_ips: boolean
+    app_urls: string[]
     event_names: string[]
     event_properties: string[]
     event_properties_numerical: string[]
@@ -122,10 +132,8 @@ export interface TeamType {
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     session_recording_retention_period_days: number | null
-    plugins_opt_in: boolean
-    ingested_event: boolean
-    is_demo: boolean
     test_account_filters: FilterType[]
+    data_attributes: string[]
 }
 
 export interface ActionType {
@@ -134,10 +142,11 @@ export interface ActionType {
     deleted?: boolean
     id: number
     is_calculating?: boolean
+    last_calculated_at?: string
     name: string
     post_to_slack?: boolean
     steps?: ActionStepType[]
-    created_by: Record<string, any>
+    created_by: UserBasicType | null
 }
 
 export interface ActionStepType {
@@ -176,6 +185,7 @@ export type EditorProps = {
     instrument?: boolean
     distinctId?: string
     userEmail?: boolean
+    dataAttributes?: string[]
 }
 
 export interface PropertyFilter {
@@ -262,9 +272,9 @@ export interface EntityWithProperties extends Entity {
 }
 
 export interface PersonType {
-    id: number
-    uuid: string
-    name: string
+    id?: number
+    uuid?: string
+    name?: string
     distinct_ids: string[]
     properties: Record<string, any>
     is_identified: boolean
@@ -279,7 +289,7 @@ export interface CohortGroupType {
 
 export interface CohortType {
     count?: number
-    created_by?: Record<string, any>
+    created_by?: UserBasicType | null
     created_at?: string
     deleted?: boolean
     id: number | 'new'
@@ -311,6 +321,7 @@ export interface EventType {
     id: number | string
     properties: Record<string, any>
     timestamp: string
+    person?: Partial<PersonType> | null
 }
 
 export interface SessionType {
@@ -334,13 +345,16 @@ export interface FormattedNumber {
     formatted: string
 }
 
-export interface OrganizationBilling {
+export interface BillingType {
+    should_setup_billing: boolean
+    is_billing_active: boolean
     plan: PlanInterface | null
-    current_usage: FormattedNumber | number | null
-    should_setup_billing?: boolean
-    stripe_checkout_session?: string
-    subscription_url?: string
-    event_allocation: FormattedNumber | number | null
+    billing_period_ends: string
+    event_allocation: number | null
+    current_usage: number | null
+    subscription_url: string
+    current_bill_amount: number | null
+    should_display_current_bill: boolean
 }
 
 export interface PlanInterface {
@@ -350,14 +364,8 @@ export interface PlanInterface {
     image_url: string
     self_serve: boolean
     is_metered_billing: boolean
-    allowance: FormattedNumber | number | null // :TODO: DEPRECATED
     event_allowance: number
     price_string: string
-}
-
-export interface BillingSubscription {
-    subscription_url: string
-    stripe_checkout_session: string
 }
 
 export interface DashboardItemType {
@@ -374,7 +382,7 @@ export interface DashboardItemType {
     color: string | null
     last_refresh: string
     refreshing: boolean
-    created_by: Record<string, any>
+    created_by: UserBasicType | null
     is_sample: boolean
     dashboard: number
     result: any | null
@@ -383,15 +391,17 @@ export interface DashboardItemType {
 export interface DashboardType {
     id: number
     name: string
+    description: string
     pinned: boolean
     items: DashboardItemType[]
     created_at: string
-    created_by: number
+    created_by: UserBasicType | null
     is_shared: boolean
     share_token: string
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
+    tags: string[]
 }
 
 export interface OrganizationInviteType {
@@ -400,7 +410,7 @@ export interface OrganizationInviteType {
     first_name: string
     is_expired: boolean
     emailing_attempt_made: boolean
-    created_by: UserNestedType | null
+    created_by: UserBasicType | null
     created_at: string
     updated_at: string
 }
@@ -443,7 +453,7 @@ export interface AnnotationType {
     scope: 'organization' | 'dashboard_item'
     content: string
     date_marker: string
-    created_by?: UserNestedType | null
+    created_by?: UserBasicType | null
     created_at: string
     updated_at: string
     dashboard_item?: number
@@ -552,6 +562,26 @@ export interface ChartParams {
     view: ViewType
 }
 
+export interface FeatureFlagGroupType {
+    properties: PropertyFilter[]
+    rollout_percentage: number | null
+}
+interface FeatureFlagFilters {
+    groups: FeatureFlagGroupType[]
+}
+export interface FeatureFlagType {
+    id: number | null
+    key: string
+    name: string // Used as description
+    filters: FeatureFlagFilters
+    deleted: boolean
+    active: boolean
+    created_by: UserBasicType | null
+    created_at: string
+    is_simple_flag: boolean
+    rollout_percentage: number | null
+}
+
 export interface PrevalidatedInvite {
     id: string
     target_email: string
@@ -566,6 +596,7 @@ interface AuthBackends {
 }
 
 export interface PreflightStatus {
+    // Attributes that accept undefined values (i.e. `?`) are not received when unauthenticated
     django: boolean
     plugins: boolean
     redis: boolean
@@ -573,7 +604,18 @@ export interface PreflightStatus {
     initiated: boolean
     cloud: boolean
     celery: boolean
+    ee_available?: boolean
+    ee_enabled?: boolean
+    db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
+    available_timezones?: Record<string, number>
+    opt_out_capture?: boolean
+    posthog_version?: string
+    email_service_available?: boolean
+    is_debug?: boolean
+    is_event_property_usage_enabled?: boolean
+    is_async_event_action_mapping_enabled?: boolean
+    licensed_users_available: number | null
 }
 
 export enum DashboardMode { // Default mode is null
@@ -583,14 +625,17 @@ export enum DashboardMode { // Default mode is null
     Public = 'public', // When viewing the dashboard publicly via a shareToken
 }
 
-export type Keys =
+// Reserved hotkeys globally available
+export type GlobalHotKeys = 'g'
+
+// Hotkeys for local (component) actions
+export type HotKeys =
     | 'a'
     | 'b'
     | 'c'
     | 'd'
     | 'e'
     | 'f'
-    | 'g'
     | 'h'
     | 'i'
     | 'j'
@@ -611,3 +656,12 @@ export type Keys =
     | 'y'
     | 'z'
     | 'escape'
+
+export interface LicenseType {
+    id: number
+    key: string
+    plan: string
+    valid_until: string
+    max_users: string | null
+    created_at: string
+}

@@ -6,6 +6,11 @@ from .base import BaseTest
 
 
 class TestTeam(BaseTest):
+    def test_team_has_expected_defaults(self):
+        team: Team = Team.objects.create(name="New Team", organization=self.organization)
+        self.assertEqual(team.timezone, "UTC")
+        self.assertEqual(team.data_attributes, ["data-attr"])
+
     def test_create_team_with_test_account_filters(self):
         team = Team.objects.create_with_data(organization=self.organization)
         self.assertEqual(
@@ -15,7 +20,7 @@ class TestTeam(BaseTest):
                 {
                     "key": "$host",
                     "operator": "is_not",
-                    "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000"],
+                    "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
                 },
             ],
         )
@@ -31,7 +36,7 @@ class TestTeam(BaseTest):
                 {
                     "key": "$host",
                     "operator": "is_not",
-                    "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000"],
+                    "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
                 },
             ],
         )

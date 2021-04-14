@@ -26,4 +26,11 @@
             margin-top: $default_spacing;
         }
     }
+
+    .bill-amount {
+        margin-top: $default_spacing / 2;
+        font-size: 1.2rem;
+        font-weight: bold;
+        text-align: center;
+    }
 }

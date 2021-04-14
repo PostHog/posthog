@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { Button, Card, Divider, Input, Tag } from 'antd'
+import { Button, Card, Divider, Input, Skeleton, Tag } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { SessionRecording } from './SessionRecording'
@@ -17,15 +17,16 @@ import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
-import { userLogic } from 'scenes/userLogic'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { RestrictedArea } from '../../../lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from '../../../lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
+import { TimezoneConfig } from './TimezoneConfig'
+import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { renameCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
 
     const [name, setName] = useState(currentTeam?.name || '')
 
@@ -45,12 +46,13 @@ function DisplayName(): JSX.Element {
                     setName(event.target.value)
                 }}
                 style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
+                disabled={currentTeamLoading}
             />
             <Button
                 type="primary"
                 onClick={(e) => {
                     e.preventDefault()
-                    renameCurrentTeam(name)
+                    updateCurrentTeam({ name })
                 }}
                 disabled={!name || !currentTeam || name === currentTeam.name}
                 loading={currentTeamLoading}
@@ -62,14 +64,15 @@ function DisplayName(): JSX.Element {
 }
 
 export function ProjectSettings(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
-    const { user } = useValues(userLogic)
 
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
 
     useAnchor(location.hash)
+
+    const loadingComponent = <Skeleton active />
 
     return (
         <div style={{ marginBottom: 128 }}>
@@ -83,7 +86,7 @@ export function ProjectSettings(): JSX.Element {
                 <h2 id="name" className="subtitle">
                     Display Name
                 </h2>
-                <DisplayName />
+                {currentTeamLoading && !currentTeam ? loadingComponent : <DisplayName />}
                 <Divider />
                 <h2 id="snippet" className="subtitle">
                     Website Event Autocapture
@@ -94,7 +97,7 @@ export function ProjectSettings(): JSX.Element {
                 <br />
                 For more guidance, including on identying users,{' '}
                 <a href="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</a>.
-                <JSSnippet />
+                {currentTeamLoading && !currentTeam ? loadingComponent : <JSSnippet />}
                 <p>
                     You can even test PostHog out on a live site without changing any code.
                     <br />
@@ -105,7 +108,7 @@ export function ProjectSettings(): JSX.Element {
                     project.
                     <br />
                 </p>
-                <p>{user?.team && <JSBookmarklet team={user.team} />}</p>
+                <div>{currentTeam && <JSBookmarklet team={currentTeam} />}</div>
                 <Divider />
                 <h2 id="custom-events" className="subtitle">
                     Send Custom Events
@@ -141,16 +144,30 @@ export function ProjectSettings(): JSX.Element {
                     ]}
                     copyDescription="project API key"
                 >
-                    {currentTeam?.api_token}
+                    {currentTeam?.api_token || ''}
                 </CodeSnippet>
                 Write-only means it can only create new events. It can't read events or any of your other data stored
                 with PostHog, so it's safe to use in public apps.
                 <Divider />
-                <h2 className="subtitle" id="testaccounts">
-                    Filter out test accounts and team members
+                <h2 className="subtitle" id="timezone">
+                    Timezone
+                </h2>
+                <p>Set the timezone for your project so that you can see relevant time conversions in PostHog.</p>
+                <TimezoneConfig />
+                <Divider />
+                <h2 className="subtitle" id="internal-users-filtering">
+                    Filter Out Internal and Test Users
                 </h2>
                 <p>
-                    Filter out test accounts and internal team members from all your queries for more accurate insights.
+                    Increase the quality of your analytics results by filtering out events from internal sources, such
+                    as team members, test accounts, or development environments. The data be saved nonetheless, however
+                    you'll be able to exclude it from queries with the "Filter out internal and test users" setting
+                    during analysis.
+                </p>
+                <p>
+                    Example filters to use below: <i>email ∌ yourcompany.com</i> to exclude all events from your
+                    company's employees, or <i>Host ∌ localhost</i> to exclude all events from local development
+                    environments.
                 </p>
                 <TestAccountFiltersConfig />
                 <Divider />
@@ -162,6 +179,11 @@ export function ProjectSettings(): JSX.Element {
                     also where you'll be able to create Actions and record sessions.
                 </p>
                 <EditAppUrls />
+                <Divider />
+                <h2 className="subtitle" id="attributes">
+                    Data Attributes
+                </h2>
+                <DataAttributes />
                 <Divider />
                 <h2 className="subtitle" id="webhook">
                     Webhook Integration

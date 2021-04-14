@@ -205,32 +205,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 0)
 
-    def test_cohort_updated_props(self):
-        # The way clickhouse works is that updates aren't instant, so two people with the same ID are in the database
-        # Make sure we get the last one.
-        person1 = _create_person(
-            distinct_ids=["some_other_id_2"],
-            team_id=self.team.pk,
-            properties={"$some_prop": "updated"},
-            timestamp=datetime(2020, 1, 1, 12, 0, 1),
-        )
-        _create_person(
-            uuid=person1.uuid,
-            distinct_ids=["some_other_id"],
-            team_id=self.team.pk,
-            properties={"$some_prop": "something"},
-            timestamp=datetime(2020, 1, 1, 12, 0, 4),
-        )
-
-        cohort1 = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop": "updated"}}], name="cohort1",
-        )
-
-        final_query, params = format_filter_query(cohort1)
-
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
-        self.assertEqual(len(result), 0)
-
     def test_cohort_get_person_ids_by_cohort_id(self):
         user1 = _create_person(distinct_ids=["user1"], team_id=self.team.pk, properties={"$some_prop": "something"})
         user2 = _create_person(distinct_ids=["user2"], team_id=self.team.pk, properties={"$some_prop": "another"})

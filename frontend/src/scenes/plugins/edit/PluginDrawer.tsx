@@ -16,6 +16,7 @@ import { PluginField } from 'scenes/plugins/edit/PluginField'
 import { endWithPunctation } from 'lib/utils'
 import { canGloballyManagePlugins, canInstallPlugins } from '../access'
 import { ExtraPluginButtons } from '../plugin/PluginCard'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 function EnabledDisabledSwitch({
     value,
@@ -45,6 +46,7 @@ const SecretFieldIcon = (): JSX.Element => (
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
     const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
     const {
         editPlugin,
@@ -89,6 +91,7 @@ export function PluginDrawer(): JSX.Element {
                 onClose={() => editPlugin(null)}
                 width="min(90vw, 420px)"
                 title={editingPlugin?.name}
+                data-attr="plugin-drawer"
                 footer={
                     <div style={{ display: 'flex' }}>
                         <Space style={{ flexGrow: 1 }}>
@@ -106,12 +109,13 @@ export function PluginDrawer(): JSX.Element {
                                             style={{ color: 'var(--danger)', padding: 4 }}
                                             type="text"
                                             icon={<DeleteOutlined />}
+                                            data-attr="plugin-uninstall"
                                         >
                                             Uninstall
                                         </Button>
                                     </Popconfirm>
                                 )}
-                            {user?.is_multi_tenancy &&
+                            {preflight?.cloud &&
                                 editingPlugin &&
                                 canGloballyManagePlugins(user?.organization) &&
                                 (editingPlugin.is_global ? (
@@ -154,8 +158,15 @@ export function PluginDrawer(): JSX.Element {
                                 ))}
                         </Space>
                         <Space>
-                            <Button onClick={() => editPlugin(null)}>Cancel</Button>
-                            <Button type="primary" loading={loading} onClick={form.submit}>
+                            <Button onClick={() => editPlugin(null)} data-attr="plugin-drawer-cancel">
+                                Cancel
+                            </Button>
+                            <Button
+                                type="primary"
+                                loading={loading}
+                                onClick={form.submit}
+                                data-attr="plugin-drawer-save"
+                            >
                                 Save
                             </Button>
                         </Space>
@@ -186,6 +197,7 @@ export function PluginDrawer(): JSX.Element {
                                             fieldKey="__enabled"
                                             name="__enabled"
                                             style={{ display: 'inline-block', marginBottom: 0 }}
+                                            data-attr="plugin-enabled-switch"
                                         >
                                             <EnabledDisabledSwitch />
                                         </Form.Item>
@@ -199,6 +211,7 @@ export function PluginDrawer(): JSX.Element {
                                         type={editingSource ? 'default' : 'primary'}
                                         icon={<CodeOutlined />}
                                         onClick={() => setEditingSource(!editingSource)}
+                                        data-attr="plugin-edit-source"
                                     >
                                         Edit Source
                                     </Button>

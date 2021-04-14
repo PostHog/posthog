@@ -45,11 +45,11 @@ export const membersLogic = kea<membersLogicType>({
             member: OrganizationMemberType
             level: OrganizationMembershipLevel
         }) => {
-            await api.update(`api/organizations/@current/members/${member.user_id}/`, { level })
+            await api.update(`api/organizations/@current/members/${member.user.id}/`, { level })
             toast(
                 <div>
                     <h1 className="text-success">
-                        <CheckCircleOutlined /> Made <b>{member.user_first_name}</b> organization{' '}
+                        <CheckCircleOutlined /> Made <b>{member.user.first_name}</b> organization{' '}
                         {organizationMembershipLevelToName.get(level)}.
                     </h1>
                 </div>

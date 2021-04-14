@@ -1,10 +1,10 @@
 import { Button, ButtonProps } from 'antd'
 import React from 'react'
-import { Keys } from '~/types'
+import { HotKeys } from '~/types'
 import './index.scss'
 
 interface HotkeyButtonProps extends ButtonProps {
-    hotkey: Keys
+    hotkey: HotKeys
 }
 
 export function HotkeyButton({ hotkey, children, ...props }: HotkeyButtonProps): JSX.Element {

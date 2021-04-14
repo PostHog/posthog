@@ -16,6 +16,7 @@ const FilterRow = React.memo(function FilterRow({
     pageKey,
     showConditionBadge,
     totalCount,
+    popoverPlacement,
 }) {
     const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
@@ -29,13 +30,20 @@ const FilterRow = React.memo(function FilterRow({
     }
 
     return (
-        <Row align="middle" className="mt-05 mb-05" data-attr={'property-filter-' + index}>
+        <Row
+            align="middle"
+            className="mt-05 mb-05"
+            data-attr={'property-filter-' + index}
+            style={{
+                maxWidth: '90vw',
+            }}
+        >
             <Popover
                 trigger="click"
                 onVisibleChange={handleVisibleChange}
                 defaultVisible={false}
                 visible={open}
-                placement="bottomLeft"
+                placement={popoverPlacement || 'bottomLeft'}
                 content={<PropertyFilter key={index} index={index} onComplete={() => setOpen(false)} logic={logic} />}
             >
                 {key ? (
@@ -70,13 +78,14 @@ export function PropertyFilters({
     onChange = null,
     pageKey,
     showConditionBadge = false,
+    popoverPlacement = null,
 }) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
 
     return (
         <div className="mb">
-            {filters &&
+            {filters?.length &&
                 filters.map((item, index) => {
                     return (
                         <FilterRow
@@ -88,6 +97,7 @@ export function PropertyFilters({
                             filters={filters}
                             pageKey={pageKey}
                             showConditionBadge={showConditionBadge}
+                            popoverPlacement={popoverPlacement}
                         />
                     )
                 })}

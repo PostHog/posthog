@@ -5,10 +5,10 @@ import { EntityTypes } from '../../trends/trendsLogic'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
-import { userLogic } from 'scenes/userLogic'
 import { DownOutlined, DeleteOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import './ActionFilterRow.scss'
+import { teamLogic } from 'scenes/teamLogic'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
 const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
@@ -25,7 +25,16 @@ const determineFilterLabel = (visible, filter) => {
     return 'Add filters'
 }
 
-export function ActionFilterRow({ logic, filter, index, hideMathSelector, singleFilter }) {
+export function ActionFilterRow({
+    logic,
+    filter,
+    index,
+    hideMathSelector,
+    hidePropertySelector,
+    singleFilter,
+    showOr,
+    letter,
+}) {
     const node = useRef()
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
     const {
@@ -35,7 +44,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
         updateFilterProperty,
         setEntityFilterVisibility,
     } = useActions(logic)
-    const { eventProperties, eventPropertiesNumerical } = useValues(userLogic)
+    const { eventProperties, eventPropertiesNumerical } = useValues(teamLogic)
 
     const visible = entityFilterVisible[filter.order]
 
@@ -87,7 +96,21 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
     }
     return (
         <div>
+            {showOr && (
+                <Row align="center">
+                    {index > 0 && (
+                        <div className="stateful-badge mc-main or width-locked" style={{ marginTop: 12 }}>
+                            OR
+                        </div>
+                    )}
+                </Row>
+            )}
             <Row gutter={8} className="mt">
+                {letter && (
+                    <Col className="action-row-letter">
+                        <span>{letter}</span>
+                    </Col>
+                )}
                 <Col style={{ maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}>
                     <Button
                         data-attr={'trend-element-subject-' + index}
@@ -107,7 +130,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
                         onClose={() => selectFilter(null)}
                     />
                 </Col>
-                <Col style={{ maxWidth: 'calc(50% - 16px)' }}>
+                <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
                     {!hideMathSelector && (
                         <MathSelector
                             math={math}
@@ -145,16 +168,18 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, single
                     properties={eventPropertiesNumerical}
                 />
             )}
-            <div style={{ paddingTop: 6 }}>
-                <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
-                <Button
-                    className="ant-btn-md"
-                    onClick={() => setEntityFilterVisibility(filter.order, !visible)}
-                    data-attr={'show-prop-filter-' + index}
-                >
-                    {determineFilterLabel(visible, filter)}
-                </Button>
-            </div>
+            {(!hidePropertySelector || (filter.properties && filter.properties.length > 0)) && (
+                <div style={{ paddingTop: 6 }}>
+                    <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
+                    <Button
+                        className="ant-btn-md"
+                        onClick={() => setEntityFilterVisibility(filter.order, !visible)}
+                        data-attr={'show-prop-filter-' + index}
+                    >
+                        {determineFilterLabel(visible, filter)}
+                    </Button>
+                </div>
+            )}
 
             {visible && (
                 <div className="ml">
@@ -249,7 +274,7 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
 
 function MathPropertySelector(props) {
     const applicableProperties = props.properties
-        .filter(({ value }) => value[0] !== '$' && value !== 'distinct_id' && value !== 'token')
+        .filter(({ value }) => (value[0] !== '$' || value === '$time') && value !== 'distinct_id' && value !== 'token')
         .sort((a, b) => (a.value + '').localeCompare(b.value))
 
     return (
