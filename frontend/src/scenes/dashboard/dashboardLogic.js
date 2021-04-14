@@ -205,9 +205,9 @@ export const dashboardLogic = kea({
                             // how low are things in "w" consecutive of columns
                             const segmentCount = cols[col] - w + 1
                             const lowestSegments = Array.from(Array(segmentCount)).map(() => -1)
-                            for (let i = 0; i < segmentCount; i++) {
-                                for (let j = i; j <= i + w - 1; j++) {
-                                    lowestSegments[i] = Math.max(lowestSegments[i], lowestPoints[j])
+                            for (let k = 0; k < segmentCount; k++) {
+                                for (let j = k; j <= k + w - 1; j++) {
+                                    lowestSegments[k] = Math.max(lowestSegments[k], lowestPoints[j])
                                 }
                             }
 
@@ -229,8 +229,8 @@ export const dashboardLogic = kea({
                                 h,
                             })
 
-                            for (let i = lowestIndex; i <= lowestIndex + w - 1; i++) {
-                                lowestPoints[i] = Math.max(lowestPoints[i], lowestDepth + h)
+                            for (let k = lowestIndex; k <= lowestIndex + w - 1; k++) {
+                                lowestPoints[k] = Math.max(lowestPoints[k], lowestDepth + h)
                             }
                         })
 
@@ -296,9 +296,9 @@ export const dashboardLogic = kea({
             await api.update(`api/dashboard_item/layouts`, {
                 items: values.items.map((item) => {
                     const layouts = {}
-                    Object.entries(item.layouts).forEach(([key, layout]) => {
+                    Object.entries(item.layouts).forEach(([layoutKey, layout]) => {
                         const { i, ...rest } = layout // eslint-disable-line
-                        layouts[key] = rest
+                        layouts[layoutKey] = rest
                     })
                     return { id: item.id, layouts }
                 }),
