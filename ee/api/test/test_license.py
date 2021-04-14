@@ -51,3 +51,8 @@ class TestLicenseAPI(APILicensedTest):
         license = License.objects.get(id=response_data["id"])
         self.assertEqual(license.key, "newer_license_1")
         self.assertEqual(license.valid_until, valid_until)
+
+    @patch("ee.models.license.requests.post")
+    def test_friendly_error_when_license_key_is_invalid(self, patch_post):
+        # TODO
+        pass

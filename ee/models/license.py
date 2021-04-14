@@ -1,9 +1,12 @@
 from typing import Any, ClassVar, List, Optional, cast
 
 import requests
+from django.contrib.auth import get_user_model
 from django.db import models
 from django.utils import timezone
 from rest_framework import exceptions, status
+
+from posthog.models import OrganizationInvite
 
 
 class LicenseError(exceptions.APIException):
@@ -44,7 +47,7 @@ class License(models.Model):
     plan: models.CharField = models.CharField(max_length=200)
     valid_until: models.DateTimeField = models.DateTimeField()
     key: models.CharField = models.CharField(max_length=200)
-    max_users: models.IntegerField = models.IntegerField(default=0)
+    max_users: models.IntegerField = models.IntegerField(default=None, null=True)  # None = no restriction
 
     ENTERPRISE_PLAN = "enterprise"
     BASE_CLICKHOUSE_PLAN = "base_clickhouse"
@@ -56,3 +59,21 @@ class License(models.Model):
     @property
     def available_features(self) -> List[str]:
         return self.PLANS.get(self.plan, [])
+
+
+def get_licensed_users_available() -> Optional[int]:
+    """
+    Returns the number of user slots available that can be created based on the instance's current license.
+    Not relevant for cloud users.
+    `None` means unlimited users.
+    """
+
+    license = License.objects.first_valid()
+    if license:
+        if license.max_users is None:
+            return None
+
+        users_left = license.max_users - get_user_model().objects.count() - OrganizationInvite.objects.count()
+        return max(users_left, 0)
+
+    return None

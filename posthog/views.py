@@ -36,6 +36,16 @@ from .utils import (
 )
 
 
+def noop(*args, **kwargs) -> None:
+    return None
+
+
+try:
+    from ee.models.license import get_licensed_users_available
+except ImportError:
+    get_licensed_users_available = noop
+
+
 def login_required(view):
     base_handler = base_login_required(view)
 
@@ -200,6 +210,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "is_debug": settings.DEBUG,
             "is_event_property_usage_enabled": settings.ASYNC_EVENT_PROPERTY_USAGE,
             "is_async_event_action_mapping_enabled": settings.ASYNC_EVENT_ACTION_MAPPING,
+            "licensed_users_available": get_licensed_users_available(),
         }
 
     return JsonResponse(response)

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.contrib.postgres.fields import JSONField
@@ -8,7 +8,6 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
-from posthog.models.team import Team
 from posthog.utils import mask_email_address
 
 from .utils import UUIDModel, sane_repr
@@ -112,23 +111,6 @@ class Organization(UUIDModel):
         if realm == "ee":
             return License.PLANS.get(plan, [])
         return self.billing.available_features  # type: ignore
-
-    @property
-    def users_left(self) -> int:
-        # Number of users you're allowed to invite
-        # -1 means unlimited
-        if License is not None:
-            license = License.objects.first_valid()
-            if license:
-                if license.max_users == 0:
-                    return -1
-                from posthog.models.user import User
-
-                users_left = license.max_users - User.objects.count() - OrganizationInvite.objects.count()
-                if users_left < 0:
-                    return 0
-                return users_left
-        return -1
 
     def is_feature_available(self, feature: str) -> bool:
         return feature in self.available_features
