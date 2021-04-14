@@ -51,8 +51,14 @@ class License(models.Model):
 
     ENTERPRISE_PLAN = "enterprise"
     BASE_CLICKHOUSE_PLAN = "base_clickhouse"
+    ENTERPRISE_FEATURES = [
+        "zapier",
+        "organizations_projects",
+        "google_login",
+        "dashboard_collaboration",
+    ]  # Base premium features
     PLANS = {
-        ENTERPRISE_PLAN: ["clickhouse", "zapier", "organizations_projects", "google_login", "dashboard_collaboration"],
+        ENTERPRISE_PLAN: ENTERPRISE_FEATURES + ["clickhouse"],
         BASE_CLICKHOUSE_PLAN: ["clickhouse"],
     }
 
