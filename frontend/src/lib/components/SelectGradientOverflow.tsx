@@ -52,9 +52,8 @@ export function SelectGradientOverflow({
     const containerRef: React.RefObject<HTMLDivElement> = useRef(null)
     const dropdownRef = useRef<HTMLDivElement>(null)
     const [isOpen, setOpen] = useState(false)
-    const [enableAutoFocus, setEnableAutoFocus] = useState(true)
 
-    function updateScrollGradient(): void {
+    const updateScrollGradient = (): void => {
         const dropdown = dropdownRef.current
         if (!dropdown) {
             return
@@ -75,17 +74,24 @@ export function SelectGradientOverflow({
         }
     }
 
+    const onFocus = (): void => {
+        setTimeout(() => setOpen(true), delayBeforeAutoOpen || 0)
+    }
+
+    const onBlur = (): void => {
+        if (isOpen) {
+            setOpen(false)
+        }
+    }
+
     useEffect(() => {
-        if (autoFocus && enableAutoFocus) {
+        if (autoFocus || defaultOpen) {
             selectRef.current?.focus()
-            setTimeout(() => setOpen(true), delayBeforeAutoOpen || 0)
         }
     }, [autoFocus])
 
     const outsideClickListener = (event: any): void => {
         if (!containerRef.current?.contains(event.target) && isOpen) {
-            setEnableAutoFocus(false)
-            setOpen(false)
             selectRef.current?.blur()
         }
     }
@@ -99,11 +105,12 @@ export function SelectGradientOverflow({
                 open={isOpen}
                 onClick={() => setOpen(!isOpen)}
                 onSelect={() => setOpen(false)}
+                onFocus={onFocus}
+                onBlur={onBlur}
                 onPopupScroll={() => {
                     updateScrollGradient()
                 }}
                 tagRender={CustomTag}
-                defaultOpen={defaultOpen}
                 dropdownRender={(menu) => (
                     <DropdownGradientRenderer
                         menu={menu}
