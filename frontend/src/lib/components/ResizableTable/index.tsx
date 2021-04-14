@@ -8,7 +8,7 @@ import './index.scss'
 export interface ResizableColumnType<RecordType> {
     title: string | JSX.Element
     key?: string
-    render: (record: RecordType) => JSX.Element
+    render: (record: RecordType, ...rest: any) => JSX.Element
     ellipsis?: boolean
     span: number
 }
