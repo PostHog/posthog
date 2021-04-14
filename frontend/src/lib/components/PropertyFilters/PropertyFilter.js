@@ -21,6 +21,7 @@ function PropertyPaneContents({
     operator,
     type,
     displayOperatorAndValue,
+    selectProps,
 }) {
     const optionGroups = [
         {
@@ -71,6 +72,7 @@ function PropertyPaneContents({
                         }
                         optionGroups={optionGroups}
                         autoOpenIfEmpty
+                        delayBeforeAutoOpen={selectProps.delayBeforeAutoOpen}
                         placeholder="Property key"
                     />
                 </Col>
@@ -100,7 +102,7 @@ function PropertyPaneContents({
     )
 }
 
-function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorAndValue }) {
+function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorAndValue, selectProps }) {
     const { cohorts } = useValues(cohortsModel)
 
     return (
@@ -124,6 +126,7 @@ function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorA
                     setThisFilter('id', newFilter.value, undefined, newFilter.type)
                 }}
                 data-attr="cohort-filter-select"
+                selectProps={selectProps}
             >
                 {cohorts.map((item, index) => (
                     <Select.Option
@@ -141,7 +144,7 @@ function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorA
     )
 }
 
-export function PropertyFilter({ index, onComplete, logic }) {
+export function PropertyFilter({ index, onComplete, logic, selectProps }) {
     const { eventProperties, personProperties, filters } = useValues(logic)
     const { setFilter } = useActions(logic)
     let { key, value, operator, type } = filters[index]
@@ -175,6 +178,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     operator={operator}
                     type={type}
                     displayOperatorAndValue={displayOperatorAndValue}
+                    selectProps={selectProps}
                 />
             </TabPane>
             <TabPane tab="Cohort" key="cohort" style={{ display: 'flex' }}>
@@ -183,6 +187,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     setThisFilter={setThisFilter}
                     value={value}
                     displayOperatorAndValue={displayOperatorAndValue}
+                    selectProps={selectProps}
                 />
                 {type === 'cohort' && value ? (
                     <Link to={`/cohorts/${value}`} target="_blank">

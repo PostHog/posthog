@@ -12,6 +12,7 @@ interface Props {
     onChange: (type: PropertyOptionGroup['type'], value: string) => void
     placeholder: string
     autoOpenIfEmpty?: boolean
+    delayBeforeAutoOpen?: number | false
 }
 
 interface PropertyOptionGroup {
@@ -32,12 +33,14 @@ export function PropertySelect({
     onChange,
     placeholder,
     autoOpenIfEmpty,
+    delayBeforeAutoOpen,
 }: Props): JSX.Element {
     return (
         <SelectGradientOverflow
             showSearch
             autoFocus={autoOpenIfEmpty && !propertyOption?.value}
             defaultOpen={autoOpenIfEmpty && !propertyOption?.value}
+            delayBeforeAutoOpen={delayBeforeAutoOpen}
             placeholder={placeholder}
             data-attr="property-filter-dropdown"
             labelInValue

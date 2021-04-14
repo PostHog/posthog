@@ -41,10 +41,21 @@ const FilterRow = React.memo(function FilterRow({
             <Popover
                 trigger="click"
                 onVisibleChange={handleVisibleChange}
+                destroyTooltipOnHide={true}
                 defaultVisible={false}
                 visible={open}
                 placement={popoverPlacement || 'bottomLeft'}
-                content={<PropertyFilter key={index} index={index} onComplete={() => setOpen(false)} logic={logic} />}
+                content={
+                    <PropertyFilter
+                        key={index}
+                        index={index}
+                        onComplete={() => setOpen(false)}
+                        logic={logic}
+                        selectProps={{
+                            delayBeforeAutoOpen: 150,
+                        }}
+                    />
+                }
             >
                 {key ? (
                     <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />

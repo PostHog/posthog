@@ -1,6 +1,6 @@
-import React, { ReactElement, RefObject, useEffect, useRef } from 'react'
+import React, { ReactElement, RefObject, useEffect, useRef, useState } from 'react'
 import { Select, Tag, Tooltip } from 'antd'
-import { SelectProps } from 'antd/lib/select'
+import { RefSelectProps, SelectProps } from 'antd/lib/select'
 import './SelectGradientOverflow.scss'
 import { CloseButton } from './CloseButton'
 
@@ -40,8 +40,19 @@ function CustomTag({ label, onClose, value }: CustomTagProps): JSX.Element {
 /**
  * Ant Design Select extended with a gradient overlay to indicate a scrollable list.
  */
-export function SelectGradientOverflow(props: SelectProps<any>): JSX.Element {
+export function SelectGradientOverflow({
+    autoFocus = false,
+    defaultOpen = false,
+    delayBeforeAutoOpen = false,
+    ...props
+}: SelectProps<any> & {
+    delayBeforeAutoOpen?: number | false
+}): JSX.Element {
+    const selectRef: React.RefObject<RefSelectProps> | null = useRef(null)
+    const containerRef: React.RefObject<HTMLDivElement> = useRef(null)
     const dropdownRef = useRef<HTMLDivElement>(null)
+    const [isOpen, setOpen] = useState(false)
+    const [enableAutoFocus, setEnableAutoFocus] = useState(true)
 
     function updateScrollGradient(): void {
         const dropdown = dropdownRef.current
@@ -64,22 +75,45 @@ export function SelectGradientOverflow(props: SelectProps<any>): JSX.Element {
         }
     }
 
+    useEffect(() => {
+        if (autoFocus && enableAutoFocus) {
+            selectRef.current?.focus()
+            setTimeout(() => setOpen(true), delayBeforeAutoOpen || 0)
+        }
+    }, [autoFocus])
+
+    const outsideClickListener = (event: any): void => {
+        if (!containerRef.current?.contains(event.target) && isOpen) {
+            setEnableAutoFocus(false)
+            setOpen(false)
+            selectRef.current?.blur()
+        }
+    }
+    document.addEventListener('click', outsideClickListener)
+
     return (
-        <Select
-            {...props}
-            onPopupScroll={() => {
-                updateScrollGradient()
-            }}
-            tagRender={CustomTag}
-            dropdownRender={(menu) => (
-                <DropdownGradientRenderer
-                    menu={menu}
-                    innerRef={dropdownRef}
-                    updateScrollGradient={updateScrollGradient}
-                />
-            )}
-        >
-            {props.children}
-        </Select>
+        <div ref={containerRef}>
+            <Select
+                {...props}
+                ref={selectRef}
+                open={isOpen}
+                onClick={() => setOpen(!isOpen)}
+                onSelect={() => setOpen(false)}
+                onPopupScroll={() => {
+                    updateScrollGradient()
+                }}
+                tagRender={CustomTag}
+                defaultOpen={defaultOpen}
+                dropdownRender={(menu) => (
+                    <DropdownGradientRenderer
+                        menu={menu}
+                        innerRef={dropdownRef}
+                        updateScrollGradient={updateScrollGradient}
+                    />
+                )}
+            >
+                {props.children}
+            </Select>
+        </div>
     )
 }
