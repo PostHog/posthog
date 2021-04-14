@@ -13,12 +13,17 @@ export function getMaxColumnWidth(breakpoint: number): number {
 export function getFullwidthColumnSize({
     wrapperWidth = 1200,
     breakpoint = 1600,
+    useMinWidth = true,
 }: {
     wrapperWidth?: number
     breakpoint?: number
+    useMinWidth?: boolean
 }): number {
-    const minWidth = getMinColumnWidth(breakpoint)
     const columnWidth = Math.floor(wrapperWidth / gridBasis)
+    if (!useMinWidth) {
+        return columnWidth
+    }
+    const minWidth = getMinColumnWidth(breakpoint)
     return Math.max(columnWidth, minWidth)
 }
 

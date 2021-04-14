@@ -93,7 +93,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
         updateScrollGradient()
     }
     const [columns, setColumns] = useState(() => {
-        const defaultColumnWidth = getFullwidthColumnSize({})
+        const defaultColumnWidth = getFullwidthColumnSize({ useMinWidth: false })
         return initialColumns.map(
             (column, index) =>
                 ({
