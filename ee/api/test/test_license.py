@@ -54,5 +54,22 @@ class TestLicenseAPI(APILicensedTest):
 
     @patch("ee.models.license.requests.post")
     def test_friendly_error_when_license_key_is_invalid(self, patch_post):
-        # TODO
-        pass
+        mock = Mock()
+        mock.ok = False
+        mock.json.return_value = {
+            "type": "validation_error",
+            "code": "invalid_key",
+            "detail": "Provided key is invalid.",
+            "attr": "key",
+        }
+        patch_post.return_value = mock
+        count = License.objects.count()
+
+        response = self.client.post("/api/license", {"key": "invalid_key"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"type": "license_error", "code": "invalid_key", "detail": "Provided key is invalid.", "attr": None},
+        )
+
+        self.assertEqual(License.objects.count(), count)

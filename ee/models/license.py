@@ -21,7 +21,7 @@ class LicenseError(exceptions.APIException):
 
     def __init__(self, code, detail):
         self.code = code
-        self.detail = detail
+        self.detail = exceptions._get_error_details(detail, code)
 
 
 class LicenseManager(models.Manager):
