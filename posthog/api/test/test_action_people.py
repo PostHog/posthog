@@ -445,58 +445,6 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             self.assertEqual(len(people["results"][0]["people"]), 1)
             self.assertEqual(people["results"][0]["people"][0]["id"], person3.pk)
 
-        def test_active_user_weekly_people(self):
-            p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p1",
-                timestamp="2020-01-09T12:00:00Z",
-                properties={"key": "val"},
-            )
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p1",
-                timestamp="2020-01-10T12:00:00Z",
-                properties={"key": "val"},
-            )
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p1",
-                timestamp="2020-01-11T12:00:00Z",
-                properties={"key": "val"},
-            )
-
-            p2 = person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p2",
-                timestamp="2020-01-09T12:00:00Z",
-                properties={"key": "val"},
-            )
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p2",
-                timestamp="2020-01-11T12:00:00Z",
-                properties={"key": "val"},
-            )
-
-            people = self.client.get(
-                "/api/action/people/",
-                data={
-                    "date_from": "2020-01-10",
-                    "date_to": "2020-01-10",
-                    ENTITY_TYPE: "events",
-                    ENTITY_ID: "$pageview",
-                    ENTITY_MATH: "weekly_active",
-                },
-            ).json()
-            self.assertEqual(len(people["results"][0]["people"]), 2)
-
     return TestActionPeople
 
 
