@@ -949,10 +949,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-contrib/-/plugin-contrib-0.0.3.tgz#d0772c6dd9ec9944ebee9dc475e1e781256b0b5f"
   integrity sha512-0HrE8AuPv3OLZA93RrJDbljn9u5D/wmiIkBCeckU3LL67LNozDIJgKsY4Td91zgc+b4Rlx/X0MJNp2l6BHbQqg==
 
-"@posthog/plugin-server@0.16.9":
-  version "0.16.9"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.16.9.tgz#bc4355ebb56992fab4c1f81b2ab5976cf61ba951"
-  integrity sha512-AtD0Dp9iQFU9+3jgJnNYx3S8MSziqk2PMvfzgI6hESSMEwZ/nGGFZJRGn+btsiymT6sOt/VHsQKXKDF6cMkFeQ==
+"@posthog/plugin-server@0.16.10":
+  version "0.16.10"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.16.10.tgz#b685e32c4c6584d347bca441f7e0dce5a63f1228"
+  integrity sha512-DCZ5DLTWbv969OlQnXCSd/nypya+QmF9RJ2PO6HSNYnFoZdUahb7c9TQMX7CnGsLDOWz/43CefYWNVH9bUv/4Q==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"
