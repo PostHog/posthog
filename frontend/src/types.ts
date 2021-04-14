@@ -654,3 +654,12 @@ export type HotKeys =
     | 'y'
     | 'z'
     | 'escape'
+
+export interface LicenseType {
+    id: number
+    key: string
+    plan: string
+    valid_until: string
+    max_users: string | null
+    created_at: string
+}

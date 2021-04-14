@@ -2,30 +2,39 @@ import api from 'lib/api'
 import { kea } from 'kea'
 import { toast } from 'react-toastify'
 import { licenseLogicType } from './logicType'
-import { APIErrorType } from '~/types'
-interface License {
-    key: string
-}
+import { APIErrorType, LicenseType } from '~/types'
 
-export const licenseLogic = kea<licenseLogicType<License, APIErrorType>>({
+export const licenseLogic = kea<licenseLogicType<LicenseType, APIErrorType>>({
     actions: {
-        setError: (error: Error) => ({ error }),
-        addLicense: (license: License) => ({ license }),
-        createLicense: (license: License) => ({ license }),
+        setError: (error: APIErrorType | null) => ({ error }),
+        addLicense: (license: LicenseType) => ({ license }),
     },
-    loaders: {
+    loaders: ({ values, actions }) => ({
         licenses: [
-            [],
+            [] as LicenseType[],
             {
                 loadLicenses: async () => {
                     return (await api.get('api/license')).results
                 },
+                createLicense: async (payload: { key: string }) => {
+                    try {
+                        const license = (await api.create('api/license', payload)) as LicenseType
+                        toast(
+                            `Your license key was succesfully activated. You can now use all the features in the ${license.plan} plan.`
+                        )
+                        actions.setError(null)
+                        return [license, ...values.licenses]
+                    } catch (response) {
+                        actions.setError(response as APIErrorType)
+                        return values.licenses
+                    }
+                },
             },
         ],
-    },
+    }),
     reducers: {
         licenses: {
-            addLicense: (state: Array<License>, { license }) => [license, ...state],
+            addLicense: (state, { license }) => [license, ...state],
         },
         error: [
             null as null | APIErrorType,
@@ -34,23 +43,6 @@ export const licenseLogic = kea<licenseLogicType<License, APIErrorType>>({
             },
         ],
     },
-
-    listeners: ({ actions }) => ({
-        createLicense: async (license: License) => {
-            let new_license: License | null = null
-            try {
-                new_license = await api.create('api/license', license.license)
-            } catch (response) {
-                actions.setError(response as APIErrorType)
-                return
-            }
-            toast(
-                `Your license key was succesfully activated. You can now use all the features in the ${new_license.plan} plan.`
-            )
-            actions.addLicense(new_license)
-            actions.setError(null)
-        },
-    }),
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadLicenses()
