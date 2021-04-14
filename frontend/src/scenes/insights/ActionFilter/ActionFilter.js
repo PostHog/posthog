@@ -76,18 +76,16 @@ export function ActionFilter({
                 sortable ? (
                     <SortableContainer onSortEnd={onSortEnd} lockAxis="y" distance={5}>
                         {localFilters.map((filter, index) => (
-                            <>
-                                <SortableActionFilterRow
-                                    key={index}
-                                    logic={logic}
-                                    filter={filter}
-                                    index={index}
-                                    filterIndex={index}
-                                    hideMathSelector={hideMathSelector}
-                                    hidePropertySelector={hidePropertySelector}
-                                    filterCount={localFilters.length}
-                                />
-                            </>
+                            <SortableActionFilterRow
+                                key={index}
+                                logic={logic}
+                                filter={filter}
+                                index={index}
+                                filterIndex={index}
+                                hideMathSelector={hideMathSelector}
+                                hidePropertySelector={hidePropertySelector}
+                                filterCount={localFilters.length}
+                            />
                         ))}
                     </SortableContainer>
                 ) : (
