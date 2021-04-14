@@ -1092,6 +1092,15 @@
         "code",
         "doc"
       ]
+    },
+    {
+      "login": "daviddanielarch",
+      "name": "David Arch",
+      "avatar_url": "https://avatars.githubusercontent.com/u/78377120?v=4",
+      "profile": "https://daviddanielarch.github.io/",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
