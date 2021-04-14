@@ -72,7 +72,7 @@ function PropertyPaneContents({
                         }
                         optionGroups={optionGroups}
                         autoOpenIfEmpty
-                        delayBeforeAutoOpen={selectProps.delayBeforeAutoOpen}
+                        delayBeforeAutoOpen={selectProps?.delayBeforeAutoOpen}
                         placeholder="Property key"
                     />
                 </Col>

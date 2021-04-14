@@ -88,7 +88,7 @@ export function SelectGradientOverflow({
         if (autoFocus || defaultOpen) {
             selectRef.current?.focus()
         }
-    }, [autoFocus])
+    }, [autoFocus, defaultOpen])
 
     const outsideClickListener = (event: any): void => {
         if (!containerRef.current?.contains(event.target) && isOpen) {
