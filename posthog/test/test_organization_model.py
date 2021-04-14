@@ -61,22 +61,3 @@ class TestOrganization(BaseTest):
 
         with freeze_time("2012-01-19T12:00:00.000Z"):
             self.assertFalse(self.organization.is_feature_available("whatever"))
-
-    @pytest.mark.ee
-    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
-    @patch("ee.models.license.requests.post")
-    def test_users_available(self, patch_post):
-        from ee.models.license import License
-
-        mock = Mock()
-        mock.json.return_value = {"plan": "enterprise", "valid_until": "2012-01-14T12:00:00.000Z", "max_users": 2}
-        patch_post.return_value = mock
-        license = License.objects.create(key="key")
-
-        with freeze_time("2012-01-10T12:00:00.000Z"):
-            self.assertEqual(self.organization.users_left, 1)
-            user = User.objects.create_and_join(self.organization, "test", "test")
-            self.assertEqual(self.organization.users_left, 0)
-            user.delete()
-            OrganizationInvite.objects.create(organization=self.organization)
-            self.assertEqual(self.organization.users_left, 0)
