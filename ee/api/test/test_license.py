@@ -1,6 +1,7 @@
 import datetime
 from unittest.mock import Mock, patch
 
+import pytest
 import pytz
 from django.utils import timezone
 from rest_framework import status
@@ -10,6 +11,7 @@ from ee.models.license import License
 
 
 class TestLicenseAPI(APILicensedTest):
+    @pytest.mark.skip_on_multitenancy
     def test_can_list_and_retrieve_licenses(self):
         response = self.client.get("/api/license")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -28,6 +30,7 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(retrieve_response.json(), response_data["results"][0])
 
     @patch("ee.models.license.requests.post")
+    @pytest.mark.skip_on_multitenancy
     def test_can_create_license(self, patch_post):
 
         valid_until = timezone.now() + datetime.timedelta(days=10)
@@ -53,6 +56,7 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(license.valid_until, valid_until)
 
     @patch("ee.models.license.requests.post")
+    @pytest.mark.skip_on_multitenancy
     def test_friendly_error_when_license_key_is_invalid(self, patch_post):
         mock = Mock()
         mock.ok = False
