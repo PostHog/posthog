@@ -4,9 +4,10 @@ describe('Invite Signup', () => {
         cy.get('[data-attr=top-menu-item-org-settings]').click()
 
         cy.location('pathname').should('eq', '/organization/settings')
+        cy.get('h2').contains('Pending Invites').should('exist')
 
         // Test invite creation flow
-        cy.get('[data-attr=invite-teammate-button]').click({ force: true }) // The button gets nested under some weird Ant divs
+        cy.get('[data-attr=invites-table] [data-attr=invite-teammate-button]').click()
         cy.get('[data-attr=invite-email-input]').type('charlie@posthog.com').should('have.value', 'charlie@posthog.com')
         cy.get('[data-attr=invite-team-member-submit]').click()
         cy.get('[data-attr=invites-table] tbody td').should('contain', 'charlie@posthog.com')
@@ -28,10 +29,11 @@ describe('Invite Signup', () => {
     })
 
     it('New user can use invite', () => {
+        const target_email = `newuser+${Math.floor(Math.random() * 10000)}@posthog.com`
         cy.request({
             method: 'POST',
             url: '/api/organizations/@current/invites/',
-            body: { target_email: 'newuser@posthog.com' },
+            body: { target_email: target_email },
             headers: { Authorization: 'Bearer e2e_demo_api_key' },
         }).then((response) => {
             expect(response.status).to.eq(201)
@@ -41,7 +43,7 @@ describe('Invite Signup', () => {
         })
         cy.get('.error-view-container').should('not.exist')
         cy.get('h1.page-title').should('contain', "You've been invited to join")
-        cy.get('#email').should('have.value', 'n*****r@posthog.com')
+        cy.get('#email').should('have.value', `n**********${target_email[11]}@posthog.com`)
         cy.get('#password').type('12345678')
         cy.get('.ant-progress-bg').should('not.have.css', 'width', '0px') // Password strength indicator is working
         cy.get('#first_name').type('Bob')
