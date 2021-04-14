@@ -455,10 +455,20 @@ export const trendsLogic = kea<
                 })
             }
 
-            const indexedResults = values.results.map((element, index) => {
-                actions.setVisibilityById({ [`${index}`]: true })
-                return { ...element, id: index }
-            })
+            let indexedResults
+            if (values.filters.insight !== ViewType.LIFECYCLE) {
+                indexedResults = values.results.map((element, index) => {
+                    actions.setVisibilityById({ [`${index}`]: true })
+                    return { ...element, id: index }
+                })
+            } else {
+                indexedResults = values.results
+                    .filter((result) => values.toggledLifecycles.includes(result.status))
+                    .map((result, idx) => {
+                        actions.setVisibilityById({ [`${idx}`]: true })
+                        return { ...result, id: idx }
+                    })
+            }
             actions.setIndexedResults(indexedResults)
         },
         [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
