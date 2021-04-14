@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react'
+import React, { useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { PersonsTable } from './PersonsTable'
-import { Button, Input, Row, Radio } from 'antd'
+import { Button, Row, Radio } from 'antd'
 import { ExportOutlined, PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { personsLogic } from './personsLogic'
@@ -10,14 +10,13 @@ import { CohortType } from '~/types'
 import { LinkButton } from 'lib/components/LinkButton'
 import { ClockCircleFilled } from '@ant-design/icons'
 import { toParams } from 'lib/utils'
+import { PersonsSearch } from './PersonsSearch'
 
 export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
-    const { persons, listFilters, personsLoading, exampleEmail } = useValues(personsLogic)
-    const [searchTerm, setSearchTerm] = useState('') // Not on Kea because it's a component-specific store & to avoid changing the URL on every keystroke
+    const { persons, listFilters, personsLoading } = useValues(personsLogic)
 
     useEffect(() => {
-        setSearchTerm(listFilters.search)
         if (cohort) {
             setListFilters({ cohort: cohort.id })
             loadPersons()
@@ -29,26 +28,7 @@ export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
             {!cohort && <PageHeader title="Persons" />}
             <Row style={{ gap: '0.75rem' }} className="mb">
                 <div style={{ flexGrow: 1, maxWidth: 600 }}>
-                    <Input.Search
-                        data-attr="persons-search"
-                        placeholder={`search person by email, name or ID (e.g. ${exampleEmail})`}
-                        autoFocus
-                        value={searchTerm}
-                        onChange={(e) => {
-                            setSearchTerm(e.target.value)
-                            if (!e.target.value) {
-                                setListFilters({ search: undefined })
-                                loadPersons()
-                            }
-                        }}
-                        enterButton
-                        allowClear
-                        onSearch={() => {
-                            setListFilters({ search: searchTerm || undefined })
-                            loadPersons()
-                        }}
-                        style={{ width: '100%' }}
-                    />
+                    <PersonsSearch />
                     <div className="text-muted text-small">
                         You can also filter persons that have a certain property set (e.g. <code>has:email</code> or{' '}
                         <code>has:name</code>)

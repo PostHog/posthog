@@ -45,12 +45,12 @@ export function PersonsTable({
 
     const topRef = useRef<HTMLSpanElement>(null)
 
-    const columns: ResizableColumnType[] = [
+    const columns: ResizableColumnType<PersonType>[] = [
         {
             title: 'Email',
             key: 'email',
             span: 6,
-            render: function Render(_: string, person: PersonType) {
+            render: function Render(person: PersonType) {
                 return (
                     <Link to={linkToPerson(person)} data-attr="goto-person-email">
                         <PersonHeader person={person} />
@@ -62,7 +62,7 @@ export function PersonsTable({
             title: 'ID',
             key: 'id',
             span: 8,
-            render: function Render(_: string, person: PersonType) {
+            render: function Render(person: PersonType) {
                 return (
                     <div style={{ overflow: 'hidden' }}>
                         {person.distinct_ids.length && (
@@ -86,7 +86,7 @@ export function PersonsTable({
             title: 'First seen',
             key: 'created',
             span: 3,
-            render: function Render(_: string, person: PersonType) {
+            render: function Render(person: PersonType) {
                 return person.created_at ? <TZLabel time={person.created_at} /> : <></>
             },
         })
@@ -96,7 +96,7 @@ export function PersonsTable({
         key: 'actions',
         title: '',
         span: 2,
-        render: function Render(_: string, person: PersonType, index: number) {
+        render: function Render(person: PersonType, ...[, index]: [PersonType, number]) {
             return (
                 <>
                     <Link to={linkToPerson(person)} data-attr={'goto-person-arrow-' + index} data-test-goto-person>

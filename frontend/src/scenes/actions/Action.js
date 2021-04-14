@@ -78,9 +78,9 @@ export function Action({ id }) {
                     apiURL=""
                     actionId={id}
                     action={action}
-                    onSave={(action) => {
+                    onSave={(savedAction) => {
                         if (!id) {
-                            push(`/action/${action.id}`)
+                            push(`/action/${savedAction.id}`)
                         }
                         loadAction()
                     }}

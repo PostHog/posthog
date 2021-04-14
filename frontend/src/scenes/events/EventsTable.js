@@ -206,7 +206,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                         emptyText: (
                             <span>
                                 You don't have any items here! If you haven't integrated PostHog yet,{' '}
-                                <Link to="/project">click here to set PostHog up on your app</Link>.
+                                <Link to="/project/settings">click here to set PostHog up on your app</Link>.
                             </span>
                         ),
                     }}
