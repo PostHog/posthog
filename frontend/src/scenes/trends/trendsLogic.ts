@@ -101,7 +101,7 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
         ...filters,
         entity_id: action.id,
         entity_type: action.type,
-        entity_math: action.math || null,
+        entity_math: action.math || undefined,
         breakdown_value,
     })
 
