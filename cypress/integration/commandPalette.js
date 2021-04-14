@@ -5,6 +5,7 @@ describe('Command Palette', () => {
     })
 
     it('Shows on Ctrl + K press', () => {
+        cy.get('[data-attr=layout-content]').contains('Insights')
         cy.get('body').type('{ctrl}k')
         cy.get('[data-attr=command-palette-input]').should('exist')
 

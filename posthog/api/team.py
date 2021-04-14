@@ -1,10 +1,11 @@
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
+from posthog.api.shared import TeamBasicSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team
 from posthog.models.utils import generate_random_token
@@ -34,38 +35,48 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
 
 
 class TeamSerializer(serializers.ModelSerializer):
+    event_names_with_usage = serializers.SerializerMethodField()
+    event_properties_with_usage = serializers.SerializerMethodField()
+
     class Meta:
         model = Team
         fields = (
             "id",
+            "uuid",
             "organization",
             "api_token",
             "app_urls",
             "name",
             "slack_incoming_webhook",
-            "event_names",
-            "event_properties",
-            "event_properties_numerical",
             "created_at",
             "updated_at",
             "anonymize_ips",
             "completed_snippet_onboarding",
             "ingested_event",
             "test_account_filters",
-            "uuid",
             "is_demo",
+            "timezone",
+            "data_attributes",
+            "session_recording_opt_in",
+            "session_recording_retention_period_days",
+            "event_names",
+            "event_properties",
+            "event_properties_numerical",
+            "event_names_with_usage",
+            "event_properties_with_usage",
         )
         read_only_fields = (
             "id",
             "uuid",
             "organization",
             "api_token",
-            "event_names",
-            "event_properties",
-            "event_properties_numerical",
+            "is_demo",
             "created_at",
             "updated_at",
             "ingested_event",
+            "event_names",
+            "event_properties",
+            "event_properties_numerical",
         )
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
@@ -77,6 +88,12 @@ class TeamSerializer(serializers.ModelSerializer):
             request.user.current_team = team
             request.user.save()
         return team
+
+    def get_event_names_with_usage(self, instance: Team) -> List:
+        return instance.get_latest_event_names_with_usage()
+
+    def get_event_properties_with_usage(self, instance: Team) -> List:
+        return instance.get_latest_event_properties_with_usage()
 
 
 class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
@@ -94,8 +111,12 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     organization: Optional[Organization] = None
 
     def get_queryset(self):
-        queryset = super().get_queryset().filter(organization__in=self.request.user.organizations.all())
-        return queryset
+        return super().get_queryset().filter(organization__in=self.request.user.organizations.all())
+
+    def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
+        if self.action == "list":  # type: ignore
+            return TeamBasicSerializer
+        return super().get_serializer_class()
 
     def get_permissions(self) -> List[permissions.BasePermission]:
         """

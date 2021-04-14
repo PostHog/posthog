@@ -11,7 +11,7 @@ export function PluginError({ error, reset }: { error: PluginErrorType; reset?: 
     }
     return (
         <Popover
-            title={<div style={{ textAlign: 'center' }}>{dayjs(error.time).format('YYYY-MM-DD - HH:mm:SS')}</div>}
+            title={<div style={{ textAlign: 'center' }}>{dayjs(error.time).format('YYYY-MM-DD - HH:mm:ss')}</div>}
             content={
                 <>
                     {reset ? (

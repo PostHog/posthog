@@ -27,7 +27,7 @@ export function ActionsTab(): JSX.Element {
                                 target="_blank"
                                 rel="noopener noreferrer"
                             >
-                                View & Edit All Actions <ExportOutlined />
+                                View &amp; edit all actions <ExportOutlined />
                             </a>
                         </div>
                     </>

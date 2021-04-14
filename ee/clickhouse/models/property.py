@@ -1,15 +1,16 @@
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.action import filter_element
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.util import is_int, is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
-from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
+from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL, GET_LATEST_PERSON_DISTINCT_ID_SQL
 from posthog.models.cohort import Cohort
+from posthog.models.event import Selector
 from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
@@ -22,6 +23,7 @@ def parse_prop_clauses(
     table_name: str = "",
     allow_denormalized_props: bool = False,
     filter_test_accounts=False,
+    is_person_query=False,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -46,12 +48,19 @@ def parse_prop_clauses(
             filter_query, filter_params = prop_filter_json_extract(
                 prop, idx, "{}person".format(prepend), allow_denormalized_props=allow_denormalized_props
             )
-            final.append(
-                "AND {table_name}distinct_id IN ({filter_query})".format(
-                    filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query), table_name=table_name
+            if is_person_query:
+                final.append(filter_query)
+                params.update(filter_params)
+            else:
+                final.append(
+                    "AND {table_name}distinct_id IN ({filter_query})".format(
+                        filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
+                            filters=filter_query, latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
+                        ),
+                        table_name=table_name,
+                    )
                 )
-            )
-            params.update(filter_params)
+                params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element({prop.key: prop.value}, prepend="{}_".format(idx))
             final.append("AND {}".format(query[0]))
@@ -212,3 +221,69 @@ def get_property_values_for_key(key: str, team: Team, value: Optional[str] = Non
         SELECT_PROP_VALUES_SQL.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
         {"team_id": team.pk, "key": key},
     )
+
+
+def filter_element(filters: Dict, prepend: str = "") -> Tuple[List[str], Dict]:
+    params = {}
+    conditions = []
+
+    if filters.get("selector"):
+        or_conditions = []
+        selectors = filters["selector"] if isinstance(filters["selector"], list) else [filters["selector"]]
+        for idx, query in enumerate(selectors):
+            selector = Selector(query, escape_slashes=False)
+            key = "{}_{}_selector_regex".format(prepend, idx)
+            params[key] = _create_regex(selector)
+            or_conditions.append("match(elements_chain, %({})s)".format(key))
+        if len(or_conditions) > 0:
+            conditions.append("(" + (" OR ".join(or_conditions)) + ")")
+
+    if filters.get("tag_name"):
+        or_conditions = []
+        tag_names = filters["tag_name"] if isinstance(filters["tag_name"], list) else [filters["tag_name"]]
+        for idx, tag_name in enumerate(tag_names):
+            key = "{}_{}_tag_name_regex".format(prepend, idx)
+            params[key] = r"(^|;){}(\.|$|;|:)".format(tag_name)
+            or_conditions.append("match(elements_chain, %({})s)".format(key))
+        if len(or_conditions) > 0:
+            conditions.append("(" + (" OR ".join(or_conditions)) + ")")
+
+    attributes: Dict[str, List] = {}
+
+    for key in ["href", "text"]:
+        vals = filters.get(key)
+        if filters.get(key):
+            attributes[key] = [re.escape(vals)] if isinstance(vals, str) else [re.escape(text) for text in filters[key]]
+
+    if len(attributes.keys()) > 0:
+        or_conditions = []
+        for key, value_list in attributes.items():
+            for idx, value in enumerate(value_list):
+                params["{}_{}_{}_attributes_regex".format(prepend, key, idx)] = ".*?({}).*?".format(
+                    ".*?".join(['{}="{}"'.format(key, value)])
+                )
+                or_conditions.append("match(elements_chain, %({}_{}_{}_attributes_regex)s)".format(prepend, key, idx))
+            if len(or_conditions) > 0:
+                conditions.append("(" + (" OR ".join(or_conditions)) + ")")
+
+    return (conditions, params)
+
+
+def _create_regex(selector: Selector) -> str:
+    regex = r""
+    for idx, tag in enumerate(selector.parts):
+        if tag.data.get("tag_name") and isinstance(tag.data["tag_name"], str):
+            if tag.data["tag_name"] == "*":
+                regex += ".+"
+            else:
+                regex += tag.data["tag_name"]
+        if tag.data.get("attr_class__contains"):
+            regex += r".*?\.{}".format(r"\..*?".join(sorted(tag.data["attr_class__contains"])))
+        if tag.ch_attributes:
+            regex += ".*?"
+            for key, value in sorted(tag.ch_attributes.items()):
+                regex += '{}="{}".*?'.format(key, value)
+        regex += r"([-_a-zA-Z0-9\.]*?)?($|;|:([^;^\s]*(;|$|\s)))"
+        if tag.direct_descendant:
+            regex += ".*"
+    return regex

@@ -28,7 +28,7 @@ certifi==2019.11.28
     # via
     #   requests
     #   sentry-sdk
-cffi==1.14.0
+cffi==1.14.5
     # via cryptography
 chardet==3.0.4
     # via requests
@@ -39,7 +39,7 @@ clickhouse-driver==0.2.0
     #   clickhouse-pool
 clickhouse-pool==0.4.3
     # via -r requirements.in
-cryptography==3.3.2
+cryptography==3.4.7
     # via
     #   kafka-helper
     #   social-auth-core
@@ -120,7 +120,7 @@ kombu==4.6.8
     # via
     #   -r requirements.in
     #   celery
-lxml==4.6.2
+lxml==4.6.3
     # via toronado
 lzstring==1.0.4
     # via -r requirements.in
@@ -186,6 +186,8 @@ requests==2.22.0
     #   posthoganalytics
     #   requests-oauthlib
     #   social-auth-core
+semantic_version==2.8.5
+    # via -r requirements.in
 sentry-sdk==0.19.2
     # via -r requirements.in
 six==1.14.0

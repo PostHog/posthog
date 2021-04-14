@@ -1,3 +1,9 @@
+"""
+TODO: DEPRECATION NOTICE
+This entire module has been deprecated in favor of https://github.com/PostHog/plugin-server
+The module is currently out of use and will be removed from the codebase very soon.
+"""
+
 import datetime
 import json
 from typing import Dict, Optional, Sequence

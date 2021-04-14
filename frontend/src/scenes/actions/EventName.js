@@ -1,17 +1,17 @@
 import React from 'react'
 import { Select } from 'antd'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function EventName({ value, onChange, isActionStep }) {
-    const { eventNamesGrouped } = useValues(userLogic)
+    const { eventNamesGrouped } = useValues(teamLogic)
 
     return (
         <span>
             <Select
                 showSearch
                 allowClear
-                style={{ width: '100%' }}
+                style={{ width: '20%' }}
                 onChange={onChange}
                 filterOption={(input, option) =>
                     option.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
@@ -34,15 +34,18 @@ export function EventName({ value, onChange, isActionStep }) {
                     }
                 })}
             </Select>
-            <br />
             {isActionStep && (
-                <small>
-                    {eventNamesGrouped[0].options.length === 0 && "You haven't sent any custom events."}{' '}
-                    <a href="https://posthog.com/docs/integrations" target="_blank" rel="noopener noreferrer">
-                        See documentation
-                    </a>{' '}
-                    on how to send custom events in lots of languages.
-                </small>
+                <>
+                    <br />
+
+                    <small>
+                        {eventNamesGrouped[0].options.length === 0 && "You haven't sent any custom events."}{' '}
+                        <a href="https://posthog.com/docs/integrations" target="_blank" rel="noopener noreferrer">
+                            See documentation
+                        </a>{' '}
+                        on how to send custom events in lots of languages.
+                    </small>
+                </>
             )}
         </span>
     )

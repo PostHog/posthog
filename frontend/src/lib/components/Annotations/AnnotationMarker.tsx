@@ -13,7 +13,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const { TextArea } = Input
 
-function coordinateContains(e, element): boolean {
+function coordinateContains(e: MouseEvent, element: DOMRect): boolean {
     if (
         e.clientX >= element.x &&
         e.clientX <= element.x + element.width &&
@@ -65,9 +65,7 @@ export function AnnotationMarker({
         }
     }, [visible])
 
-    const {
-        user: { id, name, email, organization, project },
-    } = useValues(userLogic)
+    const { user } = useValues(userLogic)
 
     const { diffType, groupedAnnotations } = useValues(
         annotationsLogic({
@@ -85,7 +83,7 @@ export function AnnotationMarker({
     const _color = color || 'var(--primary)'
     const _accessoryColor = accessoryColor || 'white'
 
-    function deselect(e): void {
+    function deselect(e: MouseEvent): void {
         if (popupRef.current && coordinateContains(e, popupRef.current.getBoundingClientRect())) {
             return
         }
@@ -123,6 +121,7 @@ export function AnnotationMarker({
                             rows={4}
                             value={textInput}
                             onChange={(e) => setTextInput(e.target.value)}
+                            autoFocus
                         />
                         <Checkbox
                             checked={applyAll}
@@ -164,7 +163,7 @@ export function AnnotationMarker({
                                         <div>
                                             <b style={{ marginRight: 5 }}>
                                                 {data.created_by === 'local'
-                                                    ? name || email
+                                                    ? user?.first_name || user?.email
                                                     : data.created_by &&
                                                       (data.created_by.first_name || data.created_by.email)}
                                             </b>
@@ -173,20 +172,20 @@ export function AnnotationMarker({
                                             </i>
                                             {data.scope === AnnotationScope.Project ? (
                                                 <Tooltip
-                                                    title={`This annotation is shown on all charts in project ${project.name}`}
+                                                    title={`This annotation is shown on all charts in project ${user?.team?.name}`}
                                                 >
                                                     <ProjectOutlined />
                                                 </Tooltip>
                                             ) : data.scope === AnnotationScope.Organization ? (
                                                 <Tooltip
-                                                    title={`This annotation is shown on all charts in organization ${organization.name}`}
+                                                    title={`This annotation is shown on all charts in organization ${user?.organization?.name}`}
                                                 >
                                                     <DeploymentUnitOutlined />
                                                 </Tooltip>
                                             ) : null}
                                         </div>
                                         {(!data.created_by ||
-                                            data.created_by.id === id ||
+                                            data.created_by.uuid === user?.id ||
                                             data.created_by === 'local') && (
                                             <DeleteOutlined
                                                 className="button-border clickable text-danger"
@@ -285,7 +284,6 @@ export function AnnotationMarker({
                     zIndex: dynamic || hovered || elementId === currentDateMarker ? 999 : index,
                     boxShadow: dynamic ? '0 0 5px 4px rgba(0, 0, 0, 0.2)' : undefined,
                 }}
-                type="primary"
                 onClick={() => {
                     onClick?.()
                     setFocused(true)

@@ -14,9 +14,9 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.utils import get_target_entity
+from posthog.api.utils import format_next_url, get_target_entity
 from posthog.constants import TRENDS_LINEAR, TRENDS_TABLE
-from posthog.models import Event, Filter, Person
+from posthog.models import Cohort, Event, Filter, Person
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
@@ -309,19 +309,17 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         next_url = paginated_result(people, request, filter.offset)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 
+    @action(methods=["GET"], detail=False)
+    def cohorts(self, request: request.Request) -> response.Response:
+        from posthog.api.cohort import CohortSerializer
+
+        person = self.get_queryset().get(id=str(request.GET["person_id"]))
+        cohorts = Cohort.objects.annotate(count=Count("people")).filter(people__id=person.id)
+
+        return response.Response({"results": CohortSerializer(cohorts, many=True).data})
+
 
 def paginated_result(
-    entites: Union[List[Dict[str, Any]], ReturnDict], request: request.Request, offset: int = 0
+    entites: Union[List[Dict[str, Any]], ReturnDict], request: request.Request, offset: int = 0,
 ) -> Optional[str]:
-    next_url: Optional[str] = request.get_full_path()
-    if len(entites) > 99 and next_url:
-        if "offset" in next_url:
-            next_url = next_url[1:]
-            next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
-        else:
-            next_url = request.build_absolute_uri(
-                "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
-            )
-    else:
-        next_url = None
-    return next_url
+    return format_next_url(request, offset, 100) if len(entites) > 99 else None

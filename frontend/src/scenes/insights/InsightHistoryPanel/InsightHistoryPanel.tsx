@@ -22,7 +22,7 @@ const InsightHistoryType = {
 const { TabPane } = Tabs
 
 interface InsightHistoryPanelProps {
-    onChange: () => void
+    onChange?: () => void
 }
 
 function InsightPane({

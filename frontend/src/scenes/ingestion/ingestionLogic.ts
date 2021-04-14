@@ -2,12 +2,14 @@ import { kea } from 'kea'
 import { Framework, PlatformType } from 'scenes/ingestion/types'
 import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { ingestionLogicType } from './ingestionLogicType'
-import { userLogic } from 'scenes/userLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
     connect: {
-        actions: [userLogic, ['userUpdateSuccess']],
+        actions: [teamLogic, ['updateCurrentTeamSuccess']],
     },
     actions: {
         setPlatform: (platform: PlatformType) => ({ platform }),
@@ -18,6 +20,7 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
             framework,
             verify,
         }),
+        setActiveTab: (tab: string) => ({ tab }),
         completeOnboarding: true,
     },
 
@@ -45,18 +48,32 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
                 setState: (_, { verify }) => verify,
             },
         ],
+        activeTab: [
+            'popular',
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
     },
 
     selectors: {
         index: [
             (s) => [s.platform, s.framework, s.verify],
             (platform, framework, verify) => {
+                const featFlags = featureFlagLogic.values.featureFlags
+                if (featFlags[FEATURE_FLAGS.INGESTION_GRID]) {
+                    return (framework && platform ? 1 : 0) + (verify ? 1 : 0)
+                }
                 return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
             },
         ],
         totalSteps: [
             (s) => [s.platform, s.framework, s.verify],
             (platform, framework, verify) => {
+                const featFlags = featureFlagLogic.values.featureFlags
+                if (featFlags[FEATURE_FLAGS.INGESTION_GRID]) {
+                    return 3
+                }
                 // if missing parts of the URL
                 if (verify) {
                     return 4 - (platform ? 0 : 1) - (framework ? 0 : 1)
@@ -103,9 +120,11 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
 
     listeners: () => ({
         completeOnboarding: () => {
-            userLogic.actions.userUpdateRequest({ team: { completed_snippet_onboarding: true } })
+            teamLogic.actions.updateCurrentTeam({
+                completed_snippet_onboarding: true,
+            })
         },
-        userUpdateSuccess: () => {
+        updateCurrentTeamSuccess: () => {
             const usingOnboardingSetup = organizationLogic.values.currentOrganization?.setup.is_active
             // If user is under the new setup state (#2822), take them back to start section II of the setup
             window.location.href = usingOnboardingSetup ? '/setup' : '/insights'

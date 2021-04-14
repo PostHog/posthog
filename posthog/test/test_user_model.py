@@ -1,50 +1,8 @@
-from unittest.mock import Mock, patch
-
-import pytest
-from dateutil.relativedelta import relativedelta
-from django.test import tag
-from django.utils.timezone import now
-from freezegun import freeze_time
-
 from posthog.models import OrganizationMembership, Team, User
 from posthog.test.base import BaseTest
 
 
 class TestUser(BaseTest):
-    @pytest.mark.ee
-    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
-    @patch("ee.models.license.requests.post")
-    def test_feature_available_self_hosted_has_license(self, patch_post):
-        with self.settings(MULTI_TENANCY=False):
-            from ee.models.license import License
-
-            mock = Mock()
-            mock.json.return_value = {"plan": "enterprise", "valid_until": now() + relativedelta(days=1)}
-            patch_post.return_value = mock
-            License.objects.create(key="key")
-            self.assertTrue(self.organization.is_feature_available("whatever"))
-            self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
-
-    @pytest.mark.ee
-    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
-    def test_feature_available_self_hosted_no_license(self):
-        self.assertFalse(self.organization.is_feature_available("whatever"))
-        self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
-
-    @pytest.mark.ee
-    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
-    @patch("ee.models.license.requests.post")
-    def test_feature_available_self_hosted_license_expired(self, patch_post):
-        from ee.models.license import License
-
-        mock = Mock()
-        mock.json.return_value = {"plan": "enterprise", "valid_until": "2012-01-14T12:00:00.000Z"}
-        patch_post.return_value = mock
-        License.objects.create(key="key")
-
-        with freeze_time("2012-01-19T12:00:00.000Z"):
-            self.assertFalse(self.organization.is_feature_available("whatever"))
-
     def test_create_user_with_distinct_id(self):
         with self.settings(TEST=False):
             user = User.objects.create_user(first_name="Tim", email="tim@gmail.com", password=None)

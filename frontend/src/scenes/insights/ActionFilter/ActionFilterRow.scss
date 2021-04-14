@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .property-select {
     cursor: pointer;
     margin-top: 6px;
@@ -34,5 +36,17 @@
     .ant-select-selection-placeholder {
         line-height: 24px !important;
         color: #2d2d2d;
+    }
+}
+.action-row-letter {
+    line-height: 32px;
+    padding-right: 1px;
+
+    span {
+        background-color: $hc_light_lilac;
+        color: $hc_navy;
+        border-radius: $radius;
+        font-weight: bold;
+        padding: 2px 6px;
     }
 }

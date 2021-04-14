@@ -5,8 +5,9 @@
       window.__SHARED_DASHBOARD__ = {
         id: {{dashboard.id}},
         share_token: '{{dashboard.share_token}}',
-        name: '{{dashboard.name}}',
-        team_name: '{{team_name}}'
+        name: `{{dashboard.name}}`,
+        description: `{{dashboard.description}}`,
+        team_name: `{{team_name}}`
       }
     </script>
     {% include "head.html" %}

@@ -30,6 +30,7 @@ import { BulkInviteModal } from 'scenes/organization/Settings/BulkInviteModal'
 import { UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import MD5 from 'crypto-js/md5'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export interface ProfilePictureProps {
     name?: string
@@ -61,9 +62,9 @@ export function ProfilePicture({ name, email }: ProfilePictureProps): JSX.Elemen
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
         <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
-            <ProfilePicture name={user.name} email={user.email} />
+            <ProfilePicture name={user.first_name} email={user.email} />
             <div className="details hide-lte-lg">
-                <span>{user.name}</span>
+                <span>{user.first_name}</span>
                 <span>{user.organization?.name}</span>
             </div>
         </div>
@@ -71,18 +72,13 @@ export function WhoAmI({ user }: { user: UserType }): JSX.Element {
 }
 
 export function TopNavigation(): JSX.Element {
-    const {
-        setMenuCollapsed,
-        setChangelogModalOpen,
-        updateCurrentOrganization,
-        updateCurrentProject,
-        setInviteMembersModalOpen,
-    } = useActions(navigationLogic)
+    const { setMenuCollapsed, setChangelogModalOpen, setInviteMembersModalOpen } = useActions(navigationLogic)
     const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen, inviteMembersModalOpen } = useValues(
         navigationLogic
     )
     const { user } = useValues(userLogic)
-    const { logout } = useActions(userLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { logout, updateCurrentTeam, updateCurrentOrganization } = useActions(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
     const { sceneConfig } = useValues(sceneLogic)
     const { push } = router.actions
@@ -93,7 +89,7 @@ export function TopNavigation(): JSX.Element {
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
             <div className="whoami" style={{ paddingRight: 16, paddingLeft: 16 }}>
-                <ProfilePicture name={user?.name} email={user?.email} />
+                <ProfilePicture name={user?.first_name} email={user?.email} />
                 <div className="details">
                     <span>{user?.email}</span>
                     <span>{user?.organization?.name}</span>
@@ -101,7 +97,7 @@ export function TopNavigation(): JSX.Element {
             </div>
             <div className="text-center mt" style={{ paddingRight: 16, paddingLeft: 16 }}>
                 <div>
-                    {user?.email_service_available ? (
+                    {preflight?.email_service_available ? (
                         <Button
                             type="primary"
                             icon={<UserAddOutlined />}
@@ -125,7 +121,7 @@ export function TopNavigation(): JSX.Element {
                         Organization Settings
                     </LinkButton>
                 </div>
-                {user?.is_multi_tenancy ? (
+                {preflight?.cloud ? (
                     <div className="mt-05">
                         <Link to="/organization/billing" data-attr="top-menu-item-billing">
                             Billing
@@ -161,9 +157,11 @@ export function TopNavigation(): JSX.Element {
                     onClick={() =>
                         guardPremiumFeature(
                             user,
+                            preflight,
                             showUpgradeModal,
                             'organizations_projects',
                             'multiple organizations',
+                            'Organizations group people building products together. An organization can then have multiple projects.',
                             () => {
                                 setOrganizationModalShown(true)
                             },
@@ -193,7 +191,7 @@ export function TopNavigation(): JSX.Element {
                 {user?.organization?.teams &&
                     user.organization.teams.map((team) => {
                         return (
-                            <a onClick={() => updateCurrentProject(team.id, '/')} key={team.id}>
+                            <a onClick={() => updateCurrentTeam(team.id, '/')} key={team.id}>
                                 <span style={{ flexGrow: 1 }}>{team.name}</span>
                                 <span
                                     className="settings"
@@ -202,7 +200,7 @@ export function TopNavigation(): JSX.Element {
                                         if (team.id === user?.team?.id) {
                                             push('/project/settings')
                                         } else {
-                                            updateCurrentProject(team.id, '/project/settings')
+                                            updateCurrentTeam(team.id, '/project/settings')
                                         }
                                     }}
                                 >
@@ -218,9 +216,11 @@ export function TopNavigation(): JSX.Element {
                     onClick={() =>
                         guardPremiumFeature(
                             user,
+                            preflight,
                             showUpgradeModal,
                             'organizations_projects',
                             'multiple projects',
+                            'Projects allow you to separate data and configuration for different products or environments.',
                             () => {
                                 setProjectModalShown(true)
                             }
@@ -252,7 +252,7 @@ export function TopNavigation(): JSX.Element {
                                 type="primary"
                             />
                         )}
-                        {(!user?.is_multi_tenancy || user.is_staff) && (
+                        {(!preflight?.cloud || user?.is_staff) && (
                             <Badge
                                 data-attr="system-status-badge"
                                 type={systemStatus ? 'success' : 'danger'}
@@ -261,7 +261,7 @@ export function TopNavigation(): JSX.Element {
                                 className="mr"
                             />
                         )}
-                        {!user?.is_multi_tenancy && (
+                        {!preflight?.cloud && (
                             <Badge
                                 data-attr="update-indicator-badge"
                                 type={updateAvailable ? 'warning' : undefined}

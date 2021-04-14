@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { ActionType } from '~/types'
 import { EventUsageType } from '~/types'
 import { EntityTypes } from '../../trends/trendsLogic'
-import { userLogic } from 'scenes/userLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
 import { Tooltip } from 'antd'
@@ -11,6 +10,7 @@ import { ActionSelectInfo } from '../ActionSelectInfo'
 import { SelectBox, SelectedItem } from '../../../lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
 import { entityFilterLogicType } from './entityFilterLogicType'
+import { teamLogic } from 'scenes/teamLogic'
 
 interface FilterType {
     filter: {
@@ -52,7 +52,7 @@ export function ActionFilterDropdown({
     const { updateFilter } = useActions(logic)
 
     const { actions } = useValues(actionsModel)
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const handleDismiss = (event: MouseEvent): void => {
         if (openButtonRef?.current?.contains(event.target as Node)) {
@@ -64,7 +64,7 @@ export function ActionFilterDropdown({
     const callUpdateFilter = (type: 'actions' | 'events', id: string | number, name: string): void => {
         updateFilter({ type, id, name, index: selectedFilter.index })
     }
-    const suggestions = getSuggestions(user?.team?.event_names_with_usage || [])
+    const suggestions = getSuggestions(currentTeam?.event_names_with_usage || [])
 
     return (
         <SelectBox
@@ -133,7 +133,7 @@ export function ActionFilterDropdown({
                             <ContainerOutlined /> Events
                         </>
                     ),
-                    dataSource: user?.team.event_names_with_usage.map((event) => ({
+                    dataSource: currentTeam?.event_names_with_usage.map((event) => ({
                         key: EntityTypes.EVENTS + event.event,
                         name: event.event,
                         ...event,

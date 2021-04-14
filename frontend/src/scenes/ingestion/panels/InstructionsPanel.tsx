@@ -19,7 +19,7 @@ import { API, MOBILE, BACKEND } from 'scenes/ingestion/constants'
 import { useActions, useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 
-const frameworksSnippet = {
+const frameworksSnippet: Record<string, React.ComponentType> = {
     PURE_JS: JSInstructions,
     NODEJS: NodeInstructions,
     GO: GoInstructions,
@@ -42,7 +42,7 @@ export function InstructionsPanel(): JSX.Element {
         return <></>
     }
 
-    const FrameworkSnippet = frameworksSnippet[framework]
+    const FrameworkSnippet: React.ComponentType = frameworksSnippet[framework] as React.ComponentType
 
     if (framework === API) {
         return (

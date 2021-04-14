@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Card, Col, Drawer, Row, Spin } from 'antd'
@@ -11,19 +11,24 @@ import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 import { PageHeader } from 'lib/components/PageHeader'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 import { DashboardType } from '~/types'
+import { ObjectTags } from 'lib/components/ObjectTags'
+import { userLogic } from 'scenes/userLogic'
+import { ColumnType } from 'antd/lib/table'
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard } = useActions(dashboardsModel)
     const { setNewDashboardDrawer } = useActions(dashboardsLogic)
-    const { dashboards, newDashboardDrawer } = useValues(dashboardsLogic)
+    const { dashboards, newDashboardDrawer, dashboardTags } = useValues(dashboardsLogic)
+    const { user } = useValues(userLogic)
+    const [displayedColumns, setDisplayedColumns] = useState([] as ColumnType<DashboardType>[])
 
-    const columns = [
+    const columns: ColumnType<DashboardType>[] = [
         {
             title: '',
             width: 24,
             align: 'center',
-            render: function RenderPin({ id, pinned }: DashboardType) {
+            render: function Render({ id, pinned }: DashboardType) {
                 return (
                     <span
                         onClick={() =>
@@ -40,7 +45,7 @@ export function Dashboards(): JSX.Element {
             title: 'Dashboard',
             dataIndex: 'name',
             key: 'name',
-            render: function RenderName(name: string, { id }: { id: number }) {
+            render: function Render(name: string, { id }: { id: number }) {
                 return (
                     <Link data-attr="dashboard-name" to={`/dashboard/${id}`}>
                         {name || 'Untitled'}
@@ -48,8 +53,32 @@ export function Dashboards(): JSX.Element {
                 )
             },
         },
-        createdAtColumn(),
-        createdByColumn(dashboards),
+        {
+            title: 'Description',
+            dataIndex: 'description',
+            key: 'description',
+            render: function Render(description: string) {
+                return <>{description || <span style={{ color: 'var(--muted)' }}>-</span>}</>
+            },
+        },
+        {
+            title: 'Tags',
+            dataIndex: 'tags',
+            key: 'tags',
+            render: function Render(tags: string[]) {
+                return tags.length ? (
+                    <ObjectTags tags={tags} staticOnly />
+                ) : (
+                    <span style={{ color: 'var(--muted)' }}>-</span>
+                )
+            },
+            filters: dashboardTags.map((tag) => {
+                return { text: tag, value: tag }
+            }),
+            onFilter: (value, record) => typeof value === 'string' && record.tags.includes(value),
+        },
+        createdAtColumn() as ColumnType<DashboardType>,
+        createdByColumn(dashboards) as ColumnType<DashboardType>,
         {
             title: 'Actions',
             align: 'center',
@@ -67,6 +96,16 @@ export function Dashboards(): JSX.Element {
             },
         },
     ]
+
+    useEffect(() => {
+        if (!user?.organization?.available_features.includes('dashboard_collaboration')) {
+            setDisplayedColumns(
+                columns.filter((col) => !col.dataIndex || !['description', 'tags'].includes(col.dataIndex.toString()))
+            )
+        } else {
+            setDisplayedColumns(columns)
+        }
+    }, [user?.organization?.available_features, dashboardTags])
 
     return (
         <div>
@@ -101,7 +140,7 @@ export function Dashboards(): JSX.Element {
                         rowKey="id"
                         size="small"
                         pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                        columns={columns}
+                        columns={displayedColumns}
                     />
                 ) : (
                     <div>

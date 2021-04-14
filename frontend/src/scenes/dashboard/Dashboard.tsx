@@ -7,11 +7,13 @@ import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined } from '@ant-design/icons'
-import { Button } from 'antd'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from '../../lib/hooks/useKeyboardHotkeys'
 import { DashboardMode } from '../../types'
-import { EventSource } from '../../lib/utils/eventUsageLogic'
+import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
+import { TZIndicator } from 'lib/components/TimezoneAware'
+import { Link } from 'lib/components/Link'
+import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface Props {
     id: string
@@ -39,7 +41,7 @@ function DashboardView(): JSX.Element {
                       action: () =>
                           setDashboardMode(
                               dashboardMode === DashboardMode.Edit ? null : DashboardMode.Edit,
-                              EventSource.Hotkey
+                              DashboardEventSource.Hotkey
                           ),
                       disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Edit,
                   },
@@ -47,7 +49,7 @@ function DashboardView(): JSX.Element {
                       action: () =>
                           setDashboardMode(
                               dashboardMode === DashboardMode.Fullscreen ? null : DashboardMode.Fullscreen,
-                              EventSource.Hotkey
+                              DashboardEventSource.Hotkey
                           ),
                       disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Fullscreen,
                   },
@@ -55,7 +57,7 @@ function DashboardView(): JSX.Element {
                       action: () =>
                           setDashboardMode(
                               dashboardMode === DashboardMode.Sharing ? null : DashboardMode.Sharing,
-                              EventSource.Hotkey
+                              DashboardEventSource.Hotkey
                           ),
                       disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Sharing,
                   },
@@ -65,7 +67,7 @@ function DashboardView(): JSX.Element {
                   },
                   escape: {
                       // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
-                      action: () => setDashboardMode(null, EventSource.Hotkey),
+                      action: () => setDashboardMode(null, DashboardEventSource.Hotkey),
                       disabled: dashboardMode !== DashboardMode.Edit,
                   },
               },
@@ -77,12 +79,30 @@ function DashboardView(): JSX.Element {
     }
 
     if (!dashboard) {
-        return <p>Dashboard not found.</p>
+        return (
+            <div className="dashboard not-found">
+                <div className="graphic" />
+                <h1 className="page-title">Dashboard not found</h1>
+                <b>It seems this page may have been lost in space.</b>
+                <p>
+                    It’s possible this dashboard may have been deleted or its sharing settings changed. Please check
+                    with the person who sent you here, or{' '}
+                    <Link
+                        to="https://posthog.com/support?utm_medium=in-product&utm_campaign=dashboard-not-found"
+                        target="_blank"
+                        rel="noopener"
+                    >
+                        contact support
+                    </Link>{' '}
+                    if you think this is a mistake
+                </p>
+            </div>
+        )
     }
 
     return (
         <div className="dashboard">
-            {dashboardMode !== 'public' && <DashboardHeader />}
+            {dashboardMode !== DashboardMode.Public && <DashboardHeader />}
             {items && items.length ? (
                 <div>
                     <div className="dashboard-items-actions">
@@ -97,30 +117,35 @@ function DashboardView(): JSX.Element {
                         </div>
                          */}
                         {dashboardMode !== DashboardMode.Public && (
-                            <DateFilter
-                                defaultValue="Custom"
-                                showCustom
-                                dateFrom={dashboardFilters?.date_from}
-                                dateTo={dashboardFilters?.date_to}
-                                onChange={setDates}
-                                makeLabel={(key) => (
-                                    <>
-                                        <CalendarOutlined />
-                                        <span className="hide-when-small"> {key}</span>
-                                    </>
-                                )}
-                            />
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'flex-end',
+                                    width: '100%',
+                                }}
+                            >
+                                <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />
+                                <DateFilter
+                                    defaultValue="Custom"
+                                    showCustom
+                                    dateFrom={dashboardFilters?.date_from}
+                                    dateTo={dashboardFilters?.date_to}
+                                    onChange={setDates}
+                                    makeLabel={(key) => (
+                                        <>
+                                            <CalendarOutlined />
+                                            <span className="hide-when-small"> {key}</span>
+                                        </>
+                                    )}
+                                />
+                            </div>
                         )}
                     </div>
                     <DashboardItems inSharedMode={dashboardMode === DashboardMode.Public} />
                 </div>
             ) : (
-                <p>
-                    There are no panels on this dashboard.{' '}
-                    <Button type="link" onClick={addGraph}>
-                        Click here to add some!
-                    </Button>
-                </p>
+                <EmptyDashboardComponent />
             )}
         </div>
     )

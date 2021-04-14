@@ -1,6 +1,5 @@
 import re
 from datetime import datetime
-from random import random
 from typing import Any, Dict, Optional
 
 import statsd
@@ -12,6 +11,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
+from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
@@ -174,6 +174,11 @@ def get_event(request):
     else:
         events = [data]
 
+    try:
+        events = preprocess_session_recording_events(events)
+    except ValueError as e:
+        return cors_response(request, JsonResponse({"code": "validation", "message": str(e),}, status=400,),)
+
     for event in events:
         try:
             distinct_id = _get_distinct_id(event)
@@ -238,13 +243,8 @@ def get_event(request):
                     event_uuid=event_uuid,
                 )
         else:
-            task_name = "posthog.tasks.process_event.process_event"
-            if settings.PLUGIN_SERVER_INGESTION or team.plugins_opt_in:
-                task_name += "_with_plugins"
-                celery_queue = settings.PLUGINS_CELERY_QUEUE
-            else:
-                celery_queue = settings.CELERY_DEFAULT_QUEUE
-
+            task_name = "posthog.tasks.process_event.process_event_with_plugins"
+            celery_queue = settings.PLUGINS_CELERY_QUEUE
             celery_app.send_task(
                 name=task_name,
                 queue=celery_queue,

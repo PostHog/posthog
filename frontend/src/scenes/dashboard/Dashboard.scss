@@ -17,6 +17,94 @@ $dashboard-title-size: 32px;
             padding-left: 4px !important;
         }
     }
+
+    &.not-found {
+        text-align: center;
+        .graphic {
+            background: url('../../../public/not-found-rocket.svg') no-repeat center center;
+            height: 270px;
+            width: 100%;
+        }
+        p {
+            margin: 0 auto;
+            max-width: 600px;
+        }
+    }
+
+    .dashboard-description {
+        margin-bottom: $default_spacing;
+
+        .ant-card-body {
+            padding: $default_spacing / 2 $default_spacing;
+        }
+    }
+
+    .empty-state {
+        position: relative;
+
+        .skeleton-actions {
+            text-align: right;
+            .ant-skeleton-avatar {
+                margin-right: 8px;
+            }
+        }
+
+        .pie-chart {
+            height: 200px;
+            width: 200px;
+            max-width: 100%;
+            margin-top: $default_spacing;
+
+            @media (max-width: 992px) {
+                height: 140px;
+                width: 140px;
+            }
+        }
+
+        .bar-chart {
+            display: flex;
+            margin-top: $default_spacing;
+            align-items: flex-end;
+            .bar-el {
+                background-color: rgba(190, 190, 190, 0.2);
+                border-radius: $radius;
+                width: 12.5%;
+                margin-left: 4px;
+                height: 100px;
+            }
+        }
+
+        .ant-col {
+            flex-grow: 1;
+            .ant-card {
+                height: 100%;
+            }
+        }
+
+        .fade-out-graphs {
+            margin-top: $default_spacing;
+            height: 150px;
+            overflow: hidden;
+            position: relative;
+
+            &::after {
+                @extend .mixin-gradient-overlay;
+                width: calc(100% - 16px); // .ant-row gutter
+                left: 8px;
+                height: 150px;
+            }
+        }
+
+        .cta {
+            width: 360px;
+            max-width: calc(100% - 32px);
+            position: absolute;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: $z_content_overlay;
+        }
+    }
 }
 
 .dashboard-header {
@@ -24,7 +112,7 @@ $dashboard-title-size: 32px;
     justify-content: space-between;
 
     margin-top: -1rem;
-    margin-bottom: 2rem;
+    margin-bottom: $default_spacing / 2;
 
     width: 100%;
 
@@ -86,26 +174,14 @@ $dashboard-title-size: 32px;
             &.button-box {
                 padding: 4px 8px;
             }
-            @media (max-width: 750px) {
-                &.button-box-when-small {
-                    padding: 4px 8px;
-                }
-            }
         }
     }
 
-    .dashboard-header-created-by {
-        margin-top: $default_spacing / 2;
-        color: $text_muted;
-    }
-
-    @media (max-width: 750px) {
-        .hide-when-small {
-            display: none;
-        }
-
-        .dashboard-header-created-by {
-            display: none; /* header is already too crowded on mobile */
+    @media (max-width: 768px) {
+        flex-direction: column;
+        .dashboard-meta {
+            padding-top: $default_spacing;
+            justify-content: flex-end;
         }
     }
 }

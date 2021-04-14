@@ -5,11 +5,11 @@ import { useActions, useValues } from 'kea'
 import { Responsive, WidthProvider } from 'react-grid-layout'
 
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
-import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
+import { isMobile, triggerResize, triggerResizeAfterADelay } from 'lib/utils'
 import { DashboardItemType, DashboardMode } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { EventSource } from '../../lib/utils/eventUsageLogic'
+import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
 
 const ReactGridLayout = WidthProvider(Responsive)
 
@@ -27,7 +27,9 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
     // can not click links when dragging and 250ms after
     const isDragging = useRef(false)
     const dragEndTimeout = useRef<number | null>(null)
-    const className = 'layout' + (dashboardMode === DashboardMode.Edit ? ' dragging-items wobbly' : '')
+    const className =
+        'layout' +
+        (dashboardMode === DashboardMode.Edit ? (isMobile() ? ' dragging-items wobbly' : ' dragging-items') : '')
 
     return (
         <ReactGridLayout
@@ -99,7 +101,7 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
                         isDraggingRef={isDragging}
                         inSharedMode={inSharedMode}
                         isOnEditMode={dashboardMode === DashboardMode.Edit}
-                        setEditMode={() => setDashboardMode(DashboardMode.Edit, EventSource.LongPress)}
+                        setEditMode={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.LongPress)}
                         index={index}
                     />
                 </div>

@@ -20,7 +20,7 @@ const dashboard = (window as any).__SHARED_DASHBOARD__
 ReactDOM.render(
     <Provider store={getContext().store}>
         <div style={{ minHeight: '100vh', top: 0 }}>
-            <Row style={{ marginBottom: '1rem' }}>
+            <Row>
                 <Col sm={7} xs={24} style={{ padding: '1rem' }}>
                     <a href="https://posthog.com" target="_blank" rel="noopener noreferrer">
                         <img src={PostHogLogo} style={{ height: '2rem', marginTop: 4 }} />
@@ -33,6 +33,8 @@ ReactDOM.render(
                     <span style={{ paddingTop: 15, display: 'inline-block' }}>{dashboard.team_name}</span>
                 </Col>
             </Row>
+            <p style={{ textAlign: 'center', marginBottom: '1rem' }}>{dashboard.description}</p>
+
             <div style={{ margin: '0 1rem' }}>
                 <Dashboard id={dashboard.id} shareToken={dashboard.share_token} />
             </div>

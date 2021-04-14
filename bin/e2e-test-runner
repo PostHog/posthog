@@ -5,11 +5,11 @@ dropdb --if-exists posthog_e2e_test
 createdb posthog_e2e_test
 DEBUG=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py migrate &&
 DEBUG=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py setup_dev &
-yarn add cypress-terminal-report
+yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
 
 # Only start webpack if not already running
 nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
 
 CYPRESS_BASE_URL=http://localhost:8080 npx cypress open --config-file cypress.e2e.json &
-DEBUG=1 TEST=1 AUTO_LOGIN=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py runserver 8080
-yarn remove cypress-terminal-report
+DEBUG=1 TEST=1 E2E_TESTING=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py runserver 8080
+yarn remove cypress cypress-terminal-report @cypress/react @cypress/webpack-preprocessor

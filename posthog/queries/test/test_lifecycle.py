@@ -454,18 +454,20 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             self.assertEqual(len(result), 4)
             self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
             self.assertTrue(
-                result[0]["days"] == ["2020-02-09", "2020-02-16", "2020-02-23", "2020-03-01", "2020-03-08"]
-                or result[0]["days"] == ["2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
+                result[0]["days"]
+                == ["2020-02-02", "2020-02-09", "2020-02-16", "2020-02-23", "2020-03-01", "2020-03-08"]
+                or result[0]["days"]
+                == ["2020-02-03", "2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
             )
             for res in result:
                 if res["status"] == "dormant":
-                    self.assertEqual(res["data"], [0, -2, -1, -1, -1])
+                    self.assertEqual(res["data"], [0, 0, -2, -1, -1, -1])
                 elif res["status"] == "returning":
-                    self.assertEqual(res["data"], [1, 1, 0, 1, 0])
+                    self.assertEqual(res["data"], [0, 1, 1, 0, 1, 0])
                 elif res["status"] == "resurrecting":
-                    self.assertEqual(res["data"], [0, 0, 1, 0, 0])
+                    self.assertEqual(res["data"], [0, 0, 0, 1, 0, 0])
                 elif res["status"] == "new":
-                    self.assertEqual(res["data"], [2, 0, 1, 0, 0])
+                    self.assertEqual(res["data"], [0, 2, 0, 1, 0, 0])
 
         def test_lifecycle_trend_months(self):
 

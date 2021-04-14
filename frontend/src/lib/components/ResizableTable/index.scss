@@ -1,0 +1,43 @@
+@import '~/vars';
+
+.resizable-table-scroll-container {
+    max-width: 100%;
+    overflow-x: auto;
+    position: relative;
+    .table-gradient-overlay {
+        overflow-y: hidden;
+        &.scrollable-right::after {
+            @extend .mixin-gradient-overlay-right;
+            right: 0;
+            width: 150px;
+        }
+    }
+}
+.react-resizable {
+    .th-inner-wrapper {
+        max-height: 8rem;
+        overflow: hidden;
+    }
+    .resizable-handle {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        z-index: 1;
+        width: 10px;
+        height: 100%;
+        cursor: col-resize;
+        border-right: 1px solid lightgray;
+        transition: 0.2s border-color ease;
+        &:hover {
+            border-color: $blue_300;
+        }
+        &[data-drag-active='true'] {
+            border-color: $primary;
+        }
+    }
+    &:last-child {
+        .resizable-handle {
+            display: none;
+        }
+    }
+}

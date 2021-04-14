@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Install scripts for M1 Macs
+# See https://github.com/PostHog/posthog/issues/2916
+# NB: use cryptography==3.4.7
+
+# Set ld flags to use OpenSSL installed with brew
+export LDFLAGS="-L$(brew --prefix openssl)/lib"
+export CPPFLAGS="-I$(brew --prefix openssl)/include"
+
+# Use system OpenSSL instead of BoringSSL for GRPC
+export GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1
+export GRPC_PYTHON_BUILD_SYSTEM_ZLIB=1
+
+pip cache purge
+pip install -r requirements.txt

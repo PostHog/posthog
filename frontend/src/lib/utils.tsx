@@ -1,11 +1,16 @@
 import React, { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
 import { toast } from 'react-toastify'
-import { Spin } from 'antd'
+import { Button, Spin } from 'antd'
 import dayjs from 'dayjs'
 import { EventType, FilterType } from '~/types'
 import { lightColors } from 'lib/colors'
 import { ActionFilter } from 'scenes/trends/trendsLogic'
+import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { featureFlagLogic } from './logic/featureFlagLogic'
+import { open } from '@papercups-io/chat-widget'
+import posthog from 'posthog-js'
+import { WEBHOOK_SERVICES } from 'lib/constants'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
@@ -51,8 +56,6 @@ export function fromParams(): Record<string, any> {
               }, {} as Record<string, any>)
 }
 
-export const colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
-
 export function percentage(division: number): string {
     return division
         ? division.toLocaleString(undefined, {
@@ -60,6 +63,58 @@ export function percentage(division: number): string {
               maximumFractionDigits: 2,
           })
         : ''
+}
+
+export function errorToast(title?: string, message?: string, errorDetail?: string, errorCode?: string): void {
+    /**
+     * Shows a standardized error toast when something goes wrong. Automated for any loader usage.
+     * @param title Title message of the toast
+     * @param message Body message on the toast
+     * @param errorDetail Error response returned from the server, or any other more specific error detail.
+     * @param errorCode Error code from the server that can help track the error.
+     */
+
+    const handleHelp = (): void => {
+        const papercupsOn = featureFlagLogic.values.featureFlags['papercups-enabled']
+        if (papercupsOn) {
+            open()
+        } else {
+            window.open('https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast')
+        }
+        posthog.capture('error toast help requested', { papercups_enabled: papercupsOn }) // Can't use eventUsageLogic here, not mounted
+    }
+
+    toast.dismiss('error') // This will ensure only the last error is shown
+
+    setTimeout(
+        () =>
+            toast.error(
+                <div>
+                    <h1>
+                        <ExclamationCircleOutlined /> {title || 'Something went wrong'}
+                    </h1>
+                    <p>
+                        {message || 'We could not complete your action. Detailed error:'}{' '}
+                        <span className="error-details">{errorDetail || 'Unknown exception.'}</span>
+                    </p>
+                    <p className="mt-05">
+                        Please <b>try again or contact us</b> if the error persists.
+                    </p>
+                    <div className="action-bar">
+                        {errorCode && <span>Code: {errorCode}</span>}
+                        <span className="help-button">
+                            <Button type="link" onClick={handleHelp}>
+                                <CustomerServiceOutlined /> Need help?
+                            </Button>
+                        </span>
+                    </div>
+                </div>,
+                {
+                    toastId: 'error', // will ensure only one error is displayed at a time
+                }
+            ),
+        100
+    )
 }
 
 export function Loading(props: Record<string, any>): JSX.Element {
@@ -232,13 +287,18 @@ export function formatProperty(property: Record<string, any>): string {
 // Format a label that gets returned from the /insights api
 export function formatLabel(label: string, action: ActionFilter): string {
     if (action.math === 'dau') {
-        label += ` (Active Users) `
+        label += ` (Unique users) `
     } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math || '')) {
         label += ` (${action.math} of ${action.math_property}) `
     }
-    if (action?.properties?.length) {
+    if (action.properties?.length) {
         label += ` (${action.properties
-            .map((property) => operatorMap[property.operator || 'exact'].split(' ')[0] + ' ' + property.value)
+            .map(
+                (property) =>
+                    `${property.key ? `${property.key} ` : ''}${
+                        operatorMap[property.operator || 'exact'].split(' ')[0]
+                    } ${property.value}`
+            )
             .join(', ')})`
     }
     return label
@@ -277,8 +337,8 @@ export function triggerResize(): void {
  * change when the sidebar's expansion is animating.
  */
 export function triggerResizeAfterADelay(): void {
-    for (const delay of [10, 100, 500, 750, 1000, 2000]) {
-        window.setTimeout(triggerResize, delay)
+    for (const duration of [10, 100, 500, 750, 1000, 2000]) {
+        window.setTimeout(triggerResize, duration)
     }
 }
 
@@ -717,28 +777,17 @@ export function pluralize(count: number, singular: string, plural?: string, incl
     return includeNumber ? `${count} ${form}` : form
 }
 
-function suffixFormatted(value: number, base: number, suffix: string, maxDecimals: number): string {
-    /* Helper function for compactNumber */
-    const multiplier = 10 ** maxDecimals
-    return `${Math.round((value * multiplier) / base) / multiplier}${suffix}`
-}
-
-export function compactNumber(value: number, maxDecimals: number = 1): string {
-    /*
-    Returns a number in a compact format with a thousands or millions suffix if applicable.
-    Server-side equivalent posthog_filters.py#compact_number
-    Example:
-      compactNumber(5500000)
-      =>  "5.5M"
-    */
-    if (value < 1000) {
-        return Math.floor(value).toString()
-    } else if (value < 1000000) {
-        return suffixFormatted(value, 1000, 'K', maxDecimals)
-    } else if (value < 1000000000) {
-        return suffixFormatted(value, 1000000, 'M', maxDecimals)
+/** Return a number in a compact format, with a SI suffix if applicable.
+ *  Server-side equivalent: utils.py#compact_number.
+ */
+export function compactNumber(value: number): string {
+    value = parseFloat(value.toPrecision(3))
+    let magnitude = 0
+    while (Math.abs(value) >= 1000) {
+        magnitude++
+        value /= 1000
     }
-    return suffixFormatted(value, 1000000000, 'B', maxDecimals)
+    return value.toString() + ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y'][magnitude]
 }
 
 export function sortedKeys(object: Record<string, any>): Record<string, any> {
@@ -749,6 +798,8 @@ export function sortedKeys(object: Record<string, any>): Record<string, any> {
     return newObject
 }
 
+export const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+
 export function endWithPunctation(text?: string | null): string {
     let trimmedText = text?.trim()
     if (!trimmedText) {
@@ -758,4 +809,34 @@ export function endWithPunctation(text?: string | null): string {
         trimmedText += '.'
     }
     return trimmedText
+}
+
+export function shortTimeZone(timeZone?: string, atDate: Date = new Date()): string {
+    /**
+     * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
+     * @param timeZone E.g. 'America/New_York'
+     * @param atDate
+     */
+    const localeTimeString = new Date(atDate).toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
+    return localeTimeString.split(' ')[2]
+}
+
+export function humanTzOffset(timezone?: string): string {
+    const offset = dayjs().tz(timezone).utcOffset() / 60
+    if (!offset) {
+        return 'no offset'
+    }
+    const absoluteOffset = Math.abs(offset)
+    const hourForm = absoluteOffset === 1 ? 'hour' : 'hours'
+    const direction = offset > 0 ? 'ahead' : 'behind'
+    return `${absoluteOffset} ${hourForm} ${direction}`
+}
+
+export function resolveWebhookService(webhookUrl: string): string {
+    for (const [service, domain] of Object.entries(WEBHOOK_SERVICES)) {
+        if (webhookUrl.includes(domain + '/')) {
+            return service
+        }
+    }
+    return 'your webhook service'
 }

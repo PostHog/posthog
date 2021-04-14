@@ -4,17 +4,17 @@ import { CurrentPlan } from './CurrentPlan'
 import { CurrentUsage } from './CurrentUsage'
 import { BillingEnrollment } from './BillingEnrollment'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import './Billing.scss'
+import { billingLogic } from './billingLogic'
 
 export function Billing(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { billing } = useValues(billingLogic)
 
     return (
         <div className="billing-page">
             <PageHeader title="Billing &amp; usage information" />
             <CurrentUsage />
-            {user?.billing?.plan ? <CurrentPlan plan={user.billing.plan} /> : <BillingEnrollment />}
+            {billing?.plan ? <CurrentPlan plan={billing.plan} /> : <BillingEnrollment />}
             <div style={{ marginBottom: 128 }} />
         </div>
     )

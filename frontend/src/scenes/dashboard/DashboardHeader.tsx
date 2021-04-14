@@ -1,6 +1,6 @@
-import { Loading } from 'lib/utils'
-import { Button, Dropdown, Input, Menu, Select, Tooltip } from 'antd'
-import React, { useState } from 'react'
+import { isMobile, Loading } from 'lib/utils'
+import { Button, Card, Dropdown, Input, Menu, Select, Tooltip } from 'antd'
+import React, { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { ShareModal } from './ShareModal'
@@ -19,16 +19,27 @@ import { FullScreen } from 'lib/components/FullScreen'
 import dayjs from 'dayjs'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardMode, DashboardType } from '~/types'
-import { EventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HotkeyButton } from 'lib/components/HotkeyButton'
 import { router } from 'kea-router'
+import { ObjectTags } from 'lib/components/ObjectTags'
+import { dashboardsLogic } from './dashboardsLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export function DashboardHeader(): JSX.Element {
-    const { dashboard, dashboardMode } = useValues(dashboardLogic)
-    const { addNewDashboard, renameDashboard, setDashboardMode, addGraph } = useActions(dashboardLogic)
-    const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
+    const { dashboard, dashboardMode, lastDashboardModeSource } = useValues(dashboardLogic)
+    const { addNewDashboard, triggerDashboardUpdate, setDashboardMode, addGraph, saveNewTag, deleteTag } = useActions(
+        dashboardLogic
+    )
+    const { dashboardTags } = useValues(dashboardsLogic)
+    const { dashboards, dashboardsLoading, dashboardLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
-    const [newDashboardName, setNewDashboardName] = useState(dashboard.name)
+    const { user } = useValues(userLogic)
+    const [newName, setNewName] = useState(dashboard.name) // Used to update the input immediately, debouncing API calls
+    const [newDescription, setNewDescription] = useState(dashboard.description) // Used to update the input immediately, debouncing API calls
+
+    const nameInputRef = useRef<Input | null>(null)
+    const descriptionInputRef = useRef<HTMLInputElement | null>(null)
 
     const actionsDefault = (
         <>
@@ -51,27 +62,29 @@ export function DashboardHeader(): JSX.Element {
                         )}
                         <Menu.Item
                             icon={<EditOutlined />}
-                            onClick={() => setDashboardMode(DashboardMode.Edit, EventSource.MoreDropdown)}
+                            onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)}
                         >
                             Edit mode (E)
                         </Menu.Item>
                         <Menu.Item
                             icon={<FullscreenOutlined />}
-                            onClick={() => setDashboardMode(DashboardMode.Fullscreen, EventSource.MoreDropdown)}
+                            onClick={() =>
+                                setDashboardMode(DashboardMode.Fullscreen, DashboardEventSource.MoreDropdown)
+                            }
                         >
                             Full screen mode (F)
                         </Menu.Item>
                         {dashboard.pinned ? (
                             <Menu.Item
                                 icon={<PushpinFilled />}
-                                onClick={() => unpinDashboard(dashboard.id, EventSource.MoreDropdown)}
+                                onClick={() => unpinDashboard(dashboard.id, DashboardEventSource.MoreDropdown)}
                             >
                                 Unpin dashboard
                             </Menu.Item>
                         ) : (
                             <Menu.Item
                                 icon={<PushpinOutlined />}
-                                onClick={() => pinDashboard(dashboard.id, EventSource.MoreDropdown)}
+                                onClick={() => pinDashboard(dashboard.id, DashboardEventSource.MoreDropdown)}
                             >
                                 Pin dashboard
                             </Menu.Item>
@@ -95,19 +108,20 @@ export function DashboardHeader(): JSX.Element {
                 type="link"
                 data-attr="dashboard-edit-mode"
                 icon={<EditOutlined />}
-                onClick={() => setDashboardMode(DashboardMode.Edit, EventSource.DashboardHeader)}
+                onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardHeader)}
             />
             <HotkeyButton
                 onClick={() => addGraph()}
                 data-attr="dashboard-add-graph-header"
                 icon={<PlusOutlined />}
                 hotkey="n"
+                className="hide-lte-md"
             >
                 Add graph
             </HotkeyButton>
             <HotkeyButton
                 type="primary"
-                onClick={() => setDashboardMode(DashboardMode.Sharing, EventSource.DashboardHeader)}
+                onClick={() => setDashboardMode(DashboardMode.Sharing, DashboardEventSource.DashboardHeader)}
                 data-attr="dashboard-share-button"
                 icon={<ShareAltOutlined />}
                 hotkey="s"
@@ -119,7 +133,7 @@ export function DashboardHeader(): JSX.Element {
 
     const actionsPresentationMode = (
         <Button
-            onClick={() => setDashboardMode(null, EventSource.DashboardHeader)}
+            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
             data-attr="dashboard-exit-presentation-mode"
             icon={<FullscreenExitOutlined />}
         >
@@ -131,81 +145,140 @@ export function DashboardHeader(): JSX.Element {
         <Button
             data-attr="dashboard-edit-mode-save"
             type="primary"
-            onClick={() => setDashboardMode(null, EventSource.DashboardHeader)}
+            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
+            tabIndex={10}
         >
             Finish editing
         </Button>
     )
 
+    useEffect(() => {
+        if (dashboardMode === DashboardMode.Edit) {
+            if (lastDashboardModeSource === DashboardEventSource.AddDescription) {
+                setTimeout(() => descriptionInputRef.current?.focus(), 10)
+            } else if (!isMobile()) {
+                setTimeout(() => nameInputRef.current?.focus(), 10)
+            }
+        }
+    }, [dashboardMode])
+
     return (
-        <div className={`dashboard-header${dashboardMode === DashboardMode.Fullscreen ? ' full-screen' : ''}`}>
-            {dashboardMode === DashboardMode.Fullscreen && (
-                <FullScreen onExit={() => setDashboardMode(null, EventSource.Browser)} />
-            )}
-            <ShareModal
-                onCancel={() => setDashboardMode(null, EventSource.Browser)}
-                visible={dashboardMode === DashboardMode.Sharing}
-            />
-            {dashboardsLoading ? (
-                <Loading />
-            ) : (
-                <>
-                    {dashboardMode === DashboardMode.Edit ? (
-                        <Input
-                            placeholder="Dashboard name (e.g. Weekly KPIs)"
-                            value={newDashboardName}
-                            autoFocus
-                            size="large"
-                            style={{ maxWidth: 400 }}
-                            onChange={(e) => {
-                                setNewDashboardName(e.target.value) // To update the input immediately
-                                renameDashboard(e.target.value) // This is breakpointed (i.e. debounced) to avoid multiple API calls
-                            }}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    setDashboardMode(null, EventSource.InputEnter)
-                                }
-                            }}
-                        />
-                    ) : (
-                        <div className="dashboard-select">
-                            <Select
-                                value={dashboard?.id || null}
-                                onChange={(id) => {
-                                    if (id === 'new') {
-                                        addNewDashboard()
-                                    } else {
-                                        router.actions.push(`/dashboard/${id}`)
-                                        eventUsageLogic.actions.reportDashboardDropdownNavigation()
+        <>
+            <div className={`dashboard-header${dashboardMode === DashboardMode.Fullscreen ? ' full-screen' : ''}`}>
+                {dashboardMode === DashboardMode.Fullscreen && (
+                    <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
+                )}
+                <ShareModal
+                    onCancel={() => setDashboardMode(null, DashboardEventSource.Browser)}
+                    visible={dashboardMode === DashboardMode.Sharing}
+                />
+                {dashboardsLoading ? (
+                    <Loading />
+                ) : (
+                    <>
+                        {dashboardMode === DashboardMode.Edit ? (
+                            <Input
+                                placeholder="Dashboard name (e.g. Weekly KPIs)"
+                                value={newName}
+                                size="large"
+                                style={{ maxWidth: 400 }}
+                                onChange={(e) => {
+                                    setNewName(e.target.value) // To update the input immediately
+                                    triggerDashboardUpdate({ name: e.target.value }) // This is breakpointed (i.e. debounced) to avoid multiple API calls
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        setDashboardMode(null, DashboardEventSource.InputEnter)
                                     }
                                 }}
-                                bordered={false}
-                                dropdownMatchSelectWidth={false}
-                            >
-                                {dashboards.map((dash: DashboardType) => (
-                                    <Select.Option key={dash.id} value={dash.id}>
-                                        {dash.name || <span style={{ color: 'var(--text-muted)' }}>Untitled</span>}
-                                        {dash.is_shared && (
-                                            <Tooltip title="This dashboard is publicly shared">
-                                                <ShareAltOutlined style={{ marginLeft: 4, float: 'right' }} />
-                                            </Tooltip>
-                                        )}
-                                    </Select.Option>
-                                ))}
-                                <Select.Option value="new">+ New Dashboard</Select.Option>
-                            </Select>
-                        </div>
-                    )}
+                                ref={nameInputRef}
+                                tabIndex={0}
+                            />
+                        ) : (
+                            <div className="dashboard-select">
+                                <Select
+                                    value={dashboard?.id || null}
+                                    onChange={(id) => {
+                                        if (id === 'new') {
+                                            addNewDashboard()
+                                        } else {
+                                            router.actions.push(`/dashboard/${id}`)
+                                            eventUsageLogic.actions.reportDashboardDropdownNavigation()
+                                        }
+                                    }}
+                                    bordered={false}
+                                    dropdownMatchSelectWidth={false}
+                                >
+                                    {dashboards.map((dash: DashboardType) => (
+                                        <Select.Option key={dash.id} value={dash.id}>
+                                            {dash.name || <span style={{ color: 'var(--muted)' }}>Untitled</span>}
+                                            {dash.is_shared && (
+                                                <Tooltip title="This dashboard is publicly shared">
+                                                    <ShareAltOutlined style={{ marginLeft: 4, float: 'right' }} />
+                                                </Tooltip>
+                                            )}
+                                        </Select.Option>
+                                    ))}
+                                    <Select.Option value="new">+ New Dashboard</Select.Option>
+                                </Select>
+                            </div>
+                        )}
 
-                    <div className="dashboard-meta">
-                        {dashboardMode === DashboardMode.Edit
-                            ? actionsEditMode
-                            : dashboardMode === DashboardMode.Fullscreen
-                            ? actionsPresentationMode
-                            : actionsDefault}
+                        <div className="dashboard-meta">
+                            {dashboardMode === DashboardMode.Edit
+                                ? actionsEditMode
+                                : dashboardMode === DashboardMode.Fullscreen
+                                ? actionsPresentationMode
+                                : actionsDefault}
+                        </div>
+                    </>
+                )}
+            </div>
+            {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                <>
+                    <div className="mb" data-attr="dashboard-tags">
+                        <ObjectTags
+                            tags={dashboard.tags}
+                            onTagSave={saveNewTag}
+                            onTagDelete={deleteTag}
+                            saving={dashboardLoading}
+                            tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
+                        />
                     </div>
+                    <Card className="dashboard-description">
+                        {dashboardMode === DashboardMode.Edit ? (
+                            <Input.TextArea
+                                placeholder="Add a description to your dashboard that helps others understand it better."
+                                value={newDescription}
+                                onChange={(e) => {
+                                    setNewDescription(e.target.value) // To update the input immediately
+                                    triggerDashboardUpdate({ description: e.target.value }) // This is breakpointed (i.e. debounced) to avoid multiple API calls
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                        setDashboardMode(null, DashboardEventSource.InputEnter)
+                                    }
+                                }}
+                                ref={descriptionInputRef}
+                                tabIndex={5}
+                                allowClear
+                            />
+                        ) : (
+                            dashboard.description || (
+                                <Button
+                                    type="link"
+                                    onClick={() =>
+                                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.AddDescription)
+                                    }
+                                    style={{ width: '100%', textAlign: 'left' }}
+                                >
+                                    Add a description...
+                                </Button>
+                            )
+                        )}
+                    </Card>
                 </>
             )}
-        </div>
+        </>
     )
 }

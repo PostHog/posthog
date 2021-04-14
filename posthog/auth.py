@@ -117,7 +117,10 @@ class PublicTokenAuthentication(authentication.BaseAuthentication):
 
 
 def authenticate_secondarily(endpoint):
-    """Proper authentication for function views."""
+    """
+    DEPRECATED: Used for supporting legacy endpoints not on DRF.
+    Authentication for function views.
+    """
 
     @functools.wraps(endpoint)
     def wrapper(request: HttpRequest):

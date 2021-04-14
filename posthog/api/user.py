@@ -2,58 +2,188 @@ import json
 import os
 import secrets
 import urllib.parse
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 import requests
 from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.db import models
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
 from loginas.utils import is_impersonated_session
-from rest_framework import serializers
+from rest_framework import mixins, permissions, serializers, viewsets
 
+from posthog.api.organization import OrganizationSerializer
+from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
 from posthog.ee import is_ee_enabled
 from posthog.email import is_email_available
+from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
 from posthog.models.organization import Organization
-from posthog.plugins import can_configure_plugins, can_install_plugins, reload_plugins_on_workers
 from posthog.tasks import user_identify
 from posthog.version import VERSION
 
 
 class UserSerializer(serializers.ModelSerializer):
+
+    id = serializers.SerializerMethodField()
+    has_password = serializers.SerializerMethodField()
+    is_impersonated = serializers.SerializerMethodField()
+    team = TeamBasicSerializer(read_only=True)
+    organization = OrganizationSerializer(read_only=True)
+    organizations = OrganizationBasicSerializer(many=True, read_only=True)
+    set_current_organization = serializers.CharField(write_only=True, required=False)
+    set_current_team = serializers.CharField(write_only=True, required=False)
+    current_password = serializers.CharField(write_only=True, required=False)
+
     class Meta:
         model = User
-        fields = ["id", "distinct_id", "first_name", "email"]
+        fields = [
+            "id",
+            "distinct_id",
+            "first_name",
+            "email",
+            "email_opt_in",
+            "anonymize_data",
+            "toolbar_mode",
+            "has_password",
+            "is_staff",
+            "is_impersonated",
+            "team",
+            "organization",
+            "organizations",
+            "set_current_organization",
+            "set_current_team",
+            "password",
+            "current_password",  # used when changing current password
+        ]
+        extra_kwargs = {
+            "is_staff": {"read_only": True},
+            "password": {"write_only": True},
+        }
+
+    def get_id(self, instance: User) -> str:
+        return str(instance.uuid)
+
+    def get_has_password(self, instance: User) -> bool:
+        return instance.has_usable_password()
+
+    def get_is_impersonated(self, _) -> Optional[bool]:
+        if "request" not in self.context:
+            return None
+        return is_impersonated_session(self.context["request"])
+
+    def validate_set_current_organization(self, value: str) -> Organization:
+        try:
+            organization = Organization.objects.get(id=value)
+            if organization.memberships.filter(user=self.context["request"].user).exists():
+                return organization
+        except Organization.DoesNotExist:
+            pass
+
+        raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
+
+    def validate_set_current_team(self, value: str) -> Team:
+        try:
+            team = Team.objects.get(pk=value)
+            if self.context["request"].user.teams.filter(pk=team.pk).exists():
+                return team
+        except Team.DoesNotExist:
+            pass
+
+        raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
+
+    def validate_password_change(
+        self, instance: User, current_password: Optional[str], password: Optional[str]
+    ) -> Optional[str]:
+        if password:
+            if instance.password and instance.has_usable_password():
+                # If user has a password set, we check it's provided to allow updating it. We need to check that is both
+                # usable (properly hashed) and that a password actually exists.
+                if not current_password:
+                    raise serializers.ValidationError(
+                        {"current_password": ["This field is required when updating your password."]}, code="required"
+                    )
+
+                if not instance.check_password(current_password):
+                    raise serializers.ValidationError(
+                        {"current_password": ["Your current password is incorrect."]}, code="incorrect_password"
+                    )
+            try:
+                validate_password(password, instance)
+            except ValidationError as e:
+                raise serializers.ValidationError({"password": e.messages})
+
+        return password
+
+    def update(self, instance: models.Model, validated_data: Any) -> Any:
+
+        # Update current_organization and current_team
+        current_organization = validated_data.pop("set_current_organization", None)
+        current_team = validated_data.pop("set_current_team", None)
+        if current_organization:
+            if current_team and not current_organization.teams.filter(pk=current_team.pk).exists():
+                raise serializers.ValidationError(
+                    {"set_current_team": ["Team must belong to the same organization in set_current_organization."]}
+                )
+
+            validated_data["current_organization"] = current_organization
+            validated_data["current_team"] = current_team if current_team else current_organization.teams.first()
+        elif current_team:
+            validated_data["current_team"] = current_team
+            validated_data["current_organization"] = current_team.organization
+
+        # Update password
+        current_password = validated_data.pop("current_password", None)
+        password = self.validate_password_change(
+            cast(User, instance), current_password, validated_data.pop("password", None)
+        )
+
+        updated_attrs = list(validated_data.keys())
+        instance = cast(User, super().update(instance, validated_data))
+
+        if password:
+            instance.set_password(password)
+            instance.save()
+            update_session_auth_hash(self.context["request"], instance)
+            updated_attrs.append("password")
+
+        report_user_updated(instance, updated_attrs)
+
+        return instance
+
+    def to_representation(self, instance: Any) -> Any:
+        user_identify.identify_task.delay(user_id=instance.id)
+        return super().to_representation(instance)
 
 
-def get_event_names_with_usage(team: Team):
-    def get_key(event: str, type: str):
-        return next((item.get(type) for item in team.event_names_with_usage if item["event"] == event), None)
-
-    return [
-        {"event": event, "volume": get_key(event, "volume"), "usage_count": get_key(event, "usage_count"),}
-        for event in team.event_names
+class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
+    serializer_class = UserSerializer
+    permission_classes = [
+        permissions.IsAuthenticated,
     ]
+    queryset = User.objects.none()
+    lookup_field = "uuid"
+
+    def get_object(self) -> Any:
+        lookup_value = self.kwargs[self.lookup_field]
+        if lookup_value == "@me":
+            return self.request.user
+        raise serializers.ValidationError(
+            "Currently this endpoint only supports retrieving `@me` instance.", code="invalid_parameter",
+        )
 
 
-def get_event_properties_with_usage(team: Team):
-    def get_key(key: str, type: str):
-        return next((item.get(type) for item in team.event_properties_with_usage if item["key"] == key), None)
-
-    return [
-        {"key": key, "volume": get_key(key, "volume"), "usage_count": get_key(key, "usage_count"),}
-        for key in team.event_properties
-    ]
-
-
-# TODO: remake these endpoints with DRF!
 @authenticate_secondarily
 def user(request):
+    """
+    DEPRECATED: This endpoint (/api/user/) has been deprecated in favor of /api/v2/user/
+    and will be removed soon.
+    """
     organization: Optional[Organization] = request.user.organization
     organizations = list(request.user.organizations.order_by("-created_at").values("name", "id"))
     team: Optional[Team] = request.user.team
@@ -69,15 +199,13 @@ def user(request):
             team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
             team.session_recording_opt_in = data["team"].get("session_recording_opt_in", team.session_recording_opt_in)
             team.session_recording_retention_period_days = data["team"].get(
-                "session_recording_retention_period_days", team.session_recording_retention_period_days
+                "session_recording_retention_period_days", team.session_recording_retention_period_days,
             )
-            if data["team"].get("plugins_opt_in") is not None:
-                reload_plugins_on_workers()
-            team.plugins_opt_in = data["team"].get("plugins_opt_in", team.plugins_opt_in)
             team.completed_snippet_onboarding = data["team"].get(
                 "completed_snippet_onboarding", team.completed_snippet_onboarding,
             )
             team.test_account_filters = data["team"].get("test_account_filters", team.test_account_filters)
+            team.timezone = data["team"].get("timezone", team.timezone)
             team.save()
 
         if "user" in data:
@@ -111,6 +239,7 @@ def user(request):
 
     return JsonResponse(
         {
+            "deprecation": "Endpoint has been deprecated. Please use `/api/v2/user/`.",
             "id": user.pk,
             "distinct_id": user.distinct_id,
             "name": user.first_name,
@@ -141,17 +270,18 @@ def user(request):
                 "anonymize_ips": team.anonymize_ips,
                 "slack_incoming_webhook": team.slack_incoming_webhook,
                 "event_names": team.event_names,
-                "event_names_with_usage": get_event_names_with_usage(team),
+                "event_names_with_usage": team.get_latest_event_names_with_usage(),
                 "event_properties": team.event_properties,
                 "event_properties_numerical": team.event_properties_numerical,
-                "event_properties_with_usage": get_event_properties_with_usage(team),
+                "event_properties_with_usage": team.get_latest_event_properties_with_usage(),
                 "completed_snippet_onboarding": team.completed_snippet_onboarding,
                 "session_recording_opt_in": team.session_recording_opt_in,
                 "session_recording_retention_period_days": team.session_recording_retention_period_days,
-                "plugins_opt_in": team.plugins_opt_in,
                 "ingested_event": team.ingested_event,
                 "is_demo": team.is_demo,
                 "test_account_filters": team.test_account_filters,
+                "timezone": team.timezone,
+                "data_attributes": team.data_attributes,
             },
             "teams": teams,
             "has_password": user.has_usable_password(),
@@ -165,6 +295,7 @@ def user(request):
             "is_staff": user.is_staff,
             "is_impersonated": is_impersonated_session(request),
             "is_event_property_usage_enabled": getattr(settings, "ASYNC_EVENT_PROPERTY_USAGE", False),
+            "is_async_event_action_mapping_enabled": getattr(settings, "ASYNC_EVENT_ACTION_MAPPING", False),
         }
     )
 
@@ -187,6 +318,7 @@ def redirect_to_site(request):
         "actionId": request.GET.get("actionId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
+        "dataAttributes": team.data_attributes,
     }
 
     if settings.JS_URL:
@@ -208,7 +340,10 @@ def redirect_to_site(request):
 @require_http_methods(["PATCH"])
 @authenticate_secondarily
 def change_password(request):
-    """Change the password of a regular User."""
+    """
+    DEPRECATED: This endpoint has been deprecated in favor of /api/v2/user/ 
+    and will be removed in PostHog V2.
+    """
     try:
         body = json.loads(request.body)
     except (TypeError, json.decoder.JSONDecodeError):
