@@ -25,7 +25,7 @@ from ee.clickhouse.sql.person import (
     PERSON_STATIC_COHORT_TABLE,
     PERSON_TREND_SQL,
 )
-from ee.clickhouse.sql.volume import PERSONS_ACTIVE_USER_SQL
+from ee.clickhouse.sql.trends.volume import PERSONS_ACTIVE_USER_SQL
 from posthog.api.action import ActionSerializer, ActionViewSet
 from posthog.api.utils import get_target_entity
 from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE
@@ -144,7 +144,7 @@ def _process_content_sql(team: Team, entity: Entity, filter: Filter):
     if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
         active_user_params = get_active_user_params(filter, entity, team.pk)
         content_sql = PERSONS_ACTIVE_USER_SQL.format(
-            entity_filter=f"AND {entity_sql}",
+            entity_query=f"AND {entity_sql}",
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
             filters=prop_filters,

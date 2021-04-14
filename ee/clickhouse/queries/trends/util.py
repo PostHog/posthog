@@ -66,10 +66,12 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
 def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Dict[str, Any]:
     params = {}
     params.update({"prev_interval": "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 day"})
-
+    diff = timedelta(days=7) if entity.math == WEEKLY_ACTIVE else timedelta(days=30)
     if filter.date_from:
         params.update(
-            {"parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(filter.date_from, filter)}'"}
+            {
+                "parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(filter.date_from - diff, filter)}'"
+            }
         )
     else:
         try:
@@ -78,7 +80,9 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Dict
             raise ValueError("Active User queries require a lower date bound")
         else:
             params.update(
-                {"parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(earliest_date, filter)}'"}
+                {
+                    "parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(earliest_date - diff, filter)}'"
+                }
             )
 
     return params
