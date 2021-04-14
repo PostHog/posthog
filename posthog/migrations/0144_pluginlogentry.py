@@ -10,7 +10,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0142_fix_team_data_attributes_default"),
+        ("posthog", "0143_user_uuid"),
     ]
 
     operations = [
