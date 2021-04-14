@@ -485,6 +485,7 @@ export interface FilterType {
     stickiness_days?: number
     entity_id?: string | number
     entity_type?: EntityType
+    entity_math?: string
     people_day?: any
     people_action?: any
     formula?: any
