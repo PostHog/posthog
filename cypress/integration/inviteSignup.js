@@ -3,17 +3,18 @@ describe('Invite Signup', () => {
         cy.get('[data-attr=top-navigation-whoami]').click()
         cy.get('[data-attr=top-menu-item-org-settings]').click()
 
-        cy.get('[data-attr=invite-teammate-button]').click()
+        cy.location('pathname').should('eq', '/organization/settings')
+        cy.get('[data-attr=invite-teammate-button]').click({ force: true }) // The button gets nested under some weird Ant divs
+
         cy.get('[data-attr=invite-email-input]').type('newuser@posthog.com').should('have.value', 'newuser@posthog.com')
         cy.get('[data-attr=invite-team-member-submit]').click()
 
-        cy.get('.Toastify__toast-body h1').should('contain', 'Invite sent!')
-        cy.get('[data-attr=invites-table] tbody td:first-of-type').should('contain', 'newuser@posthog.com')
+        cy.get('[data-attr=invites-table] tbody td').should('contain', 'newuser@posthog.com')
     })
 
     it('Authenticated user cannot use invite for someone else', () => {
         // Tests invite creation flow too
-        cy.get('[data-attr=invites-table] tbody td:nth-last-child(2)').then((element) => {
+        cy.get('[data-attr=invites-table] tbody tr:last-of-type td:nth-last-child(2)').then((element) => {
             cy.visit(element.text())
         })
         cy.get('.error-view-container').should('exist')
@@ -48,9 +49,10 @@ describe('Invite Signup II', () => {
     it('Can leave the organization', () => {
         // Logout & log in with alt user
         cy.visit('/logout')
-        cy.get('#inputEmail').type('newuser@posthog.com')
-        cy.get('#inputPassword').type('12345678')
-        cy.get('.btn').click()
+        cy.get('[data-attr=login-email]').type('newuser@posthog.com')
+        cy.get('[data-attr=password]').type('12345678')
+        cy.get('button[type=submit]').click()
+        cy.location('pathname').should('not.eq', '/login') // Wait until login request fully completes
 
         // Leave current organization
         cy.visit('/organization/members')
