@@ -1,5 +1,10 @@
 @import '~/vars';
 
+.action-filter-row {
+    flex-grow: 1;
+    overflow: hidden;
+}
+
 .property-select {
     cursor: pointer;
     margin-top: 6px;
