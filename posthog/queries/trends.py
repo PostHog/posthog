@@ -24,14 +24,7 @@ from django.db.models.expressions import ExpressionWrapper, F, RawSQL, Subquery
 from django.db.models.fields import DateTimeField
 from django.db.models.functions import Cast
 
-from posthog.constants import (
-    MONTHLY_ACTIVE,
-    TREND_FILTER_TYPE_ACTIONS,
-    TRENDS_CUMULATIVE,
-    TRENDS_DISPLAY_BY_VALUE,
-    TRENDS_LIFECYCLE,
-    WEEKLY_ACTIVE,
-)
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE, TRENDS_LIFECYCLE
 from posthog.models import (
     Action,
     ActionStep,

@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Optional, Union, cast
 from dateutil.relativedelta import relativedelta
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
-from posthog.constants import MONTHLY_ACTIVE, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, WEEKLY_ACTIVE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.entity import Entity
 from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
