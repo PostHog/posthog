@@ -14,10 +14,10 @@ class LicenseError(exceptions.APIException):
     Exception raised for licensing errors.
     """
 
-    default_type: ClassVar[str] = "license_error"
-    default_code: ClassVar[str] = "license_error"
-    status_code: ClassVar[int] = status.HTTP_400_BAD_REQUEST
-    default_detail: ClassVar[str] = "There was a problem with your current license."
+    default_type = "license_error"
+    default_code = "license_error"
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "There was a problem with your current license."
 
     def __init__(self, code, detail):
         self.code = code
