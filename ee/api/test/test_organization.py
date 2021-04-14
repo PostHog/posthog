@@ -1,9 +1,8 @@
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
+from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.team import Team
-from posthog.models.user import User
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.contrib.postgres.fields import JSONField
@@ -8,7 +8,6 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
-from posthog.models.team import Team
 from posthog.utils import mask_email_address
 
 from .utils import UUIDModel, sane_repr

@@ -63,41 +63,57 @@ export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Eleme
                 cancelText="Cancel"
                 onOk={handleSubmit}
                 onCancel={closeModal}
+                okButtonProps={{ disabled: preflight?.licensed_users_available === 0 }}
                 visible={isVisible}
             >
-                <p>The invite will only work with the specified email address and will expire after 3 days.</p>
-                <form
-                    onSubmit={(e) => {
-                        e.preventDefault()
-                        handleSubmit()
-                    }}
-                    data-attr="invite-teammate-form"
-                >
-                    <div className="input-set">
-                        <label htmlFor="invitee-email">Email address</label>
-                        <Input
-                            data-attr="invite-email-input"
-                            ref={emailRef}
-                            maxLength={254}
-                            autoFocus
-                            type="email"
-                            name="invitee-email"
-                        />
-                    </div>
-                </form>
-                {errorMessage && <Alert message={errorMessage} type="error" style={{ marginBottom: '1rem' }} />}
-
-                {!preflight?.email_service_available && (
+                {preflight?.licensed_users_available === 0 ? (
                     <Alert
                         type="warning"
+                        showIcon
                         message={
                             <>
-                                Sending emails is not enabled in your PostHog instance.
-                                <br />
-                                Remember to <b>share the invite link</b> with the team member you want to invite.
+                                You've hit the limit of users you can invite to your PostHog instance given your
+                                license. Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to
+                                upgrade your license.
                             </>
                         }
                     />
+                ) : (
+                    <form
+                        onSubmit={(e) => {
+                            e.preventDefault()
+                            handleSubmit()
+                        }}
+                        data-attr="invite-teammate-form"
+                    >
+                        <p>The invite will only work with the specified email address and will expire after 3 days.</p>
+                        <div className="input-set">
+                            <label htmlFor="invitee-email">Email address</label>
+                            <Input
+                                data-attr="invite-email-input"
+                                ref={emailRef}
+                                maxLength={254}
+                                autoFocus
+                                type="email"
+                                name="invitee-email"
+                            />
+                        </div>
+                        {errorMessage && <Alert message={errorMessage} type="error" style={{ marginBottom: '1rem' }} />}
+
+                        {!preflight?.email_service_available && (
+                            <Alert
+                                type="warning"
+                                message={
+                                    <>
+                                        Sending emails is not enabled in your PostHog instance.
+                                        <br />
+                                        Remember to <b>share the invite link</b> with the team member you want to
+                                        invite.
+                                    </>
+                                }
+                            />
+                        )}
+                    </form>
                 )}
             </Modal>
         </>
