@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
 import React from 'react'
 import { billingLogic } from './billingLogic'
-import { InfoCircleOutlined } from '@ant-design/icons'
 
 export function CurrentUsage(): JSX.Element | null {
     const { eventAllocation, percentage, strokeColor, billing } = useValues(billingLogic)
@@ -20,25 +19,26 @@ export function CurrentUsage(): JSX.Element | null {
                 {billing.should_display_current_bill && (
                     <>
                         <h3 className="l3">Current bill amount</h3>
-                        This is the amount (in dollars) of the bill for the currently ongoing period. The final amount
-                        will be billed a few days after the end of the month.{' '}
-                        <b>
-                            Please note this number is computed daily, so events ingested in the last 24 hours may not
-                            be reflected yet.
-                        </b>{' '}
-                        Keep in mind if you're trying to compare number of events and bill amount.
-                        <div className="bill-amount">
-                            {billing?.current_bill_amount !== undefined && billing?.current_bill_amount !== null ? (
-                                `$${billing?.current_bill_amount?.toLocaleString()}`
-                            ) : (
-                                <>
-                                    Unavailable{' '}
-                                    <Tooltip title="We can't show your current bill amount right now. If you keep seeing this message, contact us.">
-                                        <InfoCircleOutlined />
-                                    </Tooltip>
-                                </>
-                            )}
-                        </div>
+                        {billing?.current_bill_amount !== undefined && billing?.current_bill_amount !== null ? (
+                            <>
+                                This is the amount (in dollars) of the bill for the currently ongoing period. The final
+                                amount will be billed a few days after the end of the month. Please note this number is
+                                reported on a daily basis,{' '}
+                                <b>so events ingested in the last 24 hours may not be reflected yet.</b>
+                                <div className="bill-amount">
+                                    {`$${billing?.current_bill_amount?.toLocaleString()}`}
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                We can't show your current bill amount right now. Please check back again in a few
+                                minutes or{' '}
+                                <a href="https://posthog.com/support/" target="_blank">
+                                    contact us
+                                </a>{' '}
+                                if this message does not disappear.
+                            </>
+                        )}
                     </>
                 )}
                 <h3 className="l3 mt">Current event usage</h3>
