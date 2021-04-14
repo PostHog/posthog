@@ -104,15 +104,9 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
     )
 
     const allowedLevels = membershipLevelIntegers.filter(
-        (listLevel) =>
-            !isMembershipLevelChangeDisallowed(currentOrganization, user, member as OrganizationMemberType, listLevel)
+        (listLevel) => !isMembershipLevelChangeDisallowed(currentOrganization, user, member, listLevel)
     )
-    const disallowedReason = isMembershipLevelChangeDisallowed(
-        currentOrganization,
-        user,
-        member as OrganizationMemberType,
-        allowedLevels
-    )
+    const disallowedReason = isMembershipLevelChangeDisallowed(currentOrganization, user, member, allowedLevels)
 
     return disallowedReason ? (
         <Tooltip title={disallowedReason}>{levelButton}</Tooltip>
