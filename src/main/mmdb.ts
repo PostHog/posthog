@@ -1,35 +1,37 @@
-import { City, Reader, ReaderModel } from '@maxmind/geoip2-node'
+import { Reader, ReaderModel } from '@maxmind/geoip2-node'
 import { captureException } from '@sentry/minimal'
 import { DateTime } from 'luxon'
 import net from 'net'
 import { AddressInfo } from 'net'
 import fetch from 'node-fetch'
 import prettyBytes from 'pretty-bytes'
-import { deserialize, serialize } from 'v8'
+import { serialize } from 'v8'
 import { brotliDecompress } from 'zlib'
 
 import { ServerInstance } from '../main/pluginsServer'
-import { PluginAttachmentDB, PluginsServer, PluginsServerConfig } from '../types'
-import { status } from './status'
-import { delay } from './utils'
+import {
+    MMDB_ATTACHMENT_KEY,
+    MMDB_ENDPOINT,
+    MMDB_INTERNAL_SERVER_TIMEOUT_SECONDS,
+    MMDB_STALE_AGE_DAYS,
+    MMDB_STATUS_REDIS_KEY,
+    MMDBRequestStatus,
+} from '../shared/mmdb-constants'
+import { status } from '../shared/status'
+import { delay } from '../shared/utils'
+import { PluginAttachmentDB, PluginsServer } from '../types'
 
-const MMDB_ENDPOINT = 'https://mmdb.posthog.net/'
-const MMDB_ATTACHMENT_KEY = '@posthog/mmdb'
-const MMDB_STALE_AGE_DAYS = 45
-const MMDB_STATUS_REDIS_KEY = '@posthog-plugin-server/mmdb-status'
-const MMDB_INTERNAL_SERVER_TIMEOUT_SECONDS = 10
+type MMDBPrepServerInstance = Pick<ServerInstance, 'server' | 'mmdb'>
 
-enum MMDBStatus {
+enum MMDBFileStatus {
     Idle = 'idle',
     Fetching = 'fetching',
     Unavailable = 'unavailable',
 }
 
-type MMDBPrepServerInstance = Pick<ServerInstance, 'server' | 'mmdb'>
-
 /** Check if MMDB is being currently fetched by any other plugin server worker in the cluster. */
-async function getMmdbStatus(server: PluginsServer): Promise<MMDBStatus> {
-    return (await server.db.redisGet(MMDB_STATUS_REDIS_KEY, MMDBStatus.Idle)) as MMDBStatus
+async function getMmdbStatus(server: PluginsServer): Promise<MMDBFileStatus> {
+    return (await server.db.redisGet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Idle)) as MMDBFileStatus
 }
 
 /** Decompress a Brotli-compressed MMDB buffer and open a reader from it. */
@@ -93,15 +95,15 @@ async function distributableFetchAndInsertFreshMmdb(
 ): Promise<ReaderModel | null> {
     const { server } = serverInstance
     let fetchingStatus = await getMmdbStatus(server)
-    if (fetchingStatus === MMDBStatus.Unavailable) {
+    if (fetchingStatus === MMDBFileStatus.Unavailable) {
         status.info(
             '☹️',
             'MMDB fetch and insert for GeoIP capabilities is currently unavailable in this PostHog instance - IP location data may be stale or unavailable'
         )
         return null
     }
-    if (fetchingStatus === MMDBStatus.Fetching) {
-        while (fetchingStatus === MMDBStatus.Fetching) {
+    if (fetchingStatus === MMDBFileStatus.Fetching) {
+        while (fetchingStatus === MMDBFileStatus.Fetching) {
             // Retrying shortly, when perhaps the MMDB has been fetched somewhere else and the attachment is up to date
             // Only one plugin server thread out of instances*(workers+1) needs to download the file this way
             await delay(200)
@@ -110,14 +112,14 @@ async function distributableFetchAndInsertFreshMmdb(
         return prepareMmdb(serverInstance)
     }
     // Allow 120 seconds of download until another worker retries
-    await server.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBStatus.Fetching, 120)
+    await server.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Fetching, 120)
     try {
         const mmdb = await fetchAndInsertFreshMmdb(server)
-        await server.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBStatus.Idle)
+        await server.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Idle)
         return mmdb
     } catch (e) {
         // In case of an error mark the MMDB feature unavailable for an hour
-        await server.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBStatus.Unavailable, 120)
+        await server.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Unavailable, 120)
         status.error('❌', 'An error occurred during MMDB fetch and insert:', e)
         return null
     }
@@ -211,12 +213,6 @@ export async function performMmdbStalenessCheck(serverInstance: MMDBPrepServerIn
     }
 }
 
-export enum MMDBRequestStatus {
-    TimedOut = 'Internal MMDB server connection timed out!',
-    ServiceUnavailable = 'IP location capabilities are not available in this PostHog instance!',
-    OK = 'OK',
-}
-
 export async function createMmdbServer(serverInstance: MMDBPrepServerInstance): Promise<net.Server> {
     status.info('🗺', 'Starting internal MMDB server...')
     const mmdbServer = net.createServer((socket) => {
@@ -275,46 +271,4 @@ export async function createMmdbServer(serverInstance: MMDBPrepServerInstance): 
             resolve(mmdbServer)
         })
     })
-}
-
-export async function fetchIpLocationInternally(ipAddress: string, server: PluginsServer): Promise<City | null> {
-    if (server.DISABLE_MMDB) {
-        throw new Error(MMDBRequestStatus.ServiceUnavailable)
-    }
-    const mmdbRequestTimer = new Date()
-    const result = await new Promise<City | null>((resolve, reject) => {
-        const client = new net.Socket()
-        client.connect(server.INTERNAL_MMDB_SERVER_PORT, 'localhost', () => {
-            client.write(ipAddress)
-            client.end()
-        })
-
-        client.on('data', (data) => {
-            const result = deserialize(data)
-            client.end(() => {
-                if (typeof result !== 'string') {
-                    // String means a RequestStatus error
-                    resolve(result as City | null)
-                } else {
-                    reject(new Error(result))
-                }
-            })
-        })
-
-        client.setTimeout(MMDB_INTERNAL_SERVER_TIMEOUT_SECONDS * 1000).on('timeout', () => {
-            client.destroy()
-            reject(new Error(MMDBRequestStatus.TimedOut))
-        })
-
-        client.on('error', (error) => {
-            client.destroy()
-            if (error.message.includes('ECONNREFUSED')) {
-                reject(new Error(MMDBRequestStatus.ServiceUnavailable))
-            } else {
-                reject(error)
-            }
-        })
-    })
-    server.statsd?.timing('mmdb.internal_request', mmdbRequestTimer)
-    return result
 }

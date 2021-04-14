@@ -1,7 +1,7 @@
 import { GeoIPExtension } from '@posthog/plugin-scaffold'
 
-import { fetchIpLocationInternally, MMDBRequestStatus } from '../../../shared/mmdb'
 import { PluginsServer } from '../../../types'
+import { fetchIpLocationInternally } from '../../mmdb'
 
 export function createGeoIp(server: PluginsServer): GeoIPExtension {
     return {

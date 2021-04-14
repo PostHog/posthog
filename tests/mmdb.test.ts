@@ -5,8 +5,7 @@ import * as fetch from 'node-fetch'
 import { join } from 'path'
 
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
-import { defaultConfig } from '../src/shared/config'
-import { fetchIpLocationInternally } from '../src/shared/mmdb'
+import { fetchIpLocationInternally } from '../src/worker/mmdb'
 import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 
