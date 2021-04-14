@@ -16,13 +16,39 @@ export function CurrentUsage(): JSX.Element | null {
         <>
             <div className="space-top" />
             <Card title="Current monthly usage">
+                {billing.should_display_current_bill && (
+                    <>
+                        <h3 className="l3">Current bill amount</h3>
+                        {billing?.current_bill_amount !== undefined && billing?.current_bill_amount !== null ? (
+                            <>
+                                This is the amount (in dollars) of the bill for the currently ongoing period. The final
+                                amount will be billed a few days after the end of the month. Please note this number is
+                                reported on a daily basis,{' '}
+                                <b>so events ingested in the last 24 hours may not be reflected yet.</b>
+                                <div className="bill-amount">
+                                    {`$${billing?.current_bill_amount?.toLocaleString()}`}
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                We can't show your current bill amount right now. Please check back again in a few
+                                minutes or{' '}
+                                <a href="https://posthog.com/support/" target="_blank">
+                                    contact us
+                                </a>{' '}
+                                if this message does not disappear.
+                            </>
+                        )}
+                    </>
+                )}
+                <h3 className="l3 mt">Current event usage</h3>
                 {billing.current_usage !== null ? (
                     <>
                         Your organization has used{' '}
                         <Tooltip title={`${billing.current_usage.toLocaleString()} events`}>
                             <b>{compactNumber(billing.current_usage)}</b>
                         </Tooltip>{' '}
-                        events this month.{' '}
+                        events this month (calculated roughly every hour).{' '}
                         {eventAllocation && (
                             <>
                                 You can use up to <b>{compactNumber(eventAllocation)}</b> events per month.
@@ -48,8 +74,8 @@ export function CurrentUsage(): JSX.Element | null {
                     </>
                 ) : (
                     <div>
-                        Currently we do not have information about your usage. Please check back again in a few minutes
-                        or{' '}
+                        Currently we do not have information about the number of billed events. Please check back again
+                        in a few minutes or{' '}
                         <a href="https://posthog.com/support/" target="_blank">
                             contact us
                         </a>{' '}
