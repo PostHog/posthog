@@ -1,8 +1,17 @@
+from typing import Any, Dict, List, Optional, cast
+
 from django.contrib.postgres.fields import JSONField
 from django.db import models
 from django.utils import timezone
 
+from posthog.ee import is_ee_enabled
+
 from .utils import UUIDModel, sane_repr
+
+try:
+    from ee.clickhouse.client import sync_execute
+except ImportError:
+    pass
 
 
 class Plugin(models.Model):
@@ -94,3 +103,48 @@ class PluginLogEntry(UUIDModel):
         return f"[{self.timestamp.isoformat()}] {self.type}: {self.message}"
 
     __repr__ = sane_repr("team_id", "plugin_id", "timestamp", "type", "message")
+
+
+def fetch_plugin_log_entries(
+    *,
+    team_id: Optional[int],
+    plugin_id: Optional[int] = None,
+    after: Optional[timezone.datetime] = None,
+    before: Optional[timezone.datetime] = None,
+) -> List[PluginLogEntry]:
+    plugin_log_entries: List[PluginLogEntry] = []
+
+    if is_ee_enabled():
+        clickhouse_where_parts: List[str] = []
+        clickhouse_kwargs: Dict[str, Any] = {}
+        if team_id is not None:
+            clickhouse_where_parts.append("team_id = %(team_id)s")
+            clickhouse_kwargs["team_id"] = team_id
+        if plugin_id is not None:
+            clickhouse_where_parts.append("AND plugin_id = %(plugin_id)s")
+            clickhouse_kwargs["plugin_id"] = plugin_id
+        if after is not None:
+            clickhouse_where_parts.append("AND timestamp > toDateTime(%(after)s)")
+            clickhouse_kwargs["after"] = after.isoformat()
+        if before is not None:
+            clickhouse_where_parts.append("AND timestamp < toDateTime(%(before)s)")
+            clickhouse_kwargs["before"] = before.isoformat()
+        clickhouse_query = f"""
+            SELECT id, team_id, plugin_id, timestamp, type, message, instance_id FROM plugin_log_entries
+            WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC
+        """
+        plugin_log_entries.extend(cast(List[PluginLogEntry], sync_execute(clickhouse_query, clickhouse_kwargs)))
+
+    # Postgres is always queried in case a switch was made from ClickHouse and logs in Postgros are still relevant
+    filter_kwargs: Dict[str, Any] = {}
+    if team_id is not None:
+        filter_kwargs["team_id"] = team_id
+    if plugin_id is not None:
+        filter_kwargs["plugin_id"] = plugin_id
+    if after is not None:
+        filter_kwargs["timestamp__gt"] = after
+    if before is not None:
+        filter_kwargs["timestamp__lte"] = before
+    plugin_log_entries.extend(PluginLogEntry.objects.order_by("-timestamp").filter(**filter_kwargs))
+
+    return plugin_log_entries

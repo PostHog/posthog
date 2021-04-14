@@ -20,6 +20,7 @@ from . import (
     person,
     personal_api_key,
     plugin,
+    plugin_log_entry,
     sessions_filter,
     team,
     user,
@@ -34,6 +35,7 @@ def api_not_found(request):
 
 
 router = DefaultRouterPlusPlus()
+
 # Legacy endpoints (to be removed eventually)
 router.register(r"annotation", annotation.AnnotationsViewSet)
 router.register(r"feature_flag", feature_flag.FeatureFlagViewSet)
@@ -46,7 +48,12 @@ router.register(r"sessions_filter", sessions_filter.SessionsFilterViewSet)
 # Nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet)
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet)
-organizations_router.register(r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"])
+organization_plugins_router = organizations_router.register(
+    r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"]
+)
+organization_plugins_router.register(
+    r"logs", plugin_log_entry.PluginLogEntryViewSet, "organization_plugin_logs", ["organization_id", "plugin_id"]
+)
 organizations_router.register(
     r"members", organization_member.OrganizationMemberViewSet, "organization_members", ["organization_id"],
 )
