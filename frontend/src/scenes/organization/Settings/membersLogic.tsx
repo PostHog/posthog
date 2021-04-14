@@ -15,7 +15,7 @@ export const membersLogic = kea<membersLogicType>({
             member,
             level,
         }),
-        postRemoveMember: (memberId: number) => ({ memberId }),
+        postRemoveMember: (memberUUID: string) => ({ memberUUID }),
     },
     loaders: ({ values, actions }) => ({
         members: {
@@ -32,7 +32,7 @@ export const membersLogic = kea<membersLogicType>({
                         </h1>
                     </div>
                 )
-                actions.postRemoveMember(member.user_id)
+                actions.postRemoveMember(member.user.uuid)
                 return values.members.filter((thisMember) => thisMember.user_id !== member.user_id)
             },
         },
@@ -60,8 +60,8 @@ export const membersLogic = kea<membersLogicType>({
             }
             actions.loadMembers()
         },
-        postRemoveMember: async ({ memberId }) => {
-            if (memberId === userLogic.values.user?.id) {
+        postRemoveMember: async ({ memberUUID }) => {
+            if (memberUUID === userLogic.values.user?.id) {
                 location.reload()
             }
         },

@@ -65,9 +65,9 @@ export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Eleme
                 okButtonProps={{
                     // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
                     'data-attr': 'invite-team-member-submit',
+                    disabled: preflight?.licensed_users_available === 0,
                 }}
                 onCancel={closeModal}
-                okButtonProps={{ disabled: preflight?.licensed_users_available === 0 }}
                 visible={isVisible}
             >
                 {preflight?.licensed_users_available === 0 ? (
