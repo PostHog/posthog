@@ -2,6 +2,7 @@ import pytest
 from infi.clickhouse_orm import Database
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.sql.plugin_log_entries import DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL, PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
@@ -74,6 +75,7 @@ def db(db):
         sync_execute(DROP_PERSON_DISTINCT_ID_TABLE_SQL)
         sync_execute(DROP_PERSON_STATIC_COHORT_TABLE_SQL)
         sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL)
+        sync_execute(DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL)
 
         sync_execute(EVENTS_TABLE_SQL)
         sync_execute(EVENTS_WITH_PROPS_TABLE_SQL)
@@ -81,6 +83,7 @@ def db(db):
         sync_execute(PERSONS_TABLE_SQL)
         sync_execute(PERSONS_DISTINCT_ID_TABLE_SQL)
         sync_execute(PERSON_STATIC_COHORT_TABLE_SQL)
+        sync_execute(PLUGIN_LOG_ENTRIES_TABLE_SQL)
     except:
         pass
 
