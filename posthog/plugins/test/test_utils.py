@@ -1,7 +1,13 @@
 import base64
 from unittest import mock
 
-from posthog.plugins.utils import download_plugin_archive, get_json_from_archive, parse_url
+from posthog.plugins.utils import (
+    download_plugin_archive,
+    get_json_from_archive,
+    get_json_from_zip_archive,
+    parse_url,
+    put_json_into_zip_archive,
+)
 from posthog.test.base import BaseTest
 
 from .mock import mocked_plugin_requests_get
@@ -485,3 +491,22 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(plugin_json_tgz["name"], "helloworldplugin")
         self.assertEqual(plugin_json_tgz["url"], "https://github.com/PostHog/helloworldplugin")
         self.assertEqual(plugin_json_tgz["description"], "Greet the World and Foo a Bar, JS edition!")
+
+    def test_put_json_into_zip_archive(self, mock_get):
+        archive = base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1])
+        plugin_json = get_json_from_archive(archive, "plugin.json")
+        plugin_json["posthogVersion"] = "0.0.0"
+
+        # check that we can override files
+        new_archive = put_json_into_zip_archive(archive, plugin_json, "plugin.json")
+        new_plugin_json = get_json_from_zip_archive(new_archive, "plugin.json")
+        self.assertEqual(new_plugin_json["posthogVersion"], "0.0.0")
+
+        # check that new the file is there
+        new_archive_2 = put_json_into_zip_archive(archive, plugin_json, "plugin2.json")
+        new_plugin_json_2 = get_json_from_archive(new_archive_2, "plugin2.json")
+        self.assertEqual(new_plugin_json_2["posthogVersion"], "0.0.0")
+
+        # check that old files are intact
+        old_plugin_json_2 = get_json_from_archive(new_archive_2, "plugin.json")
+        self.assertEqual(old_plugin_json_2["name"], "helloworldplugin")

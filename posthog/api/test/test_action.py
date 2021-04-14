@@ -227,3 +227,19 @@ class TestCreateAction(APIBaseTest):
             "/api/action/", data={"name": "user signed up again",}, HTTP_ORIGIN="https://testserver/",
         )
         self.assertEqual(response.status_code, 201, response.json())
+
+    @patch("posthoganalytics.capture")
+    def test_create_action_event_with_space(self, patch_capture, *args):
+        Event.objects.create(
+            team=self.team,
+            event="test_event ",  # notice trailing space
+            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div")],
+        )
+        response = self.client.post(
+            "/api/action/",
+            data={"name": "test event", "steps": [{"event": "test_event "}],},
+            HTTP_ORIGIN="http://testserver",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        action = Action.objects.get()
+        self.assertEqual(action.steps.get().event, "test_event ")

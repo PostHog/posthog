@@ -132,6 +132,7 @@ export function FrameworkGrid(): JSX.Element {
                     style={{ marginLeft: 5 }}
                     className="button-border clickable"
                     onClick={() => {
+                        setPlatform(frameworkToPlatform(API))
                         setFramework(API)
                     }}
                 >

@@ -28,7 +28,8 @@ jobs:
                       ${{ runner.os }}-yarn-dep-
             - name: Yarn install deps
               run: |
-                  yarn install --frozen-lockfile; yarn add cypress@6.4.0
+                  yarn install --frozen-lockfile
+                  yarn add cypress@6.7.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
             - uses: actions/cache@v1
               name: Setup Yarn build cache
               id: yarn-build-cache

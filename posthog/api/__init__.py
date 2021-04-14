@@ -22,6 +22,7 @@ from . import (
     plugin,
     sessions_filter,
     team,
+    user,
 )
 
 
@@ -58,6 +59,7 @@ organizations_router.register(
 
 # General endpoints (shared across EE & FOSS)
 router.register(r"login", authentication.LoginViewSet)
+router.register(r"users", user.UserViewSet)
 
 if is_ee_enabled():
     try:

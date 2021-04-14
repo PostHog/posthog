@@ -2,7 +2,7 @@ import React from 'react'
 import { Select } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import { EventProperty } from 'scenes/userLogic'
+import { EventProperty } from 'scenes/teamLogic'
 
 type PropertyOption = EventProperty
 
@@ -38,8 +38,8 @@ export function PropertySelect({ optionGroups, value, onChange, placeholder, aut
             value={value || undefined}
             filterOption={(input, option) => option?.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
             onChange={(_: null, selection) => {
-                const { value, type } = selection as SelectionOptionType
-                onChange(type, value.replace(/^(event_|person_|element_)/gi, ''))
+                const { value: val, type } = selection as SelectionOptionType
+                onChange(type, val.replace(/^(event_|person_|element_)/gi, ''))
             }}
             style={{ width: '100%' }}
             virtual={false}

@@ -46,6 +46,11 @@ export function PropertyValue({
         }
     }
 
+    function setValue(newValue) {
+        onSet(newValue)
+        setInput('')
+    }
+
     useEffect(() => {
         loadPropertyValues('')
     }, [propertyKey])
@@ -64,11 +69,11 @@ export function PropertyValue({
                 showSearch
                 autoFocus={!value && !isMobile()}
                 style={{ width: '100%', ...style }}
-                onChange={(_, payload) => {
+                onChange={(val, payload) => {
                     if (isOperatorMulti(operator) && payload.length > 0) {
-                        onSet(payload.map(({ value: val }) => val))
+                        setValue(val)
                     } else {
-                        onSet((payload && payload.value) || null)
+                        setValue(payload?.value ?? null)
                     }
                 }}
                 value={value || placeholder}
@@ -101,6 +106,7 @@ export function PropertyValue({
                         value={id || name}
                         data-attr={'prop-val-' + index}
                         className="ph-no-capture"
+                        title={name}
                     >
                         {name === true && 'true'}
                         {name === false && 'false'}

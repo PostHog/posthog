@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Tooltip, Select, Tabs, Popover, Button } from 'antd'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { cohortsModel } from '../../models/cohortsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -11,7 +11,7 @@ import { ShownAsValue } from 'lib/constants'
 const { TabPane } = Tabs
 
 function PropertyFilter({ breakdown, onChange }) {
-    const { eventProperties } = useValues(userLogic)
+    const { eventProperties } = useValues(teamLogic)
     const { personProperties } = useValues(propertyFilterLogic({ pageKey: 'breakdown' }))
     return (
         <SelectGradientOverflow
