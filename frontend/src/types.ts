@@ -434,6 +434,16 @@ export interface PluginErrorType {
     event?: Record<string, any>
 }
 
+export interface PluginLogEntryType {
+    id: string
+    plugin_id: number
+    team_id: number
+    type: string
+    message: string
+    timestamp: string
+    instance_id: number
+}
+
 export interface AnnotationType {
     id: string
     scope: 'organization' | 'dashboard_item'

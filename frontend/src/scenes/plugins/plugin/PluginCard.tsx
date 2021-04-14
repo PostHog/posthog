@@ -25,6 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import { endWithPunctation } from '../../../lib/utils'
 import { canInstallPlugins } from '../access'
 import { LinkButton } from '../../../lib/components/LinkButton'
+import { PluginLogs } from './PluginLogs'
 
 export function ExtraPluginButtons({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -230,6 +231,11 @@ export function PluginCard({
                         </Space>
                     </Col>
                 </Row>
+                {pluginId && user && user.organization && user.team && (
+                    <Row>
+                        <PluginLogs organizationId={user.organization.id} teamId={user.team.id} pluginId={pluginId} />
+                    </Row>
+                )}
             </Card>
         </Col>
     )
