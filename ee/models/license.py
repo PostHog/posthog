@@ -6,8 +6,6 @@ from django.db import models
 from django.utils import timezone
 from rest_framework import exceptions, status
 
-from posthog.models import OrganizationInvite
-
 
 class LicenseError(exceptions.APIException):
     """
@@ -33,7 +31,7 @@ class LicenseManager(models.Manager):
 
         kwargs["valid_until"] = resp["valid_until"]
         kwargs["plan"] = resp["plan"]
-        kwargs["max_users"] = resp["max_users"]
+        kwargs["max_users"] = resp.get("max_users", 0)
         return cast(License, super().create(*args, **kwargs))
 
     def first_valid(self) -> Optional["License"]:
@@ -75,6 +73,8 @@ def get_licensed_users_available() -> Optional[int]:
     """
 
     license = License.objects.first_valid()
+    from posthog.models import OrganizationInvite
+
     if license:
         if license.max_users is None:
             return None
