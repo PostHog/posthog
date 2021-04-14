@@ -1023,7 +1023,8 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/328367?v=4",
       "profile": "https://leggetter.co.uk",
       "contributions": [
-        "code"
+        "code",
+        "doc"
       ]
     },
     {
@@ -1090,6 +1091,15 @@
       "contributions": [
         "code",
         "doc"
+      ]
+    },
+    {
+      "login": "daviddanielarch",
+      "name": "David Arch",
+      "avatar_url": "https://avatars.githubusercontent.com/u/78377120?v=4",
+      "profile": "https://daviddanielarch.github.io/",
+      "contributions": [
+        "code"
       ]
     }
   ],

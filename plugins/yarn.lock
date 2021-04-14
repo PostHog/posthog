@@ -918,7 +918,7 @@
   resolved "https://registry.yarnpkg.com/@google-cloud/promisify/-/promisify-2.0.3.tgz#f934b5cdc939e3c7039ff62b9caaf59a9d89e3a8"
   integrity sha512-d4VSA86eL/AFTe5xtyZX+ePUjE8dIFu2T8zmdeNBSa5/kNgXPCx/o/wbFNHAGLJdGnk1vddRuMESD9HbOC8irw==
 
-"@maxmind/geoip2-node@^2.2.0":
+"@maxmind/geoip2-node@^2.3.1":
   version "2.3.1"
   resolved "https://registry.yarnpkg.com/@maxmind/geoip2-node/-/geoip2-node-2.3.1.tgz#f465bfec300b9a24ce14fc1acdd2b0d931b5674a"
   integrity sha512-iWxQiymqUJeZOm2GibQlOebZgEFly6SvTL1iALennYGPAsbBX+Iu50tz6xFGsO+2uoohDjPglx0h2TFZO7N2kQ==
@@ -949,17 +949,17 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-contrib/-/plugin-contrib-0.0.3.tgz#d0772c6dd9ec9944ebee9dc475e1e781256b0b5f"
   integrity sha512-0HrE8AuPv3OLZA93RrJDbljn9u5D/wmiIkBCeckU3LL67LNozDIJgKsY4Td91zgc+b4Rlx/X0MJNp2l6BHbQqg==
 
-"@posthog/plugin-server@0.16.3":
-  version "0.16.3"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.16.3.tgz#5b0d061eeeecb9d03ab2a5df3c89cc5b5dcb2168"
-  integrity sha512-y2N0SlmySJ5S+jCezsIHqf6LJyzmjLbYV1Njo45m0BFmnH6O4cJTwVUh0ManjuzlfCElWsHnsAREnJ9wOMnjag==
+"@posthog/plugin-server@0.16.10":
+  version "0.16.10"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.16.10.tgz#b685e32c4c6584d347bca441f7e0dce5a63f1228"
+  integrity sha512-DCZ5DLTWbv969OlQnXCSd/nypya+QmF9RJ2PO6HSNYnFoZdUahb7c9TQMX7CnGsLDOWz/43CefYWNVH9bUv/4Q==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"
     "@babel/preset-typescript" "^7.13.0"
     "@babel/standalone" "^7.13.7"
     "@google-cloud/bigquery" "^5.5.0"
-    "@maxmind/geoip2-node" "^2.2.0"
+    "@maxmind/geoip2-node" "^2.3.1"
     "@posthog/clickhouse" "^1.7.0"
     "@posthog/piscina" "^2.2.0-posthog"
     "@posthog/plugin-contrib" "^0.0.3"

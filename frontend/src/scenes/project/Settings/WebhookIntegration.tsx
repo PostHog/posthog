@@ -61,6 +61,12 @@ const logic = kea<logicType>({
         handleTestError: ({ error }) => {
             errorToast('Error validating your webhook', 'Your webhook returned the following error response:', error)
         },
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
+            const webhook = teamLogic.values.currentTeam?.slack_incoming_webhook
+            if (webhook) {
+                actions.setEditedWebhook(webhook)
+            }
+        },
     }),
 })
 

@@ -31,10 +31,10 @@ export function FullScreen({ onExit }) {
         }
 
         return () => {
-            const myClasses = window.document.querySelectorAll(selector)
+            const elements = window.document.querySelectorAll(selector)
 
-            for (let i = 0; i < myClasses.length; i++) {
-                myClasses[i].style.display = 'block'
+            for (let i = 0; i < elements.length; i++) {
+                elements[i].style.display = 'block'
             }
             try {
                 window.removeEventListener('fullscreenchange', handler, false)
