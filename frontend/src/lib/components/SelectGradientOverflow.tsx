@@ -96,15 +96,12 @@ export function SelectGradientOverflow({
         }
     }
     document.addEventListener('click', outsideClickListener)
-
     return (
         <div ref={containerRef}>
             <Select
                 {...props}
                 ref={selectRef}
                 open={isOpen}
-                onClick={() => setOpen(!isOpen)}
-                onSelect={() => setOpen(false)}
                 onFocus={onFocus}
                 onBlur={onBlur}
                 onPopupScroll={() => {
