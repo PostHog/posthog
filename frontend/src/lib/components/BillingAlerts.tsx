@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { WarningOutlined, ToolFilled } from '@ant-design/icons'
+import { WarningOutlined, ToolFilled, KeyOutlined } from '@ant-design/icons'
 import { Button, Card } from 'antd'
 import { billingLogic, BillingAlertType } from 'scenes/billing/billingLogic'
 import { LinkButton } from './LinkButton'
@@ -51,6 +51,25 @@ export function BillingAlerts(): JSX.Element | null {
                         <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 16 }}>
                             <LinkButton type="primary" to="/organization/billing">
                                 <ToolFilled /> Manage billing
+                            </LinkButton>
+                        </div>
+                    </div>
+                </Card>
+            )}
+
+            {alertToShow === BillingAlertType.ClickhouseLicenseMissing && (
+                <Card>
+                    <div style={{ display: 'flex' }}>
+                        <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
+                            <WarningOutlined className="text-warning" style={{ paddingRight: 16 }} />
+                            <div>
+                                You've set up Clickhouse, but you don't have an active license to use Clickhouse yet.
+                                Contact us at <a href="mailto:sales@posthog.com">sales@posthog.com</a> to get a license.
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 16 }}>
+                            <LinkButton type="primary" to="/instance/licenses">
+                                <KeyOutlined /> Activate License
                             </LinkButton>
                         </div>
                     </div>

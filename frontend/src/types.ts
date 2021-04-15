@@ -13,7 +13,12 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 
-export type AvailableFeatures = 'zapier' | 'organizations_projects' | 'google_login' | 'dashboard_collaboration'
+export type AvailableFeatures =
+    | 'zapier'
+    | 'organizations_projects'
+    | 'google_login'
+    | 'dashboard_collaboration'
+    | 'clickhouse'
 
 export interface UserType {
     id: string
@@ -84,6 +89,13 @@ export interface OrganizationMemberType {
     level: OrganizationMembershipLevel
     joined_at: string
     updated_at: string
+}
+
+export interface APIErrorType {
+    type: 'authentication_error' | 'invalid_request' | 'server_error' | 'throttled_error' | 'validation_error'
+    code: string
+    detail: string
+    attr: string | null
 }
 
 export interface EventUsageType {
@@ -341,6 +353,8 @@ export interface BillingType {
     event_allocation: number | null
     current_usage: number | null
     subscription_url: string
+    current_bill_amount: number | null
+    should_display_current_bill: boolean
 }
 
 export interface PlanInterface {
@@ -543,6 +557,7 @@ export interface TrendResult {
     label: string
     labels: string[]
     breakdown_value?: string | number
+    status?: string
 }
 
 export interface TrendResultWithAggregate extends TrendResult {
@@ -611,6 +626,7 @@ export interface PreflightStatus {
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
     is_async_event_action_mapping_enabled?: boolean
+    licensed_users_available: number | null
 }
 
 export enum DashboardMode { // Default mode is null
@@ -651,3 +667,12 @@ export type HotKeys =
     | 'y'
     | 'z'
     | 'escape'
+
+export interface LicenseType {
+    id: number
+    key: string
+    plan: string
+    valid_until: string
+    max_users: string | null
+    created_at: string
+}

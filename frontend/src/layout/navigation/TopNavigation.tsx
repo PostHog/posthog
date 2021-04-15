@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
-import { Button, Dropdown } from 'antd'
+import { Button, Card, Dropdown, Tooltip } from 'antd'
 import {
     ProjectOutlined,
     DownOutlined,
@@ -17,6 +17,7 @@ import {
     SearchOutlined,
     SettingOutlined,
     UserAddOutlined,
+    InfoCircleOutlined,
 } from '@ant-design/icons'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -31,6 +32,7 @@ import { UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import MD5 from 'crypto-js/md5'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 export interface ProfilePictureProps {
     name?: string
@@ -78,6 +80,7 @@ export function TopNavigation(): JSX.Element {
     )
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
+    const { billing } = useValues(billingLogic)
     const { logout, updateCurrentTeam, updateCurrentOrganization } = useActions(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
     const { sceneConfig } = useValues(sceneLogic)
@@ -96,6 +99,30 @@ export function TopNavigation(): JSX.Element {
                 </div>
             </div>
             <div className="text-center mt" style={{ paddingRight: 16, paddingLeft: 16 }}>
+                {preflight?.cloud && billing?.should_display_current_bill && (
+                    <Link to="/organization/billing" data-attr="top-menu-billing-usage">
+                        <Card
+                            bodyStyle={{ padding: 4, fontWeight: 'bold' }}
+                            style={{ marginBottom: 16, cursor: 'pointer' }}
+                        >
+                            <span className="text-small text-muted">
+                                <b>Current usage</b>
+                            </span>
+                            <div style={{ fontSize: '1.05rem' }}>
+                                {billing?.current_bill_amount !== undefined && billing?.current_bill_amount !== null ? (
+                                    `$${billing?.current_bill_amount?.toLocaleString()}`
+                                ) : (
+                                    <>
+                                        Unavailable{' '}
+                                        <Tooltip title="We can't show your current bill amount right now. Please check back in a few minutes. If you keep seeing this message, contact us.">
+                                            <InfoCircleOutlined />
+                                        </Tooltip>
+                                    </>
+                                )}
+                            </div>
+                        </Card>
+                    </Link>
+                )}
                 <div>
                     {preflight?.email_service_available ? (
                         <Button

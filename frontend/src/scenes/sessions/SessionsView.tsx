@@ -83,7 +83,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 : enableSessionRecordingCTA
             : undefined
 
-    const columns: ResizableColumnType[] = [
+    const columns: ResizableColumnType<SessionType>[] = [
         {
             title: 'Person',
             key: 'person',

@@ -337,8 +337,8 @@ export function triggerResize(): void {
  * change when the sidebar's expansion is animating.
  */
 export function triggerResizeAfterADelay(): void {
-    for (const delay of [10, 100, 500, 750, 1000, 2000]) {
-        window.setTimeout(triggerResize, delay)
+    for (const duration of [10, 100, 500, 750, 1000, 2000]) {
+        window.setTimeout(triggerResize, duration)
     }
 }
 

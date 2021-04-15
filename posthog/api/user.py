@@ -24,7 +24,6 @@ from posthog.email import is_email_available
 from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
 from posthog.models.organization import Organization
-from posthog.plugins import reload_plugins_on_workers
 from posthog.tasks import user_identify
 from posthog.version import VERSION
 
