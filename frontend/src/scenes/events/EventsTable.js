@@ -16,6 +16,7 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { TZLabel } from 'lib/components/TimezoneAware'
+import { ViewType } from 'scenes/insights/insightLogic'
 import { ResizableTable } from 'lib/components/ResizableTable'
 
 dayjs.extend(LocalizedFormat)
@@ -143,15 +144,48 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                     return <></>
                 }
 
-                let eventLink = ''
-
+                let params
                 if (event.event === '$pageview') {
-                    const currentUrl = encodeURIComponent(event.properties.$current_url)
-                    eventLink = `/insights?interval=day&display=ActionsLineGraph&actions=%5B%5D&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%2C%22properties%22%3A%5B%7B%22key%22%3A%22%24current_url%22%2C%22value%22%3A%22${currentUrl}%22%2C%22type%22%3A%22event%22%7D%5D%7D%5D`
+                    params = {
+                        insight: ViewType.TRENDS,
+                        interval: 'day',
+                        display: 'ActionsLineGraph',
+                        actions: [],
+                        events: [
+                            {
+                                id: '$pageview',
+                                name: '$pageview',
+                                type: 'events',
+                                order: 0,
+                                properties: [
+                                    {
+                                        key: '$current_url',
+                                        value: event.properties.$current_url,
+                                        type: 'event',
+                                    },
+                                ],
+                            },
+                        ],
+                    }
                 } else {
-                    const eventTag = encodeURIComponent(event.event)
-                    eventLink = `/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22${eventTag}%22%2C%22name%22%3A%22${eventTag}%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=#backTo=Events&backToURL=${window.location.pathname}`
+                    params = {
+                        insight: ViewType.TRENDS,
+                        interval: 'day',
+                        display: 'ActionsLineGraph',
+                        actions: [],
+                        events: [
+                            {
+                                id: event.event,
+                                name: event.event,
+                                type: 'events',
+                                order: 0,
+                                properties: [],
+                            },
+                        ],
+                    }
                 }
+                const encodedParams = toParams(params)
+                const eventLink = `/insights?${encodedParams}`
 
                 return (
                     <Link
