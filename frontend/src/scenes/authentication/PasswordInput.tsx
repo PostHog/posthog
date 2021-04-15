@@ -26,11 +26,11 @@ export function PasswordInput({
                 rules={[
                     {
                         required: true,
-                        message: `Please enter your ${label.toLowerCase()} to continue`,
+                        message: `Please enter your password to continue`,
                     },
                     {
                         min: validateMinLength ? 8 : undefined,
-                        message: `Your ${label.toLowerCase()} must be at least 8 characters long`,
+                        message: `Your password must be at least 8 characters long`,
                     },
                 ]}
                 style={showStrengthIndicator ? { marginBottom: 0 } : undefined}
