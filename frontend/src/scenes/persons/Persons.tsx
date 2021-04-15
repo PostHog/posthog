@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { PersonsTable } from './PersonsTable'
-import { Button, Row, Radio } from 'antd'
+import { Button, Row, Radio, Alert } from 'antd'
 import { ExportOutlined, PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { personsLogic } from './personsLogic'
@@ -11,6 +11,7 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { ClockCircleFilled } from '@ant-design/icons'
 import { toParams } from 'lib/utils'
 import { PersonsSearch } from './PersonsSearch'
+import { IconExternalLink } from 'lib/components/icons'
 
 export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
@@ -56,6 +57,30 @@ export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
                     </Radio.Group>
                 </div>
             </Row>
+            {listFilters.is_identified === 'false' && (
+                <div className="mb">
+                    {/* TODO: Product suggestion: We'll want to turn these off for advanced users  */}
+                    <Alert
+                        type="info"
+                        closable
+                        message={
+                            <>
+                                Unidentified users are usually anonymous visitors to your app or website that have not
+                                been identified to you. To mark users as identified, simply call{' '}
+                                <code>posthog.identify</code> on your frontend.{' '}
+                                <a
+                                    href="https://posthog.com/docs/integrations/js-integration?utm_medium=in-product&utm_campaign=persons-unidentified#identifying-users"
+                                    target="_blank"
+                                    style={{ display: 'inline-flex', alignItems: 'center' }}
+                                >
+                                    <IconExternalLink /> Learn more
+                                </a>
+                            </>
+                        }
+                        showIcon
+                    />
+                </div>
+            )}
             <div className="mb text-right">
                 {cohort ? (
                     <LinkButton
