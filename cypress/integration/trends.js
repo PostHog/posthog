@@ -1,6 +1,5 @@
-describe('Trends actions & events', () => {
+describe('Trends', () => {
     beforeEach(() => {
-        // given
         cy.visit('/insights')
     })
 
@@ -38,16 +37,34 @@ describe('Trends actions & events', () => {
     })
 
     it('Apply specific filter on default pageview event', () => {
+        cy.get('[data-attr=trend-element-subject-0]').click()
+        cy.get('[datakey="events$pageview"]').click()
+        cy.get('[data-attr=trend-element-subject-0]').should('have.text', '$pageview')
         cy.get('[data-attr=show-prop-filter-0]').click()
-        cy.get('[data-attr=new-prop-filter-0-\\$pageview-filter]').click()
+        cy.get('[data-attr="new-prop-filter-0-$pageview-filter"]').click()
         cy.get('[data-attr=property-filter-dropdown]').click()
         cy.get('[data-attr=prop-filter-event-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
-        cy.get('[data-attr=trend-line-graph]').should('exist')
+        cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
+    })
+
+    it('Apply specific filter on custom action', () => {
+        cy.get('[data-attr=trend-element-subject-0]').click()
+        cy.get('li.ant-list-item').contains('Watched Movie').click()
+        cy.get('[data-attr=show-prop-filter-0]').click()
+        cy.get('[data-attr=property-filter-0]').contains('Add filter').click()
+        cy.get('[data-attr=property-filter-dropdown]').click()
+        cy.get('.ant-select-item-option-content').contains('is_first_movie').click({ force: true })
+        cy.get('[data-attr=prop-val]').click()
+        cy.get('[data-attr=prop-val-0]').click({ force: true })
+        cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
     })
 
     it('Apply 1 overall filter', () => {
+        cy.get('[data-attr=trend-element-subject-0]').click()
+        cy.get('[datakey="events$pageview"]').click()
+        cy.get('[data-attr=trend-element-subject-0]').should('have.text', '$pageview')
         cy.get('[data-attr=new-prop-filter-trends-filters]').click()
         cy.get('[data-attr=property-filter-dropdown]').click()
         cy.get('[data-attr=prop-filter-event-1]').click({ force: true })
@@ -81,20 +98,6 @@ describe('Trends actions & events', () => {
     it('Apply date filter', () => {
         cy.get('[data-attr=date-filter]').click()
         cy.contains('Last 30 days').click()
-
-        cy.get('[data-attr=trend-line-graph]').should('exist')
-    })
-
-    it('Apply volume filter', () => {
-        cy.get('[data-attr=shownas-filter]').click()
-        cy.get('[data-attr=shownas-volume-option]').click()
-
-        cy.get('[data-attr=trend-line-graph]').should('exist')
-    })
-
-    it('Apply stickiness filter', () => {
-        cy.get('[data-attr=shownas-filter]').click()
-        cy.get('[data-attr=shownas-stickiness-option]').click()
 
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })

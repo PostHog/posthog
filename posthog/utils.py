@@ -426,7 +426,7 @@ def get_machine_id() -> str:
     return hashlib.md5(uuid.getnode().to_bytes(6, "little")).hexdigest()
 
 
-def get_table_size(table_name):
+def get_table_size(table_name) -> str:
     from django.db import connection
 
     query = (
@@ -436,16 +436,28 @@ def get_table_size(table_name):
     )
     cursor = connection.cursor()
     cursor.execute(query)
-    return dict_from_cursor_fetchall(cursor)
+    return dict_from_cursor_fetchall(cursor)[0]["size"]
 
 
-def get_table_approx_count(table_name):
+def get_table_approx_count(table_name) -> str:
     from django.db import connection
 
     query = f"SELECT reltuples::BIGINT as \"approx_count\" FROM pg_class WHERE relname = '{table_name}'"
     cursor = connection.cursor()
     cursor.execute(query)
-    return dict_from_cursor_fetchall(cursor)
+    return compact_number(dict_from_cursor_fetchall(cursor)[0]["approx_count"])
+
+
+def compact_number(value: Union[int, float]) -> str:
+    """Return a number in a compact format, with a SI suffix if applicable.
+    Client-side equivalent: utils.tsx#compactNumber.
+    """
+    value = float("{:.3g}".format(value))
+    magnitude = 0
+    while abs(value) >= 1000:
+        magnitude += 1
+        value /= 1000.0
+    return "{:f}".format(value).rstrip("0").rstrip(".") + ["", "K", "M", "B", "T", "P", "E", "Z", "Y"][magnitude]
 
 
 def is_postgres_alive() -> bool:
@@ -570,14 +582,14 @@ def get_daterange(
         start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
     if frequency == "week":
-        start_date += datetime.timedelta(days=6 - start_date.weekday())
+        start_date -= datetime.timedelta(days=start_date.weekday() + 1)
     if frequency != "month":
         while start_date <= end_date:
             time_range.append(start_date)
             start_date += delta
     else:
         if start_date.day != 1:
-            start_date = (start_date.replace(day=1) + delta).replace(day=1)
+            start_date = (start_date.replace(day=1)).replace(day=1)
         while start_date <= end_date:
             time_range.append(start_date)
             start_date = (start_date.replace(day=1) + delta).replace(day=1)

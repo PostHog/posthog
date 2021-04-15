@@ -1,11 +1,11 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { PropertySelect } from 'lib/components/PropertyFilters/PropertySelect'
-import { userLogic } from 'scenes/userLogic'
 import { EventTypePropertyFilter } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 interface Props {
     filter: EventTypePropertyFilter
@@ -13,7 +13,7 @@ interface Props {
 }
 
 export function EventPropertyFilter({ filter, selector }: Props): JSX.Element {
-    const { eventProperties } = useValues(userLogic)
+    const { eventProperties } = useValues(teamLogic)
     const { updateFilter } = useActions(sessionsFiltersLogic)
 
     const property = filter.properties && filter.properties.length > 0 ? filter.properties[0] : null

@@ -12,7 +12,7 @@ import {
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene, sceneLogic } from 'scenes/sceneLogic'
 import { isMobile } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import lgLogo from 'public/posthog-logo-white.svg'
@@ -40,7 +40,7 @@ import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 // to show the right page in the sidebar
-const sceneOverride: Record<string, string> = {
+const sceneOverride: Partial<Record<Scene, string>> = {
     action: 'actions',
     person: 'persons',
     dashboard: 'dashboards',
@@ -65,7 +65,7 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
     const { featureFlags } = useValues(featureFlagLogic)
 
     function activeScene(): string {
-        const nominalScene = loadingScene || scene
+        const nominalScene: Scene = loadingScene || scene
         // Scenes with special handling can go here
         return sceneOverride[nominalScene] || nominalScene
     }

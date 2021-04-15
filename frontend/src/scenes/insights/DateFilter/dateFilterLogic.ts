@@ -17,6 +17,9 @@ export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Dayjs>>({
             dateFrom,
             dateTo,
         }),
+        dateAutomaticallyChanged: true,
+        endHighlightChange: true,
+        setInitialLoad: true,
     }),
     reducers: () => ({
         dates: [
@@ -28,8 +31,21 @@ export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Dayjs>>({
                 setDates: (_, dates) => dates,
             },
         ],
+        highlightDateChange: [
+            false,
+            {
+                dateAutomaticallyChanged: () => true,
+                endHighlightChange: () => false,
+            },
+        ],
+        initialLoad: [
+            true,
+            {
+                setInitialLoad: () => false,
+            },
+        ],
     }),
-    listeners: ({ values }) => ({
+    listeners: ({ values, actions }) => ({
         setDates: () => {
             const { date_from, date_to, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
@@ -44,10 +60,18 @@ export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Dayjs>>({
                 router.actions.push(pathname, searchParams)
             }
         },
+        dateAutomaticallyChanged: async (_, breakpoint) => {
+            await breakpoint(2000)
+            actions.endHighlightChange()
+        },
     }),
-    urlToAction: ({ actions }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/insights': (_: any, { date_from, date_to }: UrlParams) => {
+            if (!values.initialLoad && !objectsEqual(date_from, values.dates.dateFrom)) {
+                actions.dateAutomaticallyChanged()
+            }
             actions.setDates(date_from, date_to)
+            actions.setInitialLoad()
         },
     }),
 })

@@ -1,7 +1,13 @@
+"""
+TODO: DEPRECATION NOTICE
+This entire module has been deprecated in favor of https://github.com/PostHog/plugin-server
+The module is currently out of use and will be removed from the codebase very soon.
+"""
+
 import datetime
 import json
 from numbers import Number
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Union
 
 import posthoganalytics
 from celery import shared_task

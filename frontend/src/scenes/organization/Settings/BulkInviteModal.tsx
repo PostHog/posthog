@@ -8,6 +8,7 @@ import { red } from '@ant-design/colors'
 import './BulkInviteModal.scss'
 import { isEmail, pluralize } from 'lib/utils'
 import { bulkInviteLogic } from './bulkInviteLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -68,6 +69,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
 
 export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClose: () => void }): JSX.Element {
     const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
     const { invites, canSubmit, invitedTeamMembersLoading, invitedTeamMembers } = useValues(bulkInviteLogic)
     const { appendInviteRow, resetInviteRows, inviteTeamMembers } = useActions(bulkInviteLogic)
 
@@ -96,36 +98,50 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
             cancelButtonProps={{ disabled: invitedTeamMembersLoading }}
             closable={!invitedTeamMembersLoading}
         >
-            <div className="bulk-invite-modal">
-                <p>
-                    An invite is <b>specific to an email address</b> and <b>expires after 3 days</b>.
-                    <br />
-                    Name can be provided for the team member's convenience.
-                </p>
-                <Row gutter={16}>
-                    <Col xs={areInvitesDeletable ? 11 : 12}>
-                        <b>Email address</b>
-                    </Col>
-                    <Col xs={areInvitesDeletable ? 11 : 12}>
-                        <b>
-                            Name <i>(optional)</i>
-                        </b>
-                    </Col>
-                </Row>
+            {preflight?.licensed_users_available === 0 ? (
+                <Alert
+                    type="warning"
+                    showIcon
+                    message={
+                        <>
+                            You've hit the limit of users you can invite to your PostHog instance given your license.
+                            Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to upgrade your
+                            license.
+                        </>
+                    }
+                />
+            ) : (
+                <div className="bulk-invite-modal">
+                    <p>
+                        An invite is <b>specific to an email address</b> and <b>expires after 3 days</b>.
+                        <br />
+                        Name can be provided for the team member's convenience.
+                    </p>
+                    <Row gutter={16}>
+                        <Col xs={areInvitesDeletable ? 11 : 12}>
+                            <b>Email address</b>
+                        </Col>
+                        <Col xs={areInvitesDeletable ? 11 : 12}>
+                            <b>
+                                Name <i>(optional)</i>
+                            </b>
+                        </Col>
+                    </Row>
 
-                {invites.map((_, index) => (
-                    <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
-                ))}
+                    {invites.map((_, index) => (
+                        <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
+                    ))}
 
-                <div className="mt">
-                    {areInvitesCreatable && (
-                        <Button block onClick={appendInviteRow} icon={<PlusOutlined />}>
-                            Add another team member
-                        </Button>
-                    )}
+                    <div className="mt">
+                        {areInvitesCreatable && (
+                            <Button block onClick={appendInviteRow} icon={<PlusOutlined />}>
+                                Add another team member
+                            </Button>
+                        )}
+                    </div>
                 </div>
-            </div>
-            {!user?.email_service_available && (
+            )}
+            {!preflight?.email_service_available && (
                 <Alert
                     type="warning"
                     style={{ marginTop: 16 }}

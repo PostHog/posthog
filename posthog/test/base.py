@@ -23,13 +23,6 @@ def _setup_test_data(klass):
 
 class ErrorResponsesMixin:
 
-    ERROR_RESPONSE_NOT_FOUND: Dict[str, Optional[str]] = {
-        "type": "invalid_request",
-        "code": "not_found",
-        "detail": "Not found.",
-        "attr": None,
-    }
-
     ERROR_INVALID_CREDENTIALS = {
         "type": "validation_error",
         "code": "invalid_credentials",
@@ -37,12 +30,10 @@ class ErrorResponsesMixin:
         "attr": None,
     }
 
-    def unauthenticated_response(
-        self, message: str = "Authentication credentials were not provided.", code: str = "not_authenticated"
-    ) -> Dict[str, Optional[str]]:
+    def not_found_response(self, message: str = "Not found.") -> Dict[str, Optional[str]]:
         return {
-            "type": "authentication_error",
-            "code": code,
+            "type": "invalid_request",
+            "code": "not_found",
             "detail": message,
             "attr": None,
         }
@@ -53,6 +44,24 @@ class ErrorResponsesMixin:
         return {
             "type": "authentication_error",
             "code": "permission_denied",
+            "detail": message,
+            "attr": None,
+        }
+
+    def method_not_allowed_response(self, method: str) -> Dict[str, Optional[str]]:
+        return {
+            "type": "invalid_request",
+            "code": "method_not_allowed",
+            "detail": f'Method "{method}" not allowed.',
+            "attr": None,
+        }
+
+    def unauthenticated_response(
+        self, message: str = "Authentication credentials were not provided.", code: str = "not_authenticated"
+    ) -> Dict[str, Optional[str]]:
+        return {
+            "type": "authentication_error",
+            "code": code,
             "detail": message,
             "attr": None,
         }
