@@ -11,6 +11,7 @@ import { SelectBox, SelectedItem } from '../../../lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
 import { entityFilterLogicType } from './entityFilterLogicType'
 import { teamLogic } from 'scenes/teamLogic'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 interface FilterType {
     filter: {
@@ -184,7 +185,9 @@ export function ActionInfo({ item }: { item: SelectedItem }): JSX.Element {
                 edit
             </Link>
             <br />
-            <h3>{item.name} </h3>
+            <h3>
+                <PropertyKeyInfo value={item.name} />
+            </h3>
             {item.action && <ActionSelectInfo entity={item.action} />}
         </>
     )

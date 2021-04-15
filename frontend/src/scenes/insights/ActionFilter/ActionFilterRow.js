@@ -9,6 +9,7 @@ import { DownOutlined, DeleteOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import './ActionFilterRow.scss'
 import { teamLogic } from 'scenes/teamLogic'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
 const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
@@ -119,7 +120,7 @@ export function ActionFilterRow({
                         style={{ maxWidth: '100%', display: 'flex', alignItems: 'center' }}
                     >
                         <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                            {name || 'Select action'}
+                            <PropertyKeyInfo value={name || 'Select action'} />
                         </span>
                         <DownOutlined style={{ fontSize: 10 }} />
                     </Button>
