@@ -2,6 +2,7 @@ import { UploadField } from 'scenes/plugins/edit/UploadField'
 import { Button, Input, Select } from 'antd'
 import React, { useState } from 'react'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
+import { EditOutlined } from '@ant-design/icons'
 import { SECRET_FIELD_VALUE } from 'scenes/plugins/utils'
 
 export function PluginField({
@@ -22,12 +23,13 @@ export function PluginField({
     ) {
         return (
             <Button
+                icon={<EditOutlined />}
                 onClick={() => {
                     onChange?.(fieldConfig.default || '')
                     setEditingSecret(true)
                 }}
             >
-                Edit secret {fieldConfig.type === 'attachment' ? 'attachment' : 'field'}
+                Reset secret {fieldConfig.type === 'attachment' ? 'attachment' : 'field'}
             </Button>
         )
     }
