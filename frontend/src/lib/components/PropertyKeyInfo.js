@@ -209,7 +209,15 @@ export const keyMapping = {
         },
         $rageclick: {
             label: 'Rageclick',
-            description: 'When a user repeatedly clicks in a target area over a short period of time',
+            description: 'When a user repeatedly clicks a targeted area or element over a short period of time',
+        },
+        $set: {
+            label: 'Set',
+            description: '',
+        },
+        $capture_failed_request: {
+            label: 'Capture Failed Request',
+            description: '',
         },
 
         // UTM tags
