@@ -50,7 +50,7 @@
                 },
                 {
                     "name": "NODE_MAX_HEAP_SIZE",
-                    "value": "2048"
+                    "value": "4096"
                 }
             ],
             "secrets": [
