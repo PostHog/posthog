@@ -7,6 +7,7 @@ import { ActionType, CohortType } from '~/types'
 import { searchItems, selectBoxLogic } from 'lib/logic/selectBoxLogic'
 import './SelectBox.scss'
 import { selectBoxLogicType } from 'lib/logic/selectBoxLogicType'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export interface SelectBoxItem {
     dataSource: SelectedItem[]
@@ -136,7 +137,7 @@ export function SelectUnit({
                                 !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: group.type })
                             }
                         >
-                            {item.name}
+                            <PropertyKeyInfo value={item.name} />
                         </List.Item>
                     )}
                 />
