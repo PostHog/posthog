@@ -81,9 +81,9 @@ export const userLogic = kea<userLogicType<UserType, UpdateUserPayload>>({
                             }
                         }
                         return user
-                    } catch (e) {
-                        console.error(e)
-                        actions.loadUserFailure(e)
+                    } catch (error) {
+                        console.error(error)
+                        actions.loadUserFailure(error.message)
                     }
                     return null
                 },
@@ -95,9 +95,9 @@ export const userLogic = kea<userLogicType<UserType, UpdateUserPayload>>({
                         const response = await api.update('api/users/@me/', user)
                         successCallback && successCallback()
                         return response
-                    } catch (e) {
-                        console.error(e)
-                        actions.updateUserFailure(e)
+                    } catch (error) {
+                        console.error(error)
+                        actions.updateUserFailure(error.message)
                     }
                 },
             },
