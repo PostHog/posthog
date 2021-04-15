@@ -45,11 +45,6 @@ export interface UserBasicType {
     email: string
 }
 
-export interface UserUpdateType {
-    user?: Omit<Partial<UserType>, 'team'>
-    team?: Partial<TeamType>
-}
-
 export interface PluginAccess {
     view: boolean
     install: boolean
