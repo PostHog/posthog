@@ -104,7 +104,6 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         ProjectMembershipNecessaryPermissions,
         PremiumMultiprojectPermissions,
         OrganizationMemberPermissions,
-        OrganizationAdminWritePermissions,
     ]
     lookup_field = "id"
     ordering = "-created_by"
@@ -122,7 +121,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         """
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
-        if self.request.method == "POST":
+        if self.request.method == "POST" or self.request.method == "DELETE":
             organization = self.request.user.organization
 
             if not organization:
