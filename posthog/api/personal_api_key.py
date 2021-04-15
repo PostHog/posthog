@@ -1,6 +1,6 @@
 from typing import Type
 
-from rest_framework import mixins, response, serializers, status, viewsets
+from rest_framework import mixins, permissions, response, serializers, viewsets
 
 from posthog.models import PersonalAPIKey
 
@@ -37,6 +37,9 @@ class PersonalAPIKeyViewSet(
 ):
     serializer_class = PersonalAPIKeySerializer
     lookup_field = "id"
+    permission_classes = [
+        permissions.IsAuthenticated,
+    ]
 
     def get_queryset(self):
         return PersonalAPIKey.objects.filter(user_id=self.request.user.id).order_by("-created_at")

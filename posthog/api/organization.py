@@ -141,7 +141,7 @@ class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     lookup_field = "id"
     ordering = "-created_by"
 
-    def get_permissions(self) -> List[permissions.BasePermission]:
+    def get_permissions(self):
         if self.request.method == "POST":
             # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
             # because they require an existing org, unneded anyways because permissions are organization-based
