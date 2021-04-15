@@ -133,17 +133,15 @@ export function Cohorts(): JSX.Element {
                                 <DeleteOutlined />
                             </DeleteWithUndo>
                         )}
-                        {!cohort.is_static && (
-                            <Link
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                }}
-                                to={`${sessionsLink}#backTo=cohorts&backToURL=${window.location.pathname}`}
-                                data-attr="cohorts-table-sessions"
-                            >
-                                Sessions <ClockCircleOutlined />
-                            </Link>
-                        )}
+                        <Link
+                            onClick={(e) => {
+                                e.stopPropagation()
+                            }}
+                            to={`${sessionsLink}#backTo=cohorts&backToURL=${window.location.pathname}`}
+                            data-attr="cohorts-table-sessions"
+                        >
+                            Sessions <ClockCircleOutlined />
+                        </Link>
                     </span>
                 )
             },
