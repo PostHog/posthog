@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Optional
 
 from django.http.response import JsonResponse
 from rest_framework import status

@@ -10,6 +10,7 @@ import lzstring
 from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
+from rest_framework import status
 
 from posthog.models import PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag
@@ -208,10 +209,13 @@ class TestCapture(BaseTest):
             "/track?compression=gzip", data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03", content_type="text/plain",
         )
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.json()["message"],
-            "Malformed request data. Failed to decompress data. Compressed file ended before the end-of-stream marker was reached",
+            response.json(),
+            self.validation_error_response(
+                "Malformed request data: Failed to decompress data. Compressed file ended before the end-of-stream marker was reached",
+                code="invalid_payload",
+            ),
         )
         self.assertEqual(patch_process_event_with_plugins.call_count, 0)
 
@@ -223,9 +227,12 @@ class TestCapture(BaseTest):
 
         response = self.client.post("/track?compression=lz64", data="foo", content_type="text/plain",)
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.json()["message"], "Malformed request data. Failed to decompress data.",
+            response.json(),
+            self.validation_error_response(
+                "Malformed request data: Failed to decompress data.", code="invalid_payload",
+            ),
         )
         self.assertEqual(patch_process_event_with_plugins.call_count, 0)
 
@@ -391,10 +398,13 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(
-            response.json()["message"],
-            "Project API key invalid. You can find your project API key in PostHog project settings.",
+            response.json(),
+            self.unauthenticated_response(
+                "Project API key invalid. You can find your project API key in PostHog project settings.",
+                code="invalid_api_key",
+            ),
         )
 
     def test_batch_token_not_set(self):
@@ -404,10 +414,13 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(
-            response.json()["message"],
-            "API key not provided. You can find your project API key in PostHog project settings.",
+            response.json(),
+            self.unauthenticated_response(
+                "API key not provided. You can find your project API key in PostHog project settings.",
+                code="missing_api_key",
+            ),
         )
 
     def test_batch_distinct_id_not_set(self):
@@ -417,8 +430,13 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["message"], "You need to set user distinct ID field `distinct_id`.")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "You need to set user distinct ID field `distinct_id`.", code="required", attr="distinct_id"
+            ),
+        )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
@@ -569,11 +587,13 @@ class TestCapture(BaseTest):
         response = self.client.post(
             "/capture/", '{"event": "incorrect json with trailing comma",}', content_type="application/json"
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["code"], "validation")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.json()["message"],
-            "Malformed request data. Invalid JSON: Expecting property name enclosed in double quotes: line 1 column 48 (char 47)",
+            response.json(),
+            self.validation_error_response(
+                "Malformed request data: Invalid JSON: Expecting property name enclosed in double quotes: line 1 column 48 (char 47)",
+                code="invalid_payload",
+            ),
         )
 
     @patch("posthog.api.capture.celery_app.send_task")
@@ -608,8 +628,12 @@ class TestCapture(BaseTest):
             data={"distinct_id": "abc", "properties": {"cost": 2}, "api_key": self.team.api_token},
             content_type="application/json",
         )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.json(), {"code": "validation", "message": 'All events must have the event name field "event"!'}
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: All events must have the event name field "event"!', code="invalid_payload",
+            ),
         )
 
     def test_handle_invalid_snapshot(self):
@@ -618,7 +642,10 @@ class TestCapture(BaseTest):
             data={"event": "$snapshot", "distinct_id": "abc", "api_key": self.team.api_token},
             content_type="application/json",
         )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"code": "validation", "message": '$snapshot events must contain property "$snapshot_data"!'},
+            self.validation_error_response(
+                'Invalid payload: $snapshot events must contain property "$snapshot_data"!', code="invalid_payload",
+            ),
         )
