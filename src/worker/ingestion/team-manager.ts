@@ -146,7 +146,12 @@ export class TeamManager {
             const distinctIds: { distinct_id: string }[] = organizationMembers.rows
             for (const { distinct_id } of distinctIds) {
                 posthog.identify(distinct_id)
-                posthog.capture('first team event ingested', { team: team.uuid })
+                posthog.capture('first team event ingested', {
+                    team: team.uuid,
+                    sdk: properties.$lib,
+                    realm: properties.realm,
+                    host: properties.$host,
+                })
             }
         }
         clearTimeout(timeout)
