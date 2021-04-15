@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
 import { Input, Radio, Table } from 'antd'
-import { QuestionCircleOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
+import { QuestionCircleOutlined, DeleteOutlined, EditOutlined, ExportOutlined } from '@ant-design/icons'
 import { DeleteWithUndo, stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
@@ -112,6 +112,9 @@ export function ActionsTable(): JSX.Element {
         {
             title: '',
             render: function RenderActions(action: ActionType) {
+                const encodedName = encodeURIComponent(action.name)
+                const actionsLink = `/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&actions=%5B%7B%22id%22%3A${action.id}%2C%22name%22%3A%22${encodedName}%22%2C%22type%22%3A%22actions%22%2C%22order%22%3A0%7D%5D&properties=#backTo=Actions&backToURL=${window.location.pathname}`
+
                 return (
                     <span>
                         <Link to={'/action/' + action.id + '#backTo=Actions&backToURL=' + window.location.pathname}>
@@ -121,11 +124,14 @@ export function ActionsTable(): JSX.Element {
                             endpoint="action"
                             object={action}
                             className="text-danger"
-                            style={{ marginLeft: 8 }}
+                            style={{ marginLeft: 8, marginRight: 8 }}
                             callback={loadActions}
                         >
                             <DeleteOutlined />
                         </DeleteWithUndo>
+                        <Link to={`${actionsLink}`} data-attr="actions-table-usage">
+                            Insights <ExportOutlined />
+                        </Link>
                     </span>
                 )
             },
