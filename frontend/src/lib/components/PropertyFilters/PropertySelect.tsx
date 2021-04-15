@@ -12,7 +12,7 @@ interface Props {
     onChange: (type: PropertyOptionGroup['type'], value: string) => void
     placeholder: string
     autoOpenIfEmpty?: boolean
-    delayBeforeAutoOpen?: number | false
+    delayBeforeAutoOpen?: number
 }
 
 interface PropertyOptionGroup {

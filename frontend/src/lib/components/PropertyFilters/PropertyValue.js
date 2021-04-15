@@ -5,7 +5,6 @@ import { isMobile, isOperatorFlag, isOperatorMulti, isOperatorRegex, isValidRege
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 
 export function PropertyValue({
-    // TODO: Convert to TS.
     propertyKey,
     type,
     endpoint,

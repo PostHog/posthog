@@ -21,7 +21,7 @@ function PropertyPaneContents({
     operator,
     type,
     displayOperatorAndValue,
-    selectProps,
+    selectProps: { delayBeforeAutoOpen = 0 },
 }) {
     const optionGroups = [
         {
@@ -72,7 +72,7 @@ function PropertyPaneContents({
                         }
                         optionGroups={optionGroups}
                         autoOpenIfEmpty
-                        delayBeforeAutoOpen={selectProps?.delayBeforeAutoOpen}
+                        delayBeforeAutoOpen={delayBeforeAutoOpen}
                         placeholder="Property key"
                     />
                 </Col>

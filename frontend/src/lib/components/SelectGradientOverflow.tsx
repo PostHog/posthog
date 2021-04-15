@@ -40,14 +40,17 @@ function CustomTag({ label, onClose, value }: CustomTagProps): JSX.Element {
 /**
  * Ant Design Select extended with a gradient overlay to indicate a scrollable list.
  */
+
+type SelectGradientOverflowProps = SelectProps<any> & {
+    delayBeforeAutoOpen?: number
+}
+
 export function SelectGradientOverflow({
     autoFocus = false,
     defaultOpen = false,
-    delayBeforeAutoOpen = false,
+    delayBeforeAutoOpen,
     ...props
-}: SelectProps<any> & {
-    delayBeforeAutoOpen?: number | false
-}): JSX.Element {
+}: SelectGradientOverflowProps): JSX.Element {
     const selectRef: React.RefObject<RefSelectProps> | null = useRef(null)
     const containerRef: React.RefObject<HTMLDivElement> = useRef(null)
     const dropdownRef = useRef<HTMLDivElement>(null)
