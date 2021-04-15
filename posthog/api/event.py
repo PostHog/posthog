@@ -104,8 +104,8 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list" or self.action == "sessions" or self.action == "actions":
             queryset = self._filter_request(self.request, queryset)
 
-        order_by = self.request.GET.get("orderBy")
-        order_by = ["-timestamp"] if not order_by else list(json.loads(order_by))
+        order_by_param = self.request.GET.get("orderBy")
+        order_by = ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
         return queryset.order_by(*order_by)
 
     def _filter_request(self, request: request.Request, queryset: EventManager) -> QuerySet:

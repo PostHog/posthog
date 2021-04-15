@@ -104,7 +104,7 @@ class OrganizationInviteViewSet(
 
         organization = Organization.objects.get(id=self.organization_id)
         report_bulk_invited(
-            cast(User, self.request).user.distinct_id,
+            cast(User, self.request.user).distinct_id,
             invitee_count=len(serializer.validated_data),
             name_count=sum(1 for invite in serializer.validated_data if invite.get("first_name")),
             current_invite_count=organization.active_invites.count(),
