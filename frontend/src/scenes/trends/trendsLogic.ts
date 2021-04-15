@@ -228,6 +228,7 @@ export const trendsLogic = kea<
         setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
+        toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
     }),
 
     reducers: ({ props }) => ({
@@ -270,6 +271,18 @@ export const trendsLogic = kea<
             [] as IndexedTrendResult[],
             {
                 setIndexedResults: ({}, { results }) => results,
+            },
+        ],
+        toggledLifecycles: [
+            ['new', 'resurrecting', 'returning', 'dormant'],
+            {
+                toggleLifecycle: (state, { lifecycleName }) => {
+                    if (state.includes(lifecycleName)) {
+                        return state.filter((lifecycles) => lifecycles !== lifecycleName)
+                    }
+                    state.push(lifecycleName)
+                    return state
+                },
             },
         ],
         visibilityMap: [
@@ -349,6 +362,12 @@ export const trendsLogic = kea<
     listeners: ({ actions, values, props }) => ({
         setDisplay: async ({ display }) => {
             actions.setFilters({ display })
+        },
+        toggleLifecycle: () => {
+            const toggledResults = values.results
+                .filter((result) => values.toggledLifecycles.includes(String(result.status)))
+                .map((result, idx) => ({ ...result, id: idx }))
+            actions.setIndexedResults(toggledResults)
         },
         refreshCohort: () => {
             cohortLogic({
@@ -438,10 +457,20 @@ export const trendsLogic = kea<
                 })
             }
 
-            const indexedResults = values.results.map((element, index) => {
-                actions.setVisibilityById({ [`${index}`]: true })
-                return { ...element, id: index }
-            })
+            let indexedResults
+            if (values.filters.insight !== ViewType.LIFECYCLE) {
+                indexedResults = values.results.map((element, index) => {
+                    actions.setVisibilityById({ [`${index}`]: true })
+                    return { ...element, id: index }
+                })
+            } else {
+                indexedResults = values.results
+                    .filter((result) => values.toggledLifecycles.includes(String(result.status)))
+                    .map((result, idx) => {
+                        actions.setVisibilityById({ [`${idx}`]: true })
+                        return { ...result, id: idx }
+                    })
+            }
             actions.setIndexedResults(indexedResults)
         },
         [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {

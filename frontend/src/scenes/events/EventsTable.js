@@ -5,7 +5,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { ExportOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { Button, Row, Spin, Table, Tooltip, Col } from 'antd'
+import { Button, Row, Spin, Tooltip, Col } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
@@ -17,6 +17,7 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { ResizableTable } from 'lib/components/ResizableTable'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
@@ -41,6 +42,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
             title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
             key: 'event',
             rowKey: 'id',
+            span: 4,
             render: function renderEvent(item) {
                 if (!item.event) {
                     return {
@@ -65,6 +67,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
             title: 'Person',
             key: 'person',
             ellipsis: true,
+            span: 4,
             render: function renderPerson({ event }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
@@ -81,6 +84,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
         {
             title: 'URL / Screen',
             key: 'url',
+            span: 4,
             render: function renderURL({ event }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
@@ -103,6 +107,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
         {
             title: 'Source',
             key: 'source',
+            span: 2,
             render: function renderSource({ event }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
@@ -118,6 +123,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
         {
             title: 'When',
             key: 'when',
+            span: 3,
             render: function renderWhen({ event }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
@@ -128,6 +134,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
         {
             title: 'Usage',
             key: 'usage',
+            span: 2,
             render: function renderWhen({ event }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
@@ -204,7 +211,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                         }}
                     />
                 </Col>
-                <Col span={pageKey === 'events' ? 2 : 4}>
+                <Col span={pageKey === 'events' ? 2 : 4} className="text-right">
                     <Tooltip title="Up to 100,000 latest events.">
                         <Button
                             type="default"
@@ -223,7 +230,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                 </Col>
             </Row>
             <div>
-                <Table
+                <ResizableTable
                     dataSource={eventsFormatted}
                     loading={isLoading}
                     columns={columns}

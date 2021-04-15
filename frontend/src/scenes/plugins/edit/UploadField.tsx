@@ -24,7 +24,7 @@ export function UploadField({
             }}
             className="ph-ignore-input"
         >
-            <Button icon={<UploadOutlined />}>Click to Upload</Button>
+            <Button icon={<UploadOutlined />}>Click to upload</Button>
         </Upload>
     )
 }
