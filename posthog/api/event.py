@@ -262,8 +262,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             ),
             params,
         )
-
-        flattened = flatten([value.value for value in values])
+        flattened = flatten([json.loads(value.value) for value in values])
         return [{"name": convert_property_value(value)} for value in flattened]
 
     # ******************************************
