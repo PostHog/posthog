@@ -277,9 +277,11 @@ export const trendsLogic = kea<
             ['new', 'resurrecting', 'returning', 'dormant'],
             {
                 toggleLifecycle: (state, { lifecycleName }) => {
-                    return state.includes(lifecycleName)
-                        ? state.filter((lifecycles) => lifecycles !== lifecycleName)
-                        : state.push(lifecycleName) && state
+                    if (state.includes(lifecycleName)) {
+                        return state.filter((lifecycles) => lifecycles !== lifecycleName)
+                    }
+                    state.push(lifecycleName)
+                    return state
                 },
             },
         ],
