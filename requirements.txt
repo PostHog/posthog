@@ -60,7 +60,7 @@ django-cors-headers==3.5.0
     # via -r requirements.in
 django-deprecate-fields==0.1.1
     # via -r requirements.in
-django-extensions==3.0.9
+django-extensions==3.1.2
     # via -r requirements.in
 django-filter==2.4.0
     # via -r requirements.in
@@ -74,19 +74,20 @@ git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
     # via -r requirements.in
 django-statsd==2.5.2
     # via -r requirements.in
-django==3.0.11
+django==3.1.8
     # via
     #   -r requirements.in
     #   django-axes
     #   django-cors-headers
     #   django-deprecate-fields
+    #   django-extensions
     #   django-filter
     #   django-redis
     #   django-rest-hooks
     #   djangorestframework
 djangorestframework-csv==2.1.0
     # via -r requirements.in
-djangorestframework==3.12.1
+djangorestframework==3.12.2
     # via
     #   -r requirements.in
     #   djangorestframework-csv
@@ -192,7 +193,6 @@ sentry-sdk==0.19.2
     # via -r requirements.in
 six==1.14.0
     # via
-    #   cryptography
     #   djangorestframework-csv
     #   grpcio
     #   posthoganalytics
