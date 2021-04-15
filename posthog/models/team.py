@@ -39,7 +39,7 @@ class TeamManager(models.Manager):
                     ] + filters
         return filters
 
-    def create_with_data(self, user=None, default_dashboards: bool = True, **kwargs) -> "Team":
+    def create_with_data(self, user: Any = None, default_dashboards: bool = True, **kwargs) -> "Team":
         kwargs["test_account_filters"] = self.set_test_account_filters(kwargs.get("organization"))
         team = Team.objects.create(**kwargs)
 

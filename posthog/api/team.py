@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, cast
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -8,6 +8,7 @@ from rest_framework.decorators import action
 from posthog.api.shared import TeamBasicSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token
 from posthog.permissions import (
     CREATE_METHODS,
@@ -113,7 +114,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         return super().get_queryset().filter(organization__in=self.request.user.organizations.all())
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
-        if self.action == "list":  # type: ignore
+        if self.action == "list":
             return TeamBasicSerializer
         return super().get_serializer_class()
 
@@ -122,7 +123,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
         if self.request.method == "POST" or self.request.method == "DELETE":
-            organization = self.request.user.organization
+            organization = cast(self.request.user, User).organization
 
             if not organization:
                 raise exceptions.ValidationError("You need to belong to an organization.")

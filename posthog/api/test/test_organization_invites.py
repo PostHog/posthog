@@ -219,6 +219,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.organization_membership.save()
         invite = OrganizationInvite.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
-        self.assertIsNone(response.data)
+        self.assertIsNone(response.json())
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(OrganizationInvite.objects.exists())
