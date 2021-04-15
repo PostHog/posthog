@@ -1,3 +1,5 @@
-#!/usr/bin/env node
+#!/usr/bin/env bash
 
-require(__dirname + '/../dist/index.js')
+[[ -n "$NODE_MAX_HEAP_SIZE" ]] && export NODE_OPTIONS="--max-old-space-size=$NODE_MAX_HEAP_SIZE"
+
+node "$(dirname $0)/../dist/index.js"
