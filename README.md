@@ -66,6 +66,7 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | DISABLE_MMDB                  | whether to disable MMDB IP location capabilities                  | `false`                               |
 | INTERNAL_MMDB_SERVER_PORT     | port of the internal server used for IP location (0 means random) | `0`                                   |
 | DISTINCT_ID_LRU_SIZE          | size of persons distinct ID LRU cache                             | `10000`                               |
+| NODE_MAX_HEAP_SIZE            | maximum Node heap size in MB (`null` means Node default)          | `null`                                |
 
 ## Releasing a new version
 
