@@ -49,8 +49,8 @@
                     "value": "True"
                 },
                 {
-                    "name": "NODE_MAX_HEAP_SIZE",
-                    "value": "4096"
+                    "name": "NODE_OPTIONS",
+                    "value": "--max-old-space-size=4096"
                 }
             ],
             "secrets": [
