@@ -1,4 +1,9 @@
-from typing import Any, Dict, List, Optional, cast
+import datetime
+from collections import namedtuple
+from dataclasses import dataclass
+from io import StringIO
+from typing import Any, Dict, List, Optional, Union, cast
+from uuid import UUID
 
 from django.contrib.postgres.fields import JSONField
 from django.db import models
@@ -87,12 +92,13 @@ class PluginStorage(models.Model):
 
 class PluginLogEntry(UUIDModel):
     class Type(models.TextChoices):
+        DEBUG = "DEBUG", "debug"
         LOG = "LOG", "log"
         INFO = "INFO", "info"
         WARN = "WARN", "warn"
         ERROR = "ERROR", "error"
 
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
     timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now)
     type: models.CharField = models.CharField(max_length=20, choices=Type.choices)
@@ -105,15 +111,24 @@ class PluginLogEntry(UUIDModel):
     __repr__ = sane_repr("team_id", "plugin_id", "timestamp", "type", "message")
 
 
+@dataclass
+class PluginLogEntryRaw:
+    id: UUID
+    team_id: int
+    plugin_id: int
+    timestamp: datetime.datetime
+    type: PluginLogEntry.Type
+    message: str
+    instance_id: UUID
+
+
 def fetch_plugin_log_entries(
     *,
     team_id: Optional[int],
     plugin_id: Optional[int] = None,
     after: Optional[timezone.datetime] = None,
     before: Optional[timezone.datetime] = None,
-) -> List[PluginLogEntry]:
-    plugin_log_entries: List[PluginLogEntry] = []
-
+) -> List[Union[PluginLogEntry, PluginLogEntryRaw]]:
     if is_ee_enabled():
         clickhouse_where_parts: List[str] = []
         clickhouse_kwargs: Dict[str, Any] = {}
@@ -121,30 +136,27 @@ def fetch_plugin_log_entries(
             clickhouse_where_parts.append("team_id = %(team_id)s")
             clickhouse_kwargs["team_id"] = team_id
         if plugin_id is not None:
-            clickhouse_where_parts.append("AND plugin_id = %(plugin_id)s")
+            clickhouse_where_parts.append("plugin_id = %(plugin_id)s")
             clickhouse_kwargs["plugin_id"] = plugin_id
         if after is not None:
-            clickhouse_where_parts.append("AND timestamp > toDateTime(%(after)s)")
-            clickhouse_kwargs["after"] = after.isoformat()
+            clickhouse_where_parts.append("timestamp > toDateTime64(%(after)s, 6)")
+            clickhouse_kwargs["after"] = after.isoformat().replace("+00:00", "")
         if before is not None:
-            clickhouse_where_parts.append("AND timestamp < toDateTime(%(before)s)")
-            clickhouse_kwargs["before"] = before.isoformat()
+            clickhouse_where_parts.append("timestamp < toDateTime64(%(before)s, 6)")
+            clickhouse_kwargs["before"] = before.isoformat().replace("+00:00", "")
         clickhouse_query = f"""
             SELECT id, team_id, plugin_id, timestamp, type, message, instance_id FROM plugin_log_entries
             WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC
         """
-        plugin_log_entries.extend(cast(List[PluginLogEntry], sync_execute(clickhouse_query, clickhouse_kwargs)))
-
-    # Postgres is always queried in case a switch was made from ClickHouse and logs in Postgros are still relevant
-    filter_kwargs: Dict[str, Any] = {}
-    if team_id is not None:
-        filter_kwargs["team_id"] = team_id
-    if plugin_id is not None:
-        filter_kwargs["plugin_id"] = plugin_id
-    if after is not None:
-        filter_kwargs["timestamp__gt"] = after
-    if before is not None:
-        filter_kwargs["timestamp__lte"] = before
-    plugin_log_entries.extend(PluginLogEntry.objects.order_by("-timestamp").filter(**filter_kwargs))
-
-    return plugin_log_entries
+        return [PluginLogEntryRaw(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
+    else:
+        filter_kwargs: Dict[str, Any] = {}
+        if team_id is not None:
+            filter_kwargs["team_id"] = team_id
+        if plugin_id is not None:
+            filter_kwargs["plugin_id"] = plugin_id
+        if after is not None:
+            filter_kwargs["timestamp__gt"] = after
+        if before is not None:
+            filter_kwargs["timestamp__lte"] = before
+        return list(PluginLogEntry.objects.order_by("-timestamp").filter(**filter_kwargs))

@@ -25,22 +25,18 @@ const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProps }>({
             },
             loadPluginLogsMore: async () => {
                 const length = values.pluginLogs.length
-                if (!length) {
-                    return []
-                }
-                const before = values.pluginLogs[length - 1].timestamp
+                const before = length ? '&before=' + values.pluginLogs[length - 1].timestamp : ''
                 const response = await api.get(
-                    `api/organizations/${organizationId}/plugins/${pluginId}/logs?team_id=${teamId}&before=${before}`
+                    `api/organizations/${organizationId}/plugins/${pluginId}/logs?team_id=${teamId}${before}`
                 )
                 return [...values.pluginLogs, ...response.results]
             },
             loadPluginLogsPoll: async () => {
-                if (!values.pluginLogs.length) {
-                    return []
-                }
-                const after = values.pluginLogs[0].timestamp
+                const length = values.pluginLogs.length
+                console.log(values.pluginLogs)
+                const after = length ? '&after=' + values.pluginLogs[0].timestamp : ''
                 const response = await api.get(
-                    `api/organizations/${organizationId}/plugins/${pluginId}/logs?team_id=${teamId}&after=${after}`
+                    `api/organizations/${organizationId}/plugins/${pluginId}/logs?team_id=${teamId}${after}`
                 )
                 return [...response.results, ...values.pluginLogs]
             },
@@ -87,7 +83,7 @@ export function PluginLogs({ organizationId, teamId, pluginId }: PluginLogsProps
             columns={columns}
             rowKey="id"
             style={{ flexGrow: 1 }}
-            pagination={{ pageSize: 50, hideOnSinglePage: true }}
+            pagination={{ pageSize: 20, hideOnSinglePage: true }}
         />
     )
 }
