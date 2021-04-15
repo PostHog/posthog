@@ -3,7 +3,7 @@ import './Actions.scss'
 import { Link } from 'lib/components/Link'
 import { Input, Radio, Table } from 'antd'
 import { QuestionCircleOutlined, DeleteOutlined, EditOutlined, ExportOutlined } from '@ant-design/icons'
-import { DeleteWithUndo, stripHTTP } from 'lib/utils'
+import { DeleteWithUndo, stripHTTP, toParams } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { NewActionButton } from './NewActionButton'
@@ -14,6 +14,7 @@ import { ActionType } from '~/types'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
+import { ViewType } from 'scenes/insights/insightLogic'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -112,8 +113,22 @@ export function ActionsTable(): JSX.Element {
         {
             title: '',
             render: function RenderActions(action: ActionType) {
-                const encodedName = encodeURIComponent(action.name)
-                const actionsLink = `/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&actions=%5B%7B%22id%22%3A${action.id}%2C%22name%22%3A%22${encodedName}%22%2C%22type%22%3A%22actions%22%2C%22order%22%3A0%7D%5D&properties=#backTo=Actions&backToURL=${window.location.pathname}`
+                const params = {
+                    insight: ViewType.TRENDS,
+                    interval: 'day',
+                    display: 'ActionsLineGraph',
+                    actions: [
+                        {
+                            id: action.id,
+                            name: action.name,
+                            type: 'actions',
+                            order: 0,
+                        },
+                    ],
+                }
+                const encodedParams = toParams(params)
+
+                const actionsLink = `/insights?${encodedParams}#backTo=Actions&backToURL=${window.location.pathname}`
 
                 return (
                     <span>
