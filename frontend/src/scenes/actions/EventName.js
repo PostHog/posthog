@@ -2,6 +2,7 @@ import React from 'react'
 import { Select } from 'antd'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function EventName({ value, onChange, isActionStep }) {
     const { eventNamesGrouped } = useValues(teamLogic)
@@ -26,7 +27,7 @@ export function EventName({ value, onChange, isActionStep }) {
                             <Select.OptGroup key={typeGroup.label} label={typeGroup.label}>
                                 {typeGroup.options.map((item, index) => (
                                     <Select.Option key={item.value} value={item.value} data-attr={'prop-val-' + index}>
-                                        {item.label}
+                                        <PropertyKeyInfo value={item.label} />
                                     </Select.Option>
                                 ))}
                             </Select.OptGroup>

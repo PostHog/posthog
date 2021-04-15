@@ -18,6 +18,7 @@ import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { ResizableTable } from 'lib/components/ResizableTable'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
@@ -60,7 +61,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                     }
                 }
                 let { event } = item
-                return eventToName(event)
+                return <PropertyKeyInfo value={eventToName(event)} />
             },
         },
         {

@@ -7,6 +7,7 @@ import { humanizeNumber } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ColumnsType } from 'antd/lib/table'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export interface EventOrPropType {
     event?: string
@@ -39,7 +40,9 @@ export function VolumeTable({ type, data }: { type: EventTableType; data: EventO
             render: function RenderEvent(item: EventOrPropType): JSX.Element {
                 return (
                     <span>
-                        <span className="ph-no-capture">{item[key]}</span>
+                        <span className="ph-no-capture">
+                            <PropertyKeyInfo value={item[key]} />
+                        </span>
                         {item.warnings?.map((warning) => (
                             <Tooltip
                                 key={warning}
