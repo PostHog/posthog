@@ -63,7 +63,10 @@ export function ActionFilterDropdown({
 
     const callUpdateFilter = (type: 'actions' | 'events', id: string | number, name: string): void => {
         updateFilter({ type, id, name, index: selectedFilter.index })
-        setEntityFilterVisibility(selectedFilter.index, true)
+        if (selectedFilter.filter.properties?.length) {
+            // UX: Open the filter details if this series already has filters to avoid filters being missed
+            setEntityFilterVisibility(selectedFilter.index, true)
+        }
     }
     const suggestions = getSuggestions(currentTeam?.event_names_with_usage || [])
 
