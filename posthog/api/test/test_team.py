@@ -73,7 +73,7 @@ class TestTeamAPI(APIBaseTest):
     def test_filter_permission(self):
 
         response = self.client.patch(
-            "/api/projects/%s/" % self.user.team.pk,
+            "/api/projects/%s/" % (self.user.team.pk if self.user.team else 0),
             {"test_account_filters": [{"key": "$current_url", "value": "test"}]},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
