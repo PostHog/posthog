@@ -49,7 +49,7 @@ export function ActionFilterDropdown({
     }
 
     const selectedFilter: FilterType = useValues(logic).selectedFilter
-    const { updateFilter } = useActions(logic)
+    const { updateFilter, setEntityFilterVisibility } = useActions(logic)
 
     const { actions } = useValues(actionsModel)
     const { currentTeam } = useValues(teamLogic)
@@ -63,6 +63,7 @@ export function ActionFilterDropdown({
 
     const callUpdateFilter = (type: 'actions' | 'events', id: string | number, name: string): void => {
         updateFilter({ type, id, name, index: selectedFilter.index })
+        setEntityFilterVisibility(selectedFilter.index, true)
     }
     const suggestions = getSuggestions(currentTeam?.event_names_with_usage || [])
 
@@ -92,12 +93,12 @@ export function ActionFilterDropdown({
                                 <FireOutlined /> Suggestions
                                 <br />
                                 <h3>{item.name}</h3>
-                                {item?.volume > 0 && (
+                                {(item?.volume ?? 0) > 0 && (
                                     <>
                                         Seen <strong>{item.volume}</strong> times.{' '}
                                     </>
                                 )}
-                                {item?.usage_count > 0 && (
+                                {(item?.usage_count ?? 0) > 0 && (
                                     <>
                                         Used in <strong>{item.usage_count}</strong> queries.
                                     </>
@@ -106,8 +107,8 @@ export function ActionFilterDropdown({
                         )
                     },
                     type: EntityTypes.EVENTS,
-                    getValue: (item: SelectedItem) => item.event,
-                    getLabel: (item: SelectedItem) => item.event,
+                    getValue: (item: SelectedItem) => item.event || '',
+                    getLabel: (item: SelectedItem) => item.event || '',
                 },
                 {
                     name: (
@@ -124,8 +125,8 @@ export function ActionFilterDropdown({
                     })),
                     renderInfo: ActionInfo,
                     type: EntityTypes.ACTIONS,
-                    getValue: (item: SelectedItem) => item.action?.id,
-                    getLabel: (item: SelectedItem) => item.action?.name,
+                    getValue: (item: SelectedItem) => item.action?.id || '',
+                    getLabel: (item: SelectedItem) => item.action?.name || '',
                 },
                 {
                     name: (
@@ -133,23 +134,24 @@ export function ActionFilterDropdown({
                             <ContainerOutlined /> Events
                         </>
                     ),
-                    dataSource: currentTeam?.event_names_with_usage.map((event) => ({
-                        key: EntityTypes.EVENTS + event.event,
-                        name: event.event,
-                        ...event,
-                    })),
+                    dataSource:
+                        currentTeam?.event_names_with_usage.map((event) => ({
+                            key: EntityTypes.EVENTS + event.event,
+                            name: event.event,
+                            ...event,
+                        })) || [],
                     renderInfo: function events({ item }) {
                         return (
                             <>
                                 <ContainerOutlined /> Events
                                 <br />
                                 <h3>{item.name}</h3>
-                                {item?.volume > 0 && (
+                                {(item?.volume ?? 0) > 0 && (
                                     <>
                                         Seen <strong>{item.volume}</strong> times.{' '}
                                     </>
                                 )}
-                                {item?.usage_count > 0 && (
+                                {(item?.usage_count ?? 0) > 0 && (
                                     <>
                                         Used in <strong>{item.usage_count}</strong> queries.
                                     </>
@@ -158,8 +160,8 @@ export function ActionFilterDropdown({
                         )
                     },
                     type: EntityTypes.EVENTS,
-                    getValue: (item: SelectedItem) => item.event,
-                    getLabel: (item: SelectedItem) => item.event,
+                    getValue: (item: SelectedItem) => item.event || '',
+                    getLabel: (item: SelectedItem) => item.event || '',
                 },
             ]}
         />
