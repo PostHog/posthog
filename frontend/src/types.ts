@@ -21,7 +21,7 @@ export type AvailableFeatures =
     | 'clickhouse'
 
 export interface UserType {
-    id: string
+    uuid: string
     first_name: string
     email: string
     email_opt_in: boolean

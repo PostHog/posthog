@@ -30,7 +30,7 @@ function isMembershipLevelChangeDisallowed(
     newLevelOrAllowedLevels: OrganizationMembershipLevel | OrganizationMembershipLevel[]
 ): false | string {
     const currentMembershipLevel = currentOrganization?.membership_level
-    if (memberChanged.user.uuid === currentUser.id) {
+    if (memberChanged.user.uuid === currentUser.uuid) {
         return "You can't change your own access level."
     }
     if (!currentMembershipLevel) {
@@ -160,11 +160,11 @@ function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
             throw Error
         }
         Modal.confirm({
-            title: `${member.user.uuid == user.id ? 'Leave' : `Remove ${member.user.first_name} from`} organization ${
+            title: `${member.user.uuid == user.uuid ? 'Leave' : `Remove ${member.user.first_name} from`} organization ${
                 user.organization?.name
             }?`,
             icon: <ExclamationCircleOutlined />,
-            okText: member.user.uuid == user.id ? 'Leave' : 'Remove',
+            okText: member.user.uuid == user.uuid ? 'Leave' : 'Remove',
             okType: 'danger',
             cancelText: 'Cancel',
             onOk() {
@@ -176,7 +176,7 @@ function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
     const allowDeletion =
         // higher-ranked users cannot be removed, at the same time the currently logged-in user can leave any time
         ((currentMembershipLevel >= OrganizationMembershipLevel.Admin && member.level <= currentMembershipLevel) ||
-            member.user.uuid === user.id) &&
+            member.user.uuid === user.uuid) &&
         // unless that user is the organization's owner, in which case they can't leave
         member.level !== OrganizationMembershipLevel.Owner
 
@@ -184,7 +184,7 @@ function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
         <div>
             {allowDeletion && (
                 <a className="text-danger" onClick={handleClick}>
-                    {member.user.uuid !== user.id ? (
+                    {member.user.uuid !== user.uuid ? (
                         <DeleteOutlined title="Remove Member" />
                     ) : (
                         <LogoutOutlined title="Leave Organization" />
@@ -212,7 +212,7 @@ export function Members({ user }: { user: UserType }): JSX.Element {
             dataIndex: 'user_first_name',
             key: 'user_first_name',
             render: (firstName: string, member: Record<string, any>) =>
-                member.user_id == user.id ? `${firstName} (me)` : firstName,
+                member.user_id == user.uuid ? `${firstName} (me)` : firstName,
             sorter: (a, b) =>
                 (a as OrganizationMemberType).user.first_name.localeCompare(
                     (b as OrganizationMemberType).user.first_name
