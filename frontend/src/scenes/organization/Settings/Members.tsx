@@ -169,9 +169,6 @@ function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
             cancelText: 'Cancel',
             onOk() {
                 removeMember(member)
-                if (member.user.uuid == user.id) {
-                    location.reload()
-                }
             },
         })
     }
@@ -267,6 +264,7 @@ export function Members({ user }: { user: UserType }): JSX.Element {
                 pagination={false}
                 style={{ marginTop: '1rem' }}
                 loading={membersLoading}
+                data-attr="org-members-table"
             />
         </>
     )
