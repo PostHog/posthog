@@ -21,7 +21,7 @@ const { Paragraph } = Typography
 // Helper function - getDisplayName modifies some framework names to be better suited to tiles.
 const getDisplayName = (frameworks: Record<string, string>, item: Framework | string): string => {
     if (item?.toString() === 'PURE_JS') {
-        return 'JAVASCRIPT'
+        return 'JAVASCRIPT Library'
     } else if (item?.toString() === 'AUTOCAPTURE') {
         return 'HTML Code Snippet'
     } else if (item?.toString() === 'NODEJS') {
