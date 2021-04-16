@@ -8,6 +8,8 @@ jobs:
     check-description:
         name: Check that PR has description
         runs-on: ubuntu-20.04
+        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
+
         steps:
             - name: Check if PR is shame-worthy
               id: is-shame-worthy

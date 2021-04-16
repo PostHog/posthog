@@ -12,8 +12,8 @@ import {
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { isMobile, triggerResizeAfterADelay } from 'lib/utils'
+import { Scene, sceneLogic } from 'scenes/sceneLogic'
+import { isMobile } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import lgLogo from 'public/posthog-logo-white.svg'
 import smLogo from 'public/icon-white.svg'
@@ -40,7 +40,7 @@ import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 // to show the right page in the sidebar
-const sceneOverride: Record<string, string> = {
+const sceneOverride: Partial<Record<Scene, string>> = {
     action: 'actions',
     person: 'persons',
     dashboard: 'dashboards',
@@ -65,7 +65,7 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
     const { featureFlags } = useValues(featureFlagLogic)
 
     function activeScene(): string {
-        const nominalScene = loadingScene || scene
+        const nominalScene: Scene = loadingScene || scene
         // Scenes with special handling can go here
         return sceneOverride[nominalScene] || nominalScene
     }
@@ -100,11 +100,12 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
                 title={
                     tooltip && !isMobile() ? (
                         <>
-                            <div className="mb-05">
+                            <div className="mb-025">
                                 <b>{title}</b>
                                 {hotkey && featureFlags['hotkeys-3740'] && (
                                     <>
                                         <span className="hotkey menu-tooltip-hotkey">G</span>
+                                        <span className="hotkey-plus" />
                                         <span className="hotkey menu-tooltip-hotkey">{hotkey.toUpperCase()}</span>
                                     </>
                                 )}
@@ -245,7 +246,6 @@ export function MainNavigation(): JSX.Element {
                 trigger={null}
                 onCollapse={(collapsed) => {
                     setMenuCollapsed(collapsed)
-                    triggerResizeAfterADelay()
                 }}
                 className="navigation-main"
             >

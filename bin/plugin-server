@@ -21,16 +21,6 @@ while test $# -gt 0; do
   esac
 done
 
-if [[ -n $POSTHOG_DB_NAME ]]; then
-  [[ -n $POSTHOG_DB_PASSWORD ]] && DB_PASSWORD_COMPONENT=":$POSTHOG_DB_PASSWORD"
-  export DATABASE_URL="postgres://${POSTHOG_DB_USER:-"postgres"}${DB_PASSWORD_COMPONENT}@${POSTHOG_POSTGRES_HOST:-"localhost"}:${POSTHOG_POSTGRES_PORT:-"5432"}/${POSTHOG_DB_NAME}"
-fi
-
-if [[ -z $REDIS_URL ]]; then
-  [[ -n $POSTHOG_REDIS_PASSWORD ]] && REDIS_PASSWORD_COMPONENT=":$POSTHOG_REDIS_PASSWORD@"
-  export REDIS_URL="redis://${REDIS_PASSWORD_COMPONENT}${POSTHOG_REDIS_HOST:-"localhost"}:${POSTHOG_REDIS_PORT:-"6379"}/"
-fi
-
 export BASE_DIR=$(dirname $(dirname "$PWD/${0#./}"))
 # Crudely extract netlocs by removing "kafka://" in a compatibility approach
 export KAFKA_HOSTS=${KAFKA_HOSTS:-$(echo $KAFKA_URL | sed -e "s/kafka\(\+ssl\)\{0,1\}:\/\///g")}

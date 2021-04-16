@@ -1,9 +1,8 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { autocorrectInterval, objectsEqual, toParams as toAPIParams } from 'lib/utils'
+import { autocorrectInterval, errorToast, objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
-import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 import {
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -21,8 +20,13 @@ import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constan
 import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
-import { toast, ToastId } from 'react-toastify'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { teamLogic } from 'scenes/teamLogic'
+
+interface TrendResponse {
+    result: TrendResult[]
+    next?: string
+}
 
 export interface ActionFilter {
     id: number | string
@@ -128,26 +132,48 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
     return toAPIParams({ ...params, ...restParams })
 }
 
+function getDefaultFilters(currentFilters: Partial<FilterType>, eventNames: string[]): Partial<FilterType> {
+    /* Opening /insights without any params, will set $pageview as the default event (or
+    the first random event). We load this default events when `currentTeam` is loaded (because that's when
+    `eventNames` become available) and on every view change (through the urlToAction map) */
+    if (!currentFilters.actions?.length && !currentFilters.events?.length && eventNames.length) {
+        const event = eventNames.includes(PAGEVIEW) ? PAGEVIEW : eventNames.includes(SCREEN) ? SCREEN : eventNames[0]
+
+        const defaultFilters = {
+            [EntityTypes.EVENTS]: [
+                {
+                    id: event,
+                    name: event,
+                    type: EntityTypes.EVENTS,
+                    order: 0,
+                },
+            ],
+        }
+        return defaultFilters
+    }
+    return {}
+}
+
 // props:
 // - dashboardItemId
 // - filters
 export const trendsLogic = kea<
-    trendsLogicType<TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter, ToastId>
+    trendsLogicType<TrendResponse, IndexedTrendResult, TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter>
 >({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
     },
 
     connect: {
-        values: [userLogic, ['eventNames'], actionsModel, ['actions']],
+        values: [teamLogic, ['eventNames'], actionsModel, ['actions']],
     },
 
     loaders: ({ values, props }) => ({
-        results: {
-            __default: [] as TrendResult[],
+        _results: {
+            __default: {} as TrendResponse,
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
-                    return props.cachedResults
+                    return { result: props.cachedResults } as TrendResponse
                 }
                 insightLogic.actions.startQuery()
                 let response
@@ -166,13 +192,15 @@ export const trendsLogic = kea<
                         )
                     }
                 } catch (e) {
+                    console.error(e)
                     breakpoint()
                     insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, null, e)
                     return []
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, response.last_refresh)
-                return response.result
+
+                return response
             },
         },
     }),
@@ -180,7 +208,6 @@ export const trendsLogic = kea<
     actions: () => ({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
-
         loadPeople: (action, label, day, breakdown_value) => ({ action, label, day, breakdown_value }),
         saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
         loadMorePeople: true,
@@ -199,6 +226,9 @@ export const trendsLogic = kea<
         setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
         toggleVisibility: (index: number) => ({ index }),
         setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
+        loadMoreBreakdownValues: true,
+        setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
+        toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
     }),
 
     reducers: ({ props }) => ({
@@ -238,9 +268,21 @@ export const trendsLogic = kea<
             },
         ],
         indexedResults: [
-            [],
+            [] as IndexedTrendResult[],
             {
                 setIndexedResults: ({}, { results }) => results,
+            },
+        ],
+        toggledLifecycles: [
+            ['new', 'resurrecting', 'returning', 'dormant'],
+            {
+                toggleLifecycle: (state, { lifecycleName }) => {
+                    if (state.includes(lifecycleName)) {
+                        return state.filter((lifecycles) => lifecycles !== lifecycleName)
+                    }
+                    state.push(lifecycleName)
+                    return state
+                },
             },
         ],
         visibilityMap: [
@@ -256,11 +298,21 @@ export const trendsLogic = kea<
                 }),
             },
         ],
+        breakdownValuesLoading: [
+            false,
+            {
+                setBreakdownValuesLoading: (_, { loading }) => loading,
+            },
+        ],
     }),
 
-    selectors: ({ selectors }) => ({
+    selectors: () => ({
+        filtersLoading: [() => [teamLogic.selectors.currentTeamLoading], (currentTeamLoading) => currentTeamLoading],
+        results: [(selectors) => [selectors._results], (response) => response.result],
+        resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
+        loadMoreBreakdownUrl: [(selectors) => [selectors._results], (response) => response.next],
         sessionsPageParams: [
-            () => [selectors.filters, selectors.people],
+            (selectors) => [selectors.filters, selectors.people],
             (filters, people) => {
                 if (!people) {
                     return {}
@@ -295,9 +347,8 @@ export const trendsLogic = kea<
                 }
             },
         ],
-
         peopleModalURL: [
-            () => [selectors.sessionsPageParams],
+            (selectors) => [selectors.sessionsPageParams],
             (params) => ({
                 sessions: `/sessions?${toAPIParams(params)}`,
                 recordings: `/sessions?${toAPIParams({
@@ -311,6 +362,12 @@ export const trendsLogic = kea<
     listeners: ({ actions, values, props }) => ({
         setDisplay: async ({ display }) => {
             actions.setFilters({ display })
+        },
+        toggleLifecycle: () => {
+            const toggledResults = values.results
+                .filter((result) => values.toggledLifecycles.includes(String(result.status)))
+                .map((result, idx) => ({ ...result, id: idx }))
+            actions.setIndexedResults(toggledResults)
         },
         refreshCohort: () => {
             cohortLogic({
@@ -338,7 +395,7 @@ export const trendsLogic = kea<
                     },
                 }).actions.saveCohort(cohortParams, filterParams)
             } else {
-                toast.error('Error creating cohort')
+                errorToast(undefined, "We couldn't create your cohort:")
             }
         },
         loadPeople: async ({ label, action, day, breakdown_value }, breakpoint) => {
@@ -400,16 +457,41 @@ export const trendsLogic = kea<
                 })
             }
 
-            const indexedResults = values.results.map((element, index) => {
-                actions.setVisibilityById({ [`${index}`]: true })
-                return { ...element, id: index }
-            })
+            let indexedResults
+            if (values.filters.insight !== ViewType.LIFECYCLE) {
+                indexedResults = values.results.map((element, index) => {
+                    actions.setVisibilityById({ [`${index}`]: true })
+                    return { ...element, id: index }
+                })
+            } else {
+                indexedResults = values.results
+                    .filter((result) => values.toggledLifecycles.includes(String(result.status)))
+                    .map((result, idx) => {
+                        actions.setVisibilityById({ [`${idx}`]: true })
+                        return { ...result, id: idx }
+                    })
+            }
             actions.setIndexedResults(indexedResults)
         },
         [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
             if (props.dashboardItemId) {
                 actions.setFilters(filters, true)
             }
+        },
+        loadMoreBreakdownValues: async () => {
+            if (!values.loadMoreBreakdownUrl) {
+                return
+            }
+            actions.setBreakdownValuesLoading(true)
+            const response = await api.get(values.loadMoreBreakdownUrl)
+            actions.loadResultsSuccess({
+                result: [...values.results, ...response.result],
+                next: response.next,
+            })
+            actions.setBreakdownValuesLoading(false)
+        },
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: async () => {
+            actions.setFilters(getDefaultFilters(values.filters, values.eventNames), true)
         },
     }),
 
@@ -447,26 +529,7 @@ export const trendsLogic = kea<
 
                 const keys = Object.keys(searchParams)
 
-                // opening /trends without any params, just open $pageview, $screen or the first random event
-                if (
-                    (keys.length === 0 || (!searchParams.actions && !searchParams.events)) &&
-                    values.eventNames &&
-                    values.eventNames[0]
-                ) {
-                    const event = values.eventNames.includes(PAGEVIEW)
-                        ? PAGEVIEW
-                        : values.eventNames.includes(SCREEN)
-                        ? SCREEN
-                        : values.eventNames[0]
-
-                    cleanSearchParams[EntityTypes.EVENTS] = [
-                        {
-                            id: event,
-                            name: event,
-                            type: EntityTypes.EVENTS,
-                            order: 0,
-                        },
-                    ]
+                if (keys.length === 0 || (!searchParams.actions && !searchParams.events)) {
                     cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts()
                 }
 
@@ -484,6 +547,8 @@ export const trendsLogic = kea<
                 if (searchParams.date_from === 'all' || searchParams.shown_as === ShownAsValue.LIFECYCLE) {
                     cleanSearchParams['compare'] = false
                 }
+
+                Object.assign(cleanSearchParams, getDefaultFilters(cleanSearchParams, values.eventNames))
 
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)

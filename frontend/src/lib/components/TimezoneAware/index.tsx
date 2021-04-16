@@ -6,11 +6,12 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import utc from 'dayjs/plugin/utc'
 import timezone from 'dayjs/plugin/timezone'
-import { useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
+import { useActions, useValues } from 'kea'
+import { userLogic } from 'scenes/userLogic'
 import { ProjectOutlined, LaptopOutlined, GlobalOutlined, SettingOutlined } from '@ant-design/icons'
 import { Link } from '../Link'
 import { humanTzOffset, shortTimeZone } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY HH:mm'
 
@@ -35,10 +36,21 @@ function TZConversionHeader(): JSX.Element {
 /** Return a simple label component with timezone conversion UI. */
 export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; showSeconds?: boolean }): JSX.Element {
     const parsedTime = dayjs.isDayjs(time) ? time : dayjs(time)
-    const { currentTeam } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
+    /* We use the team in userLogic because the attribute that we need `timezone` is available in that response,
+     which will be loaded much sooner than `currentTeam`. */
+    const currentTeam = user?.team
 
     const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : `${BASE_OUTPUT_FORMAT}:ss`
     const timeStyle = showSeconds ? { minWidth: 192 } : undefined
+
+    const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
+
+    const handleVisibleChange = (visible: boolean): void => {
+        if (visible) {
+            reportTimezoneComponentViewed('label', currentTeam?.timezone, shortTimeZone())
+        }
+    }
 
     const PopoverContent = (
         <div className="tz-label-popover">
@@ -81,7 +93,7 @@ export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; sho
     )
 
     return (
-        <Popover content={PopoverContent}>
+        <Popover content={PopoverContent} onVisibleChange={handleVisibleChange}>
             <span className="tz-label">{parsedTime.fromNow()}</span>
         </Popover>
     )
@@ -89,14 +101,26 @@ export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; sho
 
 /** Return an explainer component for analytics visualization pages. */
 export function TZIndicator({ style }: { style?: React.CSSProperties }): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
+    /* We use the team in userLogic because the attribute that we need `timezone` is available in that response,
+     which will be loaded much sooner than `currentTeam`. */
+    const currentTeam = user?.team
+
+    const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
+
+    const handleVisibleChange = (visible: boolean): void => {
+        if (visible) {
+            reportTimezoneComponentViewed('indicator', currentTeam?.timezone, shortTimeZone())
+        }
+    }
+
     const PopoverContent = (
         <div className="tz-label-popover">
             <TZConversionHeader />
             <p style={{ maxWidth: 320 }}>
-                Times presented in visualizations are UTC.
+                All graphs are calculated and presented in UTC (GTM timezone).
                 <br />
-                Conversion of your local timezones to UTC below.
+                Conversion to your local timezones are shown below.
             </p>
             <div className="divider" />
             <div className="timezones">
@@ -125,7 +149,7 @@ export function TZIndicator({ style }: { style?: React.CSSProperties }): JSX.Ele
     )
 
     return (
-        <Popover content={PopoverContent}>
+        <Popover content={PopoverContent} onVisibleChange={handleVisibleChange}>
             <span className="tz-indicator" style={style}>
                 <GlobalOutlined /> UTC
             </span>

@@ -6,22 +6,32 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.models import Annotation, Dashboard, DashboardItem, Organization, User
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 
 
-class TestAnnotation(BaseTest):
-    TESTS_API = True
+class TestAnnotation(APIBaseTest):
+    annotation: Annotation = None  # type: ignore
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.annotation = Annotation.objects.create(
+            organization=cls.organization,
+            team=cls.team,
+            created_by=cls.user,
+            created_at="2020-01-04T12:00:00Z",
+            content="hello world!",
+        )
 
     @patch("posthoganalytics.capture")
     def test_retrieving_annotation(self, mock_capture):
-        Annotation.objects.create(organization=self.organization, team=self.team, content="hello")
 
         # Annotation creation is not reported to PostHog because it has no created_by
         mock_capture.assert_not_called()
 
         response = self.client.get("/api/annotation/").json()
         self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["content"], "hello")
+        self.assertEqual(response["results"][0]["content"], "hello world!")
 
     @patch("posthoganalytics.capture")
     def test_creating_and_retrieving_annotations_by_dashboard_item(self, mock_capture):
@@ -34,7 +44,7 @@ class TestAnnotation(BaseTest):
         Annotation.objects.create(
             team=self.team, created_by=self.user, content="hello", dashboard_item=dashboardItem,
         )
-        response = self.client.get("/api/annotation/?dashboard_item=1").json()
+        response = self.client.get("/api/annotation/?dashboardItemId=1").json()
 
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["content"], "hello")
@@ -53,21 +63,12 @@ class TestAnnotation(BaseTest):
             team=self.team, created_by=self.user, content="hello_later", created_at="2020-01-06T13:00:01Z",
         )
         response = self.client.get("/api/annotation/?before=2020-01-05").json()
-        self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["content"], "hello_early")
+        self.assertEqual(len(response["results"]), 2)
+        self.assertEqual(response["results"][1]["content"], "hello_early")
 
         response = self.client.get("/api/annotation/?after=2020-01-05").json()
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["content"], "hello_later")
-
-
-class TestAPIAnnotation(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.organization, self.team, self.user = User.objects.bootstrap("Test", "annotations@posthog.com", None)
-        self.annotation = Annotation.objects.create(
-            organization=self.organization, team=self.team, created_by=self.user,
-        )
 
     @patch("posthoganalytics.capture")
     def test_creating_annotation(self, mock_capture):

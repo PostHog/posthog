@@ -65,7 +65,9 @@ export function FeatureFlags(): JSX.Element {
                     <Switch
                         onClick={(_checked, e) => e.stopPropagation()}
                         checked={featureFlag.active}
-                        onChange={(active) => (featureFlag.id ? updateFeatureFlag(featureFlag.id, { active }) : null)}
+                        onChange={(active) =>
+                            featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active } }) : null
+                        }
                     />
                 )
             },
@@ -82,6 +84,7 @@ export function FeatureFlags(): JSX.Element {
                             BackTo
                         }
                         data-attr="usage"
+                        onClick={(e) => e.stopPropagation()}
                     >
                         Insights <ExportOutlined />
                     </Link>
@@ -159,6 +162,6 @@ function GroupFilters({ group }: { group: FeatureFlagGroupType }): JSX.Element |
     } else if (group.rollout_percentage) {
         return `${group.rollout_percentage}% of all users`
     } else {
-        return 'N/A'
+        return '100% of all users'
     }
 }

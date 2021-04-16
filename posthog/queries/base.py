@@ -97,17 +97,21 @@ def filter_events(
     team_id: int, filter, entity: Optional[Entity] = None, include_dates: bool = True, interval_annotation=None
 ) -> Q:
     filters = Q()
-    if filter.date_from and include_dates:
-        filters &= Q(timestamp__gte=filter.date_from)
     relativity = relativedelta(days=1)
+    date_from = filter.date_from
     if filter.interval == "hour":
         relativity = relativedelta(hours=1)
     elif filter.interval == "minute":
         relativity = relativedelta(minutes=1)
     elif filter.interval == "week":
         relativity = relativedelta(weeks=1)
+        date_from = filter.date_from - relativedelta(days=filter.date_from.weekday() + 1)
     elif filter.interval == "month":
         relativity = relativedelta(months=1) - relativity  # go to last day of month instead of first of next
+        date_from = filter.date_from.replace(day=1)
+
+    if filter.date_from and include_dates:
+        filters &= Q(timestamp__gte=date_from)
     if include_dates:
         filters &= Q(timestamp__lte=filter.date_to + relativity)
     if filter.properties or filter.filter_test_accounts:

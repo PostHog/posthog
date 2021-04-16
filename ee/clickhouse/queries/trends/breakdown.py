@@ -9,7 +9,7 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import parse_response, process_math
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL, NULL_BREAKDOWN_SQL, NULL_SQL
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL, GET_LATEST_PERSON_SQL
 from ee.clickhouse.sql.trends.breakdown import (
     BREAKDOWN_AGGREGATE_DEFAULT_SQL,
     BREAKDOWN_AGGREGATE_QUERY_SQL,
@@ -153,15 +153,26 @@ class ClickhouseTrendsBreakdown:
         prop_filters, prop_filter_params = parse_prop_clauses(
             filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts
         )
+        person_prop_filters, person_prop_params = parse_prop_clauses(
+            [prop for prop in filter.properties if prop.type == "person"],
+            team_id,
+            table_name="e",
+            filter_test_accounts=filter.filter_test_accounts,
+            is_person_query=True,
+        )
 
         elements_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
             latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
             prop_filters=prop_filters,
+            person_prop_filters=person_prop_filters,
             aggregate_operation=aggregate_operation,
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         )
-        top_elements_array = self._get_top_elements(elements_query, filter, team_id, params=prop_filter_params)
+        top_elements_array = self._get_top_elements(
+            elements_query, filter, team_id, params={**prop_filter_params, **person_prop_params}
+        )
         params = {
             "values": top_elements_array,
         }
@@ -249,7 +260,8 @@ class ClickhouseTrendsBreakdown:
             return str(value) or ""
 
     def _get_top_elements(self, query: str, filter: Filter, team_id: int, params: Dict = {}) -> List:
-        element_params = {"key": filter.breakdown, "limit": 20, "team_id": team_id, **params}
+        # use limit of 25 to determine if there are more than 20
+        element_params = {"key": filter.breakdown, "limit": 25, "team_id": team_id, "offset": filter.offset, **params}
 
         try:
             top_elements_array_result = sync_execute(query, element_params)

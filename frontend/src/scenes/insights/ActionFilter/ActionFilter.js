@@ -6,6 +6,7 @@ import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined, EllipsisOutlined } from '@ant-design/icons'
 import { sortableContainer, sortableElement, sortableHandle } from 'react-sortable-hoc'
+import { alphabet } from 'lib/utils'
 import posthog from 'posthog-js'
 
 const DragHandle = sortableHandle(() => (
@@ -13,19 +14,22 @@ const DragHandle = sortableHandle(() => (
         <EllipsisOutlined />
     </span>
 ))
-const SortableActionFilterRow = sortableElement(({ logic, filter, filterIndex, hideMathSelector, filterCount }) => (
-    <div className="draggable-action-filter">
-        {filterCount > 1 && <DragHandle />}
-        <ActionFilterRow
-            logic={logic}
-            filter={filter}
-            // sortableElement requires, yet eats the index prop, so passing via filterIndex here
-            index={filterIndex}
-            key={filterIndex}
-            hideMathSelector={hideMathSelector}
-        />
-    </div>
-))
+const SortableActionFilterRow = sortableElement(
+    ({ logic, filter, filterIndex, hideMathSelector, hidePropertySelector, filterCount }) => (
+        <div className="draggable-action-filter">
+            {filterCount > 1 && <DragHandle />}
+            <ActionFilterRow
+                logic={logic}
+                filter={filter}
+                // sortableElement requires, yet eats the index prop, so passing via filterIndex here
+                index={filterIndex}
+                key={filterIndex}
+                hideMathSelector={hideMathSelector}
+                hidePropertySelector={hidePropertySelector}
+            />
+        </div>
+    )
+)
 const SortableContainer = sortableContainer(({ children }) => {
     return <div>{children}</div>
 })
@@ -35,10 +39,13 @@ export function ActionFilter({
     filters,
     typeKey,
     hideMathSelector,
+    hidePropertySelector = false,
     copy = '',
     disabled = false,
     singleFilter = false,
     sortable = false,
+    showLetters = false,
+    showOr = false,
 }) {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
@@ -76,6 +83,7 @@ export function ActionFilter({
                                 index={index}
                                 filterIndex={index}
                                 hideMathSelector={hideMathSelector}
+                                hidePropertySelector={hidePropertySelector}
                                 filterCount={localFilters.length}
                             />
                         ))}
@@ -87,8 +95,11 @@ export function ActionFilter({
                             filter={filter}
                             index={index}
                             key={index}
+                            letter={showLetters && (alphabet[index] || '-')}
                             hideMathSelector={hideMathSelector}
+                            hidePropertySelector={hidePropertySelector}
                             singleFilter={singleFilter}
+                            showOr={showOr}
                         />
                     ))
                 )

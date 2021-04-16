@@ -14,8 +14,6 @@ let intervalMapping = {
 }
 
 export function IntervalFilter({ view, disabled = false }) {
-    let date_from
-
     const { interval } = useValues(intervalFilterLogic)
     const { setIntervalFilter, setDateFrom } = useActions(intervalFilterLogic)
     return (
@@ -26,31 +24,34 @@ export function IntervalFilter({ view, disabled = false }) {
             value={intervalMapping[interval]}
             dropdownMatchSelectWidth={false}
             onChange={(key) => {
+                let newDateFrom
+
                 switch (key) {
                     case 'minute':
-                        date_from = 'dStart'
+                        newDateFrom = 'dStart'
                         break
                     case 'hour':
-                        date_from = 'dStart'
+                        newDateFrom = 'dStart'
                         break
                     case 'week':
-                        date_from = '-30d'
+                        newDateFrom = '-30d'
                         break
                     case 'month':
-                        date_from = '-90d'
+                        newDateFrom = '-90d'
                         break
                     default:
-                        date_from = undefined
+                        newDateFrom = undefined
                         break
                 }
-                const minute_disabled = key === 'minute' && disableMinuteFor[date_from]
-                const hour_disabled = key === 'hour' && disableHourFor[date_from]
+
+                const minute_disabled = key === 'minute' && disableMinuteFor[newDateFrom]
+                const hour_disabled = key === 'hour' && disableHourFor[newDateFrom]
                 if (minute_disabled || hour_disabled) {
                     return false
                 }
 
-                if (date_from) {
-                    setDateFrom(date_from)
+                if (newDateFrom) {
+                    setDateFrom(newDateFrom)
                 }
 
                 setIntervalFilter(key)

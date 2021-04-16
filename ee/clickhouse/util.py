@@ -30,7 +30,11 @@ class ClickhouseTestMixin:
             self._destroy_event_tables()
             self._destroy_person_tables()
             self._destroy_session_recording_tables()
+        except ServerException as e:
+            print(e)
+            pass
 
+        try:
             self._create_event_tables()
             self._create_person_tables()
             self._create_session_recording_tables()

@@ -36,6 +36,11 @@
         overflow-y: auto;
         padding-bottom: 32px;
         scroll-behavior: smooth;
+        -ms-overflow-style: none; /* IE and Edge */
+        scrollbar-width: none; /* Firefox */
+        &::-webkit-scrollbar {
+            display: none;
+        }
     }
 
     .nav-logo {

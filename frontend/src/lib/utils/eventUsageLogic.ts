@@ -10,7 +10,7 @@ import dayjs from 'dayjs'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
-export enum EventSource {
+export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
     DashboardHeader = 'dashboard_header',
@@ -18,10 +18,11 @@ export enum EventSource {
     InputEnter = 'input_enter',
     Toast = 'toast',
     Browser = 'browser',
+    AddDescription = 'add_description',
 }
 
 export const eventUsageLogic = kea<
-    eventUsageLogicType<AnnotationType, FilterType, DashboardType, PersonType, DashboardMode>
+    eventUsageLogicType<AnnotationType, FilterType, DashboardType, PersonType, DashboardMode, DashboardEventSource>
 >({
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
@@ -60,7 +61,7 @@ export const eventUsageLogic = kea<
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
         reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
-        reportDashboardModeToggled: (mode: DashboardMode, source: EventSource | null) => ({ mode, source }),
+        reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
         reportDashboardRefreshed: (lastRefreshed?: string | dayjs.Dayjs | null) => ({ lastRefreshed }),
         reportDashboardDateRangeChanged: (dateFrom?: string | dayjs.Dayjs, dateTo?: string | dayjs.Dayjs | null) => ({
             dateFrom,
@@ -71,10 +72,21 @@ export const eventUsageLogic = kea<
             source,
         }),
         reportDashboardDropdownNavigation: true,
-        reportDashboardRenamed: (originalLength: number, newLength: number) => ({ originalLength, newLength }),
+        reportDashboardFrontEndUpdate: (
+            attribute: 'name' | 'description' | 'tags',
+            originalLength: number,
+            newLength: number
+        ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportHotkeyNavigation: (scope: 'global' | 'insights', hotkey: HotKeys | GlobalHotKeys) => ({ scope, hotkey }),
+        reportIngestionLandingSeen: (isGridView: boolean) => ({ isGridView }),
+        reportTimezoneComponentViewed: (
+            component: 'label' | 'indicator',
+            project_timezone?: string,
+            device_timezone?: string
+        ) => ({ component, project_timezone, device_timezone }),
+        reportTestAccountFiltersUpdated: (filters: Record<string, any>[]) => ({ filters }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -92,7 +104,7 @@ export const eventUsageLogic = kea<
                     content_length: annotation.content.length,
                     scope: annotation.scope,
                     deleted: annotation.deleted,
-                    created_by_me: annotation.created_by && annotation.created_by?.id === userLogic.values.user?.id,
+                    created_by_me: annotation.created_by && annotation.created_by?.uuid === userLogic.values.user?.id,
                     creation_type: annotation.creation_type,
                     created_at: annotation.created_at,
                     updated_at: annotation.updated_at,
@@ -127,9 +139,9 @@ export const eventUsageLogic = kea<
             await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
 
             // Reports `insight viewed` event
-            const { display, interval, date_from, date_to, shown_as } = filters
+            const { display, interval, date_from, date_to, shown_as, filter_test_accounts, formula } = filters
 
-            // DEPRECATED: Remove when releasing `remove-shownas`
+            // :TODO: DEPRECATED: Remove when releasing `remove-shownas`
             // Support for legacy `shown_as` property in a way that ensures standardized data reporting
             let { insight } = filters
             const SHOWN_AS_MAPPING: Record<string, 'TRENDS' | 'LIFECYCLE' | 'STICKINESS'> = {
@@ -148,7 +160,8 @@ export const eventUsageLogic = kea<
                 interval,
                 date_from,
                 date_to,
-                filters, // See https://github.com/PostHog/posthog/pull/2787#discussion_r556346868 for details
+                filter_test_accounts,
+                formula,
                 filters_count: filters.properties?.length || 0, // Only counts general filters (i.e. not per-event filters)
                 events_count: filters.events?.length || 0, // Number of event lines in insights graph; number of steps in funnel
                 actions_count: filters.actions?.length || 0, // Number of action lines in insights graph; number of steps in funnel
@@ -159,6 +172,7 @@ export const eventUsageLogic = kea<
             // Custom properties for each insight
             if (insight === 'TRENDS') {
                 properties.breakdown_type = filters.breakdown_type
+                properties.breakdown = filters.breakdown
             } else if (insight === 'SESSIONS') {
                 properties.session_distribution = filters.session
             } else if (insight === 'FUNNELS') {
@@ -174,6 +188,8 @@ export const eventUsageLogic = kea<
             } else if (insight === 'PATHS') {
                 properties.path_type = filters.path_type
                 properties.has_start_point = !!filters.start_point
+            } else if (insight === 'STICKINESS') {
+                properties.stickiness_days = filters.stickiness_days
             }
 
             posthog.capture('insight viewed', properties)
@@ -285,8 +301,12 @@ export const eventUsageLogic = kea<
              */
             posthog.capture(`dashboard dropdown navigated`)
         },
-        reportDashboardRenamed: async ({ originalLength, newLength }) => {
-            posthog.capture(`dashboard renamed`, { original_length: originalLength, new_length: newLength })
+        reportDashboardFrontEndUpdate: async ({ attribute, originalLength, newLength }) => {
+            posthog.capture(`dashboard frontend updated`, {
+                attribute,
+                original_length: originalLength,
+                new_length: newLength,
+            })
         },
         reportDashboardShareToggled: async ({ isShared }) => {
             posthog.capture(`dashboard share toggled`, { is_shared: isShared })
@@ -296,6 +316,21 @@ export const eventUsageLogic = kea<
         },
         reportHotkeyNavigation: async (payload) => {
             posthog.capture('hotkey navigation', payload)
+        },
+        reportTimezoneComponentViewed: async (payload) => {
+            posthog.capture('timezone component viewed', payload)
+        },
+        reportTestAccountFiltersUpdated: async ({ filters }) => {
+            const payload = {
+                filters_count: filters.length,
+                filters: filters.map((filter) => {
+                    return { key: filter.key, operator: filter.operator, value_length: filter.value.length }
+                }),
+            }
+            posthog.capture('test account filters updated', payload)
+        },
+        reportIngestionLandingSeen: async ({ isGridView }) => {
+            posthog.capture('ingestion landing seen', { grid_view: isGridView })
         },
     },
 })

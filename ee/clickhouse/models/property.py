@@ -8,7 +8,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.util import is_int, is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
-from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
+from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL, GET_LATEST_PERSON_DISTINCT_ID_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
 from posthog.models.property import Property
@@ -23,6 +23,7 @@ def parse_prop_clauses(
     table_name: str = "",
     allow_denormalized_props: bool = False,
     filter_test_accounts=False,
+    is_person_query=False,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -47,12 +48,19 @@ def parse_prop_clauses(
             filter_query, filter_params = prop_filter_json_extract(
                 prop, idx, "{}person".format(prepend), allow_denormalized_props=allow_denormalized_props
             )
-            final.append(
-                "AND {table_name}distinct_id IN ({filter_query})".format(
-                    filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query), table_name=table_name
+            if is_person_query:
+                final.append(filter_query)
+                params.update(filter_params)
+            else:
+                final.append(
+                    "AND {table_name}distinct_id IN ({filter_query})".format(
+                        filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
+                            filters=filter_query, latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
+                        ),
+                        table_name=table_name,
+                    )
                 )
-            )
-            params.update(filter_params)
+                params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element({prop.key: prop.value}, prepend="{}_".format(idx))
             final.append("AND {}".format(query[0]))
@@ -220,13 +228,25 @@ def filter_element(filters: Dict, prepend: str = "") -> Tuple[List[str], Dict]:
     conditions = []
 
     if filters.get("selector"):
-        selector = Selector(filters["selector"], escape_slashes=False)
-        params["{}selector_regex".format(prepend)] = _create_regex(selector)
-        conditions.append("match(elements_chain, %({}selector_regex)s)".format(prepend))
+        or_conditions = []
+        selectors = filters["selector"] if isinstance(filters["selector"], list) else [filters["selector"]]
+        for idx, query in enumerate(selectors):
+            selector = Selector(query, escape_slashes=False)
+            key = "{}_{}_selector_regex".format(prepend, idx)
+            params[key] = _create_regex(selector)
+            or_conditions.append("match(elements_chain, %({})s)".format(key))
+        if len(or_conditions) > 0:
+            conditions.append("(" + (" OR ".join(or_conditions)) + ")")
 
     if filters.get("tag_name"):
-        params["{}tag_name_regex".format(prepend)] = r"(^|;){}(\.|$|;|:)".format(filters["tag_name"])
-        conditions.append("match(elements_chain, %({}tag_name_regex)s)".format(prepend))
+        or_conditions = []
+        tag_names = filters["tag_name"] if isinstance(filters["tag_name"], list) else [filters["tag_name"]]
+        for idx, tag_name in enumerate(tag_names):
+            key = "{}_{}_tag_name_regex".format(prepend, idx)
+            params[key] = r"(^|;){}(\.|$|;|:)".format(tag_name)
+            or_conditions.append("match(elements_chain, %({})s)".format(key))
+        if len(or_conditions) > 0:
+            conditions.append("(" + (" OR ".join(or_conditions)) + ")")
 
     attributes: Dict[str, List] = {}
 
@@ -243,7 +263,8 @@ def filter_element(filters: Dict, prepend: str = "") -> Tuple[List[str], Dict]:
                     ".*?".join(['{}="{}"'.format(key, value)])
                 )
                 or_conditions.append("match(elements_chain, %({}_{}_{}_attributes_regex)s)".format(prepend, key, idx))
-            conditions.append(" OR ".join(or_conditions))
+            if len(or_conditions) > 0:
+                conditions.append("(" + (" OR ".join(or_conditions)) + ")")
 
     return (conditions, params)
 

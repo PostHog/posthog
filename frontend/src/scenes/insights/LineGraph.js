@@ -293,8 +293,6 @@ export function LineGraph({
                         gridLines: { color: axisLineColor, zeroLineColor: axisColor },
                         ticks: percentage
                             ? {
-                                  min: 0,
-                                  max: 100, // Your absolute max value
                                   callback: function (value) {
                                       return value.toFixed(0) + '%' // convert it to percentage
                                   },

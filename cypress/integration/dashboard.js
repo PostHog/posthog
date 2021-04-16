@@ -1,11 +1,22 @@
-describe('Dashboards', () => {
+describe('Dashboard', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-dashboards]').click()
+        cy.get('[data-attr=menu-item-dashboards]').click().click()
         cy.location('pathname').should('include', '/dashboard')
     })
 
     it('Dashboards loaded', () => {
         cy.get('h1').should('contain', 'Dashboards')
+    })
+
+    it('Cannot see tags or description (non-FOSS feature)', () => {
+        cy.get('h1').should('contain', 'Dashboards')
+        cy.get('th.ant-table-cell').contains('Description').should('not.exist')
+        cy.get('th.ant-table-cell').contains('Tags').should('not.exist')
+
+        cy.get('[data-attr=dashboard-name]').contains('My App Dashboard').click()
+        cy.get('[data-attr=dashboard-item-0]').should('exist')
+        cy.get('.dashboard-description').should('not.exist')
+        cy.get('[data-attr=dashboard-tags]').should('not.exist')
     })
 
     it('Pinned dashboards on menu', () => {
@@ -101,5 +112,13 @@ describe('Dashboards', () => {
         cy.get('[data-attr="dashboard-item-0-dropdown-move"]').trigger('mouseover')
         cy.get('[data-attr="dashboard-item-0-dropdown-move-0"]').click({ force: true })
         cy.get('[data-attr=success-toast]').should('exist')
+    })
+
+    it('Opens dashboard item in insights', () => {
+        cy.get('[data-attr=dashboard-name]').contains('My App Dashboard').click()
+        cy.get('[data-attr=dashboard-item-0] .dashboard-item-title a').click()
+        cy.location('pathname').should('include', '/insights')
+        cy.get('[data-attr=math-selector-0]').contains('Unique users').should('exist')
+        cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 })

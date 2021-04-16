@@ -148,8 +148,16 @@ code.code {
     margin-bottom: $default_spacing * 0.5;
 }
 
+.mb-025 {
+    margin-bottom: $default_spacing * 0.25;
+}
+
 .mt-05 {
     margin-top: $default_spacing * 0.5;
+}
+
+.mt-025 {
+    margin-top: $default_spacing * 0.25;
 }
 
 .mr {
@@ -164,8 +172,16 @@ code.code {
     margin-right: $default_spacing * 0.5;
 }
 
+.mr-025 {
+    margin-right: $default_spacing * 0.25;
+}
+
 .ml-05 {
     margin-left: $default_spacing * 0.5;
+}
+
+.ml-025 {
+    margin-left: $default_spacing * 0.25;
 }
 
 .pa {
@@ -242,8 +258,17 @@ code.code {
 }
 
 .highlighted {
-    background-color: $yellow_50;
     border-radius: $radius;
+    animation: highlight 2000ms ease-out;
+}
+
+@keyframes highlight {
+    0% {
+        background-color: $yellow_50;
+    }
+    100% {
+        background-color: initial;
+    }
 }
 
 // Toasts
@@ -266,6 +291,24 @@ code.code {
     h1 {
         font-size: 1.14rem;
         font-weight: bold;
+    }
+
+    .action-bar {
+        @extend .text-small;
+        color: $text_muted;
+        margin-top: $default_spacing / 2;
+        display: flex;
+        align-items: center;
+        a {
+            color: $text_muted;
+        }
+        .help-button {
+            flex-grow: 1;
+            text-align: right;
+        }
+        .ant-btn-link {
+            padding: 0;
+        }
     }
 }
 
@@ -519,6 +562,11 @@ code.code {
         background-color: $blue_300;
     }
 
+    &.width-locked {
+        width: 40px;
+        text-align: center;
+    }
+
     &.and {
         background-color: $yellow_100;
         color: $primary_alt;
@@ -555,4 +603,13 @@ code.code {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+}
+
+.hotkey-plus {
+    display: inline;
+    &::after {
+        content: '+';
+        margin-left: 6px;
+        font-size: 1rem;
+    }
 }
