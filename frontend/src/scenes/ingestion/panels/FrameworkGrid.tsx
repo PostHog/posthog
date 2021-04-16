@@ -21,9 +21,9 @@ const { Paragraph } = Typography
 // Helper function - getDisplayName modifies some framework names to be better suited to tiles.
 const getDisplayName = (frameworks: Record<string, string>, item: Framework | string): string => {
     if (item?.toString() === 'PURE_JS') {
-        return 'JAVASCRIPT Library'
+        return 'JAVASCRIPT'
     } else if (item?.toString() === 'AUTOCAPTURE') {
-        return 'HTML Code Snippet'
+        return 'Code Snippet (HTML TAG)'
     } else if (item?.toString() === 'NODEJS') {
         return 'NODE JS'
     } else {
@@ -44,6 +44,7 @@ const getDataSource = (frameworks: Record<string, string>, sorted?: boolean): st
 
 function TabContents(frameworks: Record<string, string>, sort?: boolean): JSX.Element {
     const { setPlatform, setFramework } = useActions(ingestionLogic)
+    const { activeTab } = useValues(ingestionLogic)
 
     return (
         <List
@@ -72,7 +73,9 @@ function TabContents(frameworks: Record<string, string>, sort?: boolean): JSX.El
                         </div>
                         <Paragraph className="framework-name" type="secondary" strong>
                             {getDisplayName(frameworks, item)}{' '}
-                            {item?.toString() === 'AUTOCAPTURE' && <Tag color="success">Most Popular</Tag>}
+                            {item?.toString() === 'AUTOCAPTURE' && activeTab !== 'all' && (
+                                <Tag color="success">Recommended</Tag>
+                            )}
                         </Paragraph>
                     </div>
                 </List.Item>
