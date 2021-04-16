@@ -5,12 +5,12 @@ services:
             POSTGRES_DB: posthog
             POSTGRES_PASSWORD: posthog
             POSTGRES_USER: posthog
-        image: postgres:alpine
+        image: postgres:13-alpine
         volumes:
             - postgres-data:/var/lib/postgresql/data
     redis:
         container_name: posthog_redis
-        image: redis:alpine
+        image: redis:6-alpine
     web:
         container_name: posthog_web
         depends_on:
