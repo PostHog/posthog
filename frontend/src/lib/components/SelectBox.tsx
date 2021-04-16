@@ -60,7 +60,10 @@ export function SelectBox({
             setSelectedItem(allSources.filter((item) => item.key === selectedItemKey)[0] || null)
             const offset = document.querySelector<HTMLElement>('.search-list [datakey="' + selectedItemKey + '"]')
                 ?.offsetTop
-            document.querySelector('.search-list').scrollTop = offset
+            const searchListSelector = document.querySelector<HTMLElement>('.search-list')
+            if (offset && searchListSelector) {
+                searchListSelector.scrollTop = offset
+            }
         }
         document.addEventListener('mousedown', deselect)
         document.addEventListener('keydown', onKeyDown)
