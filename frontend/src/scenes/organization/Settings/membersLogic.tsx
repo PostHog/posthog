@@ -15,7 +15,7 @@ export const membersLogic = kea<membersLogicType>({
             member,
             level,
         }),
-        postRemoveMember: (memberUUID: string) => ({ memberUUID }),
+        postRemoveMember: (memberUuid: string) => ({ memberUuid }),
     },
     loaders: ({ values, actions }) => ({
         members: {
@@ -45,7 +45,7 @@ export const membersLogic = kea<membersLogicType>({
             member: OrganizationMemberType
             level: OrganizationMembershipLevel
         }) => {
-            await api.update(`api/organizations/@current/members/${member.user.id}/`, { level })
+            await api.update(`api/organizations/@current/members/${member.user.uuid}/`, { level })
             toast(
                 <div>
                     <h1 className="text-success">
@@ -60,8 +60,8 @@ export const membersLogic = kea<membersLogicType>({
             }
             actions.loadMembers()
         },
-        postRemoveMember: async ({ memberUUID }) => {
-            if (memberUUID === userLogic.values.user?.id) {
+        postRemoveMember: async ({ memberUuid }) => {
+            if (memberUuid === userLogic.values.user?.uuid) {
                 location.reload()
             }
         },
