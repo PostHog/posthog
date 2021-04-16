@@ -49,7 +49,7 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
             },
         ],
         activeTab: [
-            'popular',
+            'browser',
             {
                 setActiveTab: (_, { tab }) => tab,
             },

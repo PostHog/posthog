@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
-import { Avatar, List, Row, Tabs, Typography } from 'antd'
+import { Avatar, List, Row, Tabs, Tag, Typography } from 'antd'
 
 import { Framework } from 'scenes/ingestion/types'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
@@ -9,7 +9,6 @@ import {
     clientFrameworks,
     logos,
     mobileFrameworks,
-    popularFrameworks,
     webFrameworks,
     frameworkToPlatform,
     API,
@@ -22,9 +21,9 @@ const { Paragraph } = Typography
 // Helper function - getDisplayName modifies some framework names to be better suited to tiles.
 const getDisplayName = (frameworks: Record<string, string>, item: Framework | string): string => {
     if (item?.toString() === 'PURE_JS') {
-        return 'JAVASCRIPT SDK'
+        return 'JAVASCRIPT Library'
     } else if (item?.toString() === 'AUTOCAPTURE') {
-        return 'Auto Capture (JS Snippet)'
+        return 'HTML Code Snippet'
     } else if (item?.toString() === 'NODEJS') {
         return 'NODE JS'
     } else {
@@ -48,7 +47,7 @@ function TabContents(frameworks: Record<string, string>, sort?: boolean): JSX.El
 
     return (
         <List
-            style={{ height: 325, maxHeight: 325, overflowY: 'scroll' }}
+            style={{ height: 300, maxHeight: 300, overflowY: 'scroll' }}
             grid={{}}
             size={'large'}
             dataSource={getDataSource(frameworks, sort) as Framework[]}
@@ -72,7 +71,8 @@ function TabContents(frameworks: Record<string, string>, sort?: boolean): JSX.El
                             />
                         </div>
                         <Paragraph className="framework-name" type="secondary" strong>
-                            {getDisplayName(frameworks, item)}
+                            {getDisplayName(frameworks, item)}{' '}
+                            {item?.toString() === 'AUTOCAPTURE' && <Tag color="success">Most Popular</Tag>}
                         </Paragraph>
                     </div>
                 </List.Item>
@@ -86,14 +86,11 @@ function FrameworkTabs(): JSX.Element {
     const { setActiveTab } = useActions(ingestionLogic)
 
     return (
-        <Tabs defaultActiveKey="popular" activeKey={activeTab} onChange={(activeKey) => setActiveTab(activeKey)}>
-            <TabPane tab="Most Popular" key="popular">
-                {TabContents(popularFrameworks, false)}
-            </TabPane>
-            <TabPane tab="Browser" key="browser">
+        <Tabs defaultActiveKey="browser" activeKey={activeTab} onChange={(activeKey) => setActiveTab(activeKey)}>
+            <TabPane tab="Web" key="browser">
                 {TabContents(clientFrameworks, true)}
             </TabPane>
-            <TabPane tab="Server" key="server">
+            <TabPane tab="Backend" key="server">
                 {TabContents(webFrameworks, true)}
             </TabPane>
             <TabPane tab="Mobile" key="mobile">
