@@ -53,9 +53,9 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                 />
             )}
 
-            <hr />
             {filters.insight === ViewType.LIFECYCLE && (
                 <>
+                    <hr />
                     <h4 className="secondary">Lifecycle Toggles</h4>
                     {filtersLoading ? (
                         <Skeleton active />
