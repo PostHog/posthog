@@ -72,7 +72,7 @@ function TabContents(frameworks: Record<string, string>, sort?: boolean): JSX.El
                         </div>
                         <Paragraph className="framework-name" type="secondary" strong>
                             {getDisplayName(frameworks, item)}{' '}
-                            {item?.toString() === 'AUTOCAPTURE' && <Tag color="success">Popular</Tag>}
+                            {item?.toString() === 'AUTOCAPTURE' && <Tag color="success">Most Popular</Tag>}
                         </Paragraph>
                     </div>
                 </List.Item>
