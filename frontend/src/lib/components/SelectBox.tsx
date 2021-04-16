@@ -58,7 +58,8 @@ export function SelectBox({
         if (selectedItemKey) {
             const allSources = items.map((item) => item.dataSource).flat()
             setSelectedItem(allSources.filter((item) => item.key === selectedItemKey)[0] || null)
-            const offset = document.querySelector('.search-list [datakey="' + selectedItemKey + '"]')?.offsetTop
+            const offset = document.querySelector<HTMLElement>('.search-list [datakey="' + selectedItemKey + '"]')
+                ?.offsetTop
             document.querySelector('.search-list').scrollTop = offset
         }
         document.addEventListener('mousedown', deselect)
@@ -131,7 +132,7 @@ export function SelectUnit({
                     renderItem={(item: SelectedItem) => (
                         <List.Item
                             className={selectedItem?.key === item.key ? 'selected' : undefined}
-                            datakey={item.key}
+                            key={item.key}
                             onClick={() => clickSelectedItem(item, group)}
                             onMouseOver={() =>
                                 !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: group.type })
