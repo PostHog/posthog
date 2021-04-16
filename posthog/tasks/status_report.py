@@ -35,7 +35,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         "posthog_sessionrecordingevent": fetch_table_size("posthog_sessionrecordingevent"),
     }
 
-    installed_plugins_configs = PluginConfig.objects.all()
+    installed_plugins_configs = PluginConfig.objects.select_related("plugin").all()
 
     report["plugins_installed"] = [plugin_config.plugin.name for plugin_config in installed_plugins_configs]
     report["plugins_currently_enabled"] = [
