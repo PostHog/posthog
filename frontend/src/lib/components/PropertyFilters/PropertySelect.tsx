@@ -42,7 +42,6 @@ export function PropertySelect({ optionGroups, value, onChange, placeholder, aut
                 onChange(type, val.replace(/^(event_|person_|element_)/gi, ''))
             }}
             style={{ width: '100%' }}
-            virtual={false}
         >
             {optionGroups.map(
                 (group) =>
