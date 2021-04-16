@@ -71,7 +71,9 @@ export interface PluginsServerConfig extends Record<string, any> {
     DISABLE_MMDB: boolean
     DISTINCT_ID_LRU_SIZE: number
     INTERNAL_MMDB_SERVER_PORT: number
+    PLUGIN_SERVER_IDLE: boolean
 }
+
 export interface PluginsServer extends PluginsServerConfig {
     // active connections to Postgres, Redis, ClickHouse, Kafka, StatsD
     db: DB

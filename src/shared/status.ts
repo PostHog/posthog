@@ -28,7 +28,9 @@ export class Status implements StatusBlueprint {
     }
 
     getPrefix(): string {
-        return `[${this.prefixOverride ?? (threadId ? threadId.toString().padStart(4, '_') : 'MAIN')}]`
+        return `[${this.prefixOverride ?? (threadId ? threadId.toString().padStart(4, '_') : 'MAIN')}] ${
+            new Date().toTimeString().split(' ')[0]
+        }`
     }
 }
 

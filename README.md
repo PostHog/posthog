@@ -67,6 +67,8 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | INTERNAL_MMDB_SERVER_PORT     | port of the internal server used for IP location (0 means random) | `0`                                   |
 | DISTINCT_ID_LRU_SIZE          | size of persons distinct ID LRU cache                             | `10000`                               |
 
+| PLUGIN_SERVER_IDLE | whether to disengage the plugin server, e.g. for development | `false` |
+
 ## Releasing a new version
 
 It's magic! Just bump up `version` in `package.json` on the main branch and the new version will be published automatically, with a matching PR to the main PostHog repo created.  
