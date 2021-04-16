@@ -8,10 +8,11 @@ type PropertyOption = EventProperty
 
 interface Props {
     optionGroups: Array<PropertyOptionGroup>
-    value: PropertyOption | null
+    value: Partial<PropertyOption> | null
     onChange: (type: PropertyOptionGroup['type'], value: string) => void
     placeholder: string
     autoOpenIfEmpty?: boolean
+    delayBeforeAutoOpen?: number
 }
 
 interface PropertyOptionGroup {
@@ -26,16 +27,24 @@ interface SelectionOptionType {
     type: 'event' | 'person' | 'element'
 }
 
-export function PropertySelect({ optionGroups, value, onChange, placeholder, autoOpenIfEmpty }: Props): JSX.Element {
+export function PropertySelect({
+    optionGroups,
+    value: propertyOption,
+    onChange,
+    placeholder,
+    autoOpenIfEmpty,
+    delayBeforeAutoOpen,
+}: Props): JSX.Element {
     return (
         <SelectGradientOverflow
             showSearch
-            autoFocus={autoOpenIfEmpty && !value}
-            defaultOpen={autoOpenIfEmpty && !value}
+            autoFocus={autoOpenIfEmpty && !propertyOption?.value}
+            defaultOpen={autoOpenIfEmpty && !propertyOption?.value}
+            delayBeforeAutoOpen={delayBeforeAutoOpen}
             placeholder={placeholder}
             data-attr="property-filter-dropdown"
             labelInValue
-            value={value || undefined}
+            value={propertyOption || undefined}
             filterOption={(input, option) => option?.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
             onChange={(_: null, selection) => {
                 const { value: val, type } = selection as SelectionOptionType
