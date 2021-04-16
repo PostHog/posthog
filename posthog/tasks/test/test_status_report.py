@@ -50,8 +50,8 @@ class TestStatusReport(APIBaseTest):
         self._create_plugin("Installed and enabled", True)
         report = status_report(dry_run=True)
 
-        self.assertEqual(report["plugins_installed"], ["Installed but not enabled", "Installed and enabled"])
-        self.assertEqual(report["plugins_currently_enabled"], ["Installed and enabled"])
+        self.assertEqual(report["plugins_installed"], {"Installed but not enabled": 1, "Installed and enabled": 1})
+        self.assertEqual(report["plugins_enabled"], {"Installed and enabled": 1})
 
     def create_person(self, distinct_id: str) -> None:
         Person.objects.create(team=self.team, distinct_ids=[distinct_id])

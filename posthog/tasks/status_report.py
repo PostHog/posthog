@@ -1,5 +1,6 @@
 import logging
 import os
+from collections import Counter
 from typing import Any, Dict, List, Tuple
 
 import posthoganalytics
@@ -35,12 +36,12 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         "posthog_sessionrecordingevent": fetch_table_size("posthog_sessionrecordingevent"),
     }
 
-    installed_plugins_configs = PluginConfig.objects.select_related("plugin").all()
+    plugin_configs = PluginConfig.objects.select_related("plugin").all()
 
-    report["plugins_installed"] = [plugin_config.plugin.name for plugin_config in installed_plugins_configs]
-    report["plugins_currently_enabled"] = [
-        plugin_config.plugin.name for plugin_config in installed_plugins_configs if plugin_config.enabled
-    ]
+    report["plugins_installed"] = Counter((plugin_config.plugin.name for plugin_config in plugin_configs))
+    report["plugins_enabled"] = Counter(
+        (plugin_config.plugin.name for plugin_config in plugin_configs if plugin_config.enabled)
+    )
 
     for team in Team.objects.all():
         try:
