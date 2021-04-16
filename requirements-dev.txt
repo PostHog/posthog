@@ -19,7 +19,7 @@ click==7.1.1
     # via
     #   black
     #   pip-tools
-django-debug-toolbar==2.2
+django-debug-toolbar==2.2.1
     # via -r requirements-dev.in
 django-stubs==1.7.0
     # via
