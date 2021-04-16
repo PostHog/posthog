@@ -1,5 +1,81 @@
 # Changelog
 
+### 1.24.0 - Wednesday 14 April 2021
+
+> If you're self-hosting and want to upgrade for a better experience and new features, remember to [update your PostHog instance](/docs/configuring-posthog/upgrading-posthog).
+
+- [GeoIP plugin for all](https://github.com/PostHog/posthog/pull/3894)
+
+![GeoIP](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/geoip.png)
+
+Plugins are now live on PostHog Cloud, and, as a bonus, we have now added out-of-the-box support for the PostHog GeoIP plugin, which adds location properties to your events, such as country and city, as well as a dozen other values!
+
+The plugin works on both cloud and self-hosted installations (`1.24.0` minimum).
+
+- [New 'Cohorts' tab on person pages](https://github.com/PostHog/posthog/pull/3744)
+
+![Cohorts tab](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/person-cohorts.png)
+
+When viewing a person's page in PostHog, you can now toggle between a view of their properties and a view of the cohorts this person is in, giving you a lot more context on the user you're looking at.
+
+- [Toolbar support for custom data attributes](https://github.com/PostHog/posthog/pull/3761)
+
+![Data attr](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/data-attr.png)
+
+To make the experience of using the PostHog toolbar better, we have recommended that you set `data-attr` on your elements, so that the toolbar can leverage it for finding elements. However, since a lot of our users already used their own data attributes, we now support adding a list of your own data attributes for the toolbar to look for. 
+
+You can configure this in 'Project Settings'.
+
+- [Dashboard collaboration features](https://github.com/PostHog/posthog/pull/3756)
+
+![Dashboard collab](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/dashboard-collab.png)
+
+Our dashboards keep getting better with every new release, and this one is no different!
+
+Dashboards now support descriptions and tags, making it easier for teams to collaborate when creating internal analytics reports.
+
+These are enterprise features available to our paying Cloud customers, and to enterprise self-hosted users.
+
+If you're interested in having these features on your self-hosted PostHog instance, contact us on <i>sales@posthog.com</i>.
+
+- [S3 export plugin](https://posthog.com/plugins/s3-export)
+
+We have a new plugin that sends PostHog events to an S3 bucket.
+
+The plugin works on both PostHog Cloud and self-hosted installations (`1.24.0` minimum) - [check it out here](https://posthog.com/plugins/s3-export).
+
+- [Session recording for heavy websites](https://github.com/PostHog/posthog/pull/3705)
+
+If you tell Karl you found an issue with session recording, he will fix it.
+
+Such was the case with session recording for heavy websites (e.g. those with a lot of images/CSS). We were failing to process large snapshots, leading users of these websites unable to get many session recordings.
+
+This is now fixed - expect a lot more recordings available to you from now on!
+
+- [New configuration options for posthog-js](https://github.com/PostHog/posthog-js/pull/209)
+
+Following user requests, there are now 10 new config options for `posthog-js`, allowing you to use autocapture with greater privacy for your users, as well as tailor session recording configuration.
+
+The new options are:
+
+- `mask_all_text`: Specifies if PostHog should capture the `textContent` of autocaptured elements
+- `mask_all_element_attributes`: Specifies if PostHog should capture the attributes of autocaptured elements
+- `session_recording`: Accepts an object that lets you configure the following `rrweb` options:
+    - `blockClass`
+    - `blockSelector`
+    - `ignoreClass`
+    - `maskAllInputs`
+    - `maskInputOptions`
+    - `maskInputFn`
+    - `slimDOMOptions`
+    - `collectFonts`
+
+See our [JS Integration page](https://posthog.com/docs/integrations/js-integration) for more details.
+
+- [Track session starts](https://posthog.com/plugins/first-time-event-tracker)
+
+Our First Time Event Tracker plugin now also tracks session starts. By enabling it you will get `session_started` events in PostHog, as well as events that started a session will be tagged with property `is_first_event_in_session` set to `true`.
+
 ### 1.23.1 - Monday 22 March 2021
 
 - [Optimized Background Action Calculation](https://github.com/PostHog/posthog/pull/3717).

@@ -2,8 +2,8 @@ import React, { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
 import { Input, Radio, Table } from 'antd'
-import { QuestionCircleOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
-import { DeleteWithUndo, stripHTTP } from 'lib/utils'
+import { QuestionCircleOutlined, DeleteOutlined, EditOutlined, ExportOutlined } from '@ant-design/icons'
+import { DeleteWithUndo, stripHTTP, toParams } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { NewActionButton } from './NewActionButton'
@@ -14,6 +14,7 @@ import { ActionType } from '~/types'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
+import { ViewType } from 'scenes/insights/insightLogic'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -112,6 +113,23 @@ export function ActionsTable(): JSX.Element {
         {
             title: '',
             render: function RenderActions(action: ActionType) {
+                const params = {
+                    insight: ViewType.TRENDS,
+                    interval: 'day',
+                    display: 'ActionsLineGraph',
+                    actions: [
+                        {
+                            id: action.id,
+                            name: action.name,
+                            type: 'actions',
+                            order: 0,
+                        },
+                    ],
+                }
+                const encodedParams = toParams(params)
+
+                const actionsLink = `/insights?${encodedParams}#backTo=Actions&backToURL=${window.location.pathname}`
+
                 return (
                     <span>
                         <Link to={'/action/' + action.id + '#backTo=Actions&backToURL=' + window.location.pathname}>
@@ -121,11 +139,14 @@ export function ActionsTable(): JSX.Element {
                             endpoint="action"
                             object={action}
                             className="text-danger"
-                            style={{ marginLeft: 8 }}
+                            style={{ marginLeft: 8, marginRight: 8 }}
                             callback={loadActions}
                         >
                             <DeleteOutlined />
                         </DeleteWithUndo>
+                        <Link to={`${actionsLink}`} data-attr="actions-table-usage">
+                            Insights <ExportOutlined />
+                        </Link>
                     </span>
                 )
             },

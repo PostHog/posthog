@@ -95,7 +95,7 @@ export function SignupSideContentHosted({ utm_tags }: { utm_tags: string }): JSX
                             <CloudFilled />
                         </div>
                         <div>
-                            <b>PostHog cloud</b>
+                            <b>PostHog Cloud</b>
                             <div>Fully hosted version, no maintenance headaches</div>
                         </div>
                     </a>

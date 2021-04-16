@@ -2,7 +2,7 @@
 
 .resizable-table-scroll-container {
     max-width: 100%;
-    overflow-x: scroll;
+    overflow-x: auto;
     position: relative;
     .table-gradient-overlay {
         overflow-y: hidden;
