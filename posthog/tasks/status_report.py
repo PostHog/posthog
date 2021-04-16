@@ -1,5 +1,6 @@
 import logging
 import os
+from collections import Counter
 from typing import Any, Dict, List, Tuple
 
 import posthoganalytics
@@ -7,6 +8,7 @@ from django.db import connection
 from psycopg2 import sql
 
 from posthog.models import Event, Person, Team, User
+from posthog.models.plugin import PluginConfig
 from posthog.models.utils import namedtuplefetchall
 from posthog.utils import get_machine_id, get_previous_week
 from posthog.version import VERSION
@@ -33,6 +35,13 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         "posthog_event": fetch_table_size("posthog_event"),
         "posthog_sessionrecordingevent": fetch_table_size("posthog_sessionrecordingevent"),
     }
+
+    plugin_configs = PluginConfig.objects.select_related("plugin").all()
+
+    report["plugins_installed"] = Counter((plugin_config.plugin.name for plugin_config in plugin_configs))
+    report["plugins_enabled"] = Counter(
+        (plugin_config.plugin.name for plugin_config in plugin_configs if plugin_config.enabled)
+    )
 
     for team in Team.objects.all():
         try:
