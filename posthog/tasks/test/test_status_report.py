@@ -45,7 +45,7 @@ class TestStatusReport(APIBaseTest):
             self.assertEqual(team_report["persons_count_new_in_period"], 2)
             self.assertEqual(team_report["persons_count_active_in_period"], 1)
 
-    def test_team_status_report_plugins(self) -> None:
+    def test_status_report_plugins(self) -> None:
         self._create_plugin("Installed but not enabled", False)
         self._create_plugin("Installed and enabled", True)
         report = status_report(dry_run=True)
