@@ -85,8 +85,7 @@ export function AutocapturePanel(): JSX.Element {
                     Option 1. Code snippet <Tag color="green">Recommended</Tag>
                 </h2>
                 <p>
-                    Faster option. Particularly recommended for new projects where you don't know what your analytics
-                    will look like just yet. Just add this snippet to your website and we'll{' '}
+                    Just add this snippet to your website and we'll{' '}
                     <b>automatically capture page views, sessions and all relevant interactions</b> within your website.{' '}
                     <Link
                         to="https://posthog.com/product-features/event-autocapture?utm_medium=in-product&utm_campaign=ingestion-web"
