@@ -110,8 +110,8 @@ export function ActionFilterDropdown({
                         )
                     },
                     type: EntityTypes.EVENTS,
-                    getValue: (item: SelectedItem) => item.event || item.name,
-                    getLabel: (item: SelectedItem) => item.event || item.name,
+                    getValue: (item: SelectedItem) => item.event || '',
+                    getLabel: (item: SelectedItem) => item.event || '',
                 },
                 {
                     name: (
@@ -163,8 +163,8 @@ export function ActionFilterDropdown({
                         )
                     },
                     type: EntityTypes.EVENTS,
-                    getValue: (item: SelectedItem) => item.event || item.name,
-                    getLabel: (item: SelectedItem) => item.event || item.name,
+                    getValue: (item: SelectedItem) => item.event || '',
+                    getLabel: (item: SelectedItem) => item.event || '',
                 },
             ]}
         />
