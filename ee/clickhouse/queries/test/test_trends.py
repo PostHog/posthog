@@ -307,8 +307,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
 
-    def test_active_user_math(self):
-
+    def _create_active_user_events(self):
         p0 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p0"], properties={"name": "p1"})
         _create_event(
             team=self.team,
@@ -357,10 +356,27 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             properties={"key": "val"},
         )
 
+    def test_active_user_math(self):
+        self._create_active_user_events()
+
         data = {
             "date_from": "2020-01-09T00:00:00Z",
             "date_to": "2020-01-16T00:00:00Z",
             "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+        }
+
+        filter = Filter(data=data)
+        result = ClickhouseTrends().run(filter, self.team,)
+        self.assertEqual(result[0]["data"], [3.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+
+    def test_active_user_math_action(self):
+        action = _create_action(name="$pageview", team=self.team)
+        self._create_active_user_events()
+
+        data = {
+            "date_from": "2020-01-09T00:00:00Z",
+            "date_to": "2020-01-16T00:00:00Z",
+            "actions": [{"id": action.id, "type": "actions", "order": 0, "math": "weekly_active"}],
         }
 
         filter = Filter(data=data)
