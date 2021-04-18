@@ -67,7 +67,7 @@ class TeamManager(models.Manager):
         if not token:
             return None
         try:
-            return Team.objects.get(api_token=token).defer(*DEFERRED_FIELDS)
+            return Team.objects.defer(*DEFERRED_FIELDS).get(api_token=token)
         except Team.DoesNotExist:
             return None
 
