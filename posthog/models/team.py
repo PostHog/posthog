@@ -17,6 +17,14 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 
 TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
 
+DEFERRED_FIELDS = (
+    "event_names",
+    "event_names_with_usage",
+    "event_properties",
+    "event_properties_with_usage",
+    "event_properties_numerical",
+)
+
 
 class TeamManager(models.Manager):
     def set_test_account_filters(self, organization: Optional[Any]) -> List:
@@ -59,7 +67,7 @@ class TeamManager(models.Manager):
         if not token:
             return None
         try:
-            return Team.objects.get(api_token=token)
+            return Team.objects.defer(*DEFERRED_FIELDS).get(api_token=token)
         except Team.DoesNotExist:
             return None
 
