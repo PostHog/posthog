@@ -160,9 +160,11 @@ export function ProjectSettings(): JSX.Element {
                 </h2>
                 <p>
                     Increase the quality of your analytics results by filtering out events from internal sources, such
-                    as team members, test accounts, or development environments. The data be saved nonetheless, however
-                    you'll be able to exclude it from queries with the "Filter out internal and test users" setting
-                    during analysis.
+                    as team members, test accounts, or development environments.
+                </p>
+                <p>
+                    Events will still be saved and count towards any totals. This filter will only apply to any queries
+                    with the "Filter out internal and test users" toggle set.
                 </p>
                 <p>
                     Example filters to use below: <i>email ∌ yourcompany.com</i> to exclude all events from your
