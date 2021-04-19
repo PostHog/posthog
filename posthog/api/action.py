@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 import posthoganalytics
 from django.core.cache import cache
@@ -100,10 +100,11 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         calculate_action.delay(action_id=action.pk)
 
     def validate(self, attrs):
+        instance = cast(Action, self.instance)
         exclude_args = {}
-        if self.instance:
-            include_args = {"team": self.instance.team}
-            exclude_args = {"id": self.instance.pk}
+        if instance:
+            include_args = {"team": instance.team}
+            exclude_args = {"id": instance.pk}
         else:
             attrs["team_id"] = self.context["view"].team_id
             include_args = {"team_id": attrs["team_id"]}

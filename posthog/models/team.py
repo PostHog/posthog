@@ -2,7 +2,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 import pytz
-from django.contrib.postgres.fields import ArrayField, JSONField
+from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 from django.dispatch.dispatcher import receiver
@@ -47,7 +47,7 @@ class TeamManager(models.Manager):
                     ] + filters
         return filters
 
-    def create_with_data(self, user=None, default_dashboards: bool = True, **kwargs) -> "Team":
+    def create_with_data(self, user: Any = None, default_dashboards: bool = True, **kwargs) -> "Team":
         kwargs["test_account_filters"] = self.set_test_account_filters(kwargs.get("organization"))
         team = Team.objects.create(**kwargs)
 
@@ -91,11 +91,11 @@ class Team(UUIDClassicModel):
         max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")],
     )
     slack_incoming_webhook: models.CharField = models.CharField(max_length=500, null=True, blank=True)
-    event_names: JSONField = JSONField(default=list)
-    event_names_with_usage: JSONField = JSONField(default=list)
-    event_properties: JSONField = JSONField(default=list)
-    event_properties_with_usage: JSONField = JSONField(default=list)
-    event_properties_numerical: JSONField = JSONField(default=list)
+    event_names: models.JSONField = models.JSONField(default=list)
+    event_names_with_usage: models.JSONField = models.JSONField(default=list)
+    event_properties: models.JSONField = models.JSONField(default=list)
+    event_properties_with_usage: models.JSONField = models.JSONField(default=list)
+    event_properties_numerical: models.JSONField = models.JSONField(default=list)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     anonymize_ips: models.BooleanField = models.BooleanField(default=False)
@@ -107,9 +107,9 @@ class Team(UUIDClassicModel):
     )
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
-    test_account_filters: JSONField = JSONField(default=list)
+    test_account_filters: models.JSONField = models.JSONField(default=list)
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
-    data_attributes: JSONField = JSONField(default=get_default_data_attributes)
+    data_attributes: models.JSONField = models.JSONField(default=get_default_data_attributes)
 
     # DEPRECATED, DISUSED: plugins are enabled for everyone now
     plugins_opt_in: models.BooleanField = models.BooleanField(default=False)

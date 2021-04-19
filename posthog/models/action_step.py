@@ -1,4 +1,3 @@
-from django.contrib.postgres.fields import JSONField
 from django.db import models
 
 
@@ -22,4 +21,4 @@ class ActionStep(models.Model):
     )
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     event: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    properties: JSONField = JSONField(default=list, null=True, blank=True)
+    properties: models.JSONField = models.JSONField(default=list, null=True, blank=True)
