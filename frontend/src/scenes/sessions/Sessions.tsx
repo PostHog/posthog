@@ -10,16 +10,8 @@ export function Sessions(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     if (featureFlags['filter_by_session_props']) {
         return (
-            <div style={{ display: 'flex', flexDirection: 'row' }}>
-                <div
-                    style={{
-                        display: 'flex',
-                        flexDirection: 'row',
-                        position: 'fixed',
-                        overflow: 'auto',
-                        height: '100%',
-                    }}
-                >
+            <div className="sessions-wrapper">
+                <div className="sessions-sidebar">
                     <div>
                         <PageHeader title="Sessions" />
                         <SavedFiltersMenu />

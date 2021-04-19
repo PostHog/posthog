@@ -116,14 +116,14 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             render: function RenderStartTime(session: SessionType) {
                 return <span>{humanFriendlyDetailedTime(session.start_time)}</span>
             },
-            span: 3,
+            span: 2.5,
         },
         {
             title: 'End Time',
             render: function RenderEndTime(session: SessionType) {
                 return <span>{humanFriendlyDetailedTime(session.end_time)}</span>
             },
-            span: 3,
+            span: 2.5,
         },
         {
             title: 'Start Point',
