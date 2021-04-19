@@ -162,6 +162,6 @@ function GroupFilters({ group }: { group: FeatureFlagGroupType }): JSX.Element |
     } else if (group.rollout_percentage) {
         return `${group.rollout_percentage}% of all users`
     } else {
-        return 'N/A'
+        return '100% of all users'
     }
 }

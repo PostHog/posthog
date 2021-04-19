@@ -7,6 +7,7 @@ import { OrganizationType, SystemStatus, UserType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 type WarningType =
     | 'welcome'
@@ -22,8 +23,6 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
         collapseMenu: () => {},
         setSystemStatus: (status: SystemStatus) => ({ status }),
         setChangelogModalOpen: (isOpen: boolean) => ({ isOpen }),
-        updateCurrentOrganization: (id: string) => ({ id }),
-        updateCurrentProject: (id: number, dest: string) => ({ id, dest }),
         setToolbarModalOpen: (isOpen: boolean) => ({ isOpen }),
         setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
         setInviteMembersModalOpen: (isOpen: boolean) => ({ isOpen }),
@@ -88,10 +87,14 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
             },
         ],
         updateAvailable: [
-            (selectors) => [selectors.latestVersion, selectors.latestVersionLoading, userLogic.selectors.user],
-            (latestVersion, latestVersionLoading, user) => {
+            (selectors) => [
+                selectors.latestVersion,
+                selectors.latestVersionLoading,
+                preflightLogic.selectors.preflight,
+            ],
+            (latestVersion, latestVersionLoading, preflight) => {
                 // Always latest version in multitenancy
-                return !latestVersionLoading && !user?.is_multi_tenancy && latestVersion !== user?.posthog_version
+                return !latestVersionLoading && !preflight?.cloud && latestVersion !== preflight?.posthog_version
             },
         ],
         currentTeam: [
@@ -103,6 +106,10 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
         demoWarning: [
             () => [userLogic.selectors.user, organizationLogic.selectors.currentOrganization],
             (user: UserType, organization: OrganizationType): WarningType => {
+                if (!organization) {
+                    return null
+                }
+
                 if (
                     organization.setup.is_active &&
                     dayjs(organization.created_at) >= dayjs().subtract(1, 'days') &&
@@ -138,21 +145,6 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
             if (!values.menuCollapsed && window.innerWidth <= 991) {
                 actions.setMenuCollapsed(true)
             }
-        },
-        updateCurrentOrganization: async ({ id }) => {
-            await api.update('api/user', {
-                user: { current_organization_id: id },
-            })
-            location.href = '/'
-        },
-        updateCurrentProject: async ({ id, dest }) => {
-            if (values.currentTeam === id) {
-                return
-            }
-            await api.update('api/user', {
-                user: { current_team_id: id },
-            })
-            location.href = dest
         },
         setHotkeyNavigationEngaged: async ({ hotkeyNavigationEngaged }, breakpoint) => {
             if (hotkeyNavigationEngaged) {

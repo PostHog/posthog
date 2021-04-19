@@ -59,6 +59,13 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
             "url_matching",
             "properties",
         ]
+        extra_kwargs = {
+            "event": {"trim_whitespace": False},
+            "tag_name": {"trim_whitespace": False},
+            "text": {"trim_whitespace": False},
+            "href": {"trim_whitespace": False},
+            "name": {"trim_whitespace": False},
+        }
 
 
 class ActionSerializer(serializers.HyperlinkedModelSerializer):

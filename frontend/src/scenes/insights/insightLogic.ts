@@ -43,7 +43,7 @@ export const logicFromInsight = (insight: string, logicProps: Record<string, any
 
 export const insightLogic = kea<insightLogicType>({
     actions: () => ({
-        setActiveView: (type) => ({ type }),
+        setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type) => ({ type }),
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),

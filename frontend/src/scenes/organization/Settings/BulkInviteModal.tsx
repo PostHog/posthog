@@ -8,6 +8,7 @@ import { red } from '@ant-design/colors'
 import './BulkInviteModal.scss'
 import { isEmail, pluralize } from 'lib/utils'
 import { bulkInviteLogic } from './bulkInviteLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -68,6 +69,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
 
 export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClose: () => void }): JSX.Element {
     const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
     const { invites, canSubmit, invitedTeamMembersLoading, invitedTeamMembers } = useValues(bulkInviteLogic)
     const { appendInviteRow, resetInviteRows, inviteTeamMembers } = useActions(bulkInviteLogic)
 
@@ -125,7 +127,7 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
                     )}
                 </div>
             </div>
-            {!user?.email_service_available && (
+            {!preflight?.email_service_available && (
                 <Alert
                     type="warning"
                     style={{ marginTop: 16 }}

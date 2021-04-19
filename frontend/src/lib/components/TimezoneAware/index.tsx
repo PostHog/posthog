@@ -7,7 +7,7 @@ import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import utc from 'dayjs/plugin/utc'
 import timezone from 'dayjs/plugin/timezone'
 import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 import { ProjectOutlined, LaptopOutlined, GlobalOutlined, SettingOutlined } from '@ant-design/icons'
 import { Link } from '../Link'
 import { humanTzOffset, shortTimeZone } from 'lib/utils'
@@ -36,7 +36,10 @@ function TZConversionHeader(): JSX.Element {
 /** Return a simple label component with timezone conversion UI. */
 export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; showSeconds?: boolean }): JSX.Element {
     const parsedTime = dayjs.isDayjs(time) ? time : dayjs(time)
-    const { currentTeam } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
+    /* We use the team in userLogic because the attribute that we need `timezone` is available in that response,
+     which will be loaded much sooner than `currentTeam`. */
+    const currentTeam = user?.team
 
     const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : `${BASE_OUTPUT_FORMAT}:ss`
     const timeStyle = showSeconds ? { minWidth: 192 } : undefined
@@ -98,7 +101,10 @@ export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; sho
 
 /** Return an explainer component for analytics visualization pages. */
 export function TZIndicator({ style }: { style?: React.CSSProperties }): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
+    /* We use the team in userLogic because the attribute that we need `timezone` is available in that response,
+     which will be loaded much sooner than `currentTeam`. */
+    const currentTeam = user?.team
 
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
 

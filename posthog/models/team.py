@@ -11,7 +11,7 @@ from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
-from .utils import UUIDT, UUIDClassicModel, generate_random_token, sane_repr
+from .utils import UUIDClassicModel, generate_random_token, sane_repr
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
@@ -97,13 +97,14 @@ class Team(UUIDClassicModel):
     session_recording_retention_period_days: models.IntegerField = models.IntegerField(
         null=True, default=None, blank=True
     )
-    plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     test_account_filters: JSONField = JSONField(default=list)
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
     data_attributes: JSONField = JSONField(default=get_default_data_attributes)
 
+    # DEPRECATED, DISUSED: plugins are enabled for everyone now
+    plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
     # DEPRECATED, DISUSED: now managing access in an Organization-centric way

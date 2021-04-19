@@ -1,13 +1,12 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { WarningOutlined, ToolFilled } from '@ant-design/icons'
 import { Button, Card } from 'antd'
 import { billingLogic, BillingAlertType } from 'scenes/billing/billingLogic'
 import { LinkButton } from './LinkButton'
 
 export function BillingAlerts(): JSX.Element | null {
-    const { user } = useValues(userLogic)
+    const { billing } = useValues(billingLogic)
     const { alertToShow, percentage, strokeColor } = useValues(billingLogic)
 
     if (!alertToShow) {
@@ -23,11 +22,11 @@ export function BillingAlerts(): JSX.Element | null {
                         <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
                             <WarningOutlined className="text-warning" style={{ paddingRight: 8 }} />
                             <b>Action needed!&nbsp;</b>
-                            {user?.billing?.plan?.custom_setup_billing_message ||
+                            {billing?.plan?.custom_setup_billing_message ||
                                 'Please finish setting up your billing information.'}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <Button type="primary" href={user?.billing?.subscription_url} icon={<ToolFilled />}>
+                            <Button type="primary" href={billing?.subscription_url} icon={<ToolFilled />}>
                                 Set up now
                             </Button>
                         </div>
