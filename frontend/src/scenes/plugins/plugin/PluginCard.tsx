@@ -192,7 +192,7 @@ export function PluginCard({
                                     onClick={() =>
                                         updateStatus?.updated ? editPlugin(pluginId) : updatePlugin(pluginId)
                                     }
-                                    loading={!!updatingPlugin}
+                                    loading={!!updatingPlugin && pluginId === updatingPlugin}
                                     icon={updateStatus?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
                                     disabled={rearranging}
                                     data-attr="plugin-update"
