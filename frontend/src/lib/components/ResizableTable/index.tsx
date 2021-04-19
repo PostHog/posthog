@@ -1,11 +1,12 @@
 import React, { useLayoutEffect, useRef, useState } from 'react'
 import { Table, TableProps } from 'antd'
+import { ColumnType } from 'antd/lib/table'
 import { ResizableProps } from 'react-resizable'
+import ResizeObserver from 'resize-observer-polyfill'
 import { getActiveBreakpoint, getFullwidthColumnSize, getMinColumnWidth, parsePixelValue } from './responsiveUtils'
+import VirtualTableHeader from './VirtualTableHeader'
 
 import './index.scss'
-import { ColumnType } from 'antd/lib/table'
-import VirtualTableHeader from './VirtualTableHeader'
 
 export interface ResizableColumnType<RecordType> extends ColumnType<RecordType> {
     title: string | JSX.Element
@@ -125,6 +126,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
         if (timeout.current) {
             cancelAnimationFrame(timeout.current)
         }
+        const resizeRatio = newWidth / oldWidth
         const columnWidths = getColumnCSSWidths()
         timeout.current = requestAnimationFrame(function () {
             setHeaderShouldRender(false)
@@ -135,7 +137,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
                         ? column
                         : {
                               ...column,
-                              width: Math.max(((columnWidths[index + 1] ?? 0) / oldWidth) * newWidth, minColumnWidth),
+                              width: Math.max((columnWidths[index + 1] ?? 0) * resizeRatio, minColumnWidth),
                           }
                 )
                 nextColumns.slice(0, lastIndex).forEach((col, index) => {
@@ -145,11 +147,10 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
                 return nextColumns
             })
             setHeaderShouldRender(true)
-            updateTableWidth()
         })
     }
 
-    const resizeObserver = new ResizeObserver((entries) => {
+    const resizeObserver = new ResizeObserver((entries: ResizeObserverEntry[]) => {
         entries.forEach(({ contentRect: { width } }) => handleWrapperResize(width))
     })
 

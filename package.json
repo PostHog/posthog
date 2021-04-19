@@ -82,6 +82,7 @@
         "react-toastify": "^5.5.0",
         "redux": "^4.0.5",
         "reselect": "^4.0.0",
+        "resize-observer-polyfill": "^1.5.1",
         "rrweb": "^0.9.14",
         "sass": "^1.26.2",
         "zxcvbn": "^4.4.2"
