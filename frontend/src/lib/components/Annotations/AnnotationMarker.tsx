@@ -185,7 +185,7 @@ export function AnnotationMarker({
                                             ) : null}
                                         </div>
                                         {(!data.created_by ||
-                                            data.created_by.uuid === user?.id ||
+                                            data.created_by.uuid === user?.uuid ||
                                             data.created_by === 'local') && (
                                             <DeleteOutlined
                                                 className="button-border clickable text-danger"

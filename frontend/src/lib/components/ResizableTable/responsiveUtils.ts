@@ -10,16 +10,8 @@ export function getMaxColumnWidth(breakpoint: number): number {
     return breakpoint < 768 ? 500 : 750
 }
 
-export function getFullwidthColumnSize({
-    wrapperWidth = 1200,
-    breakpoint = 1600,
-}: {
-    wrapperWidth?: number
-    breakpoint?: number
-}): number {
-    const minWidth = getMinColumnWidth(breakpoint)
-    const columnWidth = Math.floor(wrapperWidth / gridBasis)
-    return Math.max(columnWidth, minWidth)
+export function getFullwidthColumnSize(wrapperWidth: number = 1200): number {
+    return Math.floor(wrapperWidth / gridBasis)
 }
 
 function getPixelValue(cssStatement: string): number {

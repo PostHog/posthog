@@ -30,7 +30,6 @@ from posthog.version import VERSION
 
 class UserSerializer(serializers.ModelSerializer):
 
-    id = serializers.SerializerMethodField()
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
@@ -43,7 +42,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "id",
+            "uuid",
             "distinct_id",
             "first_name",
             "email",
@@ -65,9 +64,6 @@ class UserSerializer(serializers.ModelSerializer):
             "is_staff": {"read_only": True},
             "password": {"write_only": True},
         }
-
-    def get_id(self, instance: User) -> str:
-        return str(instance.uuid)
 
     def get_has_password(self, instance: User) -> bool:
         return instance.has_usable_password()

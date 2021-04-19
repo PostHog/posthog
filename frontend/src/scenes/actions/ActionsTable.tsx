@@ -157,7 +157,7 @@ export function ActionsTable(): JSX.Element {
         data = searchActions(data, searchTerm)
     }
     if (filterByMe) {
-        data = data.filter((item) => item.created_by?.uuid === user?.id)
+        data = data.filter((item) => item.created_by?.uuid === user?.uuid)
     }
 
     return (
