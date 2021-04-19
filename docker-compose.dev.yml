@@ -15,11 +15,11 @@ services:
         container_name: posthog_redis
         ports:
             - '6379:6379'
-    worker: &worker
+    backend: &backend
         build:
             context: .
             dockerfile: dev.Dockerfile
-        command: ./bin/docker-worker
+        command: ./bin/docker-backend
         volumes:
             - .:/code
         environment:
@@ -36,9 +36,18 @@ services:
         links:
             - db:db
             - redis:redis
-    web:
-        <<: *worker
-        command: ./bin/docker-dev-web
         ports:
             - '8000:8000'
-            - '8234:8234'
+    #frontend:
+    #<<: *backend
+    #command: ./bin/docker-frontend
+    #ports:
+    #- '8234:8234'
+    worker:
+        <<: *backend
+        command: ./bin/docker-worker
+        ports: []
+        depends_on:
+            - db
+            - redis
+            - backend

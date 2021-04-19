@@ -49,20 +49,15 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                 </Button>
                             )}
                     </div>
-                    {featureFlags['filter_by_session_props_link'] ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                            <Link
-                                to={peopleModalURL.sessions}
-                                style={{ marginLeft: 8 }}
-                                data-attr="persons-modal-sessions"
-                            >
-                                <ClockCircleOutlined /> View related sessions <ArrowRightOutlined />
-                            </Link>
-                            <Link to={peopleModalURL.recordings} type="primary" data-attr="persons-modal-recordings">
-                                View related recordings <ArrowRightOutlined />
-                            </Link>
-                        </div>
-                    ) : null}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                        <Link to={peopleModalURL.sessions} style={{ marginLeft: 8 }} data-attr="persons-modal-sessions">
+                            <ClockCircleOutlined /> View related sessions <ArrowRightOutlined />
+                        </Link>
+                        <Link to={peopleModalURL.recordings} type="primary" data-attr="persons-modal-recordings">
+                            View related recordings <ArrowRightOutlined />
+                        </Link>
+                    </div>
                 </div>
             ) : (
                 <p>Loading users...</p>

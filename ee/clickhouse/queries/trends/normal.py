@@ -62,7 +62,7 @@ class ClickhouseTrendsNormal:
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
                 sql_params = get_active_user_params(filter, entity, team_id)
-                content_sql = ACTIVE_USER_SQL.format(**content_sql_params, **sql_params)
+                content_sql = ACTIVE_USER_SQL.format(**content_sql_params, **sql_params).format(**entity_format_params)
             else:
                 # entity_format_params depends on format clause from content_sql_params
                 content_sql = VOLUME_SQL.format(**content_sql_params).format(**entity_format_params)
