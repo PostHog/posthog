@@ -25,13 +25,14 @@
         height: 52px;
         width: 100%;
         display: flex;
-        justify-content: space-between;
+        justify-content: flex-end;
 
         .dashboard-item-title {
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
             padding-right: 5px;
+            padding-left: 18px;
             a {
                 font-size: 14px;
                 letter-spacing: 0.5px;
@@ -40,6 +41,9 @@
                     text-decoration: underline;
                 }
             }
+        }
+        .dashboard-item-tools {
+            display: flex;
         }
         .dashboard-item-settings {
             white-space: nowrap;
