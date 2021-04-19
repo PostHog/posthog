@@ -38,9 +38,6 @@ class PersonalAPIKeyViewSet(
 ):
     serializer_class = PersonalAPIKeySerializer
     lookup_field = "id"
-    permission_classes = [
-        permissions.IsAuthenticated,
-    ]
 
     def get_queryset(self):
         return PersonalAPIKey.objects.filter(user_id=cast(User, self.request.user).id).order_by("-created_at")
