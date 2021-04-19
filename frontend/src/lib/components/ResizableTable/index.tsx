@@ -87,6 +87,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
             nextColumns[index] = {
                 ...nextColumns[index],
                 width,
+                render: initialColumns[index].render,
             }
             return nextColumns
         })
@@ -118,9 +119,10 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
             const wrapperWidth = scrollWrapperRef.current.clientWidth
             const columnWidth = getFullwidthColumnSize(wrapperWidth)
             setColumns((cols) => {
-                const nextColumns = cols.map((column) => ({
+                const nextColumns = cols.map((column, index) => ({
                     ...column,
                     width: Math.max(minWidth, columnWidth * column.span),
+                    render: initialColumns[index].render,
                 }))
                 if (getTotalWidth(nextColumns) > wrapperWidth) {
                     setScrollableRight(true)
@@ -128,7 +130,8 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
                 return nextColumns
             })
         }
-    }, [])
+    }, [initialColumns])
+
     return (
         <div ref={scrollWrapperRef} className="resizable-table-scroll-container" onScroll={updateScrollGradient}>
             <div ref={overlayRef} className="table-gradient-overlay">
