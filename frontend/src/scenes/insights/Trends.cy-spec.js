@@ -263,7 +263,7 @@ describe('<Insights /> trends', () => {
                 breakdown_type: 'event',
             })
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
-            cy.get('[data-attr="add-breakdown-button"]').should('contain', '$browser')
+            cy.get('[data-attr="add-breakdown-button"]').should('contain', 'Browser')
         })
     })
 })
