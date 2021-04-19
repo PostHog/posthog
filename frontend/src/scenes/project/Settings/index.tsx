@@ -163,12 +163,13 @@ export function ProjectSettings(): JSX.Element {
                     as team members, test accounts, or development environments.
                 </p>
                 <p>
-                    Events will still be saved and count towards any totals. This filter will only apply to any queries
-                    with the "Filter out internal and test users" toggle set.
+                    <b>Events will still be ingested and saved</b> (and will count towards any totals), they will
+                    however be excluded from consideration on any queries where the "Filter out internal and test users"
+                    toggle is set.
                 </p>
                 <p>
                     Example filters to use below: <i>email ∌ yourcompany.com</i> to exclude all events from your
-                    company's employees, or <i>Host ∌ localhost</i> to exclude all events from local development
+                    company's team members, or <i>Host ∌ localhost</i> to exclude all events from local development
                     environments.
                 </p>
                 <TestAccountFiltersConfig />
