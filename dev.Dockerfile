@@ -45,7 +45,6 @@ COPY . .
 
 RUN mkdir frontend/dist
 RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
-RUN yarn install
-RUN yarn install --cwd plugins
+RUN yarn install && yarn install --cwd plugins && yarn cache clean
 
 CMD ["./bin/docker-dev"]
