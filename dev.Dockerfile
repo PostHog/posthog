@@ -43,8 +43,10 @@ COPY plugins/yarn.lock plugins/
 
 COPY . .
 
-RUN mkdir frontend/dist
+# generate Django's static files
 RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
-RUN yarn install && yarn install --cwd plugins && yarn cache clean
+
+# install frontend dependencies
+RUN mkdir frontend/dist && yarn install && yarn install --cwd plugins && yarn cache clean
 
 CMD ["./bin/docker-dev"]
