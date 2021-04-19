@@ -22,11 +22,11 @@ RUN apt-get update \
     && yarn config set network-timeout 300000 \
     && yarn --frozen-lockfile
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt --no-cache-dir
-
 COPY requirements-dev.txt .
 RUN pip install -r requirements-dev.txt --compile --no-cache-dir
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt --no-cache-dir
 
 COPY package.json .
 COPY yarn.lock .
