@@ -84,7 +84,7 @@ export function PluginCard({
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin, rearrange } = useActions(
         pluginsLogic
     )
-    const { loading, installingPluginUrl, checkingForUpdates, updatingPlugin } = useValues(pluginsLogic)
+    const { loading, installingPluginUrl, checkingForUpdates, pluginsUpdating } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
 
     return (
@@ -192,7 +192,7 @@ export function PluginCard({
                                     onClick={() =>
                                         updateStatus?.updated ? editPlugin(pluginId) : updatePlugin(pluginId)
                                     }
-                                    loading={!!updatingPlugin && pluginId === updatingPlugin}
+                                    loading={pluginsUpdating.includes(pluginId)}
                                     icon={updateStatus?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
                                     disabled={rearranging}
                                     data-attr="plugin-update"
