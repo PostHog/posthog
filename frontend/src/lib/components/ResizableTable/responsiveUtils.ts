@@ -10,13 +10,13 @@ export function getFullwidthColumnSize(wrapperWidth: number = 1200, gridBasis = 
     return Math.floor(innerWidth / gridBasis)
 }
 
-function getPixelValue(cssStatement: string): number {
-    return parseInt(cssStatement.replace(/\D/g, ''), 10)
+export function parsePixelValue(cssStatement: string): number {
+    return parseFloat(cssStatement.replace(/[^\d.]/g, ''))
 }
 
 export function getActiveBreakpoint(): number {
     const { innerWidth: width } = window
-    const breakpoints = Object.values(responsiveMap).map((cssStatement) => getPixelValue(cssStatement))
+    const breakpoints = Object.values(responsiveMap).map((cssStatement) => parsePixelValue(cssStatement))
     let breakpoint = breakpoints[0]
     breakpoints.forEach((value) => {
         if (width > breakpoint) {

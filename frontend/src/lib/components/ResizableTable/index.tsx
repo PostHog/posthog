@@ -1,7 +1,7 @@
 import React, { useLayoutEffect, useRef, useState } from 'react'
 import { Table, TableProps } from 'antd'
 import { ResizableProps } from 'react-resizable'
-import { getActiveBreakpoint, getFullwidthColumnSize, getMinColumnWidth } from './responsiveUtils'
+import { getActiveBreakpoint, getFullwidthColumnSize, getMinColumnWidth, parsePixelValue } from './responsiveUtils'
 
 import './index.scss'
 import { ColumnType } from 'antd/lib/table'
@@ -66,6 +66,15 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
         }
     }
 
+    function getColumnCSSWidths(): Array<number | undefined> {
+        const columnNodes = scrollWrapperRef.current?.querySelectorAll<HTMLElement>('.ant-table-content colgroup col')
+        if (columnNodes) {
+            const cols = Array.from(columnNodes)
+            return cols.map((col) => (col.style.width ? parsePixelValue(col.style.width) : undefined))
+        }
+        return []
+    }
+
     function updateColumnWidth(index: number, width: number): void {
         const col = scrollWrapperRef.current?.querySelector(
             // nth-child is 1-indexed. first column is fixed. last column width must be uncontrolled.
@@ -107,24 +116,26 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
     }
 
     function handleWrapperResize(newWidth: number): void {
+        // Recalculate column widths if the wrapper changes size.
+        const table = scrollWrapperRef.current?.querySelector('.ant-table table')
+        const oldWidth = table?.clientWidth
+        if (!oldWidth || oldWidth === newWidth) {
+            return
+        }
         if (timeout.current) {
             cancelAnimationFrame(timeout.current)
         }
+        const columnWidths = getColumnCSSWidths()
         timeout.current = requestAnimationFrame(function () {
-            const table = scrollWrapperRef.current?.querySelector('.ant-table table')
-            const oldWidth = table?.clientWidth
-            if (!oldWidth || oldWidth === newWidth) {
-                return
-            }
             setHeaderShouldRender(false)
             setHeaderColumns((cols) => {
-                const lastIndex = initialColumns.length
+                const lastIndex = initialColumns.length - 1
                 const nextColumns = cols.map((column, index) =>
                     index === lastIndex
                         ? column
                         : {
                               ...column,
-                              width: Math.max(((column.width ?? 0) / oldWidth) * newWidth, minColumnWidth),
+                              width: Math.max(((columnWidths[index + 1] ?? 0) / oldWidth) * newWidth, minColumnWidth),
                           }
                 )
                 nextColumns.slice(0, lastIndex).forEach((col, index) => {
