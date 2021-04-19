@@ -300,19 +300,15 @@ def filter_by_type(entity: Entity, team: Team, filter: Filter) -> QuerySet:
     if filter.session:
         events = Event.objects.filter(team=team).filter(base.filter_events(team.pk, filter)).add_person_id(team.pk)
     else:
-        if entity.type == TREND_FILTER_TYPE_EVENTS:
-            events = base.process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(
-                base.filter_events(team.pk, filter, entity)
-            )
-        elif entity.type == TREND_FILTER_TYPE_ACTIONS:
+        if entity.type == TREND_FILTER_TYPE_ACTIONS:
             actions = Action.objects.filter(deleted=False)
             try:
                 actions.get(pk=entity.id)
             except Action.DoesNotExist:
                 return events
-            events = base.process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(
-                base.filter_events(team.pk, filter, entity)
-            )
+        events = base.process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(
+            base.filter_events(team.pk, filter, entity)
+        )
     return events
 
 
