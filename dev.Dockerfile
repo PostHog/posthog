@@ -22,12 +22,11 @@ RUN apt-get update \
     && yarn config set network-timeout 300000 \
     && yarn --frozen-lockfile
 
-COPY requirements.txt .
-
-RUN pip install -r requirements.txt --no-cache-dir
-
 COPY requirements-dev.txt .
 RUN pip install -r requirements-dev.txt --compile --no-cache-dir
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt --no-cache-dir
 
 COPY package.json .
 COPY yarn.lock .
@@ -44,9 +43,10 @@ COPY plugins/yarn.lock plugins/
 
 COPY . .
 
-RUN mkdir frontend/dist
-RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
-RUN yarn install
-RUN yarn install --cwd plugins
+# generate Django's static files
+RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' mkdir frontend/dist && python manage.py collectstatic --noinput
+
+# install frontend dependencies
+RUN yarn install && yarn install --cwd plugins && yarn cache clean
 
 CMD ["./bin/docker-dev"]

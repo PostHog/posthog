@@ -2,12 +2,11 @@ import copy
 import datetime
 import re
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 import celery
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
-from django.contrib.postgres.fields import JSONField
 from django.db import connection, models, transaction
 from django.db.models import Exists, F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.forms.models import model_to_dict
@@ -386,10 +385,10 @@ class Event(models.Model):
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     distinct_id: models.CharField = models.CharField(max_length=200)
-    properties: JSONField = JSONField(default=dict)
+    properties: models.JSONField = models.JSONField(default=dict)
     timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
     elements_hash: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     site_url: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     # DEPRECATED: elements are stored against element groups now
-    elements: JSONField = JSONField(default=list, null=True, blank=True)
+    elements: models.JSONField = models.JSONField(default=list, null=True, blank=True)
