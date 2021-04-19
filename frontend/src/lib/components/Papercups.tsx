@@ -25,7 +25,7 @@ export function Papercups(): JSX.Element {
                     name: user.first_name,
                     external_id: user.distinct_id,
                     metadata: {
-                        user_id: user.id,
+                        user_id: user.uuid,
                         organization_name: user.organization?.name,
                         organization_id: user.organization?.id,
                         organization_plan: billing?.plan?.key,

@@ -2,10 +2,12 @@ from typing import cast
 
 import pytest
 from django.conf import settings
+from django.utils import timezone
 from rest_framework import status
 
 from posthog.constants import RDBMS
 from posthog.models import User
+from posthog.models.organization import OrganizationInvite
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
 
@@ -61,6 +63,7 @@ class TestPreflight(APIBaseTest):
                     "is_debug": False,
                     "is_event_property_usage_enabled": False,
                     "is_async_event_action_mapping_enabled": True,
+                    "licensed_users_available": None,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -118,6 +121,7 @@ class TestPreflight(APIBaseTest):
                     "is_debug": False,
                     "is_event_property_usage_enabled": False,
                     "is_async_event_action_mapping_enabled": True,
+                    "licensed_users_available": None,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -157,6 +161,22 @@ class TestPreflight(APIBaseTest):
                     "is_debug": False,
                     "is_event_property_usage_enabled": False,
                     "is_async_event_action_mapping_enabled": True,
+                    "licensed_users_available": None,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
+
+    @pytest.mark.ee
+    def test_ee_preflight_with_users_limit(self):
+
+        from ee.models.license import License, LicenseManager
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key_123", plan="base_clickhouse", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+        )
+
+        OrganizationInvite.objects.create(organization=self.organization, target_email="invite@posthog.com")
+
+        response = self.client.get("/_preflight/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["licensed_users_available"], 1)

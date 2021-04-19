@@ -1,21 +1,25 @@
-from typing import Any, List, Optional, cast
+from typing import Any, ClassVar, List, Optional, cast
 
 import requests
+from django.contrib.auth import get_user_model
 from django.db import models
 from django.utils import timezone
+from rest_framework import exceptions, status
 
 
-class LicenseError(Exception):
-    """Exception raised for licensing errors.
-
-    Attributes:
-        code -- code of the exception
-        detail -- message of the exception
+class LicenseError(exceptions.APIException):
     """
+    Exception raised for licensing errors.
+    """
+
+    default_type = "license_error"
+    default_code = "license_error"
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "There was a problem with your current license."
 
     def __init__(self, code, detail):
         self.code = code
-        self.detail = detail
+        self.detail = exceptions._get_error_details(detail, code)
 
 
 class LicenseManager(models.Manager):
@@ -27,6 +31,7 @@ class LicenseManager(models.Manager):
 
         kwargs["valid_until"] = resp["valid_until"]
         kwargs["plan"] = resp["plan"]
+        kwargs["max_users"] = resp.get("max_users", 0)
         return cast(License, super().create(*args, **kwargs))
 
     def first_valid(self) -> Optional["License"]:
@@ -40,13 +45,41 @@ class License(models.Model):
     plan: models.CharField = models.CharField(max_length=200)
     valid_until: models.DateTimeField = models.DateTimeField()
     key: models.CharField = models.CharField(max_length=200)
+    max_users: models.IntegerField = models.IntegerField(default=None, null=True)  # None = no restriction
 
     ENTERPRISE_PLAN = "enterprise"
-    ENTERPRISE_FEATURES = ["zapier", "organizations_projects", "google_login", "dashboard_collaboration"]
+    BASE_CLICKHOUSE_PLAN = "base_clickhouse"
+    ENTERPRISE_FEATURES = [
+        "zapier",
+        "organizations_projects",
+        "google_login",
+        "dashboard_collaboration",
+    ]  # Base premium features
     PLANS = {
-        ENTERPRISE_PLAN: ENTERPRISE_FEATURES,
+        ENTERPRISE_PLAN: ENTERPRISE_FEATURES + ["clickhouse"],
+        BASE_CLICKHOUSE_PLAN: ["clickhouse"],
     }
 
     @property
     def available_features(self) -> List[str]:
         return self.PLANS.get(self.plan, [])
+
+
+def get_licensed_users_available() -> Optional[int]:
+    """
+    Returns the number of user slots available that can be created based on the instance's current license.
+    Not relevant for cloud users.
+    `None` means unlimited users.
+    """
+
+    license = License.objects.first_valid()
+    from posthog.models import OrganizationInvite
+
+    if license:
+        if license.max_users is None:
+            return None
+
+        users_left = license.max_users - get_user_model().objects.count() - OrganizationInvite.objects.count()
+        return max(users_left, 0)
+
+    return None

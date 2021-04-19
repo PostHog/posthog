@@ -51,11 +51,11 @@ export const userLogic = kea<userLogicType<UserType, UserUpdateType>>({
                     try {
                         const user: UserType = await api.get('api/users/@me/')
 
-                        if (user && user.id) {
+                        if (user && user.uuid) {
                             const Sentry = (window as any).Sentry
                             Sentry?.setUser({
                                 email: user.email,
-                                id: user.id,
+                                id: user.uuid,
                             })
 
                             if (posthog) {

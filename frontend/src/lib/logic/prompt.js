@@ -51,8 +51,8 @@ export const prompt = kea({
             try {
                 const response = await promise
                 success && success(response)
-            } catch (error) {
-                failure && failure(error)
+            } catch (err) {
+                failure && failure(err)
             }
         },
     }),

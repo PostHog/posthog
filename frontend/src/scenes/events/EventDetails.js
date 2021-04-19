@@ -31,7 +31,7 @@ export function EventDetails({ event }) {
         <>
             <Button
                 onClick={() => createActionFromEvent(event, 0)}
-                style={{ float: 'right', zIndex: 9999 }}
+                style={{ float: 'right', zIndex: 1 }}
                 type="primary"
             >
                 Create action from event

@@ -9,6 +9,8 @@ import { DownOutlined, DeleteOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import './ActionFilterRow.scss'
 import { teamLogic } from 'scenes/teamLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
 const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
@@ -200,6 +202,14 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
     const numericalNotice = `This can only be used on properties that have at least one number type occurence in your events.${
         areEventPropertiesNumericalAvailable ? '' : ' None have been found yet!'
     }`
+    const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    let math_entries = EVENT_MATH_ENTRIES
+
+    if (!featureFlags['3638-trailing-wau-mau'] || !preflight?.ee_enabled) {
+        math_entries = math_entries.filter((item) => item[0] !== 'weekly_active' && item[0] !== 'monthly_active')
+    }
 
     return (
         <Select
@@ -209,7 +219,7 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
             data-attr={`math-selector-${index}`}
         >
             <Select.OptGroup key="event aggregates" label="Event aggregation">
-                {EVENT_MATH_ENTRIES.map(([key, { name, description, onProperty }]) => {
+                {math_entries.map(([key, { name, description, onProperty }]) => {
                     const disabled = onProperty && !areEventPropertiesNumericalAvailable
                     return (
                         <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`} disabled={disabled}>

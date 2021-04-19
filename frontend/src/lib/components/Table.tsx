@@ -19,7 +19,7 @@ export function createdByColumn(items: Record<string, any>[]): Record<string, an
     const { user } = useValues(userLogic)
     return {
         title: 'Created by',
-        render: function RenderCreatedBy(_, item: any) {
+        render: function Render(_: any, item: any) {
             return item.created_by ? item.created_by.first_name || item.created_by.email : '-'
         },
         filters: uniqueBy(
@@ -38,10 +38,10 @@ export function createdByColumn(items: Record<string, any>[]): Record<string, an
             (item) => item?.value
         ).sort((a, b) => {
             // Current user first
-            if (a.value === user?.id) {
+            if (a.value === user?.uuid) {
                 return -10
             }
-            if (b.value === user?.id) {
+            if (b.value === user?.uuid) {
                 return 10
             }
             return (a.text + '').localeCompare(b.text + '')

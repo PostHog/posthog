@@ -1,15 +1,14 @@
 import React, { useLayoutEffect, useRef, useState } from 'react'
 import { Table, TableProps } from 'antd'
 import { Resizable } from 'react-resizable'
-import { SessionType } from '~/types'
 import { getActiveBreakpoint, getFullwidthColumnSize, getMaxColumnWidth, getMinColumnWidth } from './responsiveUtils'
 
 import './index.scss'
 
-export type ResizableColumnType = {
+export interface ResizableColumnType<RecordType> {
     title: string | JSX.Element
     key?: string
-    render: (session: SessionType) => JSX.Element
+    render: (record: RecordType, ...rest: any) => JSX.Element
     ellipsis?: boolean
     span: number
 }
@@ -43,28 +42,27 @@ function ResizableTitle(props: any): JSX.Element {
     )
 }
 
-interface ResizableTableProps<T> extends TableProps<T> {
-    columns: ResizableColumnType[]
+interface ResizableTableProps<RecordType> extends TableProps<RecordType> {
+    columns: ResizableColumnType<RecordType>[]
 }
 
-type InternalColumnType = ResizableColumnType & {
+interface InternalColumnType<RecordType> extends ResizableColumnType<RecordType> {
     onHeaderCell: (props: any) => React.HTMLAttributes<HTMLElement>
     width: number
 }
 
 // Type matches antd.Table
-// eslint-disable-next-line @typescript-eslint/ban-types
-export function ResizableTable<RecordType extends object = any>({
+export function ResizableTable<RecordType extends Record<any, any> = any>({
     columns: initialColumns = [],
     components,
     ...props
 }: ResizableTableProps<RecordType>): JSX.Element {
     const breakpoint = getActiveBreakpoint()
-    const minConstraints = [getMinColumnWidth(breakpoint), 0]
-    const maxConstraints = [getMaxColumnWidth(breakpoint), 0]
+    const minWidth = getMinColumnWidth(breakpoint)
+    const maxWidth = getMaxColumnWidth(breakpoint)
     const scrollWrapperRef = useRef<HTMLDivElement>(null)
     const overlayRef = useRef<HTMLDivElement>(null)
-    function getTotalWidth(columns: InternalColumnType[]): number {
+    function getTotalWidth(columns: InternalColumnType<RecordType>[]): number {
         return columns.reduce((total, current) => total + current.width, 0)
     }
     function setScrollableRight(value: boolean): void {
@@ -84,7 +82,7 @@ export function ResizableTable<RecordType extends object = any>({
         }
     }
     const handleResize = (index: number) => (_: unknown, { size: { width } }: { size: { width: number } }) => {
-        setColumns((columns: InternalColumnType[]) => {
+        setColumns((columns: InternalColumnType<RecordType>[]) => {
             const nextColumns = [...columns]
             nextColumns[index] = {
                 ...nextColumns[index],
@@ -95,7 +93,7 @@ export function ResizableTable<RecordType extends object = any>({
         updateScrollGradient()
     }
     const [columns, setColumns] = useState(() => {
-        const defaultColumnWidth = getFullwidthColumnSize({})
+        const defaultColumnWidth = getFullwidthColumnSize()
         return initialColumns.map(
             (column, index) =>
                 ({
@@ -103,25 +101,26 @@ export function ResizableTable<RecordType extends object = any>({
                     width: defaultColumnWidth,
                     onHeaderCell: ({ width }: { width: number }) => ({
                         onResize: handleResize(index),
-                        minConstraints,
-                        maxConstraints,
+                        minConstraints: [minWidth, 0],
+                        maxConstraints: [maxWidth, 0],
                         width,
+                        style: {
+                            maxWidth,
+                            minWidth,
+                        },
                     }),
-                } as InternalColumnType)
+                } as InternalColumnType<RecordType>)
         )
     })
     useLayoutEffect(() => {
         // Calculate relative column widths (px) once the wrapper is mounted.
         if (scrollWrapperRef.current) {
             const wrapperWidth = scrollWrapperRef.current.clientWidth
-            const columnWidth = getFullwidthColumnSize({
-                wrapperWidth,
-                breakpoint,
-            })
+            const columnWidth = getFullwidthColumnSize(wrapperWidth)
             setColumns((cols) => {
                 const nextColumns = cols.map((column) => ({
                     ...column,
-                    width: columnWidth * column.span,
+                    width: Math.max(minWidth, columnWidth * column.span),
                 }))
                 if (getTotalWidth(nextColumns) > wrapperWidth) {
                     setScrollableRight(true)
