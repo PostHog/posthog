@@ -192,7 +192,7 @@ export interface PropertyFilter {
     key: string
     operator: string | null
     type: string
-    value: string | number
+    value: string | number | (string | number)[]
 }
 
 interface BasePropertyFilter {
