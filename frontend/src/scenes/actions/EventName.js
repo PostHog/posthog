@@ -14,9 +14,7 @@ export function EventName({ value, onChange, isActionStep }) {
                 allowClear
                 style={{ width: '20%' }}
                 onChange={onChange}
-                filterOption={(input, option) =>
-                    option.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
-                }
+                filterOption={(input, option) => option?.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
                 disabled={isActionStep && eventNamesGrouped[0].options.length === 0}
                 value={value}
                 data-attr="event-name-box"
