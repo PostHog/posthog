@@ -53,7 +53,7 @@ class ClickhouseTrendsNormal:
 
         if filter.display in TRENDS_DISPLAY_BY_VALUE:
             content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(**content_sql_params)
-            time_range = self._enumerate_time_range(filter, seconds_in_interval)
+            time_range = self._enumerate_time_range(filter, seconds_in_interval).format(**entity_format_params)
 
             return (
                 content_sql,
