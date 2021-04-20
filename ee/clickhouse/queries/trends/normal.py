@@ -80,11 +80,16 @@ class ClickhouseTrendsNormal:
             final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
             return final_query, params, self._parse_normal_result(filter)
 
-    def _enumerate_time_range(self, filter: Filter, seconds_in_interval: int) -> List:
+    def _enumerate_time_range(self, filter: Filter, seconds_in_interval: int) -> List[str]:
         date_from = filter.date_from
         date_to = filter.date_to
         delta = timedelta(seconds=seconds_in_interval)
         time_range = []
+
+        if not date_from:
+            # Happens when timeframe is "All time"
+            return time_range
+
         while date_from <= date_to:
             time_range.append(
                 date_from.strftime(
