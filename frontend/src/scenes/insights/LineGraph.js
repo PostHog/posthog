@@ -21,6 +21,16 @@ Chart.defaults.global.elements.line.tension = 0
 
 const noop = () => {}
 
+const commonTooltipsOptions = {
+    enabled: true,
+    yPadding: 10,
+    xPadding: 10,
+    caretPadding: 0,
+    backgroundColor: '#1dc9b7',
+    titleFontColor: '#ffffff',
+    labelFontSize: 23,
+}
+
 export function LineGraph({
     datasets,
     visibilityMap = null,
@@ -184,7 +194,7 @@ export function LineGraph({
             maintainAspectRatio: false,
             scaleShowHorizontalLines: false,
             tooltips: {
-                enabled: true,
+                ...commonTooltipsOptions,
                 intersect: false,
                 mode: 'nearest',
                 // If bar, we want to only show the tooltip for what we're hovering over
@@ -192,21 +202,14 @@ export function LineGraph({
                 axis: { bar: 'x', horizontalBar: 'y' }[type],
                 bodySpacing: 5,
                 position: 'nearest',
-                yPadding: 10,
-                xPadding: 10,
-                caretPadding: 0,
                 displayColors: false,
-                backgroundColor: '#1dc9b7',
-                titleFontColor: '#ffffff',
-                labelFontSize: 23,
                 cornerRadius: 4,
-                fontSize: 12,
                 footerSpacing: 0,
                 titleSpacing: 0,
                 footerFontStyle: 'italic',
                 callbacks: {
                     label: function (tooltipItem, data) {
-                        let entityData = data.datasets[tooltipItem.datasetIndex]
+                        const entityData = data.datasets[tooltipItem.datasetIndex]
                         if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
                             return null
                         }
@@ -330,6 +333,25 @@ export function LineGraph({
                 responsive: true,
                 maintainAspectRatio: false,
                 hover: { mode: 'index' },
+                tooltips: {
+                    ...commonTooltipsOptions,
+                    mode: 'index',
+                    callbacks: {
+                        label: function (tooltipItem, data) {
+                            const entityData = data.datasets[tooltipItem.datasetIndex]
+                            const label = entityData.chartLabel || entityData.labels[tooltipItem.index] || ''
+                            const formattedLabel = entityData.action[tooltipItem.index]
+                                ? formatLabel(label, entityData.action[tooltipItem.index])
+                                : label
+                            const currentValue = entityData.data[tooltipItem.index]
+                            return (
+                                (formattedLabel ? formattedLabel + ' — ' : '') +
+                                currentValue.toLocaleString() +
+                                (percentage ? '%' : '')
+                            )
+                        },
+                    },
+                },
             }
         }
 
