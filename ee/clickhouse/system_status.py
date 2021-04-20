@@ -15,6 +15,26 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         yield {"key": f"clickhouse_disk_{index}_free_space", "metric": f"{metric} free space", "value": free_space}
         yield {"key": f"clickhouse_disk_{index}_total_space", "metric": f"{metric} total space", "value": total_space}
 
+    table_sizes = sync_execute(
+        """
+        SELECT
+            table,
+            formatReadableSize(sum(bytes)) AS size,
+            sum(rows) AS rows
+        FROM system.parts
+        WHERE active
+        GROUP BY table
+        ORDER BY rows DESC
+    """
+    )
+
+    yield {
+        "key": "clickhouse_table_sizes",
+        "metric": "Clickhouse table sizes",
+        "value": "",
+        "subrows": {"columns": ["Table", "Size", "Rows"], "rows": table_sizes},
+    }
+
     system_metrics = sync_execute("SELECT * FROM system.asynchronous_metrics")
     system_metrics += sync_execute("SELECT * FROM system.metrics")
 
@@ -22,14 +42,5 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "key": "clickhouse_system_metrics",
         "metric": "Clickhouse system metrics",
         "value": "",
-        "subrows": list(map(unpack_system_metric, sorted(system_metrics))),
-    }
-
-
-def unpack_system_metric(metric) -> SystemStatusRow:
-    return {
-        "key": metric[0],
-        "metric": metric[0],
-        "value": metric[1],
-        "description": metric[2] if len(metric) > 2 else "",
+        "subrows": {"columns": ["Metric", "Value", "Description"], "rows": list(sorted(system_metrics))},
     }

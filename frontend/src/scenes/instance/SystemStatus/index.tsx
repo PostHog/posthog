@@ -5,7 +5,7 @@ import { Alert, Table, Tag, Card } from 'antd'
 import { systemStatusLogic } from './systemStatusLogic'
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { SystemStatus as SystemStatusType } from '~/types'
+import { SystemStatusSubrows } from '~/types'
 
 export function SystemStatus(): JSX.Element {
     const { systemStatus, systemStatusLoading, error } = useValues(systemStatusLogic)
@@ -53,10 +53,10 @@ export function SystemStatus(): JSX.Element {
                     columns={columns}
                     loading={systemStatusLoading}
                     expandable={{
-                        expandedRowRender: function renderExpand(data) {
-                            return <Subrows subrows={data.subrows || []} />
+                        expandedRowRender: function renderExpand(row) {
+                            return row.subrows ? <Subrows {...row.subrows} /> : null
                         },
-                        rowExpandable: (row) => !!row.subrows && row.subrows.length > 0,
+                        rowExpandable: (row) => !!row.subrows && row.subrows.rows.length > 0,
                         expandRowByClick: true,
                     }}
                 />
@@ -65,28 +65,13 @@ export function SystemStatus(): JSX.Element {
     )
 }
 
-function Subrows(props: { subrows: SystemStatusType[] }): JSX.Element {
-    const columns = [
-        {
-            title: 'Metric',
-            dataIndex: 'metric',
-        },
-        {
-            title: 'Value',
-            dataIndex: 'value',
-        },
-        {
-            title: 'Description',
-            dataIndex: 'description',
-        },
-    ]
-
+function Subrows(props: SystemStatusSubrows): JSX.Element {
     return (
         <Table
             rowKey="metric"
             pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-            dataSource={props.subrows}
-            columns={columns}
+            dataSource={props.rows}
+            columns={props.columns.map((title, dataIndex) => ({ title, dataIndex }))}
         />
     )
 }
