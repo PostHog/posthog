@@ -240,7 +240,7 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
 
             response = self.client.delete(f"/api/person/{person.pk}/")
             self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-            self.assertEqual(response.data, None)
+            self.assertEqual(response.content, b"")  # Empty response
             self.assertEqual(len(get_people()), 0)
             self.assertEqual(len(get_events()), 1)
 
