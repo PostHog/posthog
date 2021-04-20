@@ -75,6 +75,8 @@ def _get_project_id(data, request) -> Optional[int]:
         return int(request.POST["project_id"])
     if request.POST.get("project_id"):
         return int(request.POST["project_id"])
+    if isinstance(data, list):
+        data = data[0]  # Mixpanel Swift SDK
     if data.get("project_id"):
         return int(data["project_id"])
     return None
