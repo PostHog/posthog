@@ -1,4 +1,4 @@
-<p align="center"><img src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/post-logo-800x156.svg" width="400px" /></p>
+<p align="center"><img src="https://posthog-public.s3.amazonaws.com/PostHog+Header.svg" width="500px" /></p>
 <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
 <a href='#contributors-'><img src='https://img.shields.io/badge/all_contributors-118-orange.svg?style=flat-square' /></a>
 <!-- ALL-CONTRIBUTORS-BADGE:END -->
@@ -9,7 +9,7 @@ PostHog provides open-source product analytics, built for developers. Automate t
 
 <br /><br />
 
-<img align="left" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/icons/Untitled_Artwork+2.jpg" width="50px" />
+<img align="left" src="https://posthog-public.s3.amazonaws.com/Quick+start.svg" width="50px" />
 
 ## Quick Start
 
@@ -19,7 +19,7 @@ PostHog provides open-source product analytics, built for developers. Automate t
 
 <br /><br />
 
-<img align="left" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/icons/Untitled_Artwork+3.jpg" width="50px" />
+<img align="left" src="https://posthog-public.s3.amazonaws.com/Make+the+most+of+PH.svg" width="50px" />
 
 ## Make the Most of PostHog
 
@@ -31,7 +31,7 @@ Join [our PostHog Users Slack community](https://join.slack.com/t/posthogusers/s
 
 <br /><br />
 
-<img align="left" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/icons/Untitled_Artwork+4.jpg" width="50px" />
+<img align="left" src="https://posthog-public.s3.amazonaws.com/Features.svg" width="50px" />
 
 ## Features
 
@@ -48,7 +48,7 @@ Join [our PostHog Users Slack community](https://join.slack.com/t/posthogusers/s
 
 <br /><br />
 
-<img align="left" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/icons/Untitled_Artwork+2+copy+3+1.jpg" width="50px" />
+<img align="left" src="https://posthog-public.s3.amazonaws.com/Event+autocapture.svg" width="50px" />
 
 ## Event Autocapture
 
