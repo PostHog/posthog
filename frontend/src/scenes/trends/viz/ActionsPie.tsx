@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { Loading } from 'lib/utils'
 import { LineGraph } from '../../insights/LineGraph'
 import { getChartColors } from 'lib/colors'
-import { useValues, useActions } from 'kea'
+import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { ChartParams, TrendResultWithAggregate } from '~/types'
 
@@ -19,13 +19,11 @@ export function ActionsPie({
     const [data, setData] = useState<Record<string, any>[] | null>(null)
     const [total, setTotal] = useState(0)
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
-    const { loadPeople } = useActions(logic)
     const { results, resultsLoading } = useValues(logic)
 
     function updateData(): void {
         const _data = results as TrendResultWithAggregate[]
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
-        const days = results.length > 0 ? results[0].days : []
 
         const colorList = getChartColors(color)
 
@@ -33,8 +31,6 @@ export function ActionsPie({
             {
                 labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
-                actions: _data.map((item) => item.action),
-                days,
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,
                 hoverBorderColor: colorList,
@@ -64,14 +60,6 @@ export function ActionsPie({
                         labels={data[0].labels}
                         inSharedMode={inSharedMode}
                         dashboardItemId={dashboardItemId}
-                        onClick={(point) => {
-                            const { dataset } = point
-                            const action = dataset.actions[point.index]
-                            const label = dataset.labels[point.index]
-                            const date_from = dataset.days[0]
-                            const date_to = dataset.days[dataset.days.length - 1]
-                            loadPeople(action, label, date_from, date_to, null)
-                        }}
                     />
                 </div>
                 <h1>
