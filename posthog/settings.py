@@ -507,7 +507,7 @@ REST_FRAMEWORK = {
 }
 
 EXCEPTIONS_HOG = {
-    "EXCEPTION_REPORTING": "posthog.utils.exception_reporting",
+    "EXCEPTION_REPORTING": "posthog.exceptions.exception_reporting",
 }
 
 # Email

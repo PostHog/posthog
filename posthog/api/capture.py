@@ -8,9 +8,12 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+from rest_framework import status
+from sentry_sdk import capture_exception
 
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
+from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
@@ -99,27 +102,21 @@ def get_event(request):
     timer.start()
     now = timezone.now()
     try:
-        data_from_request = load_data_from_request(request)
-        data = data_from_request["data"]
-    except TypeError:
+        data = load_data_from_request(request)
+    except RequestParsingError as error:
+        capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
         return cors_response(
-            request,
-            JsonResponse(
-                {"code": "validation", "message": "Malformed request data. Make sure you're sending valid JSON.",},
-                status=400,
-            ),
+            request, generate_exception_response(f"Malformed request data: {error}", code="invalid_payload"),
         )
     if not data:
         return cors_response(
             request,
-            JsonResponse(
-                {
-                    "code": "validation",
-                    "message": "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
-                },
-                status=400,
+            generate_exception_response(
+                "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
+                code="no_data",
             ),
         )
+
     sent_at = _get_sent_at(data, request)
 
     token = _get_token(data, request)
@@ -127,38 +124,43 @@ def get_event(request):
     if not token:
         return cors_response(
             request,
-            JsonResponse(
-                {
-                    "code": "validation",
-                    "message": "API key not provided. You can find your project API key in PostHog project settings.",
-                },
-                status=401,
+            generate_exception_response(
+                "API key not provided. You can find your project API key in PostHog project settings.",
+                type="authentication_error",
+                code="missing_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
             ),
         )
+
     team = Team.objects.get_team_from_token(token)
 
     if team is None:
         try:
             project_id = _get_project_id(data, request)
-        except:
+        except ValueError:
             return cors_response(
-                request, JsonResponse({"code": "validation", "message": "Invalid project ID.",}, status=400,),
+                request, generate_exception_response("Invalid Project ID.", code="invalid_project", attr="project_id"),
             )
         if not project_id:
             return cors_response(
                 request,
-                JsonResponse(
-                    {
-                        "code": "validation",
-                        "message": "Project API key invalid. You can find your project API key in PostHog project settings.",
-                    },
-                    status=401,
+                generate_exception_response(
+                    "Project API key invalid. You can find your project API key in PostHog project settings.",
+                    type="authentication_error",
+                    code="invalid_api_key",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
                 ),
             )
         user = User.objects.get_from_personal_api_key(token)
         if user is None:
             return cors_response(
-                request, JsonResponse({"code": "validation", "message": "Personal API key invalid.",}, status=401,),
+                request,
+                generate_exception_response(
+                    "Invalid Personal API key.",
+                    type="authentication_error",
+                    code="invalid_personal_api_key",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
             )
         team = user.teams.get(id=project_id)
 
@@ -177,7 +179,7 @@ def get_event(request):
     try:
         events = preprocess_session_recording_events(events)
     except ValueError as e:
-        return cors_response(request, JsonResponse({"code": "validation", "message": str(e),}, status=400,),)
+        return cors_response(request, generate_exception_response(f"Invalid payload: {e}", code="invalid_payload"))
 
     for event in events:
         try:
@@ -185,21 +187,15 @@ def get_event(request):
         except KeyError:
             return cors_response(
                 request,
-                JsonResponse(
-                    {
-                        "code": "validation",
-                        "message": "You need to set user distinct ID field `distinct_id`.",
-                        "item": event,
-                    },
-                    status=400,
+                generate_exception_response(
+                    "You need to set user distinct ID field `distinct_id`.", code="required", attr="distinct_id"
                 ),
             )
         if not event.get("event"):
             return cors_response(
                 request,
-                JsonResponse(
-                    {"code": "validation", "message": "You need to set event name field `event`.", "item": event,},
-                    status=400,
+                generate_exception_response(
+                    "You need to set user event name, field `event`.", code="required", attr="event"
                 ),
             )
 

@@ -1,4 +1,3 @@
-import json
 import secrets
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
@@ -6,7 +5,10 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from rest_framework import status
+from sentry_sdk import capture_exception
 
+from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.utils import cors_response, load_data_from_request
@@ -78,15 +80,11 @@ def get_decide(request: HttpRequest):
 
     if request.method == "POST":
         try:
-            data_from_request = load_data_from_request(request)
-            data = data_from_request["data"]
-        except (json.decoder.JSONDecodeError, TypeError):
+            data = load_data_from_request(request)
+        except RequestParsingError as error:
+            capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
             return cors_response(
-                request,
-                JsonResponse(
-                    {"code": "validation", "message": "Malformed request data. Make sure you're sending valid JSON.",},
-                    status=400,
-                ),
+                request, generate_exception_response(f"Malformed request data: {error}", code="malformed_data"),
             )
         token = _get_token(data, request)
         team = Team.objects.get_team_from_token(token)
@@ -96,23 +94,28 @@ def get_decide(request: HttpRequest):
             if not project_id:
                 return cors_response(
                     request,
-                    JsonResponse(
-                        {
-                            "code": "validation",
-                            "message": "Project API key invalid. You can find your project API key in PostHog project settings.",
-                        },
-                        status=401,
+                    generate_exception_response(
+                        "Project API key invalid. You can find your project API key in PostHog project settings.",
+                        code="invalid_api_key",
+                        type="authentication_error",
+                        status_code=status.HTTP_401_UNAUTHORIZED,
                     ),
                 )
 
             user = User.objects.get_from_personal_api_key(token)
             if user is None:
                 return cors_response(
-                    request, JsonResponse({"code": "validation", "message": "Personal API key invalid.",}, status=401,),
+                    request,
+                    generate_exception_response(
+                        "Invalid Personal API key.",
+                        code="invalid_personal_key",
+                        type="authentication_error",
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                    ),
                 )
             team = user.teams.get(id=project_id)
         if team:
-            response["featureFlags"] = get_active_feature_flags(team, data_from_request["data"]["distinct_id"])
+            response["featureFlags"] = get_active_feature_flags(team, data["distinct_id"])
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
                 response["sessionRecording"] = {"endpoint": "/s/"}
     return cors_response(request, JsonResponse(response))
