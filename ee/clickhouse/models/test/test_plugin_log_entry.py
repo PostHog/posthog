@@ -25,6 +25,7 @@ class TestClickhousePluginLogEntry(ClickhouseTestMixin, TestPluginLogEntry):
         sync_execute(
             INSERT_PLUGIN_LOG_ENTRY_SQL,
             {
+                "id": UUIDT(),
                 "team_id": self.team.pk,
                 "plugin_id": some_plugin.pk,
                 "type": PluginLogEntry.Type.INFO,
@@ -34,13 +35,12 @@ class TestClickhousePluginLogEntry(ClickhouseTestMixin, TestPluginLogEntry):
             },
         )
 
-        with self.assertNumQueries(1):
-            results = fetch_plugin_log_entries(
-                team_id=self.team.pk,
-                plugin_id=some_plugin.pk,
-                after=timezone.datetime.min,
-                before=timezone.now() + timezone.timedelta(seconds=5),
-            )
+        results = fetch_plugin_log_entries(
+            team_id=self.team.pk,
+            plugin_id=some_plugin.pk,
+            after=timezone.datetime.min,
+            before=timezone.now() + timezone.timedelta(seconds=5),
+        )
 
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0].message, "Something occured!")

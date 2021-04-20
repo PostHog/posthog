@@ -19,13 +19,12 @@ class TestPluginLogEntry(BaseTest):
             instance_id=plugin_server_instance_id,
         )
 
-        with self.assertNumQueries(1):
-            results = fetch_plugin_log_entries(
-                team_id=self.team.pk,
-                plugin_id=some_plugin.pk,
-                after=timezone.datetime.min,
-                before=timezone.now() + timezone.timedelta(seconds=5),
-            )
+        results = fetch_plugin_log_entries(
+            team_id=self.team.pk,
+            plugin_id=some_plugin.pk,
+            after=timezone.datetime.min,
+            before=timezone.now() + timezone.timedelta(seconds=5),
+        )
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].message, "Something happened!")
