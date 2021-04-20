@@ -1,11 +1,14 @@
 from django.conf import settings
 from django.template import Library
 
-from posthog.utils import absolute_uri
+from posthog.utils import absolute_uri as util_absolute_uri
 
 register = Library()
 
-register.simple_tag(absolute_uri, name="absolute_uri")
+
+@register.simple_tag
+def absolute_uri(url: str = "") -> str:
+    return util_absolute_uri(url)
 
 
 @register.simple_tag
