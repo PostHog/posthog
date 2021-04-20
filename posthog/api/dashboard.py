@@ -25,7 +25,7 @@ from posthog.utils import get_safe_cache, render_template
 
 
 class DashboardSerializer(serializers.ModelSerializer):
-    items = serializers.SerializerMethodField()  # type: ignore
+    items = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
 
@@ -79,9 +79,7 @@ class DashboardSerializer(serializers.ModelSerializer):
 
         return dashboard
 
-    def update(  # type: ignore
-        self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any,
-    ) -> Dashboard:
+    def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any,) -> Dashboard:
         validated_data.pop("use_template", None)  # Remove attribute if present
         if validated_data.get("is_shared") and not instance.share_token:
             instance.share_token = secrets.token_urlsafe(22)

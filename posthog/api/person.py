@@ -1,6 +1,6 @@
 import json
 import warnings
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Count, Func, Prefetch, Q, QuerySet
 from django_filters import rest_framework as filters
@@ -15,8 +15,8 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_next_url, get_target_entity
-from posthog.constants import TRENDS_LINEAR, TRENDS_TABLE
-from posthog.models import Cohort, Event, Filter, Person
+from posthog.constants import TRENDS_TABLE
+from posthog.models import Cohort, Event, Filter, Person, User
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
@@ -241,7 +241,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:
 
-        team = request.user.team
+        team = cast(User, request.user).team
         if not team:
             return response.Response(
                 {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
@@ -275,7 +275,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def retention(self, request: request.Request) -> response.Response:
 
         display = request.GET.get("display", None)
-        team = request.user.team
+        team = cast(User, request.user).team
         if not team:
             return response.Response(
                 {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
@@ -294,7 +294,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def stickiness(self, request: request.Request) -> response.Response:
-        team = request.user.team
+        team = cast(User, request.user).team
         if not team:
             return response.Response(
                 {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},

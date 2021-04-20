@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 import posthoganalytics
 from django.db.models import QuerySet
@@ -50,7 +50,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     def validate_key(self, value):
         exclude_kwargs = {}
         if self.instance:
-            exclude_kwargs = {"pk": self.instance.pk}
+            exclude_kwargs = {"pk": cast(FeatureFlag, self.instance).pk}
 
         if (
             FeatureFlag.objects.filter(key=value, team=self.context["request"].user.team, deleted=False)
@@ -76,7 +76,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
 
         return instance
 
-    def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:  # type: ignore
+    def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_key = validated_data.get("key", None)
         if validated_key:
