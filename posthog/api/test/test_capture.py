@@ -158,8 +158,20 @@ class TestCapture(BaseTest):
                 "distinct_id": "94b03e599131fd5026b",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": data,
-                "team_id": self.team.pk,
+                "data": {
+                    "event": "$pageleave",
+                    "api_key": "zwtVwatmw2dB6NlKnp7OKR1IVBeJr1-Tf8CwWh5rCWI",
+                    "project_id": 1,
+                    "properties": {
+                        "$os": "Linux",
+                        "$browser": "Chrome",
+                        "$device_type": "Desktop",
+                        "distinct_id": "94b03e599131fd5026b",
+                        "token": "fake token",
+                    },
+                    "timestamp": "2021-04-20T19:11:33.841Z",
+                },
+                "team_id": 1,
             },
         )
 
