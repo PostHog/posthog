@@ -87,7 +87,6 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
             nextColumns[index] = {
                 ...nextColumns[index],
                 width,
-                render: initialColumns[index].render,
             }
             return nextColumns
         })
