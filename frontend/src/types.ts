@@ -510,6 +510,8 @@ export interface SystemStatus {
     metric: string
     value: string
     key?: string
+    description?: string
+    subrows?: SystemStatus[]
 }
 
 export type PersonalizationData = Record<string, string | string[] | null>
