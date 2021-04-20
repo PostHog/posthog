@@ -1,4 +1,3 @@
-from datetime import timedelta
 from typing import Any, Callable, Dict, List, Tuple
 
 from django.utils import timezone
@@ -53,14 +52,11 @@ class ClickhouseTrendsNormal:
 
         if filter.display in TRENDS_DISPLAY_BY_VALUE:
             content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(**content_sql_params)
-            time_range = self._enumerate_time_range(filter, seconds_in_interval)
 
             return (
                 content_sql,
                 params,
-                lambda result: [
-                    {"aggregated_value": result[0][0] if result and len(result) else 0, "days": time_range}
-                ],
+                lambda result: [{"aggregated_value": result[0][0] if result and len(result) else 0}],
             )
         else:
 
@@ -79,20 +75,6 @@ class ClickhouseTrendsNormal:
             )
             final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
             return final_query, params, self._parse_normal_result(filter)
-
-    def _enumerate_time_range(self, filter: Filter, seconds_in_interval: int) -> List:
-        date_from = filter.date_from
-        date_to = filter.date_to
-        delta = timedelta(seconds=seconds_in_interval)
-        time_range = []
-        while date_from <= date_to:
-            time_range.append(
-                date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else "")
-                )
-            )
-            date_from += delta
-        return time_range
 
     def _parse_normal_result(self, filter: Filter) -> Callable:
         def _parse(result: List) -> List:
