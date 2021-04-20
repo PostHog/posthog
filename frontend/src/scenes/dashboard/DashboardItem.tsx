@@ -278,14 +278,7 @@ export function DashboardItem({
                                         </Tooltip>
                                     ))}
                                 {/* :TODO: Remove individual refresh when addressing https://github.com/PostHog/posthog/issues/3609  */}
-                                <Tooltip
-                                    title={
-                                        <i>
-                                            Last updated:{' '}
-                                            {item.last_refresh ? dayjs(item.last_refresh).fromNow() : 'recently'}
-                                        </i>
-                                    }
-                                >
+                                <Tooltip title="Refresh dashboard">
                                     <ReloadOutlined
                                         style={{ cursor: 'pointer', marginTop: -3 }}
                                         onClick={() => loadResults(true)}
@@ -443,7 +436,7 @@ export function DashboardItem({
                         )}
                     </div>
                 </div>
-                <div className="dashboard-item-title" data-attr="dashboard-item-title">
+                <div className="dashboard-item-title" style={{ marginLeft: 15 }} data-attr="dashboard-item-title">
                     {inSharedMode ? (
                         item.name
                     ) : (
