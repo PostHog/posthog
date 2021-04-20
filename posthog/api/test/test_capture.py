@@ -2,7 +2,7 @@ import base64
 import gzip
 import json
 from datetime import timedelta
-from typing import Any
+from typing import Any, Dict, List, Union
 from unittest.mock import patch
 from urllib.parse import quote
 
@@ -29,7 +29,7 @@ class TestCapture(BaseTest):
         super().setUp()
         self.client = Client()
 
-    def _dict_to_json(self, data: dict) -> str:
+    def _to_json(self, data: Union[Dict, List]) -> str:
         return json.dumps(data)
 
     def _dict_to_b64(self, data: dict) -> str:
@@ -69,9 +69,7 @@ class TestCapture(BaseTest):
         now = timezone.now()
         with freeze_time(now):
             with self.assertNumQueries(2):
-                response = self.client.get(
-                    "/e/?data=%s" % quote(self._dict_to_json(data)), HTTP_ORIGIN="https://localhost",
-                )
+                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         arguments = self._to_arguments(patch_process_event_with_plugins)
         arguments.pop("now")  # can't compare fakedate
@@ -107,9 +105,7 @@ class TestCapture(BaseTest):
         now = timezone.now()
         with freeze_time(now):
             with self.assertNumQueries(5):
-                response = self.client.get(
-                    "/e/?data=%s" % quote(self._dict_to_json(data)), HTTP_ORIGIN="https://localhost",
-                )
+                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         arguments = self._to_arguments(patch_process_event_with_plugins)
         arguments.pop("now")  # can't compare fakedate
@@ -146,7 +142,7 @@ class TestCapture(BaseTest):
                 "timestamp": "2021-04-20T19:11:33.841Z",
             }
         ]
-        response = self.client.get("/e/?data=%s" % quote(self._dict_to_json(data)))
+        response = self.client.get("/e/?data=%s" % quote(self._to_json(data)))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         arguments = self._to_arguments(patch_process_event_with_plugins)
@@ -161,7 +157,7 @@ class TestCapture(BaseTest):
                 "data": {
                     "event": "$pageleave",
                     "api_key": key.value,
-                    "project_id": 1,
+                    "project_id": self.team.id,
                     "properties": {
                         "$os": "Linux",
                         "$browser": "Chrome",
@@ -171,7 +167,7 @@ class TestCapture(BaseTest):
                     },
                     "timestamp": "2021-04-20T19:11:33.841Z",
                 },
-                "team_id": 1,
+                "team_id": self.team.id,
             },
         )
 
@@ -494,7 +490,7 @@ class TestCapture(BaseTest):
         response = self.client.get(
             "/engage/?data=%s"
             % quote(
-                self._dict_to_json(
+                self._to_json(
                     {
                         "$set": {"$os": "Mac OS X",},
                         "$token": "token123",
@@ -570,7 +566,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._dict_to_json(data))),
+            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
             content_type="application/json",
             HTTP_ORIGIN="https://localhost",
         )
@@ -600,7 +596,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._dict_to_json(data))),
+            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
             content_type="application/json",
             HTTP_ORIGIN="https://localhost",
         )
@@ -698,4 +694,29 @@ class TestCapture(BaseTest):
             self.validation_error_response(
                 'Invalid payload: $snapshot events must contain property "$snapshot_data"!', code="invalid_payload",
             ),
+        )
+
+    def test_batch_request_with_invalid_auth(self):
+        data = [
+            {
+                "event": "$pageleave",
+                "project_id": self.team.id,
+                "properties": {
+                    "$os": "Linux",
+                    "$browser": "Chrome",
+                    "token": "fake token",  # as this is invalid, will do API key authentication
+                },
+                "timestamp": "2021-04-20T19:11:33.841Z",
+            }
+        ]
+        response = self.client.get("/e/?data=%s" % quote(self._to_json(data)))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "authentication_error",
+                "code": "invalid_personal_api_key",
+                "detail": "Invalid Personal API key.",
+                "attr": None,
+            },
         )
