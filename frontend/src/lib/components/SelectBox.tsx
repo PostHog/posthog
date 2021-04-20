@@ -7,6 +7,7 @@ import { ActionType, CohortType } from '~/types'
 import { searchItems, selectBoxLogic } from 'lib/logic/selectBoxLogic'
 import './SelectBox.scss'
 import { selectBoxLogicType } from 'lib/logic/selectBoxLogicType'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export interface SelectBoxItem {
     dataSource: SelectedItem[]
@@ -57,8 +58,12 @@ export function SelectBox({
         if (selectedItemKey) {
             const allSources = items.map((item) => item.dataSource).flat()
             setSelectedItem(allSources.filter((item) => item.key === selectedItemKey)[0] || null)
-            const offset = document.querySelector('.search-list [datakey="' + selectedItemKey + '"]')?.offsetTop
-            document.querySelector('.search-list').scrollTop = offset
+            const offset = document.querySelector<HTMLElement>('.search-list [datakey="' + selectedItemKey + '"]')
+                ?.offsetTop
+            const searchListSelector = document.querySelector<HTMLElement>('.search-list')
+            if (offset && searchListSelector) {
+                searchListSelector.scrollTop = offset
+            }
         }
         document.addEventListener('mousedown', deselect)
         document.addEventListener('keydown', onKeyDown)
@@ -130,13 +135,13 @@ export function SelectUnit({
                     renderItem={(item: SelectedItem) => (
                         <List.Item
                             className={selectedItem?.key === item.key ? 'selected' : undefined}
-                            datakey={item.key}
+                            key={item.key}
                             onClick={() => clickSelectedItem(item, group)}
                             onMouseOver={() =>
                                 !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: group.type })
                             }
                         >
-                            {item.name}
+                            <PropertyKeyInfo value={item.name} />
                         </List.Item>
                     )}
                 />
