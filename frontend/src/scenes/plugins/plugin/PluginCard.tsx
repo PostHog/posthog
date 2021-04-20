@@ -25,6 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import { endWithPunctation } from '../../../lib/utils'
 import { canInstallPlugins } from '../access'
 import { LinkButton } from '../../../lib/components/LinkButton'
+import { PluginUpdateButton } from './PluginUpdateButton'
 
 export function ExtraPluginButtons({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -81,10 +82,8 @@ export function PluginCard({
         organization_name,
     } = plugin
 
-    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin, rearrange } = useActions(
-        pluginsLogic
-    )
-    const { loading, installingPluginUrl, checkingForUpdates, updatingPlugin } = useValues(pluginsLogic)
+    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange } = useActions(pluginsLogic)
+    const { loading, installingPluginUrl, checkingForUpdates } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
 
     return (
@@ -186,21 +185,11 @@ export function PluginCard({
                         <Space>
                             {url && <ExtraPluginButtons url={url} disabled={rearranging} />}
                             {showUpdateButton && pluginId ? (
-                                <Button
-                                    type={updateStatus?.updated ? 'default' : 'primary'}
-                                    className="padding-under-500"
-                                    onClick={() =>
-                                        updateStatus?.updated ? editPlugin(pluginId) : updatePlugin(pluginId)
-                                    }
-                                    loading={!!updatingPlugin}
-                                    icon={updateStatus?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
-                                    disabled={rearranging}
-                                    data-attr="plugin-update"
-                                >
-                                    <span className="show-over-500">
-                                        {updateStatus?.updated ? 'Updated' : 'Update'}
-                                    </span>
-                                </Button>
+                                <PluginUpdateButton
+                                    updateStatus={updateStatus}
+                                    pluginId={pluginId}
+                                    rearranging={rearranging}
+                                />
                             ) : pluginId ? (
                                 <Button
                                     type="primary"
