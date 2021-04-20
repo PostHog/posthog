@@ -6,6 +6,12 @@ SystemStatusRow = Dict
 
 
 def system_status() -> Generator[SystemStatusRow, None, None]:
+    alive = is_alive()
+    yield {"key": "clickhouse_alive", "metric": "Clickhouse database alive", "value": alive}
+
+    if not alive:
+        return
+
     disk_status = sync_execute(
         "SELECT formatReadableSize(total_space), formatReadableSize(free_space) FROM system.disks"
     )
@@ -44,3 +50,11 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "value": "",
         "subrows": {"columns": ["Metric", "Value", "Description"], "rows": list(sorted(system_metrics))},
     }
+
+
+def is_alive() -> bool:
+    try:
+        sync_execute("SELECT 1")
+        return True
+    except:
+        return False
