@@ -10,17 +10,10 @@ from posthog.test.test_plugin_log_entry import TestPluginLogEntry
 
 
 class TestClickhousePluginLogEntry(ClickhouseTestMixin, TestPluginLogEntry):
-    def test_simple_log_is_fetched_plus_clickhouse(self):
+    def test_simple_log_is_fetched(self):
         plugin_server_instance_id = str(UUIDT())
 
         some_plugin = Plugin.objects.create(organization=self.organization)
-        some_entry = PluginLogEntry.objects.create(
-            team=self.team,
-            plugin=some_plugin,
-            type=PluginLogEntry.Type.INFO,
-            message="Something happened!",
-            instance_id=plugin_server_instance_id,
-        )
 
         sync_execute(
             INSERT_PLUGIN_LOG_ENTRY_SQL,
@@ -42,6 +35,5 @@ class TestClickhousePluginLogEntry(ClickhouseTestMixin, TestPluginLogEntry):
             before=timezone.now() + timezone.timedelta(seconds=5),
         )
 
-        self.assertEqual(len(results), 2)
+        self.assertEqual(len(results), 1)
         self.assertEqual(results[0].message, "Something occured!")
-        self.assertEqual(results[1].message, "Something happened!")
