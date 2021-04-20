@@ -1,8 +1,10 @@
-import Table, { ColumnsType } from 'antd/lib/table'
-import { kea, useValues } from 'kea'
+import { Button } from 'antd'
+import { kea, useActions, useValues } from 'kea'
 import React from 'react'
 import api from '../../../lib/api'
-import { PluginLogEntryType } from '../../../types'
+import { ResizableColumnType, ResizableTable } from '../../../lib/components/ResizableTable'
+import { pluralize } from '../../../lib/utils'
+import { PluginLogEntry, PluginLogEntryType } from '../../../types'
 import { pluginLogsLogicType } from './PluginLogsType'
 
 export interface PluginLogsProps {
@@ -14,13 +16,18 @@ export interface PluginLogsProps {
 const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProps }>({
     key: ({ organizationId, teamId, pluginId }) => `${organizationId}-${teamId}-${pluginId}`,
 
-    loaders: ({ props: { organizationId, teamId, pluginId }, values }) => ({
+    actions: {
+        clearPluginLogsBackground: true,
+    },
+
+    loaders: ({ props: { organizationId, teamId, pluginId }, values, actions, cache }) => ({
         pluginLogs: {
-            __default: [] as PluginLogEntryType[],
+            __default: [] as PluginLogEntry[],
             loadPluginLogsInitially: async () => {
                 const response = await api.get(
                     `api/organizations/${organizationId}/plugins/${pluginId}/logs?team_id=${teamId}`
                 )
+                cache.pollingInterval = setInterval(actions.loadPluginLogsBackgroundPoll, 2000)
                 return response.results
             },
             loadPluginLogsMore: async () => {
@@ -31,22 +38,48 @@ const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProps }>({
                 )
                 return [...values.pluginLogs, ...response.results]
             },
-            loadPluginLogsPoll: async () => {
-                const length = values.pluginLogs.length
-                console.log(values.pluginLogs)
-                const after = length ? '&after=' + values.pluginLogs[0].timestamp : ''
+            revealBackground: () => {
+                const newArray = [...values.pluginLogsBackground, ...values.pluginLogs]
+                actions.clearPluginLogsBackground()
+                return newArray
+            },
+        },
+        pluginLogsBackground: {
+            __default: [] as PluginLogEntry[],
+            loadPluginLogsBackgroundPoll: async () => {
+                const after = values.leadingEntry ? '&after=' + values.leadingEntry.timestamp : ''
                 const response = await api.get(
                     `api/organizations/${organizationId}/plugins/${pluginId}/logs?team_id=${teamId}${after}`
                 )
-                return [...response.results, ...values.pluginLogs]
+                return [...response.results, ...values.pluginLogsBackground]
             },
         },
+    }),
+
+    reducers: {
+        pluginLogsBackground: {
+            clearPluginLogsBackground: () => [],
+        },
+    },
+
+    selectors: ({ selectors }) => ({
+        leadingEntry: [
+            () => [selectors.pluginLogs, selectors.pluginLogsBackground],
+            (pluginLogs: PluginLogEntry[], pluginLogsBackground: PluginLogEntry[]): PluginLogEntry | null => {
+                if (pluginLogsBackground.length) {
+                    return pluginLogsBackground[0]
+                }
+                if (pluginLogs.length) {
+                    return pluginLogs[0]
+                }
+                return null
+            },
+        ],
     }),
 
     events: ({ actions, cache }) => ({
         afterMount: () => {
             actions.loadPluginLogsInitially()
-            cache.pollingInterval = setInterval(actions.loadPluginLogsPoll, 2000)
         },
         beforeUnmount: () => {
             clearInterval(cache.pollingInterval)
@@ -54,36 +87,75 @@ const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProps }>({
     }),
 })
 
+function PluginLogEntryTypeDisplay(type: PluginLogEntryType): JSX.Element {
+    let color: string | undefined
+    switch (type) {
+        case PluginLogEntryType.Debug:
+            color = 'gray'
+            break
+        case PluginLogEntryType.Log:
+            color = 'gray'
+            break
+        case PluginLogEntryType.Info:
+            color = 'blue'
+            break
+        case PluginLogEntryType.Warn:
+            color = 'orange'
+            break
+        case PluginLogEntryType.Error:
+            color = 'red'
+            break
+        default:
+            break
+    }
+    return <span style={{ color }}>{type}</span>
+}
+
+const columns: ResizableColumnType<PluginLogEntry>[] = [
+    {
+        title: 'Timestamp',
+        key: 'timestamp',
+        dataIndex: 'timestamp',
+        span: 2,
+    },
+    {
+        title: 'Type',
+        key: 'type',
+        dataIndex: 'type',
+        span: 1,
+        render: PluginLogEntryTypeDisplay,
+    } as ResizableColumnType<PluginLogEntry, PluginLogEntryType>,
+    {
+        title: 'Message',
+        key: 'message',
+        dataIndex: 'message',
+        span: 9,
+    },
+]
+
 export function PluginLogs({ organizationId, teamId, pluginId }: PluginLogsProps): JSX.Element {
     const logic = pluginLogsLogic({ organizationId, teamId, pluginId })
 
-    const { pluginLogs } = useValues(logic)
-
-    const columns: ColumnsType<PluginLogEntryType> = [
-        {
-            title: 'Timestamp',
-            dataIndex: 'timestamp',
-            key: 'timestamp',
-        },
-        {
-            title: 'Type',
-            dataIndex: 'type',
-            key: 'type',
-        },
-        {
-            title: 'Message',
-            dataIndex: 'message',
-            key: 'message',
-        },
-    ]
+    const { pluginLogs, pluginLogsLoading, pluginLogsBackground } = useValues(logic)
+    const { revealBackground } = useActions(logic)
 
     return (
-        <Table
-            dataSource={pluginLogs}
-            columns={columns}
-            rowKey="id"
-            style={{ flexGrow: 1 }}
-            pagination={{ pageSize: 20, hideOnSinglePage: true }}
-        />
+        <>
+            {pluginLogsBackground.length ? (
+                <Button onClick={revealBackground} loading={pluginLogsLoading}>
+                    Load {pluralize(pluginLogsBackground.length, 'newer entry', 'newer entries')}
+                </Button>
+            ) : null}
+            <ResizableTable
+                dataSource={pluginLogs}
+                columns={columns}
+                loading={pluginLogsLoading}
+                size="small"
+                className="ph-no-capture"
+                rowKey="id"
+                style={{ flexGrow: 1 }}
+                pagination={{ hideOnSinglePage: true }}
+            />
+        </>
     )
 }

@@ -448,14 +448,22 @@ export interface PluginErrorType {
     event?: Record<string, any>
 }
 
-export interface PluginLogEntryType {
+export enum PluginLogEntryType {
+    Debug = 'DEBUG',
+    Log = 'LOG',
+    Info = 'INFO',
+    Warn = 'WARN',
+    Error = 'ERROR',
+}
+
+export interface PluginLogEntry {
     id: string
-    plugin_id: number
     team_id: number
-    type: string
-    message: string
+    plugin_id: number
     timestamp: string
-    instance_id: number
+    type: PluginLogEntryType
+    message: string
+    instance_id: string
 }
 
 export interface AnnotationType {

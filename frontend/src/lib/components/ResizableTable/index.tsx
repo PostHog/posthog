@@ -5,10 +5,11 @@ import { getActiveBreakpoint, getFullwidthColumnSize, getMaxColumnWidth, getMinC
 
 import './index.scss'
 
-export interface ResizableColumnType<RecordType> {
+export interface ResizableColumnType<RecordType, V = any> {
     title: string | JSX.Element
     key?: string
-    render: (record: RecordType, ...rest: any) => JSX.Element
+    dataIndex?: string
+    render?: ((keyValue: V, record: RecordType) => JSX.Element) | ((record: RecordType) => JSX.Element)
     ellipsis?: boolean
     span: number
 }
