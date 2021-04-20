@@ -157,6 +157,10 @@ def system_status(request):
                     "value": f"{session_recording_event_table_count} rows (~{session_recording_event_table_size})",
                 }
             )
+    if is_ee_enabled():
+        from ee.clickhouse.system_status import system_status
+
+        metrics.extend(list(system_status()))
 
     metrics.append({"key": "redis_alive", "metric": "Redis alive", "value": redis_alive})
     if redis_alive:
@@ -184,11 +188,6 @@ def system_status(request):
             metrics.append(
                 {"metric": "Redis metrics", "value": f"Redis connected but then failed to return metrics: {e}"}
             )
-
-    if is_ee_enabled():
-        from ee.clickhouse.system_status import system_status
-
-        metrics.extend(list(system_status()))
 
     return JsonResponse({"results": metrics})
 
