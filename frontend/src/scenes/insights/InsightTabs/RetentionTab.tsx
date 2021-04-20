@@ -86,36 +86,37 @@ export function RetentionTab(): JSX.Element {
                     <InfoCircleOutlined className="info-indicator" />
                 </Tooltip>
             </h4>
-            <Button
-                ref={node}
-                data-attr="retention-action"
-                onClick={(): void => setOpen(!open)}
-                style={{ marginRight: 8 }}
-            >
-                <PropertyKeyInfo value={selectedCohortizingEvent} />
-                <DownOutlined className="text-muted svg-fix" style={{ marginRight: '-6px' }} />
-            </Button>
-            <Select
-                value={retentionOptions[filters.retention_type]}
-                onChange={(value): void => setFilters({ retention_type: value })}
-                dropdownMatchSelectWidth={false}
-                style={{ marginTop: 8 }}
-            >
-                {Object.entries(retentionOptions).map(([key, value]) => (
-                    <Select.Option key={key} value={key}>
-                        {value}
-                        <Tooltip placement="right" title={retentionOptionDescriptions[key]}>
-                            <InfoCircleOutlined className="info-indicator" />
-                        </Tooltip>
-                    </Select.Option>
-                ))}
-            </Select>
-            <ActionFilterDropdown
-                open={open}
-                logic={entityLogic as any}
-                openButtonRef={node}
-                onClose={() => setOpen(false)}
-            />
+            <div style={{ display: '-webkit-inline-box', flexWrap: 'wrap' }}>
+                <Button
+                    ref={node}
+                    data-attr="retention-action"
+                    onClick={(): void => setOpen(!open)}
+                    style={{ marginRight: 8, marginBottom: 8 }}
+                >
+                    <PropertyKeyInfo value={selectedCohortizingEvent} />
+                    <DownOutlined className="text-muted svg-fix" style={{ marginRight: '-6px' }} />
+                </Button>
+                <Select
+                    value={retentionOptions[filters.retention_type]}
+                    onChange={(value): void => setFilters({ retention_type: value })}
+                    dropdownMatchSelectWidth={false}
+                >
+                    {Object.entries(retentionOptions).map(([key, value]) => (
+                        <Select.Option key={key} value={key}>
+                            {value}
+                            <Tooltip placement="right" title={retentionOptionDescriptions[key]}>
+                                <InfoCircleOutlined className="info-indicator" />
+                            </Tooltip>
+                        </Select.Option>
+                    ))}
+                </Select>
+                <ActionFilterDropdown
+                    open={open}
+                    logic={entityLogic as any}
+                    openButtonRef={node}
+                    onClose={() => setOpen(false)}
+                />
+            </div>
             <h4 style={{ marginTop: '0.5rem' }} className="secondary">
                 Retaining event
                 <Tooltip
