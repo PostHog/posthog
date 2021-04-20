@@ -31,7 +31,7 @@ class TestClickhousePluginLogEntry(ClickhouseTestMixin, TestPluginLogEntry):
                 "type": PluginLogEntry.Type.INFO,
                 "instance_id": plugin_server_instance_id,
                 "message": "Something occured!",
-                "timestamp": timezone.now().isoformat(),
+                "timestamp": timezone.now().strftime("%Y-%m-%dT%H:%M:%S.%f"),
             },
         )
 
