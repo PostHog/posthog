@@ -160,7 +160,7 @@ class TestCapture(BaseTest):
                 "site_url": "http://testserver",
                 "data": {
                     "event": "$pageleave",
-                    "api_key": "zwtVwatmw2dB6NlKnp7OKR1IVBeJr1-Tf8CwWh5rCWI",
+                    "api_key": key.value,
                     "project_id": 1,
                     "properties": {
                         "$os": "Linux",
