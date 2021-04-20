@@ -107,19 +107,23 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
             { next: null, previous: null, results: [] } as PersonPaginatedResponse,
             {
                 loadPersons: async (url: string | null = '') => {
-                    const qs = Object.keys(values.listFilters)
-                        .filter((key) =>
-                            key !== 'is_identified' ? FILTER_WHITELIST.includes(key) : !url?.includes('is_identified')
-                        )
-                        .reduce(function (result, key) {
-                            const value = values.listFilters[key]
-                            if (value !== undefined && value !== null) {
-                                result.push(`${key}=${value}`)
-                            }
-                            return result
-                        }, [] as string[])
-                    const dest = `${url || 'api/person/'}${qs.length ? '?' + qs.join('&') : ''}`
-                    return await api.get(dest)
+                    if (!url) {
+                        const qs = Object.keys(values.listFilters)
+                            .filter((key) =>
+                                key !== 'is_identified'
+                                    ? FILTER_WHITELIST.includes(key)
+                                    : !url?.includes('is_identified')
+                            )
+                            .reduce(function (result, key) {
+                                const value = values.listFilters[key]
+                                if (value !== undefined && value !== null) {
+                                    result.push(`${key}=${value}`)
+                                }
+                                return result
+                            }, [] as string[])
+                        url = `api/person/${qs.length ? '?' + qs.join('&') : ''}`
+                    }
+                    return await api.get(url)
                 },
             },
         ],
