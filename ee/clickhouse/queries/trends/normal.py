@@ -85,6 +85,10 @@ class ClickhouseTrendsNormal:
         date_to = filter.date_to
         delta = timedelta(seconds=seconds_in_interval)
         time_range = []
+
+        if not date_from or not date_to:
+            return time_range
+
         while date_from <= date_to:
             time_range.append(
                 date_from.strftime(
