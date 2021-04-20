@@ -41,5 +41,5 @@ def plugin_log_factory_pg(*, team_id: int, plugin_id: int, type: PluginLogEntry.
     )
 
 
-class TestEvent(factory_test_plugin_log_entry(plugin_log_factory_pg)):
+class TestEvent(factory_test_plugin_log_entry(plugin_log_factory_pg)):  # type: ignore
     pass
