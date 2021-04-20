@@ -10,7 +10,6 @@ import {
     SettingOutlined,
     WarningOutlined,
     InfoCircleOutlined,
-    MessageOutlined,
     DownOutlined,
     GlobalOutlined,
 } from '@ant-design/icons'
@@ -34,12 +33,6 @@ export function ExtraPluginButtons({ url, disabled = false }: { url: string; dis
                 <InfoCircleOutlined />
                 <span className="show-over-500">About</span>
             </LinkButton>
-            {url.includes('github') && (
-                <LinkButton to={`${url}/issues/new`} target="_blank" rel="noopener noreferrer" disabled={disabled}>
-                    <MessageOutlined />
-                    <span className="show-over-500">Feedback</span>
-                </LinkButton>
-            )}
         </Space>
     )
 }
