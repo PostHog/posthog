@@ -1,3 +1,5 @@
+from typing import cast
+
 from django.db.models import Count, Prefetch, QuerySet
 from rest_framework import authentication, exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -6,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.models import Element, ElementGroup, Event, Filter, Team
+from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.base import properties_to_Q
 
@@ -89,7 +92,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         # This samples a bunch of elements with that property, and then orders them by most popular in that sample
         # This is much quicker than trying to do this over the entire table
-        team = request.user.team
+        team = cast(User, request.user).team
         assert team is not None
         values = Element.objects.raw(
             """

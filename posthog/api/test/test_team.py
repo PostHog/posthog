@@ -69,3 +69,15 @@ class TestTeamAPI(APIBaseTest):
 
         self.team.refresh_from_db()
         self.assertNotEqual(self.team.timezone, "America/I_Dont_Exist")
+
+    def test_filter_permission(self):
+
+        response = self.client.patch(
+            "/api/projects/%s/" % (self.user.team.pk if self.user.team else 0),
+            {"test_account_filters": [{"key": "$current_url", "value": "test"}]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["name"], self.team.name)
+        self.assertEqual(response_data["test_account_filters"], [{"key": "$current_url", "value": "test"}])

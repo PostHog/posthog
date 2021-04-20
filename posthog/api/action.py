@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 import posthoganalytics
 from django.core.cache import cache
@@ -100,10 +100,11 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         calculate_action.delay(action_id=action.pk)
 
     def validate(self, attrs):
+        instance = cast(Action, self.instance)
         exclude_args = {}
-        if self.instance:
-            include_args = {"team": self.instance.team}
-            exclude_args = {"id": self.instance.pk}
+        if instance:
+            include_args = {"team": instance.team}
+            exclude_args = {"id": instance.pk}
         else:
             attrs["team_id"] = self.context["view"].team_id
             include_args = {"team_id": attrs["team_id"]}
@@ -300,19 +301,15 @@ def filter_by_type(entity: Entity, team: Team, filter: Filter) -> QuerySet:
     if filter.session:
         events = Event.objects.filter(team=team).filter(base.filter_events(team.pk, filter)).add_person_id(team.pk)
     else:
-        if entity.type == TREND_FILTER_TYPE_EVENTS:
-            events = base.process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(
-                base.filter_events(team.pk, filter, entity)
-            )
-        elif entity.type == TREND_FILTER_TYPE_ACTIONS:
+        if entity.type == TREND_FILTER_TYPE_ACTIONS:
             actions = Action.objects.filter(deleted=False)
             try:
                 actions.get(pk=entity.id)
             except Action.DoesNotExist:
                 return events
-            events = base.process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(
-                base.filter_events(team.pk, filter, entity)
-            )
+        events = base.process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(
+            base.filter_events(team.pk, filter, entity)
+        )
     return events
 
 

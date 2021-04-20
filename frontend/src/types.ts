@@ -21,7 +21,7 @@ export type AvailableFeatures =
     | 'clickhouse'
 
 export interface UserType {
-    id: string
+    uuid: string
     first_name: string
     email: string
     email_opt_in: boolean
@@ -192,7 +192,7 @@ export interface PropertyFilter {
     key: string
     operator: string | null
     type: string
-    value: string | number
+    value: string | number | (string | number)[]
 }
 
 interface BasePropertyFilter {
@@ -517,6 +517,7 @@ export interface FilterType {
     stickiness_days?: number
     entity_id?: string | number
     entity_type?: EntityType
+    entity_math?: string
     people_day?: any
     people_action?: any
     formula?: any

@@ -11,7 +11,7 @@ WORKDIR /code/
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends 'curl=7.*' 'git=1:2.*' 'build-essential=12.6' \
+    && apt-get install -y --no-install-recommends 'curl=7.*' 'git=1:2.*' 'build-essential=12.6' 'libpq-dev=11.*' \
     && curl -sL https://deb.nodesource.com/setup_14.x | bash - \
     && curl -sL https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
     && echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
@@ -22,11 +22,11 @@ RUN apt-get update \
     && yarn config set network-timeout 300000 \
     && yarn --frozen-lockfile
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt --no-cache-dir
-
 COPY requirements-dev.txt .
 RUN pip install -r requirements-dev.txt --compile --no-cache-dir
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt --no-cache-dir
 
 COPY package.json .
 COPY yarn.lock .
@@ -43,9 +43,10 @@ COPY plugins/yarn.lock plugins/
 
 COPY . .
 
-RUN mkdir frontend/dist
-RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
-RUN yarn install
-RUN yarn install --cwd plugins
+# generate Django's static files
+RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' mkdir frontend/dist && python manage.py collectstatic --noinput
+
+# install frontend dependencies
+RUN yarn install && yarn install --cwd plugins && yarn cache clean
 
 CMD ["./bin/docker-dev"]

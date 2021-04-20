@@ -1,8 +1,24 @@
 @import '~/vars';
 
+.sessions-wrapper {
+    display: flex;
+    flex-direction: row;
+}
+
+.sessions-sidebar {
+    display: flex;
+    flex-direction: row;
+    position: sticky;
+    top: $top_nav_height;
+    overflow: auto;
+    min-width: 260px;
+    height: 100%;
+}
+
 .sessions-with-filters {
     margin-top: 30px;
-    margin-left: 299px;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .sessions-divider {
@@ -14,7 +30,6 @@
 
 .sessions-filters-menu {
     border-right: unset;
-    width: 260px;
 
     .ant-menu-item-group-title {
         text-transform: uppercase;
@@ -178,4 +193,20 @@
 
 .sessions-event-highlighted {
     background-color: #fdedc9;
+}
+
+@media (max-width: $md) {
+    .sessions-wrapper {
+        display: block;
+    }
+
+    .sessions-sidebar {
+        display: block;
+        position: unset;
+        height: unset;
+    }
+
+    .sessions-divider {
+        display: none;
+    }
 }

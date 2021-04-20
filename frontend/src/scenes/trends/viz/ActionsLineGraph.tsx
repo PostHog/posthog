@@ -26,9 +26,8 @@ export function ActionsLineGraph({
     const { loadPeople } = useActions(logic)
 
     const [{ fromItem }] = useState(router.values.hashParams)
-
     return indexedResults && !resultsLoading ? (
-        indexedResults.reduce((total, item) => total + item.count, 0) !== 0 ? (
+        indexedResults.filter((result) => result.count !== 0).length > 0 ? (
             <LineGraph
                 data-attr="trend-line-graph"
                 type={
