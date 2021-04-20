@@ -2043,6 +2043,8 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
+            self.assertEqual(response[0]["aggregated_value"], 4)
+            self.assertEqual(response[1]["aggregated_value"], 1)
             self.assertEqual(
                 response[0]["days"],
                 [
