@@ -80,6 +80,8 @@ class OrganizationMemberPermissions(BasePermission):
     Note: For POST requests, it will **only** work with nested routers that derive from an Organization or Project (Team).
     """
 
+    message = "You don't belong to the relevant organization."
+
     def has_permission(self, request: Request, view: View) -> bool:
 
         # When request is not create, an object exists, delegate to `has_object_permission`
