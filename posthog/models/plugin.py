@@ -125,6 +125,8 @@ def fetch_plugin_log_entries(
     plugin_id: Optional[int] = None,
     after: Optional[timezone.datetime] = None,
     before: Optional[timezone.datetime] = None,
+    search: Optional[str] = None,
+    limit: Optional[int] = None,
 ) -> List[Union[PluginLogEntry, PluginLogEntryRaw]]:
     if is_ee_enabled():
         clickhouse_where_parts: List[str] = []
@@ -141,9 +143,12 @@ def fetch_plugin_log_entries(
         if before is not None:
             clickhouse_where_parts.append("timestamp < toDateTime64(%(before)s, 6)")
             clickhouse_kwargs["before"] = before.isoformat().replace("+00:00", "")
+        if search:
+            clickhouse_where_parts.append("message ILIKE %(search)s")
+            clickhouse_kwargs["search"] = f"%{search}%"
         clickhouse_query = f"""
             SELECT id, team_id, plugin_id, timestamp, type, message, instance_id FROM plugin_log_entries
-            WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC
+            WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
         """
         return [PluginLogEntryRaw(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
     else:
@@ -155,5 +160,10 @@ def fetch_plugin_log_entries(
         if after is not None:
             filter_kwargs["timestamp__gt"] = after
         if before is not None:
-            filter_kwargs["timestamp__lte"] = before
-        return list(PluginLogEntry.objects.order_by("-timestamp").filter(**filter_kwargs))
+            filter_kwargs["timestamp__lt"] = before
+        if search:
+            filter_kwargs["message__icontains"] = search
+        query = PluginLogEntry.objects.order_by("-timestamp").filter(**filter_kwargs)
+        if limit:
+            query = query[:limit]
+        return list(query)

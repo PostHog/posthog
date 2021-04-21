@@ -30,21 +30,42 @@ class PluginLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
     ]
 
     def filter_queryset_by_parents_lookups(self, queryset):
-        parents_query_dict = self.get_parents_query_dict()
+        limit = self.request.GET.get("limit")
+        if limit:
+            try:
+                limit = int(limit)
+            except ValueError:
+                raise exceptions.ValidationError("Query param limit must be omitted or an integer!")
+        else:
+            limit = None
+
         team_id = self.request.GET.get("team_id")
         if not team_id:
             raise exceptions.ValidationError("Query param team_id is required!")
+
+        parents_query_dict = self.get_parents_query_dict()
+
         organization_id = parents_query_dict["organization_id"]
         if not Team.objects.filter(id=team_id, organization_id=organization_id).exists():
-            raise exceptions.PermissionDenied(f"This project does not belong to the organization ID {organization_id}!")
+            raise exceptions.PermissionDenied(
+                f"Project ID {team_id} does not belong to the organization ID {organization_id}!"
+            )
+
         after_raw: Optional[str] = self.request.GET.get("after")
         after: Optional[timezone.datetime] = None
         if after_raw is not None:
             after = timezone.datetime.fromisoformat(after_raw.replace("Z", "+00:00"))
+
         before_raw: Optional[str] = self.request.GET.get("before")
         before: Optional[timezone.datetime] = None
         if before_raw is not None:
             before = timezone.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
+
         return fetch_plugin_log_entries(
-            team_id=int(team_id), plugin_id=parents_query_dict["plugin_id"], after=after, before=before
+            team_id=int(team_id),
+            plugin_id=parents_query_dict["plugin_id"],
+            after=after,
+            before=before,
+            search=self.request.GET.get("search"),
+            limit=limit,
         )

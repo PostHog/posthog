@@ -10,8 +10,8 @@ export interface ResizableColumnType<RecordType, V = any> {
     key?: string
     dataIndex?: string
     render?:
-        | ((keyValue: V, record: RecordType, ...rest: any) => JSX.Element)
-        | ((record: RecordType, ...rest: any) => JSX.Element)
+        | ((keyValue: V, record: RecordType, ...rest: any) => JSX.Element | string)
+        | ((record: RecordType, ...rest: any) => JSX.Element | string)
     ellipsis?: boolean
     span: number
 }

@@ -32,6 +32,54 @@ def factory_test_plugin_log_entry(plugin_log_entry_factory: Callable):
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0].message, "Something happened!")
 
+        def test_log_search_works(self):
+            plugin_server_instance_id = str(UUIDT())
+
+            some_plugin: Plugin = Plugin.objects.create(organization=self.organization)
+            plugin_log_entry_factory(
+                team_id=self.team.pk,
+                plugin_id=some_plugin.pk,
+                type=PluginLogEntry.Type.INFO,
+                message="Something happened!",
+                instance_id=plugin_server_instance_id,
+            )
+            plugin_log_entry_factory(
+                team_id=self.team.pk,
+                plugin_id=some_plugin.pk,
+                type=PluginLogEntry.Type.ERROR,
+                message="Random error",
+                instance_id=plugin_server_instance_id,
+            )
+
+            results = fetch_plugin_log_entries(team_id=self.team.pk, plugin_id=some_plugin.pk, search="somethinG")
+
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0].message, "Something happened!")
+
+        def test_log_limit_works(self):
+            plugin_server_instance_id = str(UUIDT())
+
+            some_plugin: Plugin = Plugin.objects.create(organization=self.organization)
+            plugin_log_entry_factory(
+                team_id=self.team.pk,
+                plugin_id=some_plugin.pk,
+                type=PluginLogEntry.Type.INFO,
+                message="Something happened!",
+                instance_id=plugin_server_instance_id,
+            )
+            plugin_log_entry_factory(
+                team_id=self.team.pk,
+                plugin_id=some_plugin.pk,
+                type=PluginLogEntry.Type.ERROR,
+                message="Random error",
+                instance_id=plugin_server_instance_id,
+            )
+
+            results = fetch_plugin_log_entries(team_id=self.team.pk, plugin_id=some_plugin.pk, limit=1)
+
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0].message, "Random error")
+
     return TestPluginLogEntry
 
 
