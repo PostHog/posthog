@@ -1,9 +1,10 @@
 from typing import List
 
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import EventDefinition, Team
+from posthog.permissions import OrganizationMemberPermissions
 
 
 class EventDefinitionSerializer(serializers.ModelSerializer):
@@ -24,5 +25,9 @@ class EventDefinitionViewSet(
     StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet,
 ):
     serializer_class = EventDefinitionSerializer
-    queryset = EventDefinition.objects.all()
+    permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "uuid"
+    ordering = "name"
+
+    def get_queryset(self):
+        return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by(self.ordering)
