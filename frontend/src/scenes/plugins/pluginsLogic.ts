@@ -70,6 +70,8 @@ export const pluginsLogic = kea<
         makePluginOrderSaveable: true,
         savePluginOrders: (newOrders: Record<number, number>) => ({ newOrders }),
         cancelRearranging: true,
+        showPluginLogs: (id: number) => ({ id }),
+        hidePluginLogs: true,
     },
 
     loaders: ({ actions, values }) => ({
@@ -376,6 +378,19 @@ export const pluginsLogic = kea<
                 savePluginOrdersSuccess: () => ({}),
             },
         ],
+        showingLogsPluginId: [
+            null as number | null,
+            {
+                showPluginLogs: (_, { id }) => id,
+                hidePluginLogs: () => null,
+            },
+        ],
+        lastShownLogsPluginId: [
+            null as number | null,
+            {
+                showPluginLogs: (_, { id }) => id,
+            },
+        ],
     },
 
     selectors: {
@@ -488,6 +503,16 @@ export const pluginsLogic = kea<
             (s) => [s.pluginsLoading, s.repositoryLoading, s.pluginConfigsLoading],
             (pluginsLoading, repositoryLoading, pluginConfigsLoading) =>
                 pluginsLoading || repositoryLoading || pluginConfigsLoading,
+        ],
+        showingLogsPlugin: [
+            (s) => [s.showingLogsPluginId, s.installedPlugins],
+            (showingLogsPluginId, installedPlugins) =>
+                showingLogsPluginId ? installedPlugins.find((plugin) => plugin.id === showingLogsPluginId) : null,
+        ],
+        lastShownLogsPlugin: [
+            (s) => [s.lastShownLogsPluginId, s.installedPlugins],
+            (lastShownLogsPluginId, installedPlugins) =>
+                lastShownLogsPluginId ? installedPlugins.find((plugin) => plugin.id === lastShownLogsPluginId) : null,
         ],
     },
 

@@ -7,6 +7,7 @@ import {
     CheckOutlined,
     CloudDownloadOutlined,
     LoadingOutlined,
+    UnorderedListOutlined,
     SettingOutlined,
     WarningOutlined,
     InfoCircleOutlined,
@@ -24,7 +25,6 @@ import { userLogic } from 'scenes/userLogic'
 import { endWithPunctation } from '../../../lib/utils'
 import { canInstallPlugins } from '../access'
 import { LinkButton } from '../../../lib/components/LinkButton'
-import { PluginLogs } from './PluginLogs'
 import { PluginUpdateButton } from './PluginUpdateButton'
 
 export function ExtraPluginButtons({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
@@ -76,7 +76,9 @@ export function PluginCard({
         organization_name,
     } = plugin
 
-    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange } = useActions(pluginsLogic)
+    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange, showPluginLogs } = useActions(
+        pluginsLogic
+    )
     const { loading, installingPluginUrl, checkingForUpdates } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
 
@@ -185,16 +187,27 @@ export function PluginCard({
                                     rearranging={rearranging}
                                 />
                             ) : pluginId ? (
-                                <Button
-                                    type="primary"
-                                    className="padding-under-500"
-                                    disabled={rearranging}
-                                    onClick={() => editPlugin(pluginId)}
-                                    data-attr="plugin-configure"
-                                >
-                                    <SettingOutlined />
-                                    <span className="show-over-500">Configure</span>
-                                </Button>
+                                <>
+                                    <Button
+                                        className="padding-under-500"
+                                        disabled={rearranging}
+                                        onClick={() => showPluginLogs(pluginId)}
+                                        data-attr="plugin-logs"
+                                    >
+                                        <UnorderedListOutlined />
+                                        <span className="show-over-500">Logs</span>
+                                    </Button>
+                                    <Button
+                                        type="primary"
+                                        className="padding-under-500"
+                                        disabled={rearranging}
+                                        onClick={() => editPlugin(pluginId)}
+                                        data-attr="plugin-configure"
+                                    >
+                                        <SettingOutlined />
+                                        <span className="show-over-500">Configure</span>
+                                    </Button>
+                                </>
                             ) : !pluginId ? (
                                 <Button
                                     type="primary"
@@ -213,11 +226,6 @@ export function PluginCard({
                         </Space>
                     </Col>
                 </Row>
-                {pluginId && user && user.organization && user.team && (
-                    <Row>
-                        <PluginLogs organizationId={user.organization.id} teamId={user.team.id} pluginId={pluginId} />
-                    </Row>
-                )}
             </Card>
         </Col>
     )
