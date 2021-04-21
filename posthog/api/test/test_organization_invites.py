@@ -36,9 +36,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.json(), self.not_found_response())
 
+        # There's no retrieve for invites
         response = self.client.get(f"/api/organizations/{org.id}/invites/{invite.id}")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(response.json(), self.not_found_response())
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(response.json(), self.method_not_allowed_response("GET"))
 
     # Creating invites
 
