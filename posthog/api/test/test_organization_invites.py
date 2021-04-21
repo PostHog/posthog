@@ -4,6 +4,7 @@ from unittest.mock import patch
 from django.core import mail
 from rest_framework import status
 
+from posthog.models import organization
 from posthog.models.organization import Organization, OrganizationInvite, OrganizationMembership
 from posthog.test.base import APIBaseTest
 
@@ -24,6 +25,20 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             )
 
         return payload
+
+    # Listing invites
+
+    def test_cant_list_invites_for_an_alien_organization(self):
+        org = Organization.objects.create(name="Alien Org")
+        invite = OrganizationInvite.objects.create(target_email="siloed@posthog.com", organization=org)
+
+        response = self.client.get(f"/api/organizations/{org.id}/invites/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json(), self.not_found_response())
+
+        response = self.client.get(f"/api/organizations/{org.id}/invites/{invite.id}")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json(), self.not_found_response())
 
     # Creating invites
 
