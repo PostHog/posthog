@@ -26,6 +26,8 @@ class StructuredViewSetMixin(NestedViewSetMixin):
     # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
     filter_rewrite_rules: Dict[str, str] = {}
 
+    _parents_query_dict: Optional[Dict[str, Any]]
+
     @property
     def team_id(self) -> int:
         if self.legacy_team_compatibility:

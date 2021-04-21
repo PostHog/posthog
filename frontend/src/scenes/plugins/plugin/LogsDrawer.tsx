@@ -15,11 +15,12 @@ export function LogsDrawer(): JSX.Element {
             width={'min(90vw, 64rem)'}
             title={`Viewing Plugin Logs: ${lastShownLogsPlugin?.name}`}
             placement="left"
+            destroyOnClose
         >
             {!!lastShownLogsPlugin && (
                 <PluginLogs
                     teamId={lastShownLogsPlugin.pluginConfig.team_id}
-                    pluginConfigId={lastShownLogsPlugin.pluginConfig.id}
+                    pluginConfigId={lastShownLogsPlugin.pluginConfig.id!} // eslint-disable-line
                 />
             )}
         </Drawer>

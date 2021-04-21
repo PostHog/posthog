@@ -15,6 +15,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProp
 
     actions: {
         clearPluginLogsBackground: true,
+        markLogsEnd: true,
     },
 
     loaders: ({ props: { teamId, pluginConfigId }, values, actions, cache }) => ({
@@ -24,7 +25,9 @@ export const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProp
                 const search = searchTerm ? `search=${searchTerm}` : ''
                 const limit = `limit=${LOGS_PORTION_LIMIT}`
                 const response = await api.get(
-                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?${[search, limit].join('&')}`
+                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?${[search, limit]
+                        .filter(Boolean)
+                        .join('&')}`
                 )
                 cache.pollingInterval = setInterval(actions.loadPluginLogsBackgroundPoll, 2000)
                 actions.clearPluginLogsBackground()
@@ -36,8 +39,13 @@ export const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProp
                 const search = values.searchTerm ? `search=${values.searchTerm}` : ''
                 const limit = `&limit=${LOGS_PORTION_LIMIT}`
                 const response = await api.get(
-                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?${[before, search, limit].join('&')}`
+                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?${[before, search, limit]
+                        .filter(Boolean)
+                        .join('&')}`
                 )
+                if (response.results.length <= LOGS_PORTION_LIMIT) {
+                    actions.markLogsEnd()
+                }
                 return [...values.pluginLogs, ...response.results]
             },
             revealBackground: () => {
@@ -55,7 +63,9 @@ export const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProp
                 const after = values.leadingEntry ? 'after=' + values.leadingEntry.timestamp : ''
                 const search = values.searchTerm ? `search=${values.searchTerm}` : ''
                 const response = await api.get(
-                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?${[after, search].join('&')}`
+                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?${[after, search]
+                        .filter(Boolean)
+                        .join('&')}`
                 )
                 return [...response.results, ...values.pluginLogsBackground]
             },
@@ -79,7 +89,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProp
             true,
             {
                 loadPluginLogsAnewSuccess: (_, { pluginLogs }) => pluginLogs.length >= LOGS_PORTION_LIMIT,
-                loadPluginLogsMoreSuccess: (_, { pluginLogs }) => pluginLogs.length >= LOGS_PORTION_LIMIT,
+                markLogsEnd: () => false,
             },
         ],
     },

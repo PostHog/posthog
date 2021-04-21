@@ -119,6 +119,7 @@ class PluginLogEntryRaw:
     id: UUID
     team_id: int
     plugin_id: int
+    plugin_config_id: int
     timestamp: datetime.datetime
     type: PluginLogEntry.Type
     message: str
