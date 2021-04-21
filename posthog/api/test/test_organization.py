@@ -119,8 +119,8 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.save()
 
         response = self.client.post(f"/api/organizations/{self.organization.id}/onboarding")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(response.json(), self.not_found_response())
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
 
         # Object did not change
         self.organization.refresh_from_db()

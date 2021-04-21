@@ -81,9 +81,8 @@ class OrganizationMemberPermissions(BasePermission):
     """
 
     def has_permission(self, request: Request, view: View) -> bool:
-
-        # When request is not create, an object exists, delegate to `has_object_permission`
-        if request.method != "POST":
+        # When request is not create or list `Organization`s, an object exists, delegate to `has_object_permission`
+        if view.basename == "organizations" and view.action not in ["list", "create"]:
             return True
 
         organization = get_organization_from_view(view)
@@ -106,8 +105,8 @@ class OrganizationAdminWritePermissions(BasePermission):
 
     def has_permission(self, request: Request, view: View) -> bool:
 
-        # When request is not create, an object exists, delegate to `has_object_permission`
-        if request.method != "POST":
+        # When request is not create or list `Organization`s, an object exists, delegate to `has_object_permission`
+        if view.basename == "organizations" and view.action not in ["list", "create"]:
             return True
 
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`

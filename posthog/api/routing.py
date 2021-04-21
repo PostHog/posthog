@@ -1,6 +1,5 @@
-from typing import Any, Dict, Union
+from typing import Any, Dict, List, Optional, Tuple
 
-from django.core.exceptions import ValidationError
 from rest_framework.exceptions import AuthenticationFailed, NotFound
 from rest_framework_extensions.mixins import NestedViewSetMixin
 from rest_framework_extensions.routers import ExtendedDefaultRouter
@@ -64,40 +63,6 @@ class StructuredViewSetMixin(NestedViewSetMixin):
         else:
             return queryset
 
-    def _get_and_validate_query_lookup(self, query_lookup: str, unsanitized_query_value: str) -> Any:
-        query_value: Union[str, int, None] = None
-        if unsanitized_query_value == "@current":
-            if query_lookup == "team_id":
-                project = self.request.user.team
-                if project is None:
-                    raise NotFound("Current project not found.")
-                query_value = project.id
-            elif query_lookup == "organization_id":
-                organization = self.request.user.organization
-                if organization is None:
-                    raise NotFound("Current organization not found.")
-                query_value = organization.id
-
-        else:
-            if query_lookup == "team_id":
-                try:
-                    project = Team.objects.get(id=int(unsanitized_query_value))
-                    if not project.organization.memberships.filter(user=self.request.user).exists():
-                        raise NotFound()
-                    query_value = project.id
-                except (ValueError, Team.DoesNotExist):
-                    raise NotFound()
-            elif query_lookup == "organization_id":
-                try:
-                    organization = Organization.objects.get(id=unsanitized_query_value)
-                    if not organization.memberships.filter(user=self.request.user).exists():
-                        raise NotFound()
-                    query_value = organization.id
-                except (Organization.DoesNotExist, ValidationError):
-                    raise NotFound()
-
-        return query_value
-
     def get_parents_query_dict(self) -> Dict[str, Any]:
         if self.legacy_team_compatibility:
             if not self.request.user.is_authenticated:
@@ -111,8 +76,26 @@ class StructuredViewSetMixin(NestedViewSetMixin):
                 query_lookup = kwarg_name.replace(
                     extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX, "", 1
                 )
-
-            result[query_lookup] = self._get_and_validate_query_lookup(query_lookup, kwarg_value)
+                query_value = kwarg_value
+                if query_value == "@current":
+                    if not self.request.user.is_authenticated:
+                        raise AuthenticationFailed()
+                    if query_lookup == "team_id":
+                        project = self.request.user.team
+                        if project is None:
+                            raise NotFound("Current project not found.")
+                        query_value = project.id
+                    elif query_lookup == "organization_id":
+                        organization = self.request.user.organization
+                        if organization is None:
+                            raise NotFound("Current organization not found.")
+                        query_value = organization.id
+                elif query_lookup == "team_id":
+                    try:
+                        query_value = int(query_value)
+                    except ValueError:
+                        raise NotFound()
+                result[query_lookup] = query_value
         return result
 
     def get_serializer_context(self) -> Dict[str, Any]:

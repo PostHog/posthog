@@ -33,14 +33,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         invite = OrganizationInvite.objects.create(target_email="siloed@posthog.com", organization=org)
 
         response = self.client.get(f"/api/organizations/{org.id}/invites/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(response.json(), self.not_found_response())
-
-        # TODO: The router seems to use Django's HTTP 404, which is handled differently
-        # Assert the same response with am inexistent ID to make sure we don't leak any information about existing orgs
-        # response = self.client.post(f"/api/organizations/{uuid.uuid4()}/onboarding")
-        # self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        # self.assertEqual(response.json(), self.not_found_response())
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
 
         # There's no retrieve for invites
         response = self.client.get(f"/api/organizations/{org.id}/invites/{invite.id}")
@@ -225,8 +219,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
             response = self.client.post(f"/api/organizations/{another_org.id}/invites/bulk/", payload, format="json",)
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(response.json(), self.not_found_response())
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
 
         # No invites created
         self.assertEqual(OrganizationInvite.objects.count(), count)
