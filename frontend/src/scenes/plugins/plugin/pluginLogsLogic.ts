@@ -50,7 +50,9 @@ export const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProp
         pluginLogsBackground: {
             __default: [] as PluginLogEntry[],
             loadPluginLogsBackgroundPoll: async () => {
-                if (values.pluginLogsLoading) {return values.pluginLogsBackground}
+                if (values.pluginLogsLoading) {
+                    return values.pluginLogsBackground
+                }
                 const after = values.leadingEntry ? '&after=' + values.leadingEntry.timestamp : ''
                 const search = values.searchTerm ? `&search=${values.searchTerm}` : ''
                 const response = await api.get(

@@ -30,10 +30,11 @@ class PluginLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
     ]
 
     def filter_queryset_by_parents_lookups(self, queryset):
-        limit = self.request.GET.get("limit")
-        if limit:
+        limit_raw = self.request.GET.get("limit")
+        limit: Optional[int]
+        if limit_raw:
             try:
-                limit = int(limit)
+                limit = int(limit_raw)
             except ValueError:
                 raise exceptions.ValidationError("Query param limit must be omitted or an integer!")
         else:
