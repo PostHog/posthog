@@ -30,9 +30,14 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["timezone"], "UTC")
         self.assertEqual(response_data["is_demo"], False)
         self.assertEqual(response_data["slack_incoming_webhook"], self.team.slack_incoming_webhook)
-        self.assertIn("event_names", response_data)
-        self.assertIn("event_properties", response_data)
-        self.assertIn("event_properties_numerical", response_data)
+
+        # The properties below are no longer included as part of the request
+        # TODO: These assertions will no longer make sense when we migrate this to a separate table.
+        self.assertNotIn("event_names", response_data)
+        self.assertNotIn("event_properties", response_data)
+        self.assertNotIn("event_properties_numerical", response_data)
+        self.assertNotIn("event_names_with_usage", response_data)
+        self.assertNotIn("event_properties_with_usage", response_data)
 
     def test_cant_create_team_without_license_on_selfhosted(self):
         with self.settings(MULTI_TENANCY=False):
