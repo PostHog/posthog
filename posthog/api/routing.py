@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from rest_framework.exceptions import AuthenticationFailed, NotFound
 from rest_framework_extensions.mixins import NestedViewSetMixin
@@ -47,7 +47,7 @@ class StructuredViewSetMixin(NestedViewSetMixin):
         try:
             return self.get_parents_query_dict()["organization_id"]
         except KeyError:
-            return self.team.organization_id
+            return str(self.team.organization_id)
 
     @property
     def organization(self) -> Organization:
@@ -67,8 +67,8 @@ class StructuredViewSetMixin(NestedViewSetMixin):
             return queryset
 
     def get_parents_query_dict(self) -> Dict[str, Any]:
-        if getattr(self, "_parents_query_dict", None):
-            return self._parents_query_dict
+        if getattr(self, "_parents_query_dict", None) is not None:
+            return cast(Dict[str, Any], self._parents_query_dict)
         if self.legacy_team_compatibility:
             if not self.request.user.is_authenticated:
                 raise AuthenticationFailed()
