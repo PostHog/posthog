@@ -61,7 +61,7 @@ function ResizableTitle({
     )
 }
 
-export default function VirtualTableHeader<RecordType>({
+function VirtualTableHeader<RecordType>({
     columns,
     handleResize,
     layoutEffect,
@@ -88,3 +88,5 @@ export default function VirtualTableHeader<RecordType>({
         </div>
     )
 }
+
+export default React.memo(VirtualTableHeader) as typeof VirtualTableHeader

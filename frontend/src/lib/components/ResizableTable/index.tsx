@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Table, TableProps } from 'antd'
 import { ColumnType } from 'antd/lib/table'
 import { ResizableProps } from 'react-resizable'
@@ -155,6 +155,23 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
         entries.forEach(({ contentRect: { width } }) => handleWrapperResize(width))
     })
 
+    useEffect(() => {
+        // Update render prop when parent columns change
+        console.log('Effect running.')
+        setColumns((cols) => {
+            const lastIndex = cols.length
+            const nextColumns = cols.map((column, index) =>
+                index === lastIndex
+                    ? column
+                    : {
+                          ...column,
+                          render: initialColumns[index].render,
+                      }
+            )
+            return nextColumns
+        })
+    }, [initialColumns])
+
     useLayoutEffect(() => {
         // Calculate relative column widths (px) once the wrapper is mounted.
         if (scrollWrapperRef.current) {
@@ -169,7 +186,6 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
                         ? column
                         : {
                               ...column,
-                              render: initialColumns[index].render,
                               width: Math.max(columnSpanWidth * column.span, minColumnWidth),
                           }
                 )
@@ -179,7 +195,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
             updateScrollGradient()
             setHeaderShouldRender(true)
         }
-    }, [initialColumns])
+    }, [])
 
     return (
         <div ref={scrollWrapperRef} className="resizable-table-scroll-container" onScroll={updateScrollGradient}>
