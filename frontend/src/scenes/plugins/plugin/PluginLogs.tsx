@@ -1,5 +1,6 @@
 import { Button, Row, Space } from 'antd'
 import Search from 'antd/lib/input/Search'
+import { LoadingOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useActions, useValues } from 'kea'
 import React from 'react'
@@ -59,14 +60,14 @@ export function PluginLogs({ teamId, pluginConfigId }: PluginLogsProps): JSX.Ele
     const logic = pluginLogsLogic({ teamId, pluginConfigId })
 
     const { pluginLogs, pluginLogsLoading, pluginLogsBackground, isThereMoreToLoad } = useValues(logic)
-    const { revealBackground, loadPluginLogsAnew, loadPluginLogsMore } = useActions(logic)
+    const { revealBackground, loadPluginLogsMore, loadPluginLogsSearch } = useActions(logic)
 
     return (
         <Space direction="vertical" style={{ flexGrow: 1 }} className="ph-no-capture">
             <Row>
                 <Search
                     loading={pluginLogsLoading}
-                    onSearch={(value) => loadPluginLogsAnew(value)}
+                    onSearch={(term) => loadPluginLogsSearch(term)}
                     placeholder="Search for messages containing…"
                     allowClear
                 />
@@ -77,6 +78,7 @@ export function PluginLogs({ teamId, pluginConfigId }: PluginLogsProps): JSX.Ele
                     loading={pluginLogsLoading}
                     style={{ flexGrow: 1 }}
                     disabled={!pluginLogsBackground.length}
+                    icon={<LoadingOutlined />}
                 >
                     {pluginLogsBackground.length
                         ? `Load ${pluralize(pluginLogsBackground.length, 'newer entry', 'newer entries')}`
@@ -91,7 +93,7 @@ export function PluginLogs({ teamId, pluginConfigId }: PluginLogsProps): JSX.Ele
                 className="ph-no-capture"
                 rowKey="id"
                 style={{ flexGrow: 1 }}
-                pagination={false}
+                pagination={{ pageSize: 200, hideOnSinglePage: true }}
             />
             {!!pluginLogs.length && (
                 <Row>

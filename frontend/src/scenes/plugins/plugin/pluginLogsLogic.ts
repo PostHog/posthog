@@ -21,29 +21,28 @@ export const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProp
     loaders: ({ props: { teamId, pluginConfigId }, values, actions, cache }) => ({
         pluginLogs: {
             __default: [] as PluginLogEntry[],
-            loadPluginLogsAnew: async (searchTerm = '') => {
-                const search = searchTerm ? `search=${searchTerm}` : ''
-                const limit = `limit=${LOGS_PORTION_LIMIT}`
+            loadPluginLogsInitially: async () => {
                 const response = await api.get(
-                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?${[search, limit]
-                        .filter(Boolean)
-                        .join('&')}`
+                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}`
                 )
                 cache.pollingInterval = setInterval(actions.loadPluginLogsBackgroundPoll, 2000)
                 actions.clearPluginLogsBackground()
                 return response.results
             },
-            loadPluginLogsMore: async () => {
-                const length = values.pluginLogs.length
-                const before = length ? 'before=' + values.pluginLogs[length - 1].timestamp : ''
-                const search = values.searchTerm ? `search=${values.searchTerm}` : ''
-                const limit = `&limit=${LOGS_PORTION_LIMIT}`
+            loadPluginLogsSearch: async (searchTerm: string) => {
                 const response = await api.get(
-                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?${[before, search, limit]
-                        .filter(Boolean)
-                        .join('&')}`
+                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}&search=${searchTerm}`
                 )
-                if (response.results.length <= LOGS_PORTION_LIMIT) {
+                actions.clearPluginLogsBackground()
+                return response.results
+            },
+            loadPluginLogsMore: async () => {
+                const before = values.leadingEntry ? '&before=' + values.leadingEntry.timestamp : ''
+                const search = values.searchTerm ? `&search=${values.searchTerm}` : ''
+                const response = await api.get(
+                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}${before}${search}`
+                )
+                if (response.count < LOGS_PORTION_LIMIT) {
                     actions.markLogsEnd()
                 }
                 return [...values.pluginLogs, ...response.results]
@@ -82,13 +81,13 @@ export const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProp
         searchTerm: [
             '',
             {
-                loadPluginLogsAnew: (_, searchTerm) => searchTerm || '',
+                loadPluginLogsSearch: (_, searchTerm) => searchTerm || '',
             },
         ],
         isThereMoreToLoad: [
             true,
             {
-                loadPluginLogsAnewSuccess: (_, { pluginLogs }) => pluginLogs.length >= LOGS_PORTION_LIMIT,
+                loadPluginLogsInitiallySuccess: (_, { pluginLogs }) => pluginLogs.length >= LOGS_PORTION_LIMIT,
                 markLogsEnd: () => false,
             },
         ],
@@ -107,11 +106,23 @@ export const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProp
                 return null
             },
         ],
+        trailingEntry: [
+            () => [selectors.pluginLogs, selectors.pluginLogsBackground],
+            (pluginLogs: PluginLogEntry[], pluginLogsBackground: PluginLogEntry[]): PluginLogEntry | null => {
+                if (pluginLogs.length) {
+                    return pluginLogs[pluginLogs.length - 1]
+                }
+                if (pluginLogsBackground.length) {
+                    return pluginLogsBackground[pluginLogsBackground.length - 1]
+                }
+                return null
+            },
+        ],
     }),
 
     events: ({ actions, cache }) => ({
         afterMount: () => {
-            actions.loadPluginLogsAnew()
+            actions.loadPluginLogsInitially()
         },
         beforeUnmount: () => {
             clearInterval(cache.pollingInterval)
