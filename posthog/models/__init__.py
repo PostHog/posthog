@@ -8,6 +8,7 @@ from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
 from .event import Event
+from .event_definition import EventDefinition
 from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
 from .messaging import MessagingRecord
@@ -20,3 +21,37 @@ from .session_recording_event import SessionRecordingEvent
 from .sessions_filter import SessionsFilter
 from .team import Team
 from .user import User, UserManager
+
+__all__ = [
+    "Action",
+    "ActionStep",
+    "Annotation",
+    "Cohort",
+    "CohortPeople",
+    "Dashboard",
+    "DashboardItem",
+    "Element",
+    "ElementGroup",
+    "Entity",
+    "Event",
+    "EventDefinition",
+    "FeatureFlag",
+    "Filter",
+    "RetentionFilter",
+    "MessagingRecord",
+    "Organization",
+    "OrganizationInvite",
+    "OrganizationMembership",
+    "Person",
+    "PersonDistinctId",
+    "PersonalAPIKey",
+    "Plugin",
+    "PluginAttachment",
+    "PluginConfig",
+    "Property",
+    "SessionRecordingEvent",
+    "SessionsFilter",
+    "Team",
+    "User",
+    "UserManager",
+]

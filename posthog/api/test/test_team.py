@@ -32,7 +32,7 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["slack_incoming_webhook"], self.team.slack_incoming_webhook)
 
         # The properties below are no longer included as part of the request
-        # TODO: These assertions will no longer make sense when we migrate this to a separate table.
+        # TODO: #4070 These assertions will no longer make sense when we fully remove these attributes from the model
         self.assertNotIn("event_names", response_data)
         self.assertNotIn("event_properties", response_data)
         self.assertNotIn("event_properties_numerical", response_data)
