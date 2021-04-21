@@ -4,7 +4,7 @@ import { Table } from 'antd'
 import PropTypes from 'prop-types'
 import { useValues } from 'kea'
 import { ActionFilter, trendsLogic } from 'scenes/trends/trendsLogic'
-import { ChartParams, TrendResultWithAggregate } from '~/types'
+import { ChartParams, IndexedTrendResult } from '~/types'
 
 export function ActionsTable({
     dashboardItemId,
@@ -15,7 +15,7 @@ export function ActionsTable({
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
     const { filters, indexedResults, resultsLoading } = useValues(logic)
 
-    let data = indexedResults as TrendResultWithAggregate[]
+    let data = indexedResults as IndexedTrendResult[]
     if (!filters.session && data) {
         data = data.sort((a, b) => b.aggregated_value - a.aggregated_value)
     }
