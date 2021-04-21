@@ -577,6 +577,7 @@ class TestPluginAPI(APIBaseTest):
                 "order": 0,
                 "config": {"bar": "moop"},
                 "error": None,
+                "team_id": self.team.pk,
             },
         )
         response = self.client.patch(
@@ -595,6 +596,7 @@ class TestPluginAPI(APIBaseTest):
                 "order": 1,
                 "config": {"bar": "soup"},
                 "error": None,
+                "team_id": self.team.pk,
             },
         )
         self.client.delete("/api/plugin_config/{}".format(plugin_config_id))
@@ -845,6 +847,7 @@ class TestPluginAPI(APIBaseTest):
                 "order": 1,
                 "config": {"bar": "**************** POSTHOG SECRET FIELD ****************"},
                 "error": None,
+                "team_id": self.team.pk,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
