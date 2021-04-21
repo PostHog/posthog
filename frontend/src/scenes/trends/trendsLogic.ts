@@ -53,12 +53,6 @@ interface PeopleParamType {
     lifecycle_type?: string
 }
 
-export const EntityTypes: Record<string, string> = {
-    ACTIONS: 'actions',
-    EVENTS: 'events',
-    NEW_ENTITY: 'new_entity',
-}
-
 function cleanFilters(filters: Partial<FilterType>): Record<string, any> {
     return {
         insight: ViewType.TRENDS,

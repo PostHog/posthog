@@ -1,7 +1,7 @@
 import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Tooltip, Col, Row, Select } from 'antd'
-import { EntityTypes } from '../../trends/trendsLogic'
+import { EntityTypes } from '~/types'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
@@ -52,8 +52,8 @@ export function ActionFilterRow({
     const visible = entityFilterVisible[filter.order]
 
     let entity, name, value
-    let math = filter.math
-    let mathProperty = filter.math_property
+    const math = filter.math
+    const mathProperty = filter.math_property
 
     const onClose = () => {
         removeLocalFilter({ value: filter.id, type: filter.type, index })

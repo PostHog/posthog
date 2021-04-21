@@ -132,6 +132,12 @@ export interface TeamType extends TeamBasicType {
     data_attributes: string[]
 }
 
+export const EntityTypes: Record<string, string> = {
+    ACTIONS: 'actions',
+    EVENTS: 'events',
+    NEW_ENTITY: 'new_entity',
+}
+
 export interface ActionType {
     count?: number
     created_at: string
