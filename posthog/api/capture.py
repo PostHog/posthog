@@ -26,7 +26,7 @@ from posthog.utils import cors_response, get_ip_address, load_data_from_request
 if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
 
-if settings.EE_AVAILABLE:
+if is_ee_enabled():
     producer = KafkaProducer()
 
     def log_event(
