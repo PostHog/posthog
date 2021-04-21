@@ -12,7 +12,6 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from sentry_sdk import capture_exception
 
-from ee.kafka_client.client import KafkaProducer
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
 from posthog.exceptions import RequestParsingError, generate_exception_response
@@ -26,6 +25,9 @@ if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
 
 if is_ee_enabled():
+    from ee.kafka_client.client import KafkaProducer
+    from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_WAL
+
     producer = KafkaProducer()
 
     def log_event(
@@ -54,8 +56,6 @@ if is_ee_enabled():
         }
         for topic in topics:
             producer.produce(topic=topic, data=data)
-
-    from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_WAL
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> dt.datetime:
