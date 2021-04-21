@@ -14,6 +14,8 @@ import { PluginInstallationType } from 'scenes/plugins/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { Dayjs } from 'dayjs'
 
+export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
+
 export type AvailableFeatures =
     | 'zapier'
     | 'organizations_projects'
@@ -130,12 +132,6 @@ export interface TeamType extends TeamBasicType {
     session_recording_retention_period_days: number | null
     test_account_filters: FilterType[]
     data_attributes: string[]
-}
-
-export const EntityTypes: Record<string, string> = {
-    ACTIONS: 'actions',
-    EVENTS: 'events',
-    NEW_ENTITY: 'new_entity',
 }
 
 export interface ActionType {
@@ -260,7 +256,7 @@ export type SessionsPropertyFilter =
     | ActionTypePropertyFilter
     | EventTypePropertyFilter
 
-export type EntityType = 'actions' | 'events'
+export type EntityType = 'actions' | 'events' | 'new_entity'
 
 export interface Entity {
     id: string | number
@@ -268,6 +264,18 @@ export interface Entity {
     order: number
     type: EntityType
 }
+
+export const EntityTypes: Record<string, EntityType> = {
+    ACTIONS: 'actions',
+    EVENTS: 'events',
+    NEW_ENTITY: 'new_entity',
+}
+
+export type EntityFilter = {
+    type: EntityType
+    id: Entity['id'] | null
+    name: string | null
+} & Record<string, any>
 
 export interface EntityWithProperties extends Entity {
     properties: Record<string, any>
@@ -500,6 +508,7 @@ export interface FilterType {
     session?: string
     period?: string
     retentionType?: RetentionType
+    new_entity?: Record<string, any>[]
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
     path_type?: PathType
@@ -538,12 +547,9 @@ interface DisabledSetupState {
 
 export type SetupState = EnabledSetupState | DisabledSetupState
 
-export interface ActionFilter {
-    id: number | string
+export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
-    name: string
-    order: number
     properties: PropertyFilter[]
     type: EntityType
 }

@@ -1,19 +1,24 @@
 import { kea } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
-import { EntityTypes } from '~/types'
+import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, Optional } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
+import { entityFilterLogicType } from './entityFilterLogicType'
 
-export function toLocalFilters(filters) {
+type FilterInputType = Optional<FilterType, 'insight'> & { order: number }
+
+type LocalFilter = EntityFilter & { order: number }
+
+export function toLocalFilters(filters: FilterInputType): LocalFilter[] {
     return [
         ...(filters[EntityTypes.ACTIONS] || []),
         ...(filters[EntityTypes.EVENTS] || []),
         ...(filters[EntityTypes.NEW_ENTITY] || []),
     ]
         .sort((a, b) => a.order - b.order)
-        .map((filter, order) => ({ ...filter, order }))
+        .map((filter, order) => ({ ...(filter as EntityFilter), order }))
 }
 
-export function toFilters(localFilters) {
+export function toFilters(localFilters: EntityFilter[]): Optional<FilterType, 'insight'> {
     const filters = localFilters.map((filter, index) => ({
         ...filter,
         order: index,
@@ -23,46 +28,60 @@ export function toFilters(localFilters) {
         [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
         [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
         [EntityTypes.NEW_ENTITY]: filters.filter((filter) => filter.type === EntityTypes.NEW_ENTITY),
-    }
+    } as Optional<FilterType, 'insight'>
+}
+
+export interface ActionFilterProps {
+    setFilters: (filters: Record<string, any>) => void // TODO
+    filters: FilterType[] // TODO
+    typeKey: string
+    hideMathSelector?: boolean
+    hidePropertySelector?: boolean
+    copy: string
+    disabled?: boolean
+    singleFilter?: boolean
+    sortable?: boolean
+    showLetters?: boolean
+    showOr?: boolean
 }
 
 // required props:
 // - filters
 // - setFilters
 // - typeKey
-export const entityFilterLogic = kea({
+export const entityFilterLogic = kea<entityFilterLogicType<EntityFilter, ActionFilter, EntityType>>({
     key: (props) => props.typeKey,
     connect: {
         values: [teamLogic, ['eventNames'], actionsModel, ['actions']],
     },
     actions: () => ({
-        selectFilter: (filter) => ({ filter }),
-        updateFilterMath: (filter) => ({
+        selectFilter: (filter: Partial<EntityFilter> | null) => ({ filter }),
+        updateFilterMath: (filter: ActionFilter & { index: number; value: string | number }) => ({
             type: filter.type,
             value: filter.value,
             math: filter.math,
             math_property: filter.math_property,
             index: filter.index,
         }),
-        updateFilter: (filter) => ({
+        updateFilter: (filter: EntityFilter & { index: number }) => ({
             type: filter.type,
             index: filter.index,
             id: filter.id,
-            name: filter.name
+            name: filter.name,
         }),
-        removeLocalFilter: (filter) => ({
+        removeLocalFilter: (filter: EntityFilter & { index: number; value: string | number | null }) => ({
             value: filter.value,
             type: filter.type,
-            index: filter.index
+            index: filter.index,
         }),
         addFilter: true,
-        updateFilterProperty: (filter) => ({
+        updateFilterProperty: (filter: EntityFilter & { index: number; properties: string[] }) => ({
             properties: filter.properties,
-            index: filter.index
+            index: filter.index,
         }),
-        setFilters: (filters) => ({ filters }),
-        setLocalFilters: (filters) => ({ filters }),
-        setEntityFilterVisibility: (index, value) => ({ index, value }),
+        setFilters: (filters: EntityFilter[]) => ({ filters }),
+        setLocalFilters: (filters: EntityFilter[]) => ({ filters }),
+        setEntityFilterVisibility: (index: number, value: boolean) => ({ index, value }),
     }),
 
     reducers: ({ props }) => ({
@@ -79,11 +98,11 @@ export const entityFilterLogic = kea({
             },
         ],
         entityFilterVisible: [
-            {},
+            [] as boolean[],
             {
                 setEntityFilterVisibility: (state, { index, value }) => ({
                     ...state,
-                    [index]: value
+                    [index]: value,
                 }),
             },
         ],
@@ -92,12 +111,13 @@ export const entityFilterLogic = kea({
     selectors: ({ selectors }) => ({
         entities: [
             () => [selectors.eventNames, selectors.actions],
-            (events, actions) => {
-                return {
-                    [EntityTypes.ACTIONS]: actions,
-                    [EntityTypes.EVENTS]: events.map((event) => ({ id: event, name: event })),
-                }
-            },
+            (
+                events: string[],
+                actions: ActionFilter[]
+            ): { [x: string]: ActionFilter[] | Pick<Entity, 'id' | 'name'>[] } => ({
+                [EntityTypes.ACTIONS]: actions,
+                [EntityTypes.EVENTS]: events.map((event) => ({ id: event, name: event })),
+            }),
         ],
         filters: [() => [selectors.localFilters], (localFilters) => toFilters(localFilters)],
     }),
@@ -124,12 +144,19 @@ export const entityFilterLogic = kea({
         },
         addFilter: () => {
             if (values.localFilters.length > 0) {
-                const lastFilter = values.localFilters[values.localFilters.length - 1]
+                const lastFilter: LocalFilter = values.localFilters[values.localFilters.length - 1]
                 const order = lastFilter.order + 1
                 actions.setFilters([...values.localFilters, { ...lastFilter, order }])
                 actions.setEntityFilterVisibility(order, values.entityFilterVisible[lastFilter.order])
             } else {
-                actions.setFilters([{ id: null, type: EntityTypes.NEW_ENTITY, order: 0 }])
+                actions.setFilters([
+                    {
+                        id: null,
+                        type: EntityTypes.NEW_ENTITY,
+                        order: 0,
+                        name: null,
+                    },
+                ])
             }
         },
         setFilters: ({ filters }) => {

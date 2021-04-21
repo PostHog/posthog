@@ -1,5 +1,5 @@
 import React, { useRef } from 'react'
-import { BuiltLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Button, Tooltip, Col, Row, Select } from 'antd'
 import { ActionType, ActionFilter, EntityTypes } from '~/types'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
@@ -12,11 +12,12 @@ import { EventProperty, teamLogic } from 'scenes/teamLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { entityFilterLogic } from './entityFilterLogic'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
 const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
 
-const determineFilterLabel = (visible, filter) => {
+const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): string => {
     if (visible) {
         return 'Hide filters'
     }
@@ -29,7 +30,7 @@ const determineFilterLabel = (visible, filter) => {
 }
 
 interface ActionFilterRowProps {
-    logic: BuiltLogic
+    logic: typeof entityFilterLogic
     filter: ActionFilter
     index: number
     hideMathSelector?: boolean
@@ -49,19 +50,8 @@ export function ActionFilterRow({
     showOr,
     letter,
 }: ActionFilterRowProps): JSX.Element {
-    console.log('ActionFilterRow', {
-        logic,
-        filter,
-        index,
-        hideMathSelector,
-        hidePropertySelector,
-        singleFilter,
-        showOr,
-        letter,
-    })
     const node = useRef<HTMLElement>(null)
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
-    console.log('logic', { selectedFilter, entities, entityFilterVisible })
     const {
         selectFilter,
         updateFilterMath,
@@ -222,7 +212,7 @@ export function ActionFilterRow({
 }
 
 interface MathSelectorProps {
-    math: string
+    math?: string
     index: number
     onMathSelect: (index: number, value: any) => any // TODO
     areEventPropertiesNumericalAvailable?: boolean
@@ -234,7 +224,7 @@ function MathSelector({
     index,
     onMathSelect,
     areEventPropertiesNumericalAvailable,
-    style
+    style,
 }: MathSelectorProps): JSX.Element {
     const numericalNotice = `This can only be used on properties that have at least one number type occurence in your events.${
         areEventPropertiesNumericalAvailable ? '' : ' None have been found yet!'
