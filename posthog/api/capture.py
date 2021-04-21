@@ -1,7 +1,6 @@
-import datetime
+import datetime as dt
 import json
 import re
-from datetime import datetime
 from typing import Any, Dict, Optional, Sequence
 
 import statsd
@@ -35,8 +34,8 @@ if is_ee_enabled():
         site_url: str,
         data: dict,
         team_id: int,
-        now: datetime.datetime,
-        sent_at: Optional[datetime.datetime],
+        now: dt.datetime,
+        sent_at: Optional[dt.datetime],
         event_uuid: UUIDT,
         *,
         topics: Sequence[str],
@@ -59,16 +58,16 @@ if is_ee_enabled():
     from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_WAL
 
 
-def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
+def _datetime_from_seconds_or_millis(timestamp: str) -> dt.datetime:
     if len(timestamp) > 11:  # assuming milliseconds / update "11" to "12" if year > 5138 (set a reminder!)
         timestamp_number = float(timestamp) / 1000
     else:
         timestamp_number = int(timestamp)
 
-    return datetime.fromtimestamp(timestamp_number, timezone.utc)
+    return dt.datetime.fromtimestamp(timestamp_number, timezone.utc)
 
 
-def _get_sent_at(data, request) -> Optional[datetime]:
+def _get_sent_at(data, request) -> Optional[dt.datetime]:
     if request.GET.get("_"):  # posthog-js
         sent_at = request.GET["_"]
     elif isinstance(data, dict) and data.get("sent_at"):  # posthog-android, posthog-ios
