@@ -1,4 +1,6 @@
 # TODO: #4070 Fully temporary until these properties are migrated away from `Team` model
+from typing import Any, Dict
+
 from django.db import models
 from django.dispatch.dispatcher import receiver
 
@@ -8,7 +10,7 @@ from posthog.models.team import DEFERRED_FIELDS, Team
 
 
 @receiver(models.signals.post_save, sender=Team)
-def team_saved(sender, instance: Team, **kwargs):
+def team_saved(sender: Any, instance: Team, **kwargs: Dict) -> None:
     sync_event_and_properties_definitions.delay(instance.uuid)
 
 
