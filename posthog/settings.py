@@ -175,8 +175,6 @@ except ValueError:
 
 EE_AVAILABLE = False
 
-PLUGIN_SERVER_INGESTION = get_from_env("PLUGIN_SERVER_INGESTION", not TEST, type_cast=strtobool)
-
 # True if ingesting with the plugin server into Postgres, as it's then not possible to calculate the mapping on the fly
 ASYNC_EVENT_ACTION_MAPPING = PRIMARY_DB == RDBMS.POSTGRES and get_from_env(
     "ASYNC_EVENT_ACTION_MAPPING", True, type_cast=strtobool
