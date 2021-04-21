@@ -25,14 +25,14 @@ dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
 
 interface FixedFilters {
-    person_id?: string
+    person_id?: string | number
     distinct_ids?: string[]
 }
 
 interface EventsTable {
     fixedFilters?: FixedFilters
     filtersEnabled?: boolean
-    pageKey: string
+    pageKey?: string
 }
 
 export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: EventsTable): JSX.Element {
