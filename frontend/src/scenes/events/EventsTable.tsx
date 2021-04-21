@@ -26,7 +26,7 @@ dayjs.extend(relativeTime)
 
 interface FixedFilters {
     person_id?: string | number
-    distinct_ids?: string[]
+    distinct_id?: string
 }
 
 interface EventsTable {
@@ -213,7 +213,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
     ]
 
     function _personInsightLink(): JSX.Element | null {
-        if (fixedFilters && fixedFilters.distinct_ids?.length) {
+        if (fixedFilters && fixedFilters.distinct_id) {
             const params = {
                 insight: ViewType.TRENDS,
                 interval: 'day',
@@ -229,7 +229,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 properties: [
                     {
                         key: 'distinct_id',
-                        value: fixedFilters.distinct_ids[0],
+                        value: fixedFilters.distinct_id,
                         operator: 'exact',
                         type: 'event',
                     },
