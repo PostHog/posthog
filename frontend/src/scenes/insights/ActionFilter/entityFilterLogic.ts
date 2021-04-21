@@ -44,10 +44,22 @@ export const entityFilterLogic = kea({
             math_property: filter.math_property,
             index: filter.index,
         }),
-        updateFilter: (filter) => ({ type: filter.type, index: filter.index, id: filter.id, name: filter.name }),
-        removeLocalFilter: (filter) => ({ value: filter.value, type: filter.type, index: filter.index }),
+        updateFilter: (filter) => ({
+            type: filter.type,
+            index: filter.index,
+            id: filter.id,
+            name: filter.name
+        }),
+        removeLocalFilter: (filter) => ({
+            value: filter.value,
+            type: filter.type,
+            index: filter.index
+        }),
         addFilter: true,
-        updateFilterProperty: (filter) => ({ properties: filter.properties, index: filter.index }),
+        updateFilterProperty: (filter) => ({
+            properties: filter.properties,
+            index: filter.index
+        }),
         setFilters: (filters) => ({ filters }),
         setLocalFilters: (filters) => ({ filters }),
         setEntityFilterVisibility: (index, value) => ({ index, value }),
@@ -69,7 +81,10 @@ export const entityFilterLogic = kea({
         entityFilterVisible: [
             {},
             {
-                setEntityFilterVisibility: (state, { index, value }) => ({ ...state, [index]: value }),
+                setEntityFilterVisibility: (state, { index, value }) => ({
+                    ...state,
+                    [index]: value
+                }),
             },
         ],
     }),

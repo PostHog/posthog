@@ -17,7 +17,7 @@ import {
 import { ViewType, insightLogic, defaultFilterTestAccounts } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
-import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
+import { ActionFilter, ActionType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -26,16 +26,6 @@ import { teamLogic } from 'scenes/teamLogic'
 interface TrendResponse {
     result: TrendResult[]
     next?: string
-}
-
-export interface ActionFilter {
-    id: number | string
-    math?: string
-    math_property?: string
-    name: string
-    order: number
-    properties: PropertyFilter[]
-    type: EntityType
 }
 
 export interface IndexedTrendResult extends TrendResult {
