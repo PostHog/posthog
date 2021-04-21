@@ -37,6 +37,14 @@ $dashboard-title-size: 32px;
         .ant-card-body {
             padding: $default_spacing / 2 $default_spacing;
         }
+
+        div:hover {
+            cursor: text;
+        }
+
+        .add-description {
+            color: #9c9797;
+        }
     }
 
     .empty-state {

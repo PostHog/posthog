@@ -264,17 +264,17 @@ export function DashboardHeader(): JSX.Element {
                                 allowClear
                             />
                         ) : (
-                            dashboard.description || (
-                                <Button
-                                    type="link"
-                                    onClick={() =>
-                                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.AddDescription)
-                                    }
-                                    style={{ width: '100%', textAlign: 'left' }}
-                                >
-                                    Add a description...
-                                </Button>
-                            )
+                            <div
+                                onDoubleClick={() =>
+                                    setDashboardMode(DashboardMode.Edit, DashboardEventSource.AddDescription)
+                                }
+                            >
+                                {dashboard.description ? (
+                                    <span>{dashboard.description}</span>
+                                ) : (
+                                    <span className="add-description">Add a description...</span>
+                                )}
+                            </div>
                         )}
                     </Card>
                 </>
