@@ -17,6 +17,7 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 
 TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
 
+# TODO: #4070 DEPRECATED; delete when these attributes are fully removed from `Team` model
 DEFERRED_FIELDS = (
     "event_names",
     "event_names_with_usage",

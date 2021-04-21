@@ -1,7 +1,6 @@
 from typing import List
 
-from django.db.models.fields import mixins
-from rest_framework import serializers, viewsets
+from rest_framework import mixins, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import EventDefinition, Team
@@ -13,7 +12,6 @@ class EventDefinitionSerializer(serializers.ModelSerializer):
         fields = (
             "uuid",
             "name",
-            "is_numerical",
             "volume_30_day",
             "query_usage_30_day",
         )
