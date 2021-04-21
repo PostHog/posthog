@@ -1,5 +1,6 @@
 from rest_framework import status
 
+from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 
@@ -33,6 +34,14 @@ class TestTeamAPI(APIBaseTest):
         self.assertIn("event_names", response_data)
         self.assertIn("event_properties", response_data)
         self.assertIn("event_properties_numerical", response_data)
+
+    def test_cant_retrieve_project_from_another_org(self):
+        org = Organization.objects.create(name="New Org")
+        team = Team.objects.create(organization=org, name="Default Project")
+
+        response = self.client.get(f"/api/projects/{team.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json(), self.not_found_response())
 
     def test_cant_create_team_without_license_on_selfhosted(self):
         with self.settings(MULTI_TENANCY=False):
@@ -69,6 +78,17 @@ class TestTeamAPI(APIBaseTest):
 
         self.team.refresh_from_db()
         self.assertNotEqual(self.team.timezone, "America/I_Dont_Exist")
+
+    def test_cant_update_project_from_another_org(self):
+        org = Organization.objects.create(name="New Org")
+        team = Team.objects.create(organization=org, name="Default Project")
+
+        response = self.client.patch(f"/api/projects/{team.pk}/", {"timezone": "Africa/Accra"})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json(), self.not_found_response())
+
+        team.refresh_from_db()
+        self.assertEqual(team.timezone, "UTC")
 
     def test_filter_permission(self):
 

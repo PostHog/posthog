@@ -36,10 +36,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json(), self.permission_denied_response())
 
-        # There's no retrieve for invites
+        # Even though there's no retrieve for invites, permissions are validated first
         response = self.client.get(f"/api/organizations/{org.id}/invites/{invite.id}")
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
-        self.assertEqual(response.json(), self.method_not_allowed_response("GET"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
 
     # Creating invites
 
