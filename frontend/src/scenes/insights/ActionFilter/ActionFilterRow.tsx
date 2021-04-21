@@ -1,14 +1,14 @@
 import React, { useRef } from 'react'
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { Button, Tooltip, Col, Row, Select } from 'antd'
-import { EntityTypes } from '~/types'
+import { ActionType, ActionFilter, EntityTypes } from '~/types'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
 import { DownOutlined, DeleteOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import './ActionFilterRow.scss'
-import { teamLogic } from 'scenes/teamLogic'
+import { EventProperty, teamLogic } from 'scenes/teamLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -28,6 +28,17 @@ const determineFilterLabel = (visible, filter) => {
     return 'Add filters'
 }
 
+interface ActionFilterRowProps {
+    logic: BuiltLogic
+    filter: ActionFilter
+    index: number
+    hideMathSelector?: boolean
+    hidePropertySelector?: boolean
+    singleFilter: boolean
+    showOr?: boolean
+    letter?: string | false
+}
+
 export function ActionFilterRow({
     logic,
     filter,
@@ -37,9 +48,20 @@ export function ActionFilterRow({
     singleFilter,
     showOr,
     letter,
-}) {
-    const node = useRef()
+}: ActionFilterRowProps): JSX.Element {
+    console.log('ActionFilterRow', {
+        logic,
+        filter,
+        index,
+        hideMathSelector,
+        hidePropertySelector,
+        singleFilter,
+        showOr,
+        letter,
+    })
+    const node = useRef<HTMLElement>(null)
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
+    console.log('logic', { selectedFilter, entities, entityFilterVisible })
     const {
         selectFilter,
         updateFilterMath,
@@ -55,33 +77,33 @@ export function ActionFilterRow({
     const math = filter.math
     const mathProperty = filter.math_property
 
-    const onClose = () => {
+    const onClose = (): void => {
         removeLocalFilter({ value: filter.id, type: filter.type, index })
     }
-    const onMathSelect = (_, math) => {
+    const onMathSelect = (_: unknown, selectedMath: string): void => {
         updateFilterMath({
-            math,
-            math_property: MATHS[math]?.onProperty ? mathProperty : undefined,
-            onProperty: MATHS[math]?.onProperty,
+            math: selectedMath,
+            math_property: MATHS[selectedMath]?.onProperty ? mathProperty : undefined,
+            onProperty: MATHS[selectedMath]?.onProperty,
             value: filter.id,
             type: filter.type,
             index: index,
         })
     }
-    const onMathPropertySelect = (_, mathProperty) => {
+    const onMathPropertySelect = (_: unknown, property: string): void => {
         updateFilterMath({
             math: filter.math,
-            math_property: mathProperty,
+            math_property: property,
             value: filter.id,
             type: filter.type,
             index: index,
         })
     }
 
-    const dropDownCondition = () =>
+    const dropDownCondition = (): boolean =>
         selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index
 
-    const onClick = () => {
+    const onClick = (): void => {
         if (selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index) {
             selectFilter(null)
         } else {
@@ -93,14 +115,14 @@ export function ActionFilterRow({
         name = null
         value = null
     } else {
-        entity = entities[filter.type].filter((action) => action.id === filter.id)[0] || {}
+        entity = entities[filter.type]?.filter((action: ActionType) => action.id === filter.id)[0] || {}
         name = entity.name || filter.name
         value = entity.id || filter.id
     }
     return (
         <div>
             {showOr && (
-                <Row align="center">
+                <Row align="middle">
                     {index > 0 && (
                         <div className="stateful-badge mc-main or width-locked" style={{ marginTop: 12 }}>
                             OR
@@ -161,7 +183,7 @@ export function ActionFilterRow({
                     </Col>
                 )}
             </Row>
-            {!hideMathSelector && MATHS[math]?.onProperty && (
+            {!hideMathSelector && MATHS[math || '']?.onProperty && (
                 <MathPropertySelector
                     name={name}
                     math={math}
@@ -199,7 +221,21 @@ export function ActionFilterRow({
     )
 }
 
-function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAvailable, style }) {
+interface MathSelectorProps {
+    math: string
+    index: number
+    onMathSelect: (index: number, value: any) => any // TODO
+    areEventPropertiesNumericalAvailable?: boolean
+    style?: Partial<React.CSSProperties>
+}
+
+function MathSelector({
+    math,
+    index,
+    onMathSelect,
+    areEventPropertiesNumericalAvailable,
+    style
+}: MathSelectorProps): JSX.Element {
     const numericalNotice = `This can only be used on properties that have at least one number type occurence in your events.${
         areEventPropertiesNumericalAvailable ? '' : ' None have been found yet!'
     }`
@@ -283,7 +319,16 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
     )
 }
 
-function MathPropertySelector(props) {
+interface MathPropertySelectorProps {
+    name: string
+    math: string
+    mathProperty: string
+    index: number
+    onMathPropertySelect: (index: number, value: string) => any
+    properties: EventProperty[]
+}
+
+function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
     const applicableProperties = props.properties
         .filter(({ value }) => (value[0] !== '$' || value === '$time') && value !== 'distinct_id' && value !== 'token')
         .sort((a, b) => (a.value + '').localeCompare(b.value))
@@ -292,7 +337,7 @@ function MathPropertySelector(props) {
         <SelectGradientOverflow
             showSearch
             style={{ width: 150 }}
-            onChange={(_, payload) => props.onMathPropertySelect(props.index, payload && payload.value)}
+            onChange={(_, payload) => props.onMathPropertySelect(props.index, payload?.value)}
             className="property-select"
             value={props.mathProperty}
             data-attr="math-property-select"
