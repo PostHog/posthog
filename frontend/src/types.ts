@@ -12,6 +12,7 @@ import {
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { Dayjs } from 'dayjs'
 
 export type AvailableFeatures =
     | 'zapier'
@@ -317,6 +318,12 @@ export interface EventType {
     properties: Record<string, any>
     timestamp: string
     person?: Partial<PersonType> | null
+}
+
+export interface EventFormattedType {
+    event: EventType
+    date_break?: Dayjs
+    new_events?: boolean
 }
 
 export interface SessionType {

@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
-export function EventName({ value, onChange, isActionStep }) {
+export function EventName({ value, onChange, isActionStep = false }) {
     const { eventNamesGrouped } = useValues(teamLogic)
 
     return (
