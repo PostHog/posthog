@@ -1,4 +1,4 @@
-<p align="center"><https://posthog-public.s3.amazonaws.com/PostHog+Header.svg" width="400px" /></p>
+<p align="center"><img src="https://posthog-public.s3.amazonaws.com/PostHog+Header.svg" width="400px" /></p>
 <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
 <a href='#contributors-'><img src='https://img.shields.io/badge/all_contributors-118-orange.svg?style=flat-square' /></a>
 <!-- ALL-CONTRIBUTORS-BADGE:END -->
