@@ -803,6 +803,7 @@ class TestPluginAPI(APIBaseTest):
                 "order": 0,
                 "config": {"bar": "**************** POSTHOG SECRET FIELD ****************"},
                 "error": None,
+                "team_id": self.team.pk,
             },
         )
 
@@ -824,6 +825,7 @@ class TestPluginAPI(APIBaseTest):
                 "order": 1,
                 "config": {"bar": ""},  # empty secret configs are returned normally
                 "error": None,
+                "team_id": self.team.pk,
             },
         )
 
