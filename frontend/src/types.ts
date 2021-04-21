@@ -434,6 +434,7 @@ export interface PluginType {
 export interface PluginConfigType {
     id?: number
     plugin: number
+    team_id: number
     enabled: boolean
     order: number
     config: Record<string, any>
