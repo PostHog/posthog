@@ -463,6 +463,7 @@ export interface PluginLogEntry {
     id: string
     team_id: number
     plugin_id: number
+    plugin_config_id: number
     timestamp: string
     type: PluginLogEntryType
     message: string

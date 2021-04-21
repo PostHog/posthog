@@ -6,9 +6,8 @@ from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.plugin import PluginOwnershipPermission, PluginsAccessLevelPermission
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models.plugin import Plugin, PluginLogEntry, fetch_plugin_log_entries
-from posthog.models.team import Team
-from posthog.permissions import OrganizationMemberPermissions, ProjectMembershipNecessaryPermissions
+from posthog.models.plugin import PluginLogEntry, fetch_plugin_log_entries
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 
 class PluginLogEntrySerializer(serializers.ModelSerializer):
@@ -19,17 +18,15 @@ class PluginLogEntrySerializer(serializers.ModelSerializer):
 
 
 class PluginLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
-    queryset = Plugin.objects.all()
     serializer_class = PluginLogEntrySerializer
     permission_classes = [
         IsAuthenticated,
         ProjectMembershipNecessaryPermissions,
-        OrganizationMemberPermissions,
         PluginsAccessLevelPermission,
         PluginOwnershipPermission,
     ]
 
-    def filter_queryset_by_parents_lookups(self, queryset):
+    def get_queryset(self):
         limit_raw = self.request.GET.get("limit")
         limit: Optional[int]
         if limit_raw:
@@ -39,18 +36,6 @@ class PluginLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
                 raise exceptions.ValidationError("Query param limit must be omitted or an integer!")
         else:
             limit = None
-
-        team_id = self.request.GET.get("team_id")
-        if not team_id:
-            raise exceptions.ValidationError("Query param team_id is required!")
-
-        parents_query_dict = self.get_parents_query_dict()
-
-        organization_id = parents_query_dict["organization_id"]
-        if not Team.objects.filter(id=team_id, organization_id=organization_id).exists():
-            raise exceptions.PermissionDenied(
-                f"Project ID {team_id} does not belong to the organization ID {organization_id}!"
-            )
 
         after_raw: Optional[str] = self.request.GET.get("after")
         after: Optional[timezone.datetime] = None
@@ -62,9 +47,11 @@ class PluginLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
         if before_raw is not None:
             before = timezone.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
 
+        parents_query_dict = self.get_parents_query_dict()
+
         return fetch_plugin_log_entries(
-            team_id=int(team_id),
-            plugin_id=parents_query_dict["plugin_id"],
+            team_id=parents_query_dict["team_id"],
+            plugin_config_id=parents_query_dict["plugin_config_id"],
             after=after,
             before=before,
             search=self.request.GET.get("search"),

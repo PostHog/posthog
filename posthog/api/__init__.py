@@ -47,12 +47,16 @@ router.register(r"sessions_filter", sessions_filter.SessionsFilterViewSet)
 
 # Nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet)
+project_plugins_configs_router = projects_router.register(
+    r"plugin-configs", plugin.PluginConfigViewSet, "project_plugins_configs", ["team_id", "plugin_config_id"]
+)
+project_plugins_configs_router.register(
+    r"logs", plugin_log_entry.PluginLogEntryViewSet, "project_plugins_config_logs", ["team_id", "plugin_config_id"]
+)
+
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet)
 organization_plugins_router = organizations_router.register(
     r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"]
-)
-organization_plugins_router.register(
-    r"logs", plugin_log_entry.PluginLogEntryViewSet, "organization_plugin_logs", ["organization_id", "plugin_id"]
 )
 organizations_router.register(
     r"members", organization_member.OrganizationMemberViewSet, "organization_members", ["organization_id"],

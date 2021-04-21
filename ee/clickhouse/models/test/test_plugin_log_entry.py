@@ -7,13 +7,16 @@ from posthog.models.utils import UUIDT
 from posthog.test.test_plugin_log_entry import factory_test_plugin_log_entry
 
 
-def plugin_log_factory_ch(*, team_id: int, plugin_id: int, type: PluginLogEntry.Type, message: str, instance_id: str):
+def plugin_log_factory_ch(
+    *, team_id: int, plugin_id: int, plugin_config_id: int, type: PluginLogEntry.Type, message: str, instance_id: str
+):
     sync_execute(
         INSERT_PLUGIN_LOG_ENTRY_SQL,
         {
             "id": UUIDT(),
             "team_id": team_id,
             "plugin_id": plugin_id,
+            "plugin_config_id": plugin_config_id,
             "type": type,
             "instance_id": instance_id,
             "message": message,

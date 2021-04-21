@@ -4,28 +4,27 @@ import { PluginLogEntry } from '~/types'
 import { pluginLogsLogicType } from './pluginLogsLogicType'
 
 export interface PluginLogsProps {
-    organizationId: string
     teamId: number
-    pluginId: number
+    pluginConfigId: number
 }
 
 export const LOGS_PORTION_LIMIT = 50
 
 export const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProps }>({
-    key: ({ organizationId, teamId, pluginId }) => `${organizationId}-${teamId}-${pluginId}`,
+    key: ({ teamId, pluginConfigId }) => `${teamId}-${pluginConfigId}`,
 
     actions: {
         clearPluginLogsBackground: true,
     },
 
-    loaders: ({ props: { organizationId, teamId, pluginId }, values, actions, cache }) => ({
+    loaders: ({ props: { teamId, pluginConfigId }, values, actions, cache }) => ({
         pluginLogs: {
             __default: [] as PluginLogEntry[],
             loadPluginLogsAnew: async (searchTerm = '') => {
-                const search = searchTerm ? `&search=${searchTerm}` : ''
-                const limit = `&limit=${LOGS_PORTION_LIMIT}`
+                const search = searchTerm ? `search=${searchTerm}` : ''
+                const limit = `limit=${LOGS_PORTION_LIMIT}`
                 const response = await api.get(
-                    `api/organizations/${organizationId}/plugins/${pluginId}/logs?team_id=${teamId}${search}${limit}`
+                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?${[search, limit].join('&')}`
                 )
                 cache.pollingInterval = setInterval(actions.loadPluginLogsBackgroundPoll, 2000)
                 actions.clearPluginLogsBackground()
@@ -33,11 +32,11 @@ export const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProp
             },
             loadPluginLogsMore: async () => {
                 const length = values.pluginLogs.length
-                const before = length ? '&before=' + values.pluginLogs[length - 1].timestamp : ''
-                const search = values.searchTerm ? `&search=${values.searchTerm}` : ''
+                const before = length ? 'before=' + values.pluginLogs[length - 1].timestamp : ''
+                const search = values.searchTerm ? `search=${values.searchTerm}` : ''
                 const limit = `&limit=${LOGS_PORTION_LIMIT}`
                 const response = await api.get(
-                    `api/organizations/${organizationId}/plugins/${pluginId}/logs?team_id=${teamId}${before}${search}${limit}`
+                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?${[before, search, limit].join('&')}`
                 )
                 return [...values.pluginLogs, ...response.results]
             },
@@ -53,10 +52,10 @@ export const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProp
                 if (values.pluginLogsLoading) {
                     return values.pluginLogsBackground
                 }
-                const after = values.leadingEntry ? '&after=' + values.leadingEntry.timestamp : ''
-                const search = values.searchTerm ? `&search=${values.searchTerm}` : ''
+                const after = values.leadingEntry ? 'after=' + values.leadingEntry.timestamp : ''
+                const search = values.searchTerm ? `search=${values.searchTerm}` : ''
                 const response = await api.get(
-                    `api/organizations/${organizationId}/plugins/${pluginId}/logs?team_id=${teamId}${after}${search}`
+                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?${[after, search].join('&')}`
                 )
                 return [...response.results, ...values.pluginLogsBackground]
             },

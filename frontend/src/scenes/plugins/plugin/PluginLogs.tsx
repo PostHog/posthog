@@ -55,8 +55,8 @@ const columns: ResizableColumnType<PluginLogEntry>[] = [
     },
 ]
 
-export function PluginLogs({ organizationId, teamId, pluginId }: PluginLogsProps): JSX.Element {
-    const logic = pluginLogsLogic({ organizationId, teamId, pluginId })
+export function PluginLogs({ teamId, pluginConfigId }: PluginLogsProps): JSX.Element {
+    const logic = pluginLogsLogic({ teamId, pluginConfigId })
 
     const { pluginLogs, pluginLogsLoading, pluginLogsBackground, isThereMoreToLoad } = useValues(logic)
     const { revealBackground, loadPluginLogsAnew, loadPluginLogsMore } = useActions(logic)

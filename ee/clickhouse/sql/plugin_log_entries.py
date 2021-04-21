@@ -10,6 +10,7 @@ CREATE TABLE {table_name}
     id UUID,
     team_id Int64,
     plugin_id Int64,
+    plugin_config_id Int64,
     timestamp DateTime64(6, 'UTC'),
     type VARCHAR,
     message VARCHAR,
@@ -21,7 +22,7 @@ CREATE TABLE {table_name}
 PLUGIN_LOG_ENTRIES_TABLE_SQL = (
     PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (team_id, toHour(timestamp), plugin_id, timestamp, id)
+ORDER BY (plugin_config_id, toHour(timestamp), timestamp, id)
 {ttl_period}
 SETTINGS index_granularity=512
 """

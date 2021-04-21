@@ -18,9 +18,8 @@ export function LogsDrawer(): JSX.Element {
         >
             {!!lastShownLogsPlugin && (
                 <PluginLogs
-                    organizationId={lastShownLogsPlugin.organization_id}
                     teamId={lastShownLogsPlugin.pluginConfig.team_id}
-                    pluginId={lastShownLogsPlugin.id}
+                    pluginConfigId={lastShownLogsPlugin.pluginConfig.id}
                 />
             )}
         </Drawer>

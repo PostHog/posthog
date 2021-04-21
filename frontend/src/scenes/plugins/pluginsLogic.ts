@@ -400,7 +400,7 @@ export const pluginsLogic = kea<
                 const pluginValues = Object.values(plugins)
                 return pluginValues
                     .map((plugin, index) => {
-                        let pluginConfig = { ...pluginConfigs[plugin.id] }
+                        let pluginConfig: PluginConfigType = { ...pluginConfigs[plugin.id] }
                         if (!pluginConfig) {
                             const config: Record<string, any> = {}
                             Object.entries(getConfigSchemaObject(plugin.config_schema)).forEach(
@@ -408,9 +408,13 @@ export const pluginsLogic = kea<
                                     config[key] = def
                                 }
                             )
-
+                            const team = userLogic.values.user?.team
+                            if (!team) {
+                                throw new Error("Can't list installed plugins with no user or team!")
+                            }
                             pluginConfig = {
                                 id: undefined,
+                                team_id: team.id,
                                 plugin: plugin.id,
                                 enabled: false,
                                 config: config,

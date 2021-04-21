@@ -40,15 +40,18 @@ class StructuredViewSetMixin(NestedViewSetMixin):
             team = self.request.user.team
             assert team is not None
             return team
-        return Team.objects.get(id=self.get_parents_query_dict()["team_id"])
+        return Team.objects.get(id=self.team_id)
 
     @property
     def organization_id(self) -> str:
-        return self.get_parents_query_dict()["organization_id"]
+        try:
+            return self.get_parents_query_dict()["organization_id"]
+        except KeyError:
+            return self.team.organization_id
 
     @property
     def organization(self) -> Organization:
-        return Organization.objects.get(id=self.get_parents_query_dict()["organization_id"])
+        return Organization.objects.get(id=self.organization_id)
 
     def filter_queryset_by_parents_lookups(self, queryset):
         parents_query_dict = self.get_parents_query_dict()
@@ -64,6 +67,8 @@ class StructuredViewSetMixin(NestedViewSetMixin):
             return queryset
 
     def get_parents_query_dict(self) -> Dict[str, Any]:
+        if getattr(self, "_parents_query_dict", None):
+            return self._parents_query_dict
         if self.legacy_team_compatibility:
             if not self.request.user.is_authenticated:
                 raise AuthenticationFailed()
@@ -96,6 +101,7 @@ class StructuredViewSetMixin(NestedViewSetMixin):
                     except ValueError:
                         raise NotFound()
                 result[query_lookup] = query_value
+        self._parents_query_dict = result
         return result
 
     def get_serializer_context(self) -> Dict[str, Any]:

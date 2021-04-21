@@ -11,8 +11,8 @@ export interface ResizableColumnType<RecordType, V = any> {
     key?: string
     dataIndex?: string
     render?:
-        | ((keyValue: V, record: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
         | ((record: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
+        | ((value: V, record: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
     ellipsis?: boolean
     span: number
 }

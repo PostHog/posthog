@@ -88,6 +88,11 @@ class PluginStorage(models.Model):
 
 
 class PluginLogEntry(UUIDModel):
+    class Meta:
+        indexes = [
+            models.Index(fields=["plugin_config_id", "timestamp"]),
+        ]
+
     class Type(models.TextChoices):
         DEBUG = "DEBUG", "debug"
         LOG = "LOG", "log"
@@ -97,9 +102,10 @@ class PluginLogEntry(UUIDModel):
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
+    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
     timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now)
     type: models.CharField = models.CharField(max_length=20, choices=Type.choices)
-    message: models.TextField = models.TextField()
+    message: models.TextField = models.TextField(db_index=True)
     instance_id: models.UUIDField = models.UUIDField()
 
     def __str__(self):
@@ -121,8 +127,8 @@ class PluginLogEntryRaw:
 
 def fetch_plugin_log_entries(
     *,
-    team_id: Optional[int],
-    plugin_id: Optional[int] = None,
+    team_id: Optional[int] = None,
+    plugin_config_id: Optional[int] = None,
     after: Optional[timezone.datetime] = None,
     before: Optional[timezone.datetime] = None,
     search: Optional[str] = None,
@@ -134,9 +140,9 @@ def fetch_plugin_log_entries(
         if team_id is not None:
             clickhouse_where_parts.append("team_id = %(team_id)s")
             clickhouse_kwargs["team_id"] = team_id
-        if plugin_id is not None:
-            clickhouse_where_parts.append("plugin_id = %(plugin_id)s")
-            clickhouse_kwargs["plugin_id"] = plugin_id
+        if plugin_config_id is not None:
+            clickhouse_where_parts.append("plugin_config_id = %(plugin_config_id)s")
+            clickhouse_kwargs["plugin_config_id"] = plugin_config_id
         if after is not None:
             clickhouse_where_parts.append("timestamp > toDateTime64(%(after)s, 6)")
             clickhouse_kwargs["after"] = after.isoformat().replace("+00:00", "")
@@ -147,7 +153,7 @@ def fetch_plugin_log_entries(
             clickhouse_where_parts.append("message ILIKE %(search)s")
             clickhouse_kwargs["search"] = f"%{search}%"
         clickhouse_query = f"""
-            SELECT id, team_id, plugin_id, timestamp, type, message, instance_id FROM plugin_log_entries
+            SELECT id, team_id, plugin_id, plugin_config_id, timestamp, type, message, instance_id FROM plugin_log_entries
             WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
         """
         return [PluginLogEntryRaw(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
@@ -155,8 +161,8 @@ def fetch_plugin_log_entries(
         filter_kwargs: Dict[str, Any] = {}
         if team_id is not None:
             filter_kwargs["team_id"] = team_id
-        if plugin_id is not None:
-            filter_kwargs["plugin_id"] = plugin_id
+        if plugin_config_id is not None:
+            filter_kwargs["plugin_config_id"] = plugin_config_id
         if after is not None:
             filter_kwargs["timestamp__gt"] = after
         if before is not None:
